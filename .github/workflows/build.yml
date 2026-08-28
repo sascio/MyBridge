@@ -25,7 +25,7 @@ jobs:
       - name: Extract MyBridge project
         run: |
           mkdir project
-          unzip -q MyBridge-Phase3-Hero-JVM17-FIXED.zip -d project
+          unzip -q MyBridge-Phase3-Hero-FIXED-v2.zip -d project
 
       - name: Build APK
         working-directory: project
