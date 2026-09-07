@@ -1,0 +1,45 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "kotlin",
+      "pattern": [
+        {
+          "regexp": "^e: (?:file:)?([^:]+\\.kts?):(\\d+):(\\d+)\\s*(.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      ]
+    },
+    {
+      "owner": "android-build",
+      "pattern": [
+        {
+          "regexp": "^([^:\\s]+\\.(?:java|kt|kts|xml)):(\\d+):(\\d+)?\\s*(?:error:)?\\s*(.+)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      ]
+    },
+    {
+      "owner": "gradle-failure",
+      "pattern": [
+        {
+          "regexp": "^\\* What went wrong:$"
+        },
+        {
+          "regexp": "^(Execution failed for task .*)$",
+          "message": 1
+        },
+        {
+          "regexp": "^> (.*)$",
+          "message": 1,
+          "loop": true
+        }
+      ]
+    }
+  ]
+}

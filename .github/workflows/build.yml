@@ -6,20 +6,21 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   build:
     name: Unit tests & debug APK
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -32,11 +33,11 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace --continue
-
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Unit tests & debug APK
+        run: |
+          echo "::add-matcher::.github/problem-matchers.json"
+          set -o pipefail
+          ./gradlew testDebugUnitTest assembleDebug --continue --stacktrace 2>&1 | tee gradle-build.log
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -45,12 +46,31 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
-      - name: Upload test reports (on failure)
+      - name: Report failure log as an issue
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/github-script@v7
         with:
-          name: test-reports
-          path: |
-            app/build/reports/tests/**
-            app/build/test-results/**
-          if-no-files-found: ignore
+          script: |
+            const fs = require('fs');
+            let log = '';
+            try {
+              log = fs.readFileSync('gradle-build.log', 'utf8');
+            } catch (e) {
+              log = 'No gradle-build.log captured: ' + e.message;
+            }
+            const lines = log.split('\n');
+            const tail = lines.slice(-500).join('\n');
+            const body = [
+              'CI build failed for commit `' + context.sha.slice(0, 7) + '` on branch `' + (context.ref || '') + '`.',
+              '',
+              '```',
+              tail.slice(0, 55000),
+              '```'
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'CI failure: ' + context.sha.slice(0, 7),
+              labels: ['ci-failure'],
+              body: body
+            });
