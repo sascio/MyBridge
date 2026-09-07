@@ -15,6 +15,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MyBridgePhase1"
+rootProject.name = "StreamBridge"
 
 include(":app")
