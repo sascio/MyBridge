@@ -1,5 +1,6 @@
 package com.streambridge.app.addon
 
+import com.streambridge.app.addon.adapter.AddonAdapterRegistry
 import com.streambridge.app.addon.model.AddonCatalog
 import com.streambridge.app.addon.model.AddonManifest
 import com.streambridge.app.addon.model.CatalogRef
@@ -33,14 +34,24 @@ data class InstalledExtension(
     val resources: List<String>,
     val idPrefixes: List<String>,
     val catalogs: List<AddonCatalog>,
+    val addonCatalogs: List<AddonCatalog> = emptyList(),
     val enabled: Boolean,
+    val ecosystem: String = "stremio",
+    val adultContent: Boolean = false,
+    val configurable: Boolean = false,
+    val sortOrder: Int = 0,
     val installedAt: Long,
     val updatedAt: Long
 ) {
     val supportsCatalog: Boolean get() = resources.any { it.equals("catalog", ignoreCase = true) }
     val supportsMeta: Boolean get() = resources.any { it.equals("meta", ignoreCase = true) }
     val supportsStream: Boolean get() = resources.any { it.equals("stream", ignoreCase = true) }
+    val supportsSubtitles: Boolean get() = resources.any { it.equals("subtitles", ignoreCase = true) }
+    val supportsAddonCatalog: Boolean get() = resources.any { it.equals("addon_catalog", ignoreCase = true) }
     val displayName: String get() = name.ifBlank { addonId }
+
+    /** Addon's own configure page (when behaviorHints.configurable). */
+    val configureUrl: String? get() = if (configurable) "$baseUrl/configure" else null
 }
 
 sealed interface InstallOutcome {
@@ -85,7 +96,11 @@ class ExtensionManager(
         data class InvalidUrl(val reason: String) : CheckResult
         data class Unreachable(val reason: String) : CheckResult
         data class InvalidManifest(val issues: List<String>) : CheckResult
-        data class Ok(val manifest: AddonManifest, val baseUrl: String) : CheckResult
+        data class Ok(
+            val manifest: AddonManifest,
+            val baseUrl: String,
+            val ecosystem: String = "stremio"
+        ) : CheckResult
     }
 
     /** Fetches and validates the manifest without installing it. */
@@ -110,13 +125,19 @@ class ExtensionManager(
             is ManifestValidator.Result.Invalid ->
                 CheckResult.InvalidManifest(verdict.issues)
 
-            ManifestValidator.Result.Valid ->
-                CheckResult.Ok(manifest, baseUrl)
+            ManifestValidator.Result.Valid -> {
+                val ecosystem = AddonAdapterRegistry.forUrl(baseUrl).ecosystem
+                CheckResult.Ok(manifest, baseUrl, ecosystem)
+            }
         }
     }
 
     /** Persists an extension that passed [check]. */
-    suspend fun installChecked(manifest: AddonManifest, baseUrl: String): InstalledExtension {
+    suspend fun installChecked(
+        manifest: AddonManifest,
+        baseUrl: String,
+        ecosystem: String = "stremio"
+    ): InstalledExtension {
         val now = System.currentTimeMillis()
         val existing = dao.byId(manifest.id)
         val entity = ExtensionEntity(
@@ -126,6 +147,8 @@ class ExtensionManager(
             baseUrl = baseUrl,
             manifestJson = json.encodeToString(AddonManifest.serializer(), manifest),
             enabled = true,
+            ecosystem = ecosystem,
+            sortOrder = existing?.sortOrder ?: ((dao.maxSortOrder() ?: -1) + 1),
             installedAt = existing?.installedAt ?: now,
             updatedAt = now
         )
@@ -145,7 +168,9 @@ class ExtensionManager(
                 "Not a valid Stremio-compatible addon: ${result.issues.joinToString("; ")}"
             )
 
-            is CheckResult.Ok -> InstallOutcome.Success(installChecked(result.manifest, result.baseUrl))
+            is CheckResult.Ok -> InstallOutcome.Success(
+                installChecked(result.manifest, result.baseUrl, result.ecosystem)
+            )
         }
     }
 
@@ -213,6 +238,97 @@ class ExtensionManager(
             }
     }
 
+    // -----------------------------------------------------------------
+    // Ordering (affects request priority and Home rail order)
+    // -----------------------------------------------------------------
+
+    /** Moves an extension up in priority (lower sortOrder). */
+    suspend fun moveUp(addonId: String) = reorder(addonId, -1)
+
+    /** Moves an extension down in priority. */
+    suspend fun moveDown(addonId: String) = reorder(addonId, +1)
+
+    private suspend fun reorder(addonId: String, direction: Int) {
+        val all = kotlinx.coroutines.flow.first(dao.observeAll())
+        if (all.isEmpty()) return
+        val index = all.indexOfFirst { it.addonId == addonId }
+        if (index < 0) return
+        val target = index + direction
+        if (target < 0 || target >= all.size) return
+        val a = all[index]
+        val b = all[target]
+        dao.setSortOrder(a.addonId, b.sortOrder)
+        dao.setSortOrder(b.addonId, a.sortOrder)
+    }
+
+    // -----------------------------------------------------------------
+    // Addon catalogs (addons that list other addons)
+    // -----------------------------------------------------------------
+
+    /** Catalog refs for browsing installable addons from installed addons. */
+    fun addonCatalogRefs(extensions: List<InstalledExtension>): List<CatalogRef> {
+        return extensions
+            .filter { it.enabled && it.supportsAddonCatalog && it.addonCatalogs.isNotEmpty() }
+            .flatMap { extension ->
+                extension.addonCatalogs.map { catalog ->
+                    CatalogRef(
+                        addonId = extension.addonId,
+                        addonName = extension.displayName,
+                        baseUrl = extension.baseUrl,
+                        type = catalog.type.ifBlank { "all" },
+                        catalogId = catalog.id,
+                        catalogName = catalog.displayName,
+                        extraSupported = catalog.effectiveExtraSupported
+                    )
+                }
+            }
+    }
+
+    /** An installable addon discovered inside an addon catalog. */
+    data class CatalogEntry(
+        val manifest: AddonManifest,
+        val transportUrl: String
+    )
+
+    /**
+     * Fetches the addons listed in an addon catalog. Each "meta" in the
+     * response carries a transport URL to another addon's manifest.
+     */
+    suspend fun fetchAddonCatalogEntries(
+        baseUrl: String,
+        type: String,
+        catalogId: String
+    ): List<CatalogEntry> {
+        val body = try {
+            api.fetchRaw(baseUrl, "addon_catalog/${type}/${catalogId}.json")
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        val metas = try {
+            json.decodeFromString(
+                com.streambridge.app.addon.model.CatalogResponse.serializer(),
+                body
+            ).metas
+        } catch (_: Exception) {
+            emptyList()
+        }
+        return metas.mapNotNull { preview ->
+            val transport = preview.transportUrl.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            val base = HttpAddonApi.normalizeBase(transport)
+            val manifest = try {
+                api.fetchManifest(base)
+            } catch (_: Exception) {
+                null
+            } ?: return@mapNotNull null
+            if (ManifestValidator.validate(manifest) is ManifestValidator.Result.Invalid) {
+                null
+            } else {
+                CatalogEntry(manifest, base)
+            }
+        }
+    }
+
     private suspend fun <T> withBusy(key: String, block: suspend () -> T): T {
         _busy.value = _busy.value + key
         try {
@@ -240,7 +356,12 @@ class ExtensionManager(
             resources = manifest?.resources ?: emptyList(),
             idPrefixes = manifest?.idPrefixes ?: emptyList(),
             catalogs = manifest?.catalogs ?: emptyList(),
+            addonCatalogs = manifest?.addonCatalogs ?: emptyList(),
             enabled = enabled,
+            ecosystem = ecosystem,
+            adultContent = manifest?.behaviorHints?.adult == true,
+            configurable = manifest?.behaviorHints?.configurable == true,
+            sortOrder = sortOrder,
             installedAt = installedAt,
             updatedAt = updatedAt
         )

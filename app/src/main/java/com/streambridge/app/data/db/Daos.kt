@@ -8,11 +8,17 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ExtensionDao {
 
-    @Query("SELECT * FROM extensions ORDER BY name COLLATE NOCASE ASC")
+    @Query("SELECT * FROM extensions ORDER BY sortOrder ASC, installedAt ASC")
     fun observeAll(): Flow<List<ExtensionEntity>>
 
-    @Query("SELECT * FROM extensions WHERE enabled = 1 ORDER BY name COLLATE NOCASE ASC")
+    @Query("SELECT * FROM extensions WHERE enabled = 1 ORDER BY sortOrder ASC, installedAt ASC")
     fun observeEnabled(): Flow<List<ExtensionEntity>>
+
+    @Query("SELECT MAX(sortOrder) FROM extensions")
+    suspend fun maxSortOrder(): Int?
+
+    @Query("UPDATE extensions SET sortOrder = :sortOrder WHERE addonId = :addonId")
+    suspend fun setSortOrder(addonId: String, sortOrder: Int)
 
     @Query("SELECT * FROM extensions WHERE addonId = :addonId")
     suspend fun byId(addonId: String): ExtensionEntity?

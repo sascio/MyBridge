@@ -1,10 +1,12 @@
 package com.streambridge.app.addon
 
 import com.streambridge.app.addon.model.AddonManifest
+import com.streambridge.app.addon.model.AddonSubtitle
 import com.streambridge.app.addon.model.AddonMeta
 import com.streambridge.app.addon.model.CatalogResponse
 import com.streambridge.app.addon.model.MetaResponse
 import com.streambridge.app.addon.model.StreamResponse
+import com.streambridge.app.addon.model.SubtitleResponse
 import kotlinx.serialization.json.Json
 import java.net.URLEncoder
 
@@ -27,6 +29,9 @@ interface AddonApi {
     suspend fun fetchMeta(baseUrl: String, type: String, id: String): AddonMeta?
 
     suspend fun fetchStreams(baseUrl: String, type: String, id: String): StreamResponse
+
+    /** Addon-provided external subtitles; empty when unsupported/404. */
+    suspend fun fetchSubtitles(baseUrl: String, type: String, id: String): List<AddonSubtitle>
 
     /** Fetches an arbitrary path under the addon base and returns the raw body. */
     suspend fun fetchRaw(baseUrl: String, path: String): String
@@ -86,6 +91,20 @@ class HttpAddonApi(
         }
     }
 
+    override suspend fun fetchSubtitles(
+        baseUrl: String,
+        type: String,
+        id: String
+    ): List<AddonSubtitle> {
+        val url = subtitleUrl(baseUrl, type, id)
+        return try {
+            val body = http.get(url, timeoutMs = 12000L)
+            json.decodeFromString(SubtitleResponse.serializer(), body).subtitles
+        } catch (e: AddonHttpException) {
+            if (e.statusCode == 404) emptyList() else throw e
+        }
+    }
+
     override suspend fun fetchRaw(baseUrl: String, path: String): String {
         return http.get("${normalizeBase(baseUrl)}/${path.trimStart('/')}")
     }
@@ -124,6 +143,15 @@ class HttpAddonApi(
 
         fun streamUrl(baseUrl: String, type: String, id: String): String =
             "${normalizeBase(baseUrl)}/stream/${encodePath(type)}/${encodePath(id)}.json"
+
+        fun subtitleUrl(baseUrl: String, type: String, id: String): String =
+            "${normalizeBase(baseUrl)}/subtitles/${encodePath(type)}/${encodePath(id)}.json"
+
+        fun addonCatalogUrl(baseUrl: String, type: String, catalogId: String): String =
+            "${normalizeBase(baseUrl)}/addon_catalog/${encodePath(type)}/${encodePath(catalogId)}.json"
+
+        fun configureUrl(baseUrl: String): String =
+            "${normalizeBase(baseUrl)}/configure"
 
         /** Encodes a single path segment, keeping `:` (used in video ids). */
         fun encodePath(value: String): String =

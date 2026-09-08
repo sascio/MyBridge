@@ -132,8 +132,13 @@ data class AddonManifest(
     @Serializable(with = LenientStringListSerializer::class) val resources: List<String> = emptyList(),
     val catalogs: List<AddonCatalog> = emptyList(),
     val idPrefixes: List<String> = emptyList(),
-    val behaviorHints: AddonManifestBehaviorHints? = null
-)
+    val behaviorHints: AddonManifestBehaviorHints? = null,
+    /** Addon-provided catalogs OF addons (community lists). */
+    val addonCatalogs: List<AddonCatalog> = emptyList()
+) {
+    val effectiveAddonCatalogs: List<AddonCatalog>
+        get() = addonCatalogs
+}
 
 @Serializable
 data class AddonMetaPreview(
@@ -148,6 +153,8 @@ data class AddonMetaPreview(
     @Serializable(with = LenientStringSerializer::class) val releaseInfo: String = "",
     @Serializable(with = LenientStringSerializer::class) val imdbRating: String = "",
     @Serializable(with = LenientStringSerializer::class) val runtime: String = "",
+    /** Transport URL, present on addon_catalog entries. */
+    @Serializable(with = LenientStringSerializer::class) val transportUrl: String = "",
     val genres: List<String> = emptyList()
 )
 
@@ -187,8 +194,10 @@ data class AddonMeta(
     val genres: List<String> = emptyList(),
     @Serializable(with = LenientStringListSerializer::class) val cast: List<String> = emptyList(),
     @Serializable(with = LenientStringListSerializer::class) val director: List<String> = emptyList(),
+    @Serializable(with = LenientStringListSerializer::class) val writer: List<String> = emptyList(),
     @Serializable(with = LenientStringSerializer::class) val country: String = "",
     @Serializable(with = LenientStringSerializer::class) val awards: String = "",
+    @Serializable(with = LenientStringSerializer::class) val trailer: String = "",
     @Serializable(with = LenientStringSerializer::class) val released: String = "",
     @Serializable(with = LenientStringSerializer::class) val language: String = "",
     val videos: List<AddonVideo> = emptyList(),
@@ -248,4 +257,28 @@ data class AddonStream(
 @Serializable
 data class StreamResponse(
     val streams: List<AddonStream> = emptyList()
+)
+
+/** An addon-provided external subtitle (Stremio /subtitles resource). */
+@Serializable
+data class AddonSubtitle(
+    @Serializable(with = LenientStringSerializer::class) val url: String = "",
+    @Serializable(with = LenientStringSerializer::class) val lang: String = "",
+    @Serializable(with = LenientStringSerializer::class) val id: String = "",
+    @Serializable(with = LenientStringSerializer::class) val label: String = "",
+    val format: String = ""
+) {
+    val displayLabel: String
+        get() = label.ifBlank {
+            when {
+                lang.length == 2 -> lang.uppercase()
+                lang.isNotBlank() -> lang
+                else -> "Subtitle"
+            }
+        }
+}
+
+@Serializable
+data class SubtitleResponse(
+    val subtitles: List<AddonSubtitle> = emptyList()
 )

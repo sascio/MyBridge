@@ -11,7 +11,7 @@ import androidx.room.RoomDatabase
         LibraryItemEntity::class,
         WatchProgressEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class StreamBridgeDatabase : RoomDatabase() {
@@ -26,7 +26,11 @@ abstract class StreamBridgeDatabase : RoomDatabase() {
                 context.applicationContext,
                 StreamBridgeDatabase::class.java,
                 "stream_bridge.db"
-            ).build()
+            )
+                // Pre-release schema evolution: local library data is
+                // re-derivable, so destructive migration is acceptable here.
+                .fallbackToDestructiveMigration()
+                .build()
         }
     }
 }

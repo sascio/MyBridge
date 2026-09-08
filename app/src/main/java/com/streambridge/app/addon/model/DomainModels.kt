@@ -39,6 +39,8 @@ data class MediaDetails(
     val genres: List<String>,
     val cast: List<String>,
     val director: List<String>,
+    val writer: List<String> = emptyList(),
+    val trailer: String? = null,
     val country: String?,
     val awards: String?,
     val episodes: List<Episode>,
@@ -74,6 +76,13 @@ data class Episode(
 )
 
 /** A playable stream resolved from the installed extensions. */
+/** How a stream reaches the player, independent of its origin ecosystem. */
+enum class StreamClassification { DIRECT, TORRENT, EXTERNAL, YOUTUBE }
+
+/**
+ * Unified stream model: every adapter (Stremio, Nuvio, Cloudstream-style)
+ * normalizes into this, and the UI/pplayer never see the origin format.
+ */
 data class StreamOption(
     val id: String,
     val label: String,
@@ -84,10 +93,47 @@ data class StreamOption(
     val addonName: String,
     val isTorrent: Boolean,
     val isExternal: Boolean,
-    val bingeGroup: String
+    val bingeGroup: String,
+    val classification: StreamClassification = StreamClassification.DIRECT,
+    val quality: String = "",
+    val resolution: Int = 0,
+    val language: String = "",
+    val sizeBytes: Long = 0L,
+    val seeders: Int = 0
 ) {
     val isPlayable: Boolean get() = url != null
     val shortLabel: String get() = if (label.isBlank()) addonName else label
+
+    /** Short human summary chips for the picker. */
+    val qualityChip: String
+        get() = quality.ifBlank {
+            if (resolution > 0) "${resolution}p" else ""
+        }
+
+    val sizeLabel: String
+        get() = when {
+            sizeBytes >= 1_000_000_000 -> String.format("%.1f GB", sizeBytes / 1_000_000_000.0)
+            sizeBytes >= 1_000_000 -> String.format("%d MB", sizeBytes / 1_000_000)
+            sizeBytes > 0 -> String.format("%d KB", sizeBytes / 1_000)
+            else -> ""
+        }
+}
+
+/** A plugin discovered in a Cloudstream-style repository (not executable here). */
+data class PluginListing(
+    val name: String,
+    val internalName: String,
+    val version: Int,
+    val description: String,
+    val fileUrl: String,
+    val repositoryUrl: String,
+    val authors: List<String>,
+    val tvTypes: List<String>,
+    val language: String,
+    val iconUrl: String,
+    val status: Int
+) {
+    val isOperational: Boolean get() = status == 1
 }
 
 /** Reference to a concrete catalog inside an installed extension. */
@@ -158,6 +204,8 @@ fun AddonMeta.toMediaDetails(sourceAddonBase: String?): MediaDetails = MediaDeta
     genres = genres,
     cast = cast,
     director = director,
+    writer = writer,
+    trailer = trailer.takeIf { it.isNotBlank() },
     country = country.ifBlank { null },
     awards = awards.ifBlank { null },
     episodes = videos
@@ -180,6 +228,7 @@ fun AddonStream.toStreamOption(addonName: String): StreamOption? {
     return when {
         isDirect -> StreamOption(
             id = "url:$url",
+            classification = StreamClassification.DIRECT,
             label = name,
             description = displayDescription.ifBlank { null },
             url = url,
@@ -198,6 +247,7 @@ fun AddonStream.toStreamOption(addonName: String): StreamOption? {
             infoHash = torrentHash.lowercase(),
             externalUrl = null,
             addonName = addonName,
+            classification = StreamClassification.TORRENT,
             isTorrent = true,
             isExternal = false,
             bingeGroup = bingeGroup
@@ -210,6 +260,7 @@ fun AddonStream.toStreamOption(addonName: String): StreamOption? {
             infoHash = null,
             externalUrl = externalLink,
             addonName = addonName,
+            classification = StreamClassification.EXTERNAL,
             isTorrent = false,
             isExternal = true,
             bingeGroup = ""

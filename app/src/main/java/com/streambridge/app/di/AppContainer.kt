@@ -6,6 +6,7 @@ import com.streambridge.app.addon.ExtensionManager
 import com.streambridge.app.addon.HttpAddonApi
 import com.streambridge.app.addon.SbHttpClient
 import com.streambridge.app.addon.StreamResolver
+import com.streambridge.app.addon.SubtitleResolver
 import com.streambridge.app.core.NetworkMonitor
 import com.streambridge.app.data.db.StreamBridgeDatabase
 import com.streambridge.app.data.discovery.DiscoveryRepository
@@ -45,6 +46,7 @@ class AppContainer(context: Context) {
         ExtensionManager(database.extensionDao(), addonApi, json, applicationScope)
 
     val streamResolver: StreamResolver = StreamResolver(addonApi)
+    val subtitleResolver: SubtitleResolver = SubtitleResolver(addonApi)
 
     val libraryRepository: LibraryRepository =
         LibraryRepository(database.libraryDao(), database.progressDao())

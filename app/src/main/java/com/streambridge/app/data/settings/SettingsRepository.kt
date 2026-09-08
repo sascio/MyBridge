@@ -3,6 +3,7 @@ package com.streambridge.app.data.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -28,7 +29,22 @@ data class SettingsState(
     val mdblistApiKey: String = "",
     val serverEnabled: Boolean = false,
     val serverPort: Int = 0, // 0 = automatic (ephemeral port)
-    val recentQueries: List<String> = emptyList()
+    val recentQueries: List<String> = emptyList(),
+    // General
+    val startupTab: String = "home",
+    // Appearance
+    val posterSize: String = "medium", // small | medium | large
+    // Home
+    val homeShowContinueWatching: Boolean = true,
+    val homeShowRecommendations: Boolean = true,
+    val homeShowRecentlyAdded: Boolean = true,
+    // Detail
+    val preferredMetadataAddon: String = "", // "" = automatic
+    // Playback
+    val preferredSubtitleLanguage: String = "",
+    val preferredAudioLanguage: String = "",
+    val subtitleScale: Float = 1f,
+    val defaultPlaybackSpeed: Float = 1f
 ) {
     val tmdbActive: Boolean get() = tmdbEnabled && tmdbApiKey.isNotBlank()
     val mdblistActive: Boolean get() = mdblistEnabled && mdblistApiKey.isNotBlank()
@@ -48,6 +64,16 @@ class SettingsRepository(private val context: Context) {
         val SERVER_ENABLED = booleanPreferencesKey("server_enabled")
         val SERVER_PORT = intPreferencesKey("server_port")
         val RECENT_QUERIES = stringSetPreferencesKey("recent_queries")
+        val STARTUP_TAB = stringPreferencesKey("startup_tab")
+        val POSTER_SIZE = stringPreferencesKey("poster_size")
+        val HOME_SHOW_CONTINUE = booleanPreferencesKey("home_show_continue")
+        val HOME_SHOW_RECOMMENDATIONS = booleanPreferencesKey("home_show_recommendations")
+        val HOME_SHOW_RECENTLY_ADDED = booleanPreferencesKey("home_show_recently_added")
+        val PREFERRED_METADATA_ADDON = stringPreferencesKey("preferred_metadata_addon")
+        val PREFERRED_SUBTITLE_LANGUAGE = stringPreferencesKey("preferred_subtitle_language")
+        val PREFERRED_AUDIO_LANGUAGE = stringPreferencesKey("preferred_audio_language")
+        val SUBTITLE_SCALE = floatPreferencesKey("subtitle_scale")
+        val DEFAULT_PLAYBACK_SPEED = floatPreferencesKey("default_playback_speed")
     }
 
     private val defaults = SettingsState()
@@ -65,6 +91,17 @@ class SettingsRepository(private val context: Context) {
             mdblistApiKey = prefs[Keys.MDBLIST_API_KEY] ?: "",
             serverEnabled = prefs[Keys.SERVER_ENABLED] ?: defaults.serverEnabled,
             serverPort = (prefs[Keys.SERVER_PORT] ?: defaults.serverPort).coerceIn(0, 65535),
+            startupTab = prefs[Keys.STARTUP_TAB] ?: defaults.startupTab,
+            posterSize = prefs[Keys.POSTER_SIZE] ?: defaults.posterSize,
+            homeShowContinueWatching = prefs[Keys.HOME_SHOW_CONTINUE] ?: defaults.homeShowContinueWatching,
+            homeShowRecommendations = prefs[Keys.HOME_SHOW_RECOMMENDATIONS] ?: defaults.homeShowRecommendations,
+            homeShowRecentlyAdded = prefs[Keys.HOME_SHOW_RECENTLY_ADDED] ?: defaults.homeShowRecentlyAdded,
+            preferredMetadataAddon = prefs[Keys.PREFERRED_METADATA_ADDON] ?: "",
+            preferredSubtitleLanguage = prefs[Keys.PREFERRED_SUBTITLE_LANGUAGE] ?: "",
+            preferredAudioLanguage = prefs[Keys.PREFERRED_AUDIO_LANGUAGE] ?: "",
+            subtitleScale = (prefs[Keys.SUBTITLE_SCALE] ?: defaults.subtitleScale).coerceIn(0.6f, 1.8f),
+            defaultPlaybackSpeed = (prefs[Keys.DEFAULT_PLAYBACK_SPEED] ?: defaults.defaultPlaybackSpeed)
+                .coerceIn(0.25f, 4f),
             recentQueries = prefs[Keys.RECENT_QUERIES]
                 ?.mapNotNull { entry ->
                     val separator = entry.indexOf(" # ")
@@ -114,6 +151,32 @@ class SettingsRepository(private val context: Context) {
     suspend fun clearRecentQueries() {
         edit { prefs -> prefs.remove(Keys.RECENT_QUERIES) }
     }
+
+    suspend fun setStartupTab(value: String) = edit { it[Keys.STARTUP_TAB] = value }
+    suspend fun setPosterSize(value: String) = edit { it[Keys.POSTER_SIZE] = value }
+    suspend fun setHomeShowContinueWatching(value: Boolean) =
+        edit { it[Keys.HOME_SHOW_CONTINUE] = value }
+
+    suspend fun setHomeShowRecommendations(value: Boolean) =
+        edit { it[Keys.HOME_SHOW_RECOMMENDATIONS] = value }
+
+    suspend fun setHomeShowRecentlyAdded(value: Boolean) =
+        edit { it[Keys.HOME_SHOW_RECENTLY_ADDED] = value }
+
+    suspend fun setPreferredMetadataAddon(value: String) =
+        edit { it[Keys.PREFERRED_METADATA_ADDON] = value }
+
+    suspend fun setPreferredSubtitleLanguage(value: String) =
+        edit { it[Keys.PREFERRED_SUBTITLE_LANGUAGE] = value.trim() }
+
+    suspend fun setPreferredAudioLanguage(value: String) =
+        edit { it[Keys.PREFERRED_AUDIO_LANGUAGE] = value.trim() }
+
+    suspend fun setSubtitleScale(value: Float) =
+        edit { it[Keys.SUBTITLE_SCALE] = value.coerceIn(0.6f, 1.8f) }
+
+    suspend fun setDefaultPlaybackSpeed(value: Float) =
+        edit { it[Keys.DEFAULT_PLAYBACK_SPEED] = value.coerceIn(0.25f, 4f) }
 
     suspend fun setAccent(value: String) = edit { it[Keys.ACCENT] = value }
     suspend fun setPureBlack(value: Boolean) = edit { it[Keys.PURE_BLACK] = value }

@@ -12,6 +12,8 @@ data class ExtensionEntity(
     val baseUrl: String,
     val manifestJson: String,
     val enabled: Boolean,
+    val ecosystem: String = "stremio",
+    val sortOrder: Int = 0,
     val installedAt: Long,
     val updatedAt: Long
 )

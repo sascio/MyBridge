@@ -1,5 +1,6 @@
 package com.streambridge.app.addon
 
+import com.streambridge.app.addon.adapter.AddonAdapterRegistry
 import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.addon.model.toStreamOption
 import kotlinx.coroutines.async
@@ -10,7 +11,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Resolves playable streams for a movie or a specific series episode by
  * asking every enabled extension, mirroring how Stremio fans out stream
- * requests across addons.
+ * requests across addons. Uses the adapter layer for capability
+ * filtering (resources, types, idPrefixes) and enriches every result
+ * into the unified stream model.
  */
 class StreamResolver(private val api: AddonApi) {
 
@@ -21,12 +24,7 @@ class StreamResolver(private val api: AddonApi) {
         id: String,
         imdbId: String?
     ): List<StreamOption> {
-        val candidates = buildList {
-            add(id)
-            if (!imdbId.isNullOrBlank() && !imdbId.equals(id, ignoreCase = true)) {
-                add(imdbId)
-            }
-        }.distinct()
+        val candidates = IdMapping.movieVideoIds(id, imdbId)
         return resolve(extensions, type, candidates)
     }
 
@@ -39,13 +37,7 @@ class StreamResolver(private val api: AddonApi) {
         season: Int,
         episode: Int
     ): List<StreamOption> {
-        val candidates = buildList {
-            add(videoId)
-            if (!imdbId.isNullOrBlank()) {
-                val alternative = "$imdbId:$season:$episode"
-                if (none { it.equals(alternative, ignoreCase = true) }) add(alternative)
-            }
-        }.distinct()
+        val candidates = IdMapping.episodeVideoIds(videoId, imdbId, season, episode)
         return resolve(extensions, type, candidates)
     }
 
@@ -54,8 +46,12 @@ class StreamResolver(private val api: AddonApi) {
         type: String,
         candidateIds: List<String>
     ): List<StreamOption> = coroutineScope {
+        val primaryId = candidateIds.firstOrNull() ?: ""
         extensions
-            .filter { it.enabled && it.supportsStream }
+            .filter { extension ->
+                extension.enabled && AddonAdapterRegistry.forEcosystem(extension.ecosystem)
+                    .canServe(extension, "stream", type, primaryId)
+            }
             .map { extension ->
                 async {
                     withTimeoutOrNull(STREAM_TIMEOUT_MS) {
@@ -74,13 +70,8 @@ class StreamResolver(private val api: AddonApi) {
             .awaitAll()
             .flatten()
             .distinctBy { it.id }
-            .sortedWith(
-                compareBy(
-                    { if (it.isPlayable) 0 else 1 }, // direct playable first
-                    { if (it.isTorrent) 1 else 0 },  // then external links, torrents last
-                    { it.addonName }
-                )
-            )
+            .let { StreamEnrichment.enrichAll(it) }
+            .let { StreamEnrichment.sortForPicker(it) }
     }
 
     companion object {

@@ -277,7 +277,11 @@ class DiscoveryRepository(
 
         val ordered = extensions
             .filter { it.enabled && it.supportsMeta }
-            .sortedByDescending { it.addonId == item.source }
+            .sortedWith(
+                compareByDescending<InstalledExtension> {
+                    it.addonId == settings.preferredMetadataAddon && settings.preferredMetadataAddon.isNotBlank()
+                }.thenByDescending { it.addonId == item.source }
+            )
 
         val metas = coroutineScope {
             ordered.map { extension ->
