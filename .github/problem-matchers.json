@@ -25,19 +25,11 @@
       ]
     },
     {
-      "owner": "gradle-failure",
+      "owner": "gradle-task-failure",
       "pattern": [
         {
-          "regexp": "^\\* What went wrong:$"
-        },
-        {
-          "regexp": "^(Execution failed for task .*)$",
+          "regexp": "^(Execution failed for task '.*')\\.$",
           "message": 1
-        },
-        {
-          "regexp": "^> (.*)$",
-          "message": 1,
-          "loop": true
         }
       ]
     }

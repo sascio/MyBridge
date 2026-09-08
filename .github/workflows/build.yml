@@ -64,10 +64,12 @@ jobs:
             const errorLines = lines.filter(l =>
               /^e: /.test(l) ||
               /error:/.test(l) ||
-              /FAILED/.test(l) ||
+              / FAILED$/.test(l) ||
+              /AssertionError/.test(l) ||
+              /BUILD FAILED/.test(l) ||
               /What went wrong/.test(l) ||
-              /^> /.test(l) ||
-              /tests? (failed|completed)/i.test(l)
+              /Unable to process command/.test(l) ||
+              /tests? completed/.test(l)
             );
             const tail = lines.slice(-120).join('\n');
             const errorBlock = errorLines.slice(0, 400).join('\n');
