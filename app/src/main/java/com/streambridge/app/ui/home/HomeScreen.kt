@@ -59,13 +59,16 @@ fun HomeScreen(
     onOpenSearch: () -> Unit,
     onResumePlayback: (WatchProgressEntity) -> Unit,
     onBrowseGenre: (String) -> Unit,
-    onPlayItem: (MediaItem) -> Unit
+    onPlayItem: (MediaItem) -> Unit,
+    onOpenCatalog: (com.streambridge.app.addon.CatalogRef) -> Unit
 ) {
     val vm: HomeViewModel = viewModel(factory = HomeViewModel.factory(container))
     val uiState by vm.uiState.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
     val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
+    val uiSettings by vm.uiSettings.collectAsStateWithLifecycle()
+    val catalogRefs by vm.catalogRefs.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -155,6 +158,19 @@ fun HomeScreen(
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                 val sections = state.data.sections
+                    .filterNot { section ->
+                        section is HomeSection.Rail &&
+                            section.key == "recommended" &&
+                            !uiSettings.homeShowRecommendations
+                    }
+                val seeAllBySection = catalogRefs.associateBy { ref ->
+                    "${ref.addonId}::${ref.catalogId}:${ref.type}"
+                }
+                val posterWidth = when (uiSettings.posterSize) {
+                    "small" -> 104.dp
+                    "large" -> 140.dp
+                    else -> 122.dp
+                }
                 if (sections.none { it is HomeSection.Rail || it is HomeSection.Hero }) {
                     item {
                         EmptyState(
@@ -182,14 +198,18 @@ fun HomeScreen(
                             }
 
                             is HomeSection.Rail -> item(key = section.key) {
+                                val seeAllRef = seeAllBySection[section.key]
                                 Rail(
                                     title = section.title,
-                                    subtitle = section.subtitle
+                                    subtitle = section.subtitle,
+                                    onSeeAll = seeAllRef?.let { ref ->
+                                        { onOpenCatalog(ref) }
+                                    }
                                 ) {
                                     items(section.items, key = { it.key + it.name }) { item ->
                                         PosterCard(
                                             item = item,
-                                            width = 122.dp,
+                                            width = posterWidth,
                                             onClick = { onOpenDetail(item) }
                                         )
                                     }
@@ -199,7 +219,8 @@ fun HomeScreen(
                     }
 
                     if (continueWatching.isNotEmpty()) {
-                        item(key = "continue-watching") {
+                        if (uiSettings.homeShowContinueWatching) {
+                    item(key = "continue-watching") {
                             ContinueWatchingRail(
                                 entries = continueWatching,
                                 onResume = onResumePlayback,
@@ -207,9 +228,11 @@ fun HomeScreen(
                             )
                         }
                     }
+                    }
 
                     if (recentlyAdded.isNotEmpty()) {
-                        item(key = "recently-added") {
+                        if (uiSettings.homeShowRecentlyAdded) {
+                    item(key = "recently-added") {
                             Rail(title = "Recently added to your library") {
                                 items(
                                     recentlyAdded,
@@ -223,6 +246,7 @@ fun HomeScreen(
                                 }
                             }
                         }
+                    }
                     }
 
                     if (state.data.sourceErrors.isNotEmpty()) {

@@ -2,13 +2,18 @@ package com.streambridge.app.player
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.streambridge.app.addon.ExtensionManager
+import com.streambridge.app.addon.ResolvedSubtitle
 import com.streambridge.app.addon.StreamResolver
+import com.streambridge.app.addon.SubtitleResolver
 import com.streambridge.app.addon.model.MediaItem
 import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.core.TimeFormat
@@ -71,6 +76,7 @@ class PlayerViewModel(
     savedStateHandle: SavedStateHandle,
     context: Context,
     private val streamResolver: StreamResolver,
+    private val subtitleResolver: SubtitleResolver,
     private val libraryRepository: LibraryRepository,
     private val settingsRepository: SettingsRepository,
     private val extensionManager: ExtensionManager
@@ -95,6 +101,17 @@ class PlayerViewModel(
 
     private val _phase = MutableStateFlow<PlayerPhase>(PlayerPhase.Resolving)
     val phase: StateFlow<PlayerPhase> = _phase.asStateFlow()
+
+    /** Addon-provided external subtitles for the current item. */
+    private val _externalSubtitles = MutableStateFlow<List<ResolvedSubtitle>>(emptyList())
+    val externalSubtitles: StateFlow<List<ResolvedSubtitle>> = _externalSubtitles.asStateFlow()
+
+    /** Currently side-loaded external subtitle (url), or null. */
+    private val _selectedExternalSubtitle = MutableStateFlow<String?>(null)
+    val selectedExternalSubtitle: StateFlow<String?> = _selectedExternalSubtitle.asStateFlow()
+
+    private val _playbackSpeed = MutableStateFlow(1f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
     private val _playback = MutableStateFlow(PlaybackUiState())
     val playback: StateFlow<PlaybackUiState> = _playback.asStateFlow()
@@ -225,8 +242,82 @@ class PlayerViewModel(
                 TimeFormat.isFinished(saved.positionMs, saved.durationMs, settings.watchedThresholdPercent) -> 0L
                 else -> saved.positionMs
             }
-            holder.play(url, resumePosition)
+            _playbackSpeed.value = settings.defaultPlaybackSpeed
+            holder.play(url, resumePosition, speed = settings.defaultPlaybackSpeed)
             startProgressTicker()
+            loadExternalSubtitles()
+        }
+    }
+
+    /** Fans out addon subtitle requests and auto-selects the preferred language. */
+    private fun loadExternalSubtitles() {
+        val current = _currentRequest.value
+        viewModelScope.launch {
+            val extensions = extensionManager.enabledExtensions.value
+            val found = try {
+                if (current.season > 0) {
+                    subtitleResolver.resolveForEpisode(
+                        extensions, current.type, current.videoId, current.imdbId,
+                        current.season, current.episode
+                    )
+                } else {
+                    subtitleResolver.resolveForMovie(
+                        extensions, current.type, current.videoId, current.imdbId
+                    )
+                }
+            } catch (_: Exception) {
+                emptyList()
+            }
+            _externalSubtitles.value = found
+            // Auto-select when the user has a preferred subtitle language.
+            val preferred = settingsRepository.state.first().preferredSubtitleLanguage
+            if (preferred.isNotBlank() && _selectedExternalSubtitle.value == null) {
+                found.firstOrNull { sub ->
+                    sub.subtitle.lang.startsWith(preferred, ignoreCase = true) ||
+                        sub.subtitle.label.contains(preferred, ignoreCase = true)
+                }?.let { applyExternalSubtitle(it) }
+            }
+        }
+    }
+
+    /** Side-loads an addon subtitle, restarting playback at the current position. */
+    fun applyExternalSubtitle(subtitle: ResolvedSubtitle) {
+        val stream = activeStream ?: return
+        val url = stream.url ?: return
+        _selectedExternalSubtitle.value = subtitle.subtitle.url
+        val position = holder.player.currentPosition.coerceAtLeast(0L)
+        holder.applyExternalSubtitles(
+            url = url,
+            positionMs = position,
+            subtitleConfigurations = listOf(subtitle.toMediaSubtitle()),
+            speed = _playbackSpeed.value
+        )
+    }
+
+    /** Clears any side-loaded external subtitle. */
+    fun clearExternalSubtitle() {
+        val stream = activeStream ?: return
+        val url = stream.url ?: return
+        _selectedExternalSubtitle.value = null
+        val position = holder.player.currentPosition.coerceAtLeast(0L)
+        holder.applyExternalSubtitles(url, position, emptyList(), _playbackSpeed.value)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        _playbackSpeed.value = speed
+        holder.setPlaybackSpeed(speed)
+    }
+
+    /** Subtitle text scale from settings (cached at session start). */
+    private var cachedSubtitleScale = 1f
+    val subtitleScale: Float get() = cachedSubtitleScale
+
+    init {
+        viewModelScope.launch {
+            settingsRepository.state.first().let {
+                cachedSubtitleScale = it.subtitleScale
+                _playbackSpeed.value = it.defaultPlaybackSpeed
+            }
         }
     }
 
@@ -397,6 +488,23 @@ class PlayerViewModel(
         source = ""
     )
 
+    private fun ResolvedSubtitle.toMediaSubtitle(): MediaItem.SubtitleConfiguration =
+        MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.url))
+            .setMimeType(subtitleMimeType(subtitle.url))
+            .setLanguage(subtitle.subtitle.lang.ifBlank { null })
+            .setSelectionFlags(C.SELECTION_FLAG_AUTOSELECT)
+            .build()
+
+    private fun subtitleMimeType(url: String): String {
+        val lower = url.substringBefore('?').lowercase()
+        return when {
+            lower.endsWith(".vtt") -> MimeTypes.TEXT_VTT
+            lower.endsWith(".srt") || lower.endsWith(".sub") -> MimeTypes.APPLICATION_SUBRIP
+            lower.endsWith(".ttml") || lower.endsWith(".xml") -> MimeTypes.APPLICATION_TTML
+            else -> MimeTypes.APPLICATION_SUBRIP
+        }
+    }
+
     companion object {
         fun factory(container: AppContainer, appContext: Context) = viewModelFactory {
             initializer {
@@ -404,6 +512,7 @@ class PlayerViewModel(
                     savedStateHandle = this.createSavedStateHandle(),
                     context = appContext,
                     streamResolver = container.streamResolver,
+                    subtitleResolver = container.subtitleResolver,
                     libraryRepository = container.libraryRepository,
                     settingsRepository = container.settingsRepository,
                     extensionManager = container.extensionManager

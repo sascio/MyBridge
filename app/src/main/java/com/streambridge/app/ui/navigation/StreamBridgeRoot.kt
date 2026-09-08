@@ -35,6 +35,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.ui.browse.BrowseScreen
+import com.streambridge.app.ui.catalog.CatalogGridScreen
 import com.streambridge.app.ui.components.PillNavBar
 import com.streambridge.app.ui.components.PillTab
 import com.streambridge.app.ui.components.rememberPillNavScrollState
@@ -43,6 +44,7 @@ import com.streambridge.app.ui.extensions.ExtensionsScreen
 import com.streambridge.app.ui.home.HomeScreen
 import com.streambridge.app.ui.library.LibraryScreen
 import com.streambridge.app.ui.player.PlayerScreen
+import com.streambridge.app.ui.plugins.PluginsScreen
 import com.streambridge.app.ui.search.SearchScreen
 import com.streambridge.app.ui.settings.SettingsScreen
 
@@ -142,6 +144,11 @@ private fun StreamBridgeNavHost(
                 onOpenSearch = { navController.navigate(Routes.SEARCH) { launchSingleTop = true } },
                 onResumePlayback = { entry -> navController.navigate(Nav.resumePlayback(entry)) },
                 onBrowseGenre = { genre -> navController.navigate(Nav.browse(genre)) },
+                onOpenCatalog = { ref ->
+                    navController.navigate(
+                        Nav.catalogGrid(ref.addonId, ref.type, ref.catalogId, ref.catalogName, ref.baseUrl)
+                    )
+                },
                 onPlayItem = { item ->
                     if (item.type == "movie") {
                         // Movies can go straight to the player, which resolves
@@ -188,6 +195,7 @@ private fun StreamBridgeNavHost(
                 page = "root",
                 onOpenPage = { page -> navController.navigate(Nav.settingsPage(page)) },
                 onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) },
+                onOpenPlugins = { navController.navigate(Routes.PLUGINS) },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -203,6 +211,7 @@ private fun StreamBridgeNavHost(
                 page = entry.arguments?.getString("page") ?: "root",
                 onOpenPage = { page -> navController.navigate(Nav.settingsPage(page)) },
                 onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) },
+                onOpenPlugins = { navController.navigate(Routes.PLUGINS) },
                 onBack = { navController.popBackStack() }
             )
         }
@@ -210,6 +219,30 @@ private fun StreamBridgeNavHost(
         composable(Routes.EXTENSIONS) {
             ExtensionsScreen(
                 container = container,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.PLUGINS) {
+            PluginsScreen(
+                container = container,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.CATALOG_GRID,
+            arguments = listOf(
+                androidx.navigation.navArgument("addon") { type = NavType.StringType; defaultValue = "" },
+                androidx.navigation.navArgument("type") { type = NavType.StringType; defaultValue = "movie" },
+                androidx.navigation.navArgument("id") { type = NavType.StringType; defaultValue = "" },
+                androidx.navigation.navArgument("name") { type = NavType.StringType; defaultValue = "Catalog" },
+                androidx.navigation.navArgument("base") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) {
+            CatalogGridScreen(
+                container = container,
+                onOpenDetail = { item -> navController.navigate(Nav.detail(item)) },
                 onBack = { navController.popBackStack() }
             )
         }

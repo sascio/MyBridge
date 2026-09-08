@@ -1,6 +1,7 @@
 package com.streambridge.app.ui.extensions
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
@@ -64,6 +68,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streambridge.app.R
+import com.streambridge.app.addon.CatalogRef
 import com.streambridge.app.addon.ExtensionManager
 import com.streambridge.app.addon.InstalledExtension
 import com.streambridge.app.addon.InstallOutcome
@@ -71,8 +76,11 @@ import com.streambridge.app.addon.model.AddonManifest
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.ui.components.EmptyState
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /** Dialog state machine for adding an extension. */
@@ -180,6 +188,55 @@ class ExtensionsViewModel(
         _banner.value = null
     }
 
+    // -----------------------------------------------------------------
+    // Ordering (priority)
+    // -----------------------------------------------------------------
+
+    fun moveUp(extension: InstalledExtension) {
+        viewModelScope.launch { extensionManager.moveUp(extension.addonId) }
+    }
+
+    fun moveDown(extension: InstalledExtension) {
+        viewModelScope.launch { extensionManager.moveDown(extension.addonId) }
+    }
+
+    // -----------------------------------------------------------------
+    // Addon catalogs (browsing installable addons from installed ones)
+    // -----------------------------------------------------------------
+
+    /** Catalogs offered by installed addons that list other addons. */
+    val addonCatalogs: StateFlow<List<CatalogRef>> = extensionManager.extensions
+        .map { refs -> extensionManager.addonCatalogRefs(refs) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _catalogBrowse = MutableStateFlow<CatalogBrowseState>(CatalogBrowseState.Hidden)
+    val catalogBrowse: StateFlow<CatalogBrowseState> = _catalogBrowse.asStateFlow()
+
+    fun openCatalog(ref: CatalogRef) {
+        _catalogBrowse.value = CatalogBrowseState.Loading(ref.catalogName)
+        viewModelScope.launch {
+            val entries = extensionManager.fetchAddonCatalogEntries(
+                ref.baseUrl, ref.type, ref.catalogId
+            )
+            _catalogBrowse.value = if (entries.isEmpty()) {
+                CatalogBrowseState.Empty(ref.catalogName)
+            } else {
+                CatalogBrowseState.Ready(ref.catalogName, entries)
+            }
+        }
+    }
+
+    fun closeCatalog() {
+        _catalogBrowse.value = CatalogBrowseState.Hidden
+    }
+
+    fun installFromCatalog(entry: ExtensionManager.CatalogEntry) {
+        viewModelScope.launch {
+            extensionManager.installChecked(entry.manifest, entry.transportUrl)
+            _banner.value = "Installed ${entry.manifest.name}"
+        }
+    }
+
     companion object {
         fun factory(container: AppContainer) = viewModelFactory {
             initializer {
@@ -187,6 +244,17 @@ class ExtensionsViewModel(
             }
         }
     }
+}
+
+/** State of the addon-catalog browser sheet. */
+sealed interface CatalogBrowseState {
+    data object Hidden : CatalogBrowseState
+    data class Loading(val title: String) : CatalogBrowseState
+    data class Empty(val title: String) : CatalogBrowseState
+    data class Ready(
+        val title: String,
+        val entries: List<ExtensionManager.CatalogEntry>
+    ) : CatalogBrowseState
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -200,7 +268,10 @@ fun ExtensionsScreen(
     val busy by vm.busy.collectAsStateWithLifecycle()
     val addState by vm.addState.collectAsStateWithLifecycle()
     val banner by vm.banner.collectAsStateWithLifecycle()
+    val addonCatalogs by vm.addonCatalogs.collectAsStateWithLifecycle()
+    val catalogBrowse by vm.catalogBrowse.collectAsStateWithLifecycle()
     var showAddDialog by remember { mutableStateOf(false) }
+    var detailsFor by remember { mutableStateOf<InstalledExtension?>(null) }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -298,13 +369,52 @@ fun ExtensionsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                if (addonCatalogs.isNotEmpty()) {
+                    item(key = "addon-catalogs") {
+                        Column {
+                            Text(
+                                text = "Browse more addons",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Addon catalogs listed by your installed extensions",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                addonCatalogs.forEach { ref ->
+                                    Surface(
+                                        shape = com.streambridge.app.ui.theme.PillShape,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        onClick = { vm.openCatalog(ref) }
+                                    ) {
+                                        Text(
+                                            text = ref.addonName + " · " + ref.catalogName,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+                }
                 items(extensions, key = { it.addonId }) { extension ->
                     ExtensionCard(
                         extension = extension,
                         refreshing = busy.contains(extension.addonId),
                         onToggle = { enabled -> vm.setEnabled(extension, enabled) },
                         onRemove = { vm.remove(extension) },
-                        onRefresh = { vm.refresh(extension) }
+                        onRefresh = { vm.refresh(extension) },
+                        onMoveUp = { vm.moveUp(extension) },
+                        onMoveDown = { vm.moveDown(extension) },
+                        onDetails = { detailsFor = extension }
                     )
                 }
                 item {
@@ -329,6 +439,179 @@ fun ExtensionsScreen(
             onReset = vm::resetAddState
         )
     }
+
+    detailsFor?.let { extension ->
+        ExtensionDetailsSheet(
+            extension = extension,
+            onDismiss = { detailsFor = null }
+        )
+    }
+
+    when (val browse = catalogBrowse) {
+        is CatalogBrowseState.Loading, is CatalogBrowseState.Empty, is CatalogBrowseState.Ready -> {
+            androidx.compose.material3.ModalBottomSheet(onDismissRequest = vm::closeCatalog) {
+                when (browse) {
+                    is CatalogBrowseState.Loading -> Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(text = "Loading ${browse.title}…")
+                    }
+
+                    is CatalogBrowseState.Empty -> Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "No addons listed in ${browse.title}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    is CatalogBrowseState.Ready -> Column(
+                        modifier = Modifier
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 28.dp)
+                    ) {
+                        Text(
+                            text = browse.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                        )
+                        browse.entries.forEach { entry ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = entry.manifest.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = entry.manifest.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                androidx.compose.material3.FilledTonalButton(
+                                    onClick = { vm.installFromCatalog(entry) }
+                                ) {
+                                    Text(text = "Install")
+                                }
+                            }
+                        }
+                    }
+
+                    CatalogBrowseState.Hidden -> Unit
+                }
+            }
+        }
+
+        CatalogBrowseState.Hidden -> Unit
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExtensionDetailsSheet(
+    extension: InstalledExtension,
+    onDismiss: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp)
+        ) {
+            Text(
+                text = extension.displayName,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "v${extension.version} · ${extension.ecosystem} addon",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (extension.adultContent) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.error,
+                    shape = com.streambridge.app.ui.theme.PillShape
+                ) {
+                    Text(
+                        text = "Marked adult content by its manifest",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+
+            DetailSheetLine(label = "ID", value = extension.addonId)
+            DetailSheetLine(label = "Base URL", value = extension.baseUrl)
+            DetailSheetLine(label = "Types", value = extension.types.joinToString(", ").ifBlank { "any" })
+            DetailSheetLine(label = "Resources", value = extension.resources.joinToString(", "))
+            DetailSheetLine(
+                label = "ID prefixes",
+                value = extension.idPrefixes.joinToString(", ").ifBlank { "any" }
+            )
+            DetailSheetLine(label = "Catalogs", value = "${extension.catalogs.size}")
+            DetailSheetLine(label = "Priority", value = "#${extension.sortOrder + 1}")
+
+            if (extension.configureUrl != null) {
+                Spacer(modifier = Modifier.height(10.dp))
+                androidx.compose.material3.FilledTonalButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(extension.configureUrl)
+                                )
+                            )
+                        }
+                    }
+                ) {
+                    Text(text = "Open configuration page")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailSheetLine(label: String, value: String) {
+    Column(modifier = Modifier.padding(vertical = 5.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 @Composable
@@ -337,7 +620,10 @@ private fun ExtensionCard(
     refreshing: Boolean,
     onToggle: (Boolean) -> Unit,
     onRemove: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDetails: () -> Unit
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
@@ -388,6 +674,27 @@ private fun ExtensionCard(
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
+                }
+                IconButton(onClick = onMoveUp) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowUp,
+                        contentDescription = "Move up in priority",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onMoveDown) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowDown,
+                        contentDescription = "Move down in priority",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                IconButton(onClick = onDetails) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = "Extension details",
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
                 Switch(checked = extension.enabled, onCheckedChange = onToggle)
             }

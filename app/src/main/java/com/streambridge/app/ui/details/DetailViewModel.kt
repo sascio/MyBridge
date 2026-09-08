@@ -22,7 +22,12 @@ import com.streambridge.app.di.AppContainer
 import com.streambridge.app.player.PlaybackCache
 import com.streambridge.app.player.PlaybackRequest
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -52,6 +57,8 @@ class DetailViewModel(
 ) : ViewModel() {
 
     private fun arg(name: String): String = savedStateHandle.get<String>(name) ?: ""
+
+    private fun com.streambridge.app.addon.model.MediaItem.metaKeyValue(): String = "$type:$id"
 
     /** The item as passed from the calling screen (may be a preview). */
     val item: MediaItem = MediaItem(
@@ -93,6 +100,10 @@ class DetailViewModel(
     val pendingRequest: StateFlow<PlaybackRequest?> = _pendingRequest.asStateFlow()
 
     private val _resolving = MutableStateFlow(false)
+
+    val watchedThreshold: StateFlow<Int> = settings.state
+        .map { it.watchedThresholdPercent }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 95)
     val resolving: StateFlow<Boolean> = _resolving.asStateFlow()
 
     private val _events = MutableSharedFlow<DetailEvent>(extraBufferCapacity = 4)
@@ -216,6 +227,48 @@ class DetailViewModel(
             } else {
                 library.setWatchlist(item, target)
             }
+        }
+    }
+
+    /** Marks the current title fully watched (progress at 100%). */
+    fun markWatched() {
+        viewModelScope.launch {
+            val details = (_detailState.value as? DetailUiState.Ready)?.details ?: return@launch
+            if (details.isSeries) {
+                details.episodes.forEach { episode ->
+                    library.saveProgress(
+                        details.toItem(details.id),
+                        videoId = episode.id,
+                        season = episode.season,
+                        episode = episode.number,
+                        episodeTitle = episode.title,
+                        positionMs = 100,
+                        durationMs = 100
+                    )
+                }
+            } else {
+                library.saveProgress(
+                    details.toItem(details.id),
+                    videoId = "",
+                    season = 0,
+                    episode = 0,
+                    episodeTitle = null,
+                    positionMs = 100,
+                    durationMs = 100
+                )
+            }
+            _events.tryEmit(DetailEvent.Message("Marked as watched"))
+        }
+    }
+
+    /** Clears all watch progress for this title. */
+    fun markUnwatched() {
+        viewModelScope.launch {
+            val entries = library.observeProgressForMeta(item.metaKeyValue()).first()
+            entries.forEach { entry ->
+                library.clearProgress(entry.metaKey, entry.videoId)
+            }
+            _events.tryEmit(DetailEvent.Message("Watch state cleared"))
         }
     }
 

@@ -22,7 +22,11 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import com.streambridge.app.addon.CatalogRef
+import com.streambridge.app.data.settings.SettingsState
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed interface HomeUiState {
@@ -52,6 +56,15 @@ class HomeViewModel(
 
     private val _recentlyAdded = MutableStateFlow<List<LibraryItemEntity>>(emptyList())
     val recentlyAdded: StateFlow<List<LibraryItemEntity>> = _recentlyAdded.asStateFlow()
+
+    /** Live settings for layout/visibility preferences. */
+    val uiSettings: StateFlow<SettingsState> = settings.state
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SettingsState())
+
+    /** Catalog references matching Home rail keys (for See-all). */
+    val catalogRefs: StateFlow<List<CatalogRef>> = extensionManager.extensions
+        .map { list -> extensionManager.catalogRefs(list) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val refreshTrigger = MutableStateFlow(0)
 

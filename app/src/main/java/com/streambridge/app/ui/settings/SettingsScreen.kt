@@ -30,7 +30,9 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OndemandVideo
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material.icons.filled.Share
@@ -41,6 +43,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -96,6 +99,10 @@ class SettingsViewModel(
     extensionManager: ExtensionManager
 ) : ViewModel() {
 
+    /** Enabled addons, for the preferred-metadata picker. */
+    val enabledAddons: StateFlow<List<com.streambridge.app.addon.InstalledExtension>> =
+        extensionManager.enabledExtensions
+
     val settings: StateFlow<SettingsState> = settingsRepository.state
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsState())
 
@@ -131,6 +138,36 @@ class SettingsViewModel(
     fun setServerPort(value: Int) =
         viewModelScope.launch { settingsRepository.setServerPort(value) }
 
+    fun setStartupTab(value: String) =
+        viewModelScope.launch { settingsRepository.setStartupTab(value) }
+
+    fun setPosterSize(value: String) =
+        viewModelScope.launch { settingsRepository.setPosterSize(value) }
+
+    fun setHomeShowContinueWatching(value: Boolean) =
+        viewModelScope.launch { settingsRepository.setHomeShowContinueWatching(value) }
+
+    fun setHomeShowRecommendations(value: Boolean) =
+        viewModelScope.launch { settingsRepository.setHomeShowRecommendations(value) }
+
+    fun setHomeShowRecentlyAdded(value: Boolean) =
+        viewModelScope.launch { settingsRepository.setHomeShowRecentlyAdded(value) }
+
+    fun setPreferredMetadataAddon(value: String) =
+        viewModelScope.launch { settingsRepository.setPreferredMetadataAddon(value) }
+
+    fun setPreferredSubtitleLanguage(value: String) =
+        viewModelScope.launch { settingsRepository.setPreferredSubtitleLanguage(value) }
+
+    fun setPreferredAudioLanguage(value: String) =
+        viewModelScope.launch { settingsRepository.setPreferredAudioLanguage(value) }
+
+    fun setSubtitleScale(value: Float) =
+        viewModelScope.launch { settingsRepository.setSubtitleScale(value) }
+
+    fun setDefaultPlaybackSpeed(value: Float) =
+        viewModelScope.launch { settingsRepository.setDefaultPlaybackSpeed(value) }
+
     companion object {
         fun factory(container: AppContainer) = viewModelFactory {
             initializer {
@@ -155,12 +192,25 @@ fun SettingsScreen(
     page: String,
     onOpenPage: (String) -> Unit,
     onOpenExtensions: () -> Unit,
+    onOpenPlugins: () -> Unit,
     onBack: () -> Unit
 ) {
     val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
     val settings by vm.settings.collectAsStateWithLifecycle()
 
     when (page) {
+        "general" -> SettingsSubPage(title = "General", onBack = onBack) {
+            GeneralContent(settings = settings, vm = vm)
+        }
+
+        "home" -> SettingsSubPage(title = "Home screen", onBack = onBack) {
+            HomeContent(settings = settings, vm = vm)
+        }
+
+        "detail" -> SettingsSubPage(title = "Detail pages", onBack = onBack) {
+            DetailPageContent(vm = vm)
+        }
+
         "appearance" -> SettingsSubPage(title = "Appearance", onBack = onBack) {
             AppearanceContent(settings = settings, vm = vm)
         }
@@ -269,6 +319,24 @@ private fun SettingsRootContent(
             }
 
             SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "General",
+                subtitle = "Startup tab",
+                onClick = { onOpenPage("general") }
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Home screen",
+                subtitle = "Sections, recommendations, continue watching",
+                onClick = { onOpenPage("home") }
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Detail pages",
+                subtitle = "Metadata priority",
+                onClick = { onOpenPage("detail") }
+            )
+            SettingsLinkCard(
                 icon = { Icon(Icons.Filled.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                 title = "Appearance",
                 subtitle = "Accent color, pure black mode",
@@ -289,6 +357,12 @@ private fun SettingsRootContent(
                     "$extensionCount installed"
                 },
                 onClick = onOpenExtensions
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Plugin repositories",
+                subtitle = "Browse Cloudstream repositories (read-only)",
+                onClick = onOpenPlugins
             )
             SettingsLinkCard(
                 icon = { Icon(Icons.Filled.CloudQueue, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -408,6 +482,17 @@ private fun AppearanceContent(settings: SettingsState, vm: SettingsViewModel) {
         }
     }
 
+    SettingsGroupCard(title = "Poster size") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("small" to "Small", "medium" to "Medium", "large" to "Large").forEach { (key, label) ->
+                FilterChip(
+                    selected = settings.posterSize == key,
+                    onClick = { vm.setPosterSize(key) },
+                    label = { Text(text = label) }
+                )
+            }
+        }
+    }
     SettingsGroupCard(title = "Theme") {
         SwitchSettingRow(
             title = "Pure black (OLED)",
@@ -415,6 +500,106 @@ private fun AppearanceContent(settings: SettingsState, vm: SettingsViewModel) {
             checked = settings.pureBlack,
             onCheckedChange = vm::setPureBlack
         )
+    }
+}
+
+@Composable
+private fun GeneralContent(settings: SettingsState, vm: SettingsViewModel) {
+    SettingsGroupCard(title = "Startup") {
+        Text(
+            text = "Which tab the app opens on",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("home" to "Home", "search" to "Search", "library" to "Library", "settings" to "Settings")
+                .forEach { (key, label) ->
+                    FilterChip(
+                        selected = settings.startupTab == key,
+                        onClick = { vm.setStartupTab(key) },
+                        label = { Text(text = label) }
+                    )
+                }
+        }
+    }
+    SettingsGroupCard(title = "Language") {
+        Text(
+            text = "Stream Bridge follows your Android system language. " +
+                "Per-app language can be changed in Android Settings › Apps › Stream Bridge.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun HomeContent(settings: SettingsState, vm: SettingsViewModel) {
+    SettingsGroupCard(title = "Sections") {
+        SwitchSettingRow(
+            title = "Continue watching",
+            subtitle = "Show titles you started on the Home screen",
+            checked = settings.homeShowContinueWatching,
+            onCheckedChange = vm::setHomeShowContinueWatching
+        )
+        SwitchSettingRow(
+            title = "Recommended for you",
+            subtitle = "Suggestions based on your watch history",
+            checked = settings.homeShowRecommendations,
+            onCheckedChange = vm::setHomeShowRecommendations
+        )
+        SwitchSettingRow(
+            title = "Recently added",
+            subtitle = "Titles you just favorited or watchlisted",
+            checked = settings.homeShowRecentlyAdded,
+            onCheckedChange = vm::setHomeShowRecentlyAdded
+        )
+    }
+    SettingsGroupCard(title = "Catalog order") {
+        Text(
+            text = "Rail order follows addon priority. Reorder your addons on the " +
+                "Extensions screen with the arrows — the top addon is asked first and " +
+                "its catalogs appear first on Home.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun DetailPageContent(vm: SettingsViewModel) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val addons by vm.enabledAddons.collectAsStateWithLifecycle()
+
+    SettingsGroupCard(title = "Preferred metadata addon") {
+        Text(
+            text = "Metadata is merged from your addons automatically. Pick a specific " +
+                "addon here to always prefer its details first.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        FilterChip(
+            selected = settings.preferredMetadataAddon.isBlank(),
+            onClick = { vm.setPreferredMetadataAddon("") },
+            label = { Text(text = "Automatic") }
+        )
+        addons.forEach { addon ->
+            Spacer(modifier = Modifier.height(6.dp))
+            FilterChip(
+                selected = settings.preferredMetadataAddon == addon.addonId,
+                onClick = { vm.setPreferredMetadataAddon(addon.addonId) },
+                label = { Text(text = addon.displayName) }
+            )
+        }
+        if (addons.isEmpty()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "No addons installed yet — metadata resolves automatically once you add some.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 
@@ -439,6 +624,57 @@ private fun PlaybackContent(settings: SettingsState, vm: SettingsViewModel) {
             onValueChange = { vm.setWatchedThreshold(it.toInt()) },
             valueRange = 70f..99f,
             steps = 28
+        )
+    }
+    SettingsGroupCard(title = "Default playback speed") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0.75f, 1f, 1.25f, 1.5f).forEach { speed ->
+                FilterChip(
+                    selected = kotlin.math.abs(settings.defaultPlaybackSpeed - speed) < 0.01f,
+                    onClick = { vm.setDefaultPlaybackSpeed(speed) },
+                    label = {
+                        Text(text = if (speed == 1f) "Normal" else String.format("%.2gx", speed))
+                    }
+                )
+            }
+        }
+    }
+    SettingsGroupCard(title = "Preferred languages") {
+        OutlinedTextField(
+            value = settings.preferredSubtitleLanguage,
+            onValueChange = vm::setPreferredSubtitleLanguage,
+            label = { Text("Preferred subtitle language") },
+            placeholder = { Text("e.g. en or hi") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedTextField(
+            value = settings.preferredAudioLanguage,
+            onValueChange = vm::setPreferredAudioLanguage,
+            label = { Text("Preferred audio language") },
+            placeholder = { Text("e.g. en") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "When a stream or track list offers your language, it is picked automatically.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    SettingsGroupCard(title = "Subtitle text size") {
+        Text(
+            text = "Scale of subtitles over the video",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Slider(
+            value = settings.subtitleScale,
+            onValueChange = vm::setSubtitleScale,
+            valueRange = 0.6f..1.8f
         )
     }
 }

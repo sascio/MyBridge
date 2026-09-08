@@ -28,8 +28,11 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -93,6 +96,10 @@ fun DetailScreen(
     val streamSheet by vm.streamSheet.collectAsStateWithLifecycle()
     val pendingRequest by vm.pendingRequest.collectAsStateWithLifecycle()
     val resolving by vm.resolving.collectAsStateWithLifecycle()
+    val watchedThreshold by vm.watchedThreshold.collectAsStateWithLifecycle()
+    val isWatched = progressEntries.any { entry ->
+        TimeFormat.isFinished(entry.positionMs, entry.durationMs, watchedThreshold)
+    }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
@@ -352,6 +359,20 @@ private fun DetailContent(
                 }
                 Spacer(modifier = Modifier.width(10.dp))
                 IconButton(
+                    onClick = { if (isWatched) vm.markUnwatched() else vm.markWatched() },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (isWatched) Icons.Filled.TaskAlt else Icons.Outlined.TaskAlt,
+                        contentDescription = if (isWatched) "Mark unwatched" else "Mark watched",
+                        tint = if (isWatched) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                IconButton(
                     onClick = vm::toggleWatchlist,
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
@@ -418,6 +439,62 @@ private fun DetailContent(
                     TextButton(onClick = { expanded.value = !expanded.value }) {
                         Text(text = if (expanded.value) "Show less" else "Show more")
                     }
+                }
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Crew
+        // -------------------------------------------------------------
+        val crew = buildList {
+            if (details.director.isNotEmpty()) add("Director" to details.director)
+            if (details.writer.isNotEmpty()) add("Writers" to details.writer)
+        }
+        if (crew.isNotEmpty()) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    crew.forEach { (role, names) ->
+                        Text(
+                            text = role,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = names.joinToString(", "),
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+
+        // Trailer link (external player) when the addon provides one.
+        if (!details.trailer.isNullOrBlank()) {
+            item {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                androidx.compose.material3.TextButton(
+                    onClick = {
+                        runCatching {
+                            context.startActivity(
+                                android.content.Intent(
+                                    android.content.Intent.ACTION_VIEW,
+                                    android.net.Uri.parse(details.trailer)
+                                )
+                            )
+                        }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Filled.PlayCircleOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "Watch trailer")
                 }
             }
         }

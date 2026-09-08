@@ -14,6 +14,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +39,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -101,6 +104,9 @@ fun PlayerScreen(
 
     val phase by vm.phase.collectAsStateWithLifecycle()
     val request by vm.currentRequest.collectAsStateWithLifecycle()
+    val externalSubtitles by vm.externalSubtitles.collectAsStateWithLifecycle()
+    val selectedExternalSubtitle by vm.selectedExternalSubtitle.collectAsStateWithLifecycle()
+    val playbackSpeed by vm.playbackSpeed.collectAsStateWithLifecycle()
     val sourceLabel by vm.sourceLabel.collectAsStateWithLifecycle()
     val showPicker by vm.showPicker.collectAsStateWithLifecycle()
     val queue by vm.queue.collectAsStateWithLifecycle()
@@ -182,6 +188,11 @@ fun PlayerScreen(
                 },
                 update = { playerView ->
                     playerView.player = vm.holder.player
+                    // Subtitle text scale from settings.
+                    val scale = vm.subtitleScale
+                    playerView.subtitleView?.setFractionalTextSize(
+                        androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * scale
+                    )
                 },
                 modifier = Modifier.fillMaxSize()
             )
@@ -229,6 +240,8 @@ fun PlayerScreen(
                 sourceLabel = sourceLabel,
                 hasNext = vm.hasNextEpisode,
                 hasPrevious = vm.hasPreviousEpisode,
+                externalSubtitles = externalSubtitles,
+                selectedExternalSubtitle = selectedExternalSubtitle,
                 onBack = onBack
             )
 
@@ -309,6 +322,8 @@ private fun PlayerControls(
     sourceLabel: String,
     hasNext: Boolean,
     hasPrevious: Boolean,
+    externalSubtitles: List<com.streambridge.app.addon.ResolvedSubtitle>,
+    selectedExternalSubtitle: String?,
     onBack: () -> Unit
 ) {
     // Collected here (not at screen level) so the 500 ms ticker only
@@ -322,6 +337,7 @@ private fun PlayerControls(
     var gestureHint by remember { mutableStateOf<String?>(null) }
     var showSubtitles by remember { mutableStateOf(false) }
     var showAudio by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
     var nextCardDismissed by remember { mutableStateOf(false) }
 
     // Auto-hide the gesture hint shortly after the last update.
@@ -760,6 +776,13 @@ private fun PlayerControls(
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { showSpeed = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Speed,
+                        contentDescription = "Playback speed",
+                        tint = Color.White
+                    )
+                }
                 IconButton(onClick = { showSubtitles = true }) {
                     Icon(
                         imageVector = Icons.Filled.Subtitles,
@@ -788,13 +811,21 @@ private fun PlayerControls(
     // Subtitle / audio track selection sheets.
     if (showSubtitles) {
         ModalBottomSheet(onDismissRequest = { showSubtitles = false }) {
-            TrackSelectionSheet(
-                title = "Subtitles",
-                allowOff = true,
-                options = vm.holder.textTracks(),
-                onSelect = { option ->
-                    vm.holder.selectTextTrack(option)
-                    showSubtitles = false
+            SubtitleSheetContent(
+                vm = vm,
+                externalSubtitles = externalSubtitles,
+                selectedExternalSubtitle = selectedExternalSubtitle,
+                onDismiss = { showSubtitles = false }
+            )
+        }
+    }
+    if (showSpeed) {
+        ModalBottomSheet(onDismissRequest = { showSpeed = false }) {
+            SpeedSheetContent(
+                current = vm.playbackSpeed.value,
+                onSelect = { speed ->
+                    vm.setPlaybackSpeed(speed)
+                    showSpeed = false
                 }
             )
         }
@@ -818,6 +849,165 @@ private fun PlayerControls(
     // Back press while controls are visible hides them first.
     BackHandler(enabled = controlsVisible) {
         controlsVisible = false
+    }
+}
+
+@Composable
+private fun SubtitleSheetContent(
+    vm: PlayerViewModel,
+    externalSubtitles: List<com.streambridge.app.addon.ResolvedSubtitle>,
+    selectedExternalSubtitle: String?,
+    onDismiss: () -> Unit
+) {
+    val embedded = vm.holder.textTracks()
+
+    Column(modifier = Modifier.verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
+        Text(
+            text = "Subtitles",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+        )
+
+        if (embedded.isEmpty() && externalSubtitles.isEmpty()) {
+            Text(
+                text = "No subtitles available for this stream yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)
+            )
+        }
+
+        if (embedded.isNotEmpty()) {
+            Text(
+                text = "Built into the stream",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        vm.clearExternalSubtitle()
+                        vm.holder.selectTextTrack(null)
+                    }
+                    .padding(horizontal = 20.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Off", modifier = Modifier.weight(1f))
+                if (embedded.none { it.selected } && selectedExternalSubtitle == null) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            embedded.forEach { option ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            vm.clearExternalSubtitle()
+                            vm.holder.selectTextTrack(option)
+                        }
+                        .padding(horizontal = 20.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = option.label,
+                        modifier = Modifier.weight(1f),
+                        fontWeight = if (option.selected) FontWeight.Bold else FontWeight.Normal
+                    )
+                    if (option.selected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+
+        if (externalSubtitles.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "From your extensions",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+            )
+            externalSubtitles.forEach { resolved ->
+                val isSelected = resolved.subtitle.url == selectedExternalSubtitle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { vm.applyExternalSubtitle(resolved) }
+                        .padding(horizontal = 20.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = resolved.label,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                        )
+                        Text(
+                            text = "via ${resolved.addonName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = "Selected",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedSheetContent(
+    current: Float,
+    onSelect: (Float) -> Unit
+) {
+    val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+    Column(modifier = Modifier.padding(bottom = 28.dp)) {
+        Text(
+            text = "Playback speed",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+        )
+        speeds.forEach { speed ->
+            val selected = kotlin.math.abs(speed - current) < 0.01f
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(speed) }
+                    .padding(horizontal = 20.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (speed == 1f) "Normal" else String.format("%.2fx", speed),
+                    modifier = Modifier.weight(1f),
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                )
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -911,17 +1101,32 @@ private fun PlayerIconButton(
 }
 
 @Composable
+@Composable
 private fun StreamPickerSheet(
     streams: List<StreamOption>,
     onSelect: (StreamOption) -> Unit
 ) {
-    Column(modifier = Modifier.padding(bottom = 28.dp)) {
+    val grouped = remember(streams) {
+        com.streambridge.app.addon.StreamEnrichment.groupByProvider(streams)
+    }
+    Column(
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 28.dp)
+    ) {
         Text(
-            text = "Switch stream",
+            text = "Choose a source",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
         )
+        Text(
+            text = "${streams.size} streams from ${grouped.size} providers, sorted by quality",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 20.dp)
+        )
+        Spacer(modifier = Modifier.height(8.dp))
         if (streams.isEmpty()) {
             Text(
                 text = "No streams resolved yet.",
@@ -929,10 +1134,35 @@ private fun StreamPickerSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
             )
-        } else {
-            streams.forEach { stream ->
+        }
+        grouped.forEach { (provider, options) ->
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = provider,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "(${options.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            options.forEach { stream ->
                 val (badgeColor, badgeText) = when {
-                    stream.isPlayable -> MaterialTheme.colorScheme.primary to "HTTP"
+                    stream.isPlayable -> MaterialTheme.colorScheme.primary to "DIRECT"
                     stream.isTorrent -> MaterialTheme.colorScheme.error to "TORRENT"
                     else -> MaterialTheme.colorScheme.tertiary to "WEB"
                 }
@@ -940,31 +1170,35 @@ private fun StreamPickerSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onSelect(stream) }
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
                         color = badgeColor.copy(alpha = 0.18f),
                         contentColor = badgeColor,
-                        shape = RoundedCornerShape(8.dp)
+                        shape = com.streambridge.app.ui.theme.PillShape
                     ) {
                         Text(
                             text = badgeText,
                             style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = stream.shortLabel,
+                            text = stream.qualityChip.ifBlank { stream.shortLabel },
                             style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1
                         )
                         Text(
                             text = listOfNotNull(
-                                stream.addonName,
-                                stream.description?.take(70)
+                                stream.language.takeIf { it.isNotBlank() }?.uppercase(),
+                                stream.sizeLabel.takeIf { it.isNotBlank() },
+                                if (stream.seeders > 0) "${stream.seeders} seeds" else null,
+                                stream.description?.take(60)
                             ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

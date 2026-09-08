@@ -76,14 +76,39 @@ class PlayerHolder(
         )
     }
 
-    /** Starts (or restarts) playback of a direct stream URL. */
-    fun play(url: String, startPositionMs: Long) {
-        player.setMediaItem(MediaItem.fromUri(Uri.parse(url)))
+    /** Starts (or restarts) playback of a direct stream URL, with optional side-loaded subtitles. */
+    fun play(
+        url: String,
+        startPositionMs: Long,
+        subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList(),
+        speed: Float = 1f
+    ) {
+        val mediaItem = MediaItem.Builder()
+            .setUri(Uri.parse(url))
+            .setSubtitleConfigurations(subtitleConfigurations)
+            .build()
+        player.setMediaItem(mediaItem)
         if (startPositionMs > 0L) {
             player.seekTo(startPositionMs)
         }
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         player.prepare()
         player.play()
+        publish()
+    }
+
+    /** Restarts the current media with side-loaded external subtitles. */
+    fun applyExternalSubtitles(
+        url: String,
+        positionMs: Long,
+        subtitleConfigurations: List<MediaItem.SubtitleConfiguration>,
+        speed: Float
+    ) {
+        play(url, positionMs, subtitleConfigurations, speed)
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         publish()
     }
 

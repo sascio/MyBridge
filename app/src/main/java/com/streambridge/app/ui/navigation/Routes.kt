@@ -29,6 +29,13 @@ object Routes {
 
     const val BROWSE = "browse?genre={genre}"
 
+    /** See-all grid over one concrete addon catalog. */
+    const val CATALOG_GRID =
+        "catalog?addon={addon}&type={type}&id={id}&name={name}&base={base}"
+
+    /** Cloudstream-style plugin repositories (read-only browser). */
+    const val PLUGINS = "plugins"
+
     /** Routes rendered edge-to-edge (no scaffold padding). */
     val fullBleedRoutePrefixes = listOf("player", "detail")
 }
@@ -79,4 +86,18 @@ object Nav {
         "browse?genre=${enc(genre)}"
 
     fun settingsPage(page: String): String = "settings/$page"
+
+    fun catalogGrid(
+        addonId: String,
+        type: String,
+        catalogId: String,
+        title: String,
+        baseUrl: String
+    ): String =
+        "catalog" +
+            "?addon=${enc(addonId)}" +
+            "&type=${enc(type)}" +
+            "&id=${enc(catalogId)}" +
+            "&name=${enc(title)}" +
+            "&base=${enc(baseUrl)}"
 }
