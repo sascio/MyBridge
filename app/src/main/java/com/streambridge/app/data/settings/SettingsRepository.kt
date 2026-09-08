@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore(name = "stream_bridge_settings")
 
+/** Valid bottom-navigation layout modes ( Appearance > Layout ). */
+val NAV_LAYOUT_OPTIONS = listOf("adaptive", "expanded", "compact", "classic")
+
 /**
  * App settings. Everything optional (TMDB, MDBList) is OFF by default and
  * no API key is ever shipped with the app: keys live only on the user's
@@ -34,6 +37,8 @@ data class SettingsState(
     val startupTab: String = "home",
     // Appearance
     val posterSize: String = "medium", // small | medium | large
+    // Bottom navigation layout: adaptive | expanded | compact | classic
+    val navLayout: String = "adaptive",
     // Home
     val homeShowContinueWatching: Boolean = true,
     val homeShowRecommendations: Boolean = true,
@@ -66,6 +71,7 @@ class SettingsRepository(private val context: Context) {
         val RECENT_QUERIES = stringSetPreferencesKey("recent_queries")
         val STARTUP_TAB = stringPreferencesKey("startup_tab")
         val POSTER_SIZE = stringPreferencesKey("poster_size")
+        val NAV_LAYOUT = stringPreferencesKey("nav_layout")
         val HOME_SHOW_CONTINUE = booleanPreferencesKey("home_show_continue")
         val HOME_SHOW_RECOMMENDATIONS = booleanPreferencesKey("home_show_recommendations")
         val HOME_SHOW_RECENTLY_ADDED = booleanPreferencesKey("home_show_recently_added")
@@ -93,6 +99,9 @@ class SettingsRepository(private val context: Context) {
             serverPort = (prefs[Keys.SERVER_PORT] ?: defaults.serverPort).coerceIn(0, 65535),
             startupTab = prefs[Keys.STARTUP_TAB] ?: defaults.startupTab,
             posterSize = prefs[Keys.POSTER_SIZE] ?: defaults.posterSize,
+            navLayout = prefs[Keys.NAV_LAYOUT]
+                ?.takeIf { it in NAV_LAYOUT_OPTIONS }
+                ?: defaults.navLayout,
             homeShowContinueWatching = prefs[Keys.HOME_SHOW_CONTINUE] ?: defaults.homeShowContinueWatching,
             homeShowRecommendations = prefs[Keys.HOME_SHOW_RECOMMENDATIONS] ?: defaults.homeShowRecommendations,
             homeShowRecentlyAdded = prefs[Keys.HOME_SHOW_RECENTLY_ADDED] ?: defaults.homeShowRecentlyAdded,
@@ -154,6 +163,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setStartupTab(value: String) = edit { it[Keys.STARTUP_TAB] = value }
     suspend fun setPosterSize(value: String) = edit { it[Keys.POSTER_SIZE] = value }
+
+    suspend fun setNavLayout(value: String) =
+        edit { it[Keys.NAV_LAYOUT] = value.takeIf { v -> v in NAV_LAYOUT_OPTIONS } ?: "adaptive" }
     suspend fun setHomeShowContinueWatching(value: Boolean) =
         edit { it[Keys.HOME_SHOW_CONTINUE] = value }
 

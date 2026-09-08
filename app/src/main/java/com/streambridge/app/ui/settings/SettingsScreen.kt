@@ -141,6 +141,8 @@ class SettingsViewModel(
     fun setStartupTab(value: String) =
         viewModelScope.launch { settingsRepository.setStartupTab(value) }
 
+    fun setNavLayout(value: String) = viewModelScope.launch { settingsRepository.setNavLayout(value) }
+
     fun setPosterSize(value: String) =
         viewModelScope.launch { settingsRepository.setPosterSize(value) }
 
@@ -495,6 +497,40 @@ private fun AppearanceContent(settings: SettingsState, vm: SettingsViewModel) {
             }
         }
     }
+    SettingsGroupCard(title = "Layout") {
+        Text(
+            text = "How the bottom navigation behaves while you scroll",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                "adaptive" to "Adaptive",
+                "expanded" to "Always Expanded",
+                "compact" to "Always Compact",
+                "classic" to "Classic"
+            ).forEach { (key, label) ->
+                FilterChip(
+                    selected = settings.navLayout == key,
+                    onClick = { vm.setNavLayout(key) },
+                    label = { Text(text = label) }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = when (settings.navLayout) {
+                "expanded" -> "The floating bar keeps its full size with icons and labels."
+                "compact" -> "The floating bar stays minimized to icons only."
+                "classic" -> "A traditional bottom bar for a simpler presentation."
+                else -> "Scrolling up minimizes the floating bar; scrolling down restores it."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
     SettingsGroupCard(title = "Theme") {
         SwitchSettingRow(
             title = "Pure black (OLED)",
@@ -515,7 +551,7 @@ private fun GeneralContent(settings: SettingsState, vm: SettingsViewModel) {
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("home" to "Home", "search" to "Search", "library" to "Library", "settings" to "Settings")
+            listOf("home" to "Home", "search" to "Search", "library" to "Library", "settings" to "Profile")
                 .forEach { (key, label) ->
                     FilterChip(
                         selected = settings.startupTab == key,

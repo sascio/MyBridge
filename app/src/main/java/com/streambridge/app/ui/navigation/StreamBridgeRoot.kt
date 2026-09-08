@@ -13,16 +13,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -33,9 +34,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.runtime.collectAsState
+import com.streambridge.app.data.settings.SettingsState
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.ui.browse.BrowseScreen
 import com.streambridge.app.ui.catalog.CatalogGridScreen
+import com.streambridge.app.ui.components.ClassicNavBar
+import com.streambridge.app.ui.components.NavLayoutMode
 import com.streambridge.app.ui.components.PillNavBar
 import com.streambridge.app.ui.components.PillTab
 import com.streambridge.app.ui.components.rememberPillNavScrollState
@@ -52,7 +57,7 @@ private val tabs = listOf(
     PillTab(Routes.HOME, "Home", Icons.Outlined.Home, Icons.Filled.Home),
     PillTab(Routes.SEARCH, "Search", Icons.Outlined.Search, Icons.Filled.Search),
     PillTab(Routes.LIBRARY, "Library", Icons.Outlined.Bookmarks, Icons.Filled.Bookmarks),
-    PillTab(Routes.SETTINGS, "Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
+    PillTab(Routes.SETTINGS, "Profile", Icons.Outlined.Person, Icons.Filled.Person)
 )
 
 @Composable
@@ -63,6 +68,23 @@ fun StreamBridgeRoot(container: AppContainer) {
     val showBottomBar = tabs.any { it.route == currentRoute }
     val pillScroll = rememberPillNavScrollState()
 
+    // Layout mode (Appearance > Layout): adaptive floating pill by default,
+    // fixed compact/expanded, or a traditional classic bar.
+    val settings by container.settingsRepository.state
+        .collectAsState(initial = SettingsState())
+    val navMode = remember(settings.navLayout) { NavLayoutMode.fromKey(settings.navLayout) }
+
+    val selectTab: (PillTab) -> Unit = { tab ->
+        if (currentRoute != tab.route) {
+            pillScroll.expand()
+            navController.navigate(tab.route) {
+                popUpTo(Routes.HOME) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
@@ -71,29 +93,30 @@ fun StreamBridgeRoot(container: AppContainer) {
                 enter = slideInVertically(animationSpec = tween(240)) { it / 2 } + fadeIn(tween(240)),
                 exit = slideOutVertically(animationSpec = tween(180)) { it / 2 } + fadeOut(tween(180))
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 10.dp),
-                    contentAlignment = Alignment.BottomCenter
-                ) {
-                    PillNavBar(
+                if (navMode == NavLayoutMode.Classic) {
+                    ClassicNavBar(
                         tabs = tabs,
                         selectedRoute = currentRoute ?: Routes.HOME,
-                        onSelect = { tab ->
-                            if (currentRoute != tab.route) {
-                                pillScroll.expand()
-                                navController.navigate(tab.route) {
-                                    popUpTo(Routes.HOME) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-                        },
+                        onSelect = selectTab
+                    )
+                } else {
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 18.dp)
-                    )
+                            .padding(bottom = 10.dp),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        PillNavBar(
+                            tabs = tabs,
+                            selectedRoute = currentRoute ?: Routes.HOME,
+                            onSelect = selectTab,
+                            scrollState = pillScroll,
+                            layoutMode = navMode,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp)
+                        )
+                    }
                 }
             }
         }
