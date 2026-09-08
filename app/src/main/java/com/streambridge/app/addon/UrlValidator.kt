@@ -28,9 +28,19 @@ object UrlValidator {
             return Result.Invalid("URL must not contain spaces")
         }
 
-        val withScheme = if (input.startsWith("http://", ignoreCase = true) ||
-            input.startsWith("https://", ignoreCase = true)
-        ) {
+        val schemeSeparator = input.indexOf("://")
+        if (schemeSeparator > 0) {
+            // An explicit scheme must be http(s); anything else (ftp, file,
+            // javascript, …) is rejected instead of being mangled by the
+            // https fallback below.
+            val explicitScheme = input.substring(0, schemeSeparator)
+                .lowercase(java.util.Locale.US)
+            if (explicitScheme != "http" && explicitScheme != "https") {
+                return Result.Invalid("Only http and https extensions are supported")
+            }
+        }
+
+        val withScheme = if (schemeSeparator > 0) {
             input
         } else {
             "https://$input"
