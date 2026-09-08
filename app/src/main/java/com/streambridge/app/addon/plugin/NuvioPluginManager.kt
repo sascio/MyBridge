@@ -245,7 +245,16 @@ fun NuvioRawStream.toStreamOption(
     provider: NuvioInstalledRepository.StoredProvider,
     repo: NuvioInstalledRepository
 ): StreamOption? {
-    val verdict = UrlValidator.validate(url)
+    // Only plain web URLs are playable; UrlValidator normalizes
+    // scheme-less input (e.g. "magnet:?..." would become a URL on some
+    // host), so the raw scheme is checked before validation.
+    val raw = url.trim()
+    if (!raw.startsWith("http://", ignoreCase = true) &&
+        !raw.startsWith("https://", ignoreCase = true)
+    ) {
+        return null
+    }
+    val verdict = UrlValidator.validate(raw)
     val playableUrl = when (verdict) {
         is UrlValidator.Result.Invalid -> null
         is UrlValidator.Result.Valid -> verdict.url

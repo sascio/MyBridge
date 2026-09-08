@@ -105,24 +105,30 @@ class NuvioPluginRuntime {
 
             bindHostFunctions(quickJs, http, fetchCount)
 
-            try {
-                quickJs.evaluate<Unit>(PRELUDE, filename = "sb-prelude.js")
-                quickJs.evaluate<Unit>(buildWrapper(code, request), filename = "provider.js")
+            // NOTE: quickjs-kt's evaluate() resolves to the script's
+            // completion value; it must be read as Any? (a Unit cast
+            // fails whenever the script ends in a non-undefined value,
+            // such as the prelude's final assignment).
+            val result = try {
+                quickJs.evaluate<Any?>(PRELUDE, filename = "sb-prelude.js")
+                quickJs.evaluate<Any?>(buildWrapper(code, request), filename = "provider.js")
+                val error = quickJs.evaluate<Any?>(
+                    "__sbOut.error == null ? '' : String(__sbOut.error)"
+                )
+                if (error is String && error.isNotBlank()) {
+                    throw NuvioPluginException(error.take(200))
+                }
+                quickJs.evaluate<Any?>(
+                    "Array.isArray(__sbOut.result) ? __sbOut.result : []"
+                )
             } catch (cancellation: kotlinx.coroutines.CancellationException) {
                 throw cancellation
             } catch (e: com.dokar.quickjs.QuickJsException) {
-                // Syntax errors, synchronous throws, timeouts: a uniform
-                // controlled failure carrying the engine's line info.
+                // Syntax errors, synchronous throws, timeouts, conversion
+                // failures: a uniform controlled failure carrying the
+                // engine's line info.
                 throw NuvioPluginException(e.message?.take(200) ?: "Provider failed to execute")
             }
-
-            val error = quickJs.evaluate<Any?>("__sbOut.error == null ? '' : String(__sbOut.error)")
-            if (error is String && error.isNotBlank()) {
-                throw NuvioPluginException(error.take(200))
-            }
-            val result = quickJs.evaluate<Any?>(
-                "Array.isArray(__sbOut.result) ? __sbOut.result : []"
-            )
             mapStreams(result)
         } finally {
             quickJs.close()

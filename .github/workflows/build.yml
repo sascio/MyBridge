@@ -101,6 +101,9 @@ jobs:
               /error:/.test(l) ||
               / FAILED$/.test(l) ||
               /AssertionError/.test(l) ||
+              /Exception/.test(l) ||
+              /Caused by/.test(l) ||
+              /LinkageError|UnsatisfiedLink|NoClassDef/.test(l) ||
               /BUILD FAILED/.test(l) ||
               /What went wrong/.test(l) ||
               /Unable to process command/.test(l) ||

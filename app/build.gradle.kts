@@ -144,6 +144,10 @@ dependencies {
 // test classpath the pure-JVM QuickJS artifact instead (same API surface).
 configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
     resolutionStrategy.dependencySubstitution {
+        // The declared KMP module and its resolved android variant both
+        // point at the pure-JVM artifact for desktop unit tests.
+        substitute(module("io.github.dokar3:quickjs-kt"))
+            .using(module("io.github.dokar3:quickjs-kt-jvm:1.0.15"))
         substitute(module("io.github.dokar3:quickjs-kt-android"))
             .using(module("io.github.dokar3:quickjs-kt-jvm:1.0.15"))
     }
