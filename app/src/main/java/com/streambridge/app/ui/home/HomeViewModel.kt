@@ -67,6 +67,9 @@ class HomeViewModel(
 
     private val refreshTrigger = MutableStateFlow(0)
 
+    /** Pull-to-refresh / retry bypass the catalog cache TTL once. */
+    private var forceNextRefresh = false
+
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
@@ -94,16 +97,29 @@ class HomeViewModel(
                             _uiState.value = HomeUiState.Loading
                         }
                         try {
-                            _uiState.value = try {
-                                val settingsSnapshot = settings.state.first()
-                                val watchedKeys = library.observeHistory(80).first()
-                                    .map { it.metaKey }
-                                    .toSet()
-                                HomeUiState.Ready(
-                                    discovery.loadHome(settingsSnapshot, watchedKeys)
+                            val settingsSnapshot = settings.state.first()
+                            val watchedKeys = library.observeHistory(80).first()
+                                .map { it.metaKey }
+                                .toSet()
+                            val force = forceNextRefresh
+                            forceNextRefresh = false
+                            // Progressive: every catalog that answers
+                            // updates the screen immediately; a slow or
+                            // dead addon can't hold Home hostage.
+                            discovery.loadHomeProgressive(
+                                settingsSnapshot,
+                                watchedKeys,
+                                force = force
+                            ).collect { data ->
+                                _uiState.value = HomeUiState.Ready(data)
+                            }
+                        } catch (e: Exception) {
+                            // Only surface a full-screen failure when we
+                            // never managed to show any content.
+                            if (_uiState.value !is HomeUiState.Ready) {
+                                _uiState.value = HomeUiState.Failed(
+                                    e.message ?: "Could not load home content"
                                 )
-                            } catch (e: Exception) {
-                                HomeUiState.Failed(e.message ?: "Could not load home content")
                             }
                         } finally {
                             _isRefreshing.value = false
@@ -126,11 +142,13 @@ class HomeViewModel(
     }
 
     fun retry() {
+        forceNextRefresh = true
         refreshTrigger.value = refreshTrigger.value + 1
     }
 
     /** Pull-to-refresh entry point (keeps current content visible). */
     fun refresh() {
+        forceNextRefresh = true
         refreshTrigger.value = refreshTrigger.value + 1
     }
 

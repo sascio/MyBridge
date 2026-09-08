@@ -38,9 +38,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.streambridge.app.addon.AddonApi
 import com.streambridge.app.addon.model.MediaItem
 import com.streambridge.app.addon.model.toMediaItem
+import com.streambridge.app.data.discovery.DiscoveryRepository
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.ui.components.ErrorState
 import com.streambridge.app.ui.components.PosterCard
@@ -66,7 +66,7 @@ sealed interface CatalogGridUiState {
  */
 class CatalogGridViewModel(
     savedStateHandle: SavedStateHandle,
-    private val api: AddonApi
+    private val discovery: DiscoveryRepository
 ) : ViewModel() {
 
     private val addonId: String = savedStateHandle.get<String>("addon") ?: ""
@@ -85,7 +85,7 @@ class CatalogGridViewModel(
         loadMore()
     }
 
-    fun loadMore() {
+    fun loadMore(force: Boolean = false) {
         val current = _state.value
         if (current is CatalogGridUiState.Failed) return
         if (current is CatalogGridUiState.Ready && (current.endReached || current.loadingMore)) return
@@ -98,7 +98,12 @@ class CatalogGridViewModel(
         }
         viewModelScope.launch {
             try {
-                val response = api.fetchCatalog(baseUrl, type, catalogId, skip = loaded)
+                // Cached + deduplicated with the rest of the app; pages
+                // are keyed by `skip`, so back-and-forth navigation does
+                // not re-download what the Home screen already fetched.
+                val response = discovery.fetchCatalogCached(
+                    baseUrl, type, catalogId, skip = loaded, force = force
+                )
                 val fresh = response.metas.map { it.toMediaItem(addonId) }
                     .filter { freshItem -> items.none { it.key == freshItem.key } }
                 items.addAll(fresh)
@@ -122,7 +127,9 @@ class CatalogGridViewModel(
         _state.value = CatalogGridUiState.Loading
         items = mutableListOf()
         loaded = 0
-        loadMore()
+        // An explicit retry must bypass the cache TTL, otherwise it can
+        // re-serve the very page that just failed.
+        loadMore(force = true)
     }
 
     companion object {
@@ -130,7 +137,7 @@ class CatalogGridViewModel(
             initializer {
                 CatalogGridViewModel(
                     savedStateHandle = this.createSavedStateHandle(),
-                    api = container.addonApi
+                    discovery = container.discoveryRepository
                 )
             }
         }

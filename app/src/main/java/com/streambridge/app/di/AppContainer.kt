@@ -56,7 +56,7 @@ class AppContainer(context: Context) {
     val mdblistClient: MdbListClient = MdbListClient(httpClient, json)
 
     val discoveryRepository: DiscoveryRepository =
-        DiscoveryRepository(addonApi, extensionManager, tmdbClient, mdblistClient)
+        DiscoveryRepository(addonApi, extensionManager, tmdbClient, mdblistClient, applicationScope)
 
     val networkMonitor: NetworkMonitor = NetworkMonitor(context)
 

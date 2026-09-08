@@ -29,6 +29,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -151,26 +152,32 @@ fun HomeScreen(
                 } else {
                     Modifier
                 }
-                LazyColumn(
-                    modifier = listModifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                val sections = state.data.sections
-                    .filterNot { section ->
+                // Derived state hoisted OUT of the LazyColumn scope:
+                // LazyListScope is not a composable scope, and these were
+                // previously re-computed on every lazy-list rebuild.
+                val sections = remember(state.data.sections, uiSettings.homeShowRecommendations) {
+                    state.data.sections.filterNot { section ->
                         section is HomeSection.Rail &&
                             section.key == "recommended" &&
                             !uiSettings.homeShowRecommendations
                     }
-                val seeAllBySection = catalogRefs.associateBy { ref ->
-                    "${ref.addonId}::${ref.catalogId}:${ref.type}"
+                }
+                val seeAllBySection = remember(catalogRefs) {
+                    catalogRefs.associateBy { ref ->
+                        "${ref.addonId}::${ref.catalogId}:${ref.type}"
+                    }
                 }
                 val posterWidth = when (uiSettings.posterSize) {
                     "small" -> 104.dp
                     "large" -> 140.dp
                     else -> 122.dp
                 }
+                LazyColumn(
+                    modifier = listModifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
                 if (sections.none { it is HomeSection.Rail || it is HomeSection.Hero }) {
                     item {
                         EmptyState(
