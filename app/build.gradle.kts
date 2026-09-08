@@ -123,6 +123,9 @@ dependencies {
 
     // Images
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Embedded JavaScript runtime for Nuvio-compatible plugins (sandboxed
+    // QuickJS; Apache-2.0, GPL-compatible). Same engine family Nuvio uses.
+    implementation("io.github.dokar3:quickjs-kt:1.0.15")
 
     // QR codes
     implementation("com.google.zxing:core:3.5.3")
@@ -131,4 +134,13 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+}
+
+// Desktop JVM unit tests cannot load the Android native library; give the
+// test classpath the pure-JVM QuickJS artifact instead (same API surface).
+configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
+    resolutionStrategy.dependencySubstitution {
+        substitute(module("io.github.dokar3:quickjs-kt-android"))
+            .using(module("io.github.dokar3:quickjs-kt-jvm:1.0.15"))
+    }
 }

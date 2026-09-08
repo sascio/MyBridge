@@ -1,0 +1,440 @@
+package com.streambridge.app.addon.plugin
+
+import com.dokar.quickjs.QuickJs
+import com.dokar.quickjs.binding.asyncFunction
+import com.dokar.quickjs.binding.function
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.Base64
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * The request handed to a Nuvio provider's getStreams().
+ *
+ * Nuvio's contract: getStreams(tmdbId, mediaType, season, episode)
+ * where mediaType is "movie" | "tv" and season/episode are 1-based
+ * numbers (null for movies).
+ */
+data class NuvioStreamRequest(
+    val tmdbId: String,
+    val mediaType: String,
+    val season: Int?,
+    val episode: Int?
+) {
+    companion object {
+        /** Maps StreamBridge's "series" onto Nuvio's "tv". */
+        fun from(type: String, tmdbId: String, season: Int?, episode: Int?): NuvioStreamRequest =
+            NuvioStreamRequest(
+                tmdbId = tmdbId,
+                mediaType = if (type.equals("series", ignoreCase = true)) "tv" else "movie",
+                season = season,
+                episode = episode
+            )
+    }
+}
+
+/** A raw stream object as returned by a provider. */
+data class NuvioRawStream(
+    val name: String,
+    val title: String,
+    val url: String,
+    val quality: String,
+    val format: String,
+    val headers: Map<String, String>
+)
+
+/**
+ * Controlled JavaScript runtime for Nuvio-compatible providers.
+ *
+ * Providers are untrusted code: every execution gets a FRESH QuickJS
+ * instance (no state sharing between providers or calls), a memory
+ * cap, a stack cap, a JavaScript busy-loop timeout and an overall
+ * call timeout, and a `fetch` whose only superpower is a plain HTTP
+ * GET/POST with per-request timeouts, a response size cap and a
+ * request-count cap. There is no file, Android or Java access — the
+ * engine exposes nothing but what is defined here. Any failure is a
+ * controlled exception, never a crash.
+ */
+class NuvioPluginRuntime {
+
+    /** Downloads provider code over HTTP with a short timeout. */
+    fun fetchProviderCode(http: OkHttpClient, codeUrl: String): String {
+        http.newCall(
+            Request.Builder()
+                .url(codeUrl)
+                .header("User-Agent", UA)
+                .build()
+        ).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw NuvioPluginException("Provider code download failed (HTTP ${response.code})")
+            }
+            val body = response.body ?: throw NuvioPluginException("Provider code response was empty")
+            val bytes = body.byteStream().use { it.readAtMost(MAX_CODE_BYTES) }
+            if (bytes.size >= MAX_CODE_BYTES) {
+                throw NuvioPluginException("Provider code exceeds the ${MAX_CODE_BYTES / 1024 / 1024} MB limit")
+            }
+            return String(bytes, Charsets.UTF_8)
+        }
+    }
+
+    /**
+     * Executes a provider module and returns its raw stream results.
+     * Runs entirely on the IO dispatcher; never blocks the main thread.
+     */
+    suspend fun execute(
+        http: OkHttpClient,
+        codeUrl: String,
+        code: String,
+        request: NuvioStreamRequest
+    ): List<NuvioRawStream> = withContext(Dispatchers.IO) {
+        val fetchCount = AtomicInteger(0)
+        val quickJs = QuickJs.create(jobDispatcher = Dispatchers.IO)
+        try {
+            quickJs.memoryLimit = MEMORY_LIMIT_BYTES
+            quickJs.maxStackSize = STACK_LIMIT_BYTES
+            // Only time spent executing JavaScript counts here; the
+            // overall wall clock is bounded by the caller's timeout.
+            quickJs.evaluationTimeoutMillis = JS_BUSY_TIMEOUT_MS
+
+            bindHostFunctions(quickJs, http, fetchCount)
+
+            try {
+                quickJs.evaluate<Unit>(PRELUDE, filename = "sb-prelude.js")
+                quickJs.evaluate<Unit>(buildWrapper(code, request), filename = "provider.js")
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (e: com.dokar.quickjs.QuickJsException) {
+                // Syntax errors, synchronous throws, timeouts: a uniform
+                // controlled failure carrying the engine's line info.
+                throw NuvioPluginException(e.message?.take(200) ?: "Provider failed to execute")
+            }
+
+            val error = quickJs.evaluate<Any?>("__sbOut.error == null ? '' : String(__sbOut.error)")
+            if (error is String && error.isNotBlank()) {
+                throw NuvioPluginException(error.take(200))
+            }
+            val result = quickJs.evaluate<Any?>(
+                "Array.isArray(__sbOut.result) ? __sbOut.result : []"
+            )
+            mapStreams(result)
+        } finally {
+            quickJs.close()
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Host bindings (the ONLY capabilities exposed to provider code)
+    // -----------------------------------------------------------------
+
+    private fun bindHostFunctions(quickJs: QuickJs, http: OkHttpClient, fetchCount: AtomicInteger) {
+        // Controlled HTTP. Plain request/response only, hard limits.
+        quickJs.asyncFunction<Any?>("__sbHttp") { args ->
+            val options = args.firstOrNull() as? Map<String, Any?> ?: emptyMap()
+            val url = options["url"]?.toString().orEmpty()
+            val method = (options["method"]?.toString() ?: "GET").uppercase()
+            val headers = (options["headers"] as? Map<String, Any?>)
+                ?.mapNotNull { (key, value) ->
+                    val name = key.toString().trim()
+                    if (name.isEmpty()) null else name to value.toString()
+                }
+                ?.toMap()
+                ?: emptyMap()
+            val body = options["body"]?.toString()
+
+            if (fetchCount.incrementAndGet() > MAX_FETCHES_PER_CALL) {
+                throw NuvioPluginException("Provider exceeded $MAX_FETCHES_PER_CALL requests per call")
+            }
+            performFetch(http, url, method, headers, body)
+        }
+
+        quickJs.function<Any?>("__sbLog") { args ->
+            val level = args.getOrNull(0)?.toString() ?: "log"
+            val message = args.getOrNull(1)?.toString() ?: ""
+            logPlugin(level, message.take(300))
+            null
+        }
+
+        quickJs.function<Any?>("__sbAtob") { args ->
+            val input = args.getOrNull(0)?.toString().orEmpty()
+            try {
+                // The MIME decoder tolerates line breaks and stray
+                // whitespace, which real-world embedded payloads contain.
+                Base64.getMimeDecoder().decode(input).toString(Charsets.ISO_8859_1)
+            } catch (_: IllegalArgumentException) {
+                throw NuvioPluginException("atob() received invalid input")
+            }
+        }
+
+        quickJs.function<Any?>("__sbBtoa") { args ->
+            val input = args.getOrNull(0)?.toString().orEmpty()
+            Base64.getEncoder().withoutPadding()
+                .encodeToString(input.toByteArray(Charsets.ISO_8859_1))
+        }
+    }
+
+    private suspend fun performFetch(
+        http: OkHttpClient,
+        url: String,
+        method: String,
+        headers: Map<String, String>,
+        body: String?
+    ): Map<String, Any?> {
+        val verdict = validateFetchUrl(url)
+        if (method != "GET" && method != "POST") {
+            throw NuvioPluginException("fetch() supports GET and POST only")
+        }
+        val builder = Request.Builder()
+            .url(verdict)
+            .header("User-Agent", UA)
+        headers.forEach { (name, value) -> builder.header(name, value) }
+        if (method == "POST") {
+            val contentType = headers.entries
+                .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }?.value
+                ?: "application/x-www-form-urlencoded"
+            builder.post(
+                okhttp3.RequestBody.create(
+                    okhttp3.MediaType.parse(contentType),
+                    (body ?: "").toByteArray(Charsets.UTF_8)
+                )
+            )
+        }
+        val built = try {
+            builder.build()
+        } catch (e: IllegalArgumentException) {
+            throw NuvioPluginException("fetch() received a malformed URL: " +
+                e.message?.take(120).orEmpty())
+        }
+        return withTimeout(FETCH_TIMEOUT_MS) {
+            http.newCall(built).execute().use { response ->
+                val body = response.body?.byteStream()?.use { input ->
+                    input.readAtMost(MAX_RESPONSE_BYTES)
+                } ?: ByteArray(0)
+                val truncated = body.size >= MAX_RESPONSE_BYTES
+                // Response headers are passed as a JSON string: the binding
+                // return path then only maps primitives (always safe).
+                val headersJson = kotlinx.serialization.json.buildJsonObject {
+                    response.headers.toMultimap().forEach { (name, values) ->
+                        put(name.lowercase(), values.firstOrNull() ?: "")
+                    }
+                }.toString()
+                mapOf(
+                    "ok" to response.isSuccessful,
+                    "status" to response.code,
+                    "statusText" to response.message,
+                    "body" to (String(body, Charsets.UTF_8) + if (truncated) TRUNCATION_NOTE else ""),
+                    "headersJson" to headersJson
+                )
+            }
+        }
+    }
+
+    private fun validateFetchUrl(raw: String): String {
+        val url = raw.trim()
+        if (url.length > 2048 || url.contains(' ') || url.contains('\n')) {
+            throw NuvioPluginException("Provider requested an invalid URL")
+        }
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            throw NuvioPluginException("Plugin fetch supports http(s) URLs only")
+        }
+        return url
+    }
+
+    // -----------------------------------------------------------------
+    // Result mapping
+    // -----------------------------------------------------------------
+
+    private fun mapStreams(result: Any?): List<NuvioRawStream> {
+        val list = result as? List<Any?> ?: return emptyList()
+        return list.mapNotNull { element ->
+            val map = element as? Map<String, Any?> ?: return@mapNotNull null
+            val url = map["url"]?.toString()?.trim().orEmpty()
+            if (url.isBlank() || !url.startsWith("http")) return@mapNotNull null
+            NuvioRawStream(
+                name = map["name"]?.toString().orEmpty(),
+                title = map["title"]?.toString().orEmpty(),
+                url = url,
+                quality = map["quality"]?.toString().orEmpty(),
+                format = map["format"]?.toString().orEmpty(),
+                headers = (map["headers"] as? Map<String, Any?>)
+                    ?.mapNotNull { (key, value) ->
+                        val name = key.toString().trim()
+                        if (name.isEmpty()) null else name to value.toString()
+                    }
+                    ?.toMap()
+                    ?: emptyMap()
+            )
+        }.take(MAX_STREAMS_PER_CALL)
+    }
+
+    // -----------------------------------------------------------------
+    // JS scaffolding
+    // -----------------------------------------------------------------
+
+    /**
+     * The CommonJS invocation wrapper. The provider file is evaluated
+     * as a classic script with `module`/`exports`/`require` in scope,
+     * then its exported getStreams() is invoked; the promise chain
+     * captures the result into __sbOut (quickjs-kt drains all pending
+     * promise jobs before evaluate() returns).
+     */
+    private fun buildWrapper(code: String, request: NuvioStreamRequest): String {
+        // The provider code is concatenated, never interpolated: real
+        // provider bundles freely use JS template literals (`${...}`),
+        // which a Kotlin template string would mangle.
+        val id = escapeJs(request.tmdbId)
+        val type = escapeJs(request.mediaType)
+        val season = request.season?.toString() ?: "null"
+        val episode = request.episode?.toString() ?: "null"
+        val head = """
+            var __sbOut = { result: null, error: null, done: false };
+            var module = { exports: {} };
+            var exports = module.exports;
+            function require(name) {
+              throw new Error("require('" + name + "') is not supported in the plugin sandbox; " +
+                "the provider file must be a self-contained bundle");
+            }
+            (function() {
+        """.trimIndent()
+        val tail = """
+            })();
+            Promise.resolve()
+              .then(function() {
+                if (!module.exports || typeof module.exports.getStreams !== "function") {
+                  throw new Error("The provider does not export getStreams(tmdbId, mediaType, season, episode)");
+                }
+                return module.exports.getStreams("$id", "$type", $season, $episode);
+              })
+              .then(function(r) { __sbOut.result = (r == null) ? [] : r; __sbOut.done = true; })
+              .catch(function(e) {
+                __sbOut.error = (e && e.message) ? String(e.message) : String(e);
+                __sbOut.done = true;
+              });
+        """.trimIndent()
+        return head + "\n" + code + "\n" + tail
+    }
+
+    /**
+     * Standard-shaped globals for provider code: console, fetch (Web
+     * API subset: ok/status/statusText/headers/text()/json()), atob,
+     * btoa and a minimal URLSearchParams. Nothing else is exposed.
+     */
+    private val PRELUDE = """
+        globalThis.console = {
+          log: function() { __sbLog("log", __sbJoin(arguments)); },
+          warn: function() { __sbLog("warn", __sbJoin(arguments)); },
+          error: function() { __sbLog("error", __sbJoin(arguments)); },
+          debug: function() { __sbLog("debug", __sbJoin(arguments)); }
+        };
+        function __sbJoin(args) {
+          var out = [];
+          for (var i = 0; i < args.length; i++) { out.push(String(args[i])); }
+          return out.join(" ");
+        }
+        globalThis.fetch = function(url, options) {
+          options = options || {};
+          var headers = {};
+          if (options.headers) {
+            for (var k in options.headers) { headers[k] = String(options.headers[k]); }
+          }
+          var body = null;
+          if (typeof options.body === "string") { body = options.body; }
+          return __sbHttp({
+            url: String(url),
+            method: options.method || "GET",
+            headers: headers,
+            body: body
+          }).then(function(r) {
+            var headers = {};
+            try { headers = JSON.parse(r.headersJson || "{}"); } catch (e) { headers = {}; }
+            return {
+              ok: !!r.ok,
+              status: r.status,
+              statusText: r.statusText || "",
+              headers: headers,
+              text: function() { return Promise.resolve(r.body || ""); },
+              json: function() { return Promise.resolve(JSON.parse(r.body || "null")); }
+            };
+          });
+        };
+        globalThis.atob = function(s) { return __sbAtob(String(s)); };
+        globalThis.btoa = function(s) { return __sbBtoa(String(s)); };
+        var URLSearchParams = function(init) {
+          this._pairs = [];
+          if (init && typeof init === "object") {
+            for (var k in init) { this._pairs.push([k, String(init[k])]); }
+          } else if (typeof init === "string" && init.length > 0) {
+            var parts = init.split("&");
+            for (var i = 0; i < parts.length; i++) {
+              var kv = parts[i].split("=");
+              this._pairs.push([decodeURIComponent(kv[0]), decodeURIComponent(kv[1] || "")]);
+            }
+          }
+        };
+        URLSearchParams.prototype.append = function(k, v) { this._pairs.push([k, String(v)]); };
+        URLSearchParams.prototype.set = function(k, v) {
+          for (var i = 0; i < this._pairs.length; i++) {
+            if (this._pairs[i][0] === k) { this._pairs[i][1] = String(v); return; }
+          }
+          this.append(k, v);
+        };
+        URLSearchParams.prototype.get = function(k) {
+          for (var i = 0; i < this._pairs.length; i++) {
+            if (this._pairs[i][0] === k) { return this._pairs[i][1]; }
+          }
+          return null;
+        };
+        URLSearchParams.prototype.toString = function() {
+          var out = [];
+          for (var i = 0; i < this._pairs.length; i++) {
+            out.push(encodeURIComponent(this._pairs[i][0]) + "=" + encodeURIComponent(this._pairs[i][1]));
+          }
+          return out.join("&");
+        };
+        globalThis.URLSearchParams = URLSearchParams;
+    """.trimIndent()
+
+    private fun escapeJs(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
+
+    /** Reads at most [max] bytes (bounds memory for untrusted bodies). */
+    private fun java.io.InputStream.readAtMost(max: Int): ByteArray {
+        val buffer = ByteArray(minOf(max + 1, 1 shl 16))
+        val out = java.io.ByteArrayOutputStream()
+        while (true) {
+            val read = this.read(buffer)
+            if (read < 0) break
+            out.write(buffer, 0, read)
+            if (out.size() > max) return out.toByteArray()
+        }
+        return out.toByteArray()
+    }
+
+    companion object {
+        private const val UA = "Mozilla/5.0 (Linux; Android 14) StreamBridge/1.0"
+        private const val MEMORY_LIMIT_BYTES = 128L * 1024 * 1024
+        private const val STACK_LIMIT_BYTES = 1024L * 1024
+        private const val JS_BUSY_TIMEOUT_MS = 30_000L
+        private const val FETCH_TIMEOUT_MS = 15_000L
+        private const val MAX_FETCHES_PER_CALL = 80
+        private const val MAX_RESPONSE_BYTES = 10 * 1024 * 1024
+        private const val MAX_CODE_BYTES = 8 * 1024 * 1024
+        private const val MAX_STREAMS_PER_CALL = 40
+        private const val TRUNCATION_NOTE = "\n<!-- response truncated by the plugin sandbox -->"
+    }
+}
+
+/** Controlled plugin failure — always reported, never a crash. */
+class NuvioPluginException(message: String) : Exception(message)
+
+/** Logs without crashing when android.util.Log is unavailable (JVM tests). */
+internal fun logPlugin(level: String, message: String) {
+    try {
+        android.util.Log.d("NuvioPlugin", "[${'$'}level] ${'$'}message")
+    } catch (_: Throwable) {
+        // Unit tests / non-Android environments: Log is not available.
+        println("[NuvioPlugin:${'$'}level] ${'$'}message")
+    }
+}
