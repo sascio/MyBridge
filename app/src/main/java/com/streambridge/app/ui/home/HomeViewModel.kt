@@ -55,6 +55,9 @@ class HomeViewModel(
 
     private val refreshTrigger = MutableStateFlow(0)
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     init {
         viewModelScope.launch {
             combine(
@@ -72,17 +75,26 @@ class HomeViewModel(
                     if (extensions.none { it.supportsCatalog }) {
                         _uiState.value = HomeUiState.NoExtensions
                     } else {
-                        _uiState.value = HomeUiState.Loading
-                        _uiState.value = try {
-                            val settingsSnapshot = settings.state.first()
-                            val watchedKeys = library.observeHistory(80).first()
-                                .map { it.metaKey }
-                                .toSet()
-                            HomeUiState.Ready(
-                                discovery.loadHome(settingsSnapshot, watchedKeys)
-                            )
-                        } catch (e: Exception) {
-                            HomeUiState.Failed(e.message ?: "Could not load home content")
+                        // Keep the current content on screen while a
+                        // refresh is in flight (no full-screen flash).
+                        _isRefreshing.value = true
+                        if (_uiState.value !is HomeUiState.Ready) {
+                            _uiState.value = HomeUiState.Loading
+                        }
+                        try {
+                            _uiState.value = try {
+                                val settingsSnapshot = settings.state.first()
+                                val watchedKeys = library.observeHistory(80).first()
+                                    .map { it.metaKey }
+                                    .toSet()
+                                HomeUiState.Ready(
+                                    discovery.loadHome(settingsSnapshot, watchedKeys)
+                                )
+                            } catch (e: Exception) {
+                                HomeUiState.Failed(e.message ?: "Could not load home content")
+                            }
+                        } finally {
+                            _isRefreshing.value = false
                         }
                     }
                 }
@@ -102,6 +114,11 @@ class HomeViewModel(
     }
 
     fun retry() {
+        refreshTrigger.value = refreshTrigger.value + 1
+    }
+
+    /** Pull-to-refresh entry point (keeps current content visible). */
+    fun refresh() {
         refreshTrigger.value = refreshTrigger.value + 1
     }
 

@@ -75,6 +75,9 @@ import com.streambridge.app.player.PlayerEvent
 import com.streambridge.app.player.PlayerPhase
 import com.streambridge.app.player.PlayerViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.map
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -87,7 +90,6 @@ fun PlayerScreen(
     val vm: PlayerViewModel = viewModel(factory = PlayerViewModel.factory(container, appContext))
 
     val phase by vm.phase.collectAsStateWithLifecycle()
-    val playback by vm.playback.collectAsStateWithLifecycle()
     val request by vm.currentRequest.collectAsStateWithLifecycle()
     val sourceLabel by vm.sourceLabel.collectAsStateWithLifecycle()
     val showPicker by vm.showPicker.collectAsStateWithLifecycle()
@@ -132,11 +134,14 @@ fun PlayerScreen(
         }
     }
 
-    // Ended -> persist + autoplay next.
-    LaunchedEffect(playback.ended) {
-        if (playback.ended) {
-            vm.onPlaybackEnded()
-        }
+    // Ended -> persist + autoplay next. Observed as a cold flow so the
+    // 500 ms progress ticker never recomposes this whole screen.
+    LaunchedEffect(Unit) {
+        vm.playback
+            .map { it.ended }
+            .distinctUntilChanged()
+            .filter { it }
+            .collect { vm.onPlaybackEnded() }
     }
 
     // Persist progress when the app goes to the background.
@@ -210,7 +215,6 @@ fun PlayerScreen(
 
             is PlayerPhase.Playing -> PlayerControls(
                 vm = vm,
-                playback = playback,
                 request = request,
                 sourceLabel = sourceLabel,
                 hasNext = vm.hasNextEpisode,
@@ -290,13 +294,16 @@ private fun CenterCaption(
 @Composable
 private fun PlayerControls(
     vm: PlayerViewModel,
-    playback: com.streambridge.app.player.PlaybackUiState,
     request: com.streambridge.app.player.PlaybackRequest,
     sourceLabel: String,
     hasNext: Boolean,
     hasPrevious: Boolean,
     onBack: () -> Unit
 ) {
+    // Collected here (not at screen level) so the 500 ms ticker only
+    // recomposes these controls, never the whole player screen.
+    val playback by vm.playback.collectAsStateWithLifecycle()
+
     var controlsVisible by remember { mutableStateOf(true) }
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableStateOf(0f) }

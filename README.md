@@ -91,8 +91,10 @@ About & credits
 
 1. Go to the **Actions** tab of this repository
 2. Open the latest successful **Build Stream Bridge** run
-3. Download the **`Stream-Bridge-debug-APK`** artifact
-4. Unzip it and install `app-debug.apk` on your Android 8.0+ device
+3. Download the **`Stream-Bridge-release-APK`** artifact — this is the
+   optimized (R8, resource-shrunk) build and the one you should install
+   (a `Stream-Bridge-debug-APK` is also available for debugging)
+4. Unzip it and install `app-release.apk` on your Android 8.0+ device
    (enable "install unknown apps" if asked)
 
 ## Building from source

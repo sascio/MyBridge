@@ -37,9 +37,16 @@ jobs:
         run: |
           echo "::add-matcher::.github/problem-matchers.json"
           set -o pipefail
-          ./gradlew testDebugUnitTest assembleDebug --continue --stacktrace 2>&1 | tee gradle-build.log
+          ./gradlew testDebugUnitTest assembleDebug assembleRelease --continue --stacktrace 2>&1 | tee gradle-build.log
 
-      - name: Upload APK artifact
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stream-Bridge-release-APK
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Stream-Bridge-debug-APK

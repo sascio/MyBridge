@@ -24,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -62,6 +63,7 @@ fun HomeScreen(
     val uiState by vm.uiState.collectAsStateWithLifecycle()
     val continueWatching by vm.continueWatching.collectAsStateWithLifecycle()
     val recentlyAdded by vm.recentlyAdded.collectAsStateWithLifecycle()
+    val isRefreshing by vm.isRefreshing.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -103,6 +105,11 @@ fun HomeScreen(
             )
         }
     ) { padding ->
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { if (uiState !is HomeUiState.Loading) vm.refresh() },
+            modifier = Modifier.fillMaxSize()
+        ) {
         when (val state = uiState) {
             HomeUiState.NoExtensions -> EmptyState(
                 iconRes = R.drawable.ic_empty_extensions,
@@ -223,6 +230,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 }
