@@ -6,29 +6,26 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmarks
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Bookmarks
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -38,6 +35,9 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.ui.browse.BrowseScreen
+import com.streambridge.app.ui.components.PillNavBar
+import com.streambridge.app.ui.components.PillTab
+import com.streambridge.app.ui.components.rememberPillNavScrollState
 import com.streambridge.app.ui.details.DetailScreen
 import com.streambridge.app.ui.extensions.ExtensionsScreen
 import com.streambridge.app.ui.home.HomeScreen
@@ -46,18 +46,11 @@ import com.streambridge.app.ui.player.PlayerScreen
 import com.streambridge.app.ui.search.SearchScreen
 import com.streambridge.app.ui.settings.SettingsScreen
 
-private data class TabSpec(
-    val route: String,
-    val label: String,
-    val icon: ImageVector,
-    val selectedIcon: ImageVector
-)
-
 private val tabs = listOf(
-    TabSpec(Routes.HOME, "Home", Icons.Outlined.Home, Icons.Filled.Home),
-    TabSpec(Routes.SEARCH, "Search", Icons.Outlined.Search, Icons.Filled.Search),
-    TabSpec(Routes.LIBRARY, "Library", Icons.Outlined.Bookmarks, Icons.Filled.Bookmarks),
-    TabSpec(Routes.SETTINGS, "Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
+    PillTab(Routes.HOME, "Home", Icons.Outlined.Home, Icons.Filled.Home),
+    PillTab(Routes.SEARCH, "Search", Icons.Outlined.Search, Icons.Filled.Search),
+    PillTab(Routes.LIBRARY, "Library", Icons.Outlined.Bookmarks, Icons.Filled.Bookmarks),
+    PillTab(Routes.SETTINGS, "Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
 )
 
 @Composable
@@ -66,48 +59,39 @@ fun StreamBridgeRoot(container: AppContainer) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = tabs.any { it.route == currentRoute }
+    val pillScroll = rememberPillNavScrollState()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             AnimatedVisibility(
                 visible = showBottomBar,
-                enter = slideInVertically(animationSpec = tween(220)) { it } + fadeIn(tween(220)),
-                exit = slideOutVertically(animationSpec = tween(180)) { it } + fadeOut(tween(180))
+                enter = slideInVertically(animationSpec = tween(240)) { it / 2 } + fadeIn(tween(240)),
+                exit = slideOutVertically(animationSpec = tween(180)) { it / 2 } + fadeOut(tween(180))
             ) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    tabs.forEach { tab ->
-                        val selected = currentRoute == tab.route
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                if (!selected) {
-                                    navController.navigate(tab.route) {
-                                        popUpTo(Routes.HOME) { saveState = true }
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    PillNavBar(
+                        tabs = tabs,
+                        selectedRoute = currentRoute ?: Routes.HOME,
+                        onSelect = { tab ->
+                            if (currentRoute != tab.route) {
+                                pillScroll.expand()
+                                navController.navigate(tab.route) {
+                                    popUpTo(Routes.HOME) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
                                 }
-                            },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selected) tab.selectedIcon else tab.icon,
-                                    contentDescription = tab.label
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = tab.label,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                indicatorColor = MaterialTheme.colorScheme.primaryContainer
-                            )
-                        )
-                    }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp)
+                    )
                 }
             }
         }
@@ -123,11 +107,15 @@ fun StreamBridgeRoot(container: AppContainer) {
                 .padding(padding)
         }
 
-        StreamBridgeNavHost(
-            navController = navController,
-            container = container,
-            modifier = navModifier
-        )
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.streambridge.app.ui.components.LocalPillNavScroll provides pillScroll
+        ) {
+            StreamBridgeNavHost(
+                navController = navController,
+                container = container,
+                modifier = navModifier
+            )
+        }
     }
 }
 
@@ -153,7 +141,28 @@ private fun StreamBridgeNavHost(
                 onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) },
                 onOpenSearch = { navController.navigate(Routes.SEARCH) { launchSingleTop = true } },
                 onResumePlayback = { entry -> navController.navigate(Nav.resumePlayback(entry)) },
-                onBrowseGenre = { genre -> navController.navigate(Nav.browse(genre)) }
+                onBrowseGenre = { genre -> navController.navigate(Nav.browse(genre)) },
+                onPlayItem = { item ->
+                    if (item.type == "movie") {
+                        // Movies can go straight to the player, which resolves
+                        // streams itself; series need episode selection first.
+                        val request = com.streambridge.app.player.PlaybackRequest(
+                            type = "movie",
+                            metaId = item.id,
+                            metaName = item.name,
+                            imdbId = item.imdbId,
+                            poster = item.poster,
+                            backdrop = item.backdrop,
+                            videoId = item.id,
+                            season = 0,
+                            episode = 0,
+                            episodeTitle = null
+                        )
+                        navController.navigate(Nav.player(request))
+                    } else {
+                        navController.navigate(Nav.detail(item))
+                    }
+                }
             )
         }
 
@@ -176,7 +185,25 @@ private fun StreamBridgeNavHost(
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 container = container,
-                onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) }
+                page = "root",
+                onOpenPage = { page -> navController.navigate(Nav.settingsPage(page)) },
+                onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Routes.SETTINGS_PAGE,
+            arguments = listOf(
+                navArgument("page") { type = NavType.StringType; defaultValue = "root" }
+            )
+        ) { entry ->
+            SettingsScreen(
+                container = container,
+                page = entry.arguments?.getString("page") ?: "root",
+                onOpenPage = { page -> navController.navigate(Nav.settingsPage(page)) },
+                onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) },
+                onBack = { navController.popBackStack() }
             )
         }
 

@@ -60,7 +60,7 @@ fun PosterCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             if (!item.poster.isNullOrBlank()) {
@@ -96,9 +96,9 @@ fun PosterCard(
                 val rating = item.rating ?: badgeText
                 if (!rating.isNullOrBlank()) {
                     Surface(
-                        color = Color(0xCC14121C),
-                        contentColor = Color(0xFFFFD166),
-                        shape = RoundedCornerShape(8.dp)
+                        color = Color(0xCC141414),
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(percent = 50)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),

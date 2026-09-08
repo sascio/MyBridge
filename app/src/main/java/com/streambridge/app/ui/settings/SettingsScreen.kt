@@ -2,11 +2,14 @@ package com.streambridge.app.ui.settings
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,16 +20,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OndemandVideo
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.Settings as SettingsIcon
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,20 +47,25 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,6 +82,7 @@ import com.streambridge.app.server.BridgeServerState
 import com.streambridge.app.server.ServerManager
 import com.streambridge.app.ui.components.QrCode
 import com.streambridge.app.ui.theme.AccentTheme
+import com.streambridge.app.ui.theme.PillShape
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -107,8 +123,7 @@ class SettingsViewModel(
     fun setMdblistEnabled(value: Boolean) =
         viewModelScope.launch { settingsRepository.setMdblistEnabled(value) }
 
-    fun setMdblistKey(value: String) =
-        viewModelScope.launch { settingsRepository.setMdblistApiKey(value) }
+    fun setMdblistKey(value: String) = viewModelScope.launch { settingsRepository.setMdblistApiKey(value) }
 
     fun setServerEnabled(value: Boolean) =
         viewModelScope.launch { settingsRepository.setServerEnabled(value) }
@@ -130,23 +145,75 @@ class SettingsViewModel(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Settings hub: a root page linking to focused sub-pages, plus the
+ * full-screen extension manager.
+ */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
-    onOpenExtensions: () -> Unit
+    page: String,
+    onOpenPage: (String) -> Unit,
+    onOpenExtensions: () -> Unit,
+    onBack: () -> Unit
 ) {
     val vm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(container))
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val serverState by vm.serverState.collectAsStateWithLifecycle()
-    val connected by vm.networkConnected.collectAsStateWithLifecycle()
+
+    when (page) {
+        "appearance" -> SettingsSubPage(title = "Appearance", onBack = onBack) {
+            AppearanceContent(settings = settings, vm = vm)
+        }
+
+        "playback" -> SettingsSubPage(title = "Playback", onBack = onBack) {
+            PlaybackContent(settings = settings, vm = vm)
+        }
+
+        "integrations" -> SettingsSubPage(title = "Integrations", onBack = onBack) {
+            IntegrationsContent(settings = settings, vm = vm)
+        }
+
+        "network" -> SettingsSubPage(title = "Network & LAN bridge", onBack = onBack) {
+            NetworkContent(vm = vm)
+        }
+
+        "about" -> SettingsSubPage(title = "About", onBack = onBack) {
+            AboutContent()
+        }
+
+        else -> SettingsRootContent(
+            vm = vm,
+            onOpenPage = onOpenPage,
+            onOpenExtensions = onOpenExtensions
+        )
+    }
+}
+
+// ---------------------------------------------------------------------
+// Root
+// ---------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsRootContent(
+    vm: SettingsViewModel,
+    onOpenPage: (String) -> Unit,
+    onOpenExtensions: () -> Unit
+) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val extensionCount by vm.extensionCount.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Settings", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        text = "Settings",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
                 )
@@ -159,264 +226,588 @@ fun SettingsScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            SettingsCard(title = "Appearance") {
-                Text(
-                    text = "Accent color",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AccentTheme.entries.forEach { accent ->
-                        val selected = settings.accent == accent.key
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .background(accent.primary, CircleShape)
-                                .clickable { vm.setAccent(accent.key) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (selected) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .background(MaterialTheme.colorScheme.background, CircleShape)
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(14.dp))
-                ToggleRow(
-                    title = "Pure black background",
-                    subtitle = "OLED-friendly true black surfaces",
-                    checked = settings.pureBlack,
-                    onChecked = vm::setPureBlack
-                )
-            }
-
-            SettingsCard(title = "Playback") {
-                ToggleRow(
-                    title = "Autoplay next episode",
-                    subtitle = "Start the next episode when one finishes",
-                    checked = settings.autoplayNext,
-                    onChecked = vm::setAutoplayNext
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                    text = "Mark as watched at ${settings.watchedThresholdPercent}%",
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Slider(
-                    value = settings.watchedThresholdPercent.toFloat(),
-                    onValueChange = { vm.setWatchedThreshold(it.toInt()) },
-                    valueRange = 50f..99f
-                )
-                Text(
-                    text = "Playback progress above this percentage hides the item from Continue Watching.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            SettingsCard(title = "Extensions") {
+            val accent = com.streambridge.app.ui.theme.LocalAccent.current
+            // Brand banner
+            Surface(
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Extension,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Column(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(accent.gradient))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.SettingsIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
                         Text(
-                            text = "$extensionCount installed",
-                            style = MaterialTheme.typography.titleSmall
+                            text = "Stream Bridge",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black
                         )
                         Text(
-                            text = "Manage the addons that power Stream Bridge",
+                            text = "Your media, your bridges",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    TextButton(onClick = onOpenExtensions) { Text(text = "Open") }
                 }
             }
 
-            SettingsCard(title = "Integrations") {
-                Text(
-                    text = "Optional. Disabled by default. Keys are stored only on this device " +
-                        "and are never bundled with the app.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                IntegrationSection(
-                    name = "TMDB",
-                    description = "Trending & popular rails, search and metadata",
-                    enabled = settings.tmdbEnabled,
-                    keyValue = settings.tmdbApiKey,
-                    enabledValid = settings.tmdbApiKey.isNotBlank(),
-                    signupUrl = "https://www.themoviedb.org/settings/api",
-                    onEnabled = vm::setTmdbEnabled,
-                    onKey = vm::setTmdbKey
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                IntegrationSection(
-                    name = "MDBList",
-                    description = "Your MDBList lists appear as Home rails",
-                    enabled = settings.mdblistEnabled,
-                    keyValue = settings.mdblistApiKey,
-                    enabledValid = settings.mdblistApiKey.isNotBlank(),
-                    signupUrl = "https://mdblist.com/preferences/",
-                    onEnabled = vm::setMdblistEnabled,
-                    onKey = vm::setMdblistKey
-                )
-            }
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Appearance",
+                subtitle = "Accent color, pure black mode",
+                onClick = { onOpenPage("appearance") }
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.OndemandVideo, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Playback",
+                subtitle = "Autoplay, watched threshold",
+                onClick = { onOpenPage("playback") }
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Extensions",
+                subtitle = if (extensionCount == 0) {
+                    "None installed yet"
+                } else {
+                    "$extensionCount installed"
+                },
+                onClick = onOpenExtensions
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.CloudQueue, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Integrations",
+                subtitle = "TMDB, MDBList (off by default)",
+                onClick = { onOpenPage("integrations") }
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Wifi, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "Network & LAN bridge",
+                subtitle = "Share your addons over Wi-Fi",
+                onClick = { onOpenPage("network") }
+            )
+            SettingsLinkCard(
+                icon = { Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = "About",
+                subtitle = "Version, credits, licenses",
+                onClick = { onOpenPage("about") }
+            )
 
-            SettingsCard(title = "Network & LAN bridge") {
-                Text(
-                    text = "Expose your installed extensions as one Stremio-compatible addon " +
-                        "on your local network. Other devices (TV, desktop) can add it by URL or QR code.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// Sub-pages
+// ---------------------------------------------------------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSubPage(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
+                title = {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                ToggleRow(
-                    title = "LAN bridge server",
-                    subtitle = if (connected) "Wi-Fi / network connected" else "No network connection",
-                    checked = settings.serverEnabled,
-                    onChecked = vm::setServerEnabled
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                var portText by remember(settings.serverPort) {
-                    mutableStateOf(if (settings.serverPort == 0) "" else settings.serverPort.toString())
-                }
-                OutlinedTextField(
-                    value = portText,
-                    onValueChange = { value ->
-                        portText = value.filter { it.isDigit() }.take(5)
-                    },
-                    label = { Text(text = "Port (empty = automatic)") },
-                    singleLine = true,
-                    trailingIcon = {
-                        TextButton(onClick = {
-                            val port = portText.toIntOrNull() ?: 0
-                            vm.setServerPort(port)
-                        }) { Text(text = "Apply") }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                if (settings.serverEnabled) {
-                    if (serverState.running && serverState.addonUrl != null) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = "Bridge is live",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                QrCode(content = serverState.addonUrl ?: "")
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = serverState.addonUrl ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-                                ServerUrlActions(url = serverState.addonUrl ?: "")
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "${serverState.requestCount} requests served · port ${serverState.port}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = serverState.lastError ?: "Starting bridge…",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            content()
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AppearanceContent(settings: SettingsState, vm: SettingsViewModel) {
+    SettingsGroupCard(title = "Accent color") {
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            AccentTheme.entries.forEach { accent ->
+                val selected = settings.accent == accent.key
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(accent.gradient))
+                            .clickable { vm.setAccent(accent.key) },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selected) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = accent.label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+                    )
                 }
             }
+        }
+    }
 
-            SettingsCard(title = "About") {
-                Text(
-                    text = "Stream Bridge 1.0.0",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "A cinematic, extension-driven media client. Stream Bridge provides no " +
-                        "content of its own — everything comes from extensions you choose to install.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Credits",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Built with Jetpack Compose, Media3 / ExoPlayer, Room, DataStore, " +
-                        "OkHttp, kotlinx.serialization, Coil and ZXing. Compatible with the " +
-                        "open Stremio addon protocol. All Stream Bridge code, branding and " +
-                        "artwork are original.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Use only content you are legally entitled to access. " +
-                        "Stream Bridge does not bundle, host or recommend any content source.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+    SettingsGroupCard(title = "Theme") {
+        SwitchSettingRow(
+            title = "Pure black (OLED)",
+            subtitle = "True black background, saves power on OLED panels",
+            checked = settings.pureBlack,
+            onCheckedChange = vm::setPureBlack
+        )
+    }
+}
 
-            Spacer(modifier = Modifier.height(24.dp))
+@Composable
+private fun PlaybackContent(settings: SettingsState, vm: SettingsViewModel) {
+    SettingsGroupCard(title = "Episodes") {
+        SwitchSettingRow(
+            title = "Autoplay next episode",
+            subtitle = "Start the next episode when one ends",
+            checked = settings.autoplayNext,
+            onCheckedChange = vm::setAutoplayNext
+        )
+    }
+    SettingsGroupCard(title = "Watched threshold") {
+        Text(
+            text = "Mark a title as watched at ${settings.watchedThresholdPercent}% progress",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Slider(
+            value = settings.watchedThresholdPercent.toFloat(),
+            onValueChange = { vm.setWatchedThreshold(it.toInt()) },
+            valueRange = 70f..99f,
+            steps = 28
+        )
+    }
+}
+
+@Composable
+private fun IntegrationsContent(settings: SettingsState, vm: SettingsViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    Text(
+        text = "Both integrations are optional and OFF by default. Stream Bridge " +
+            "works fully without them. Keys are stored only on this device.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    SettingsGroupCard(title = "TMDB") {
+        SwitchSettingRow(
+            title = "Enable TMDB",
+            subtitle = "Trending & popular rails, richer search",
+            checked = settings.tmdbEnabled,
+            onCheckedChange = vm::setTmdbEnabled
+        )
+        if (settings.tmdbEnabled) {
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = settings.tmdbApiKey,
+                onValueChange = vm::setTmdbKey,
+                label = { Text("TMDB API key") },
+                placeholder = { Text("Paste your key") },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextButtonRow(
+                label = "Get a free key at themoviedb.org",
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://www.themoviedb.org/settings/api"))
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    SettingsGroupCard(title = "MDBList") {
+        SwitchSettingRow(
+            title = "Enable MDBList",
+            subtitle = "Your MDBList lists as Home rails",
+            checked = settings.mdblistEnabled,
+            onCheckedChange = vm::setMdblistEnabled
+        )
+        if (settings.mdblistEnabled) {
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedTextField(
+                value = settings.mdblistApiKey,
+                onValueChange = vm::setMdblistKey,
+                label = { Text("MDBList API key") },
+                placeholder = { Text("Paste your key") },
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth()
+            )
+            TextButtonRow(
+                label = "Get a free key at mdblist.com/api",
+                onClick = {
+                    runCatching {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse("https://mdblist.com/api/"))
+                        )
+                    }
+                }
+            )
         }
     }
 }
 
 @Composable
-private fun SettingsCard(title: String, content: @Composable () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+private fun NetworkContent(vm: SettingsViewModel) {
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val serverState by vm.serverState.collectAsStateWithLifecycle()
+    val connected by vm.networkConnected.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
+    var portText by remember(settings.serverPort) {
+        mutableStateOf(if (settings.serverPort == 0) "" else settings.serverPort.toString())
+    }
+
+    SettingsGroupCard(title = "LAN bridge server") {
+        SwitchSettingRow(
+            title = "Share over Wi-Fi",
+            subtitle = "Expose your extensions as one Stremio-compatible addon",
+            checked = settings.serverEnabled,
+            onCheckedChange = vm::setServerEnabled
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        OutlinedTextField(
+            value = portText,
+            onValueChange = { text ->
+                portText = text.filter { it.isDigit() }.take(5)
+                vm.setServerPort(portText.toIntOrNull() ?: 0)
+            },
+            label = { Text("Port (empty = automatic)") },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (!connected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "You appear to be offline — the bridge will update when the network returns.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+
+    if (serverState.running) {
+        SettingsGroupCard(title = "Bridge running") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(com.streambridge.app.ui.theme.SbSuccess)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Available on your network",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            val addonUrl = serverState.addonUrl ?: ""
+            if (addonUrl.isNotBlank()) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = PillShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = addonUrl,
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    androidx.compose.material3.FilledTonalButton(
+                        onClick = { clipboard.setText(AnnotatedString(addonUrl)) },
+                        shape = PillShape
+                    ) {
+                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Copy")
+                    }
+                    androidx.compose.material3.FilledTonalButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent.createChooser(
+                                        Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, addonUrl)
+                                        },
+                                        "Share bridge URL"
+                                    )
+                                )
+                            }
+                        },
+                        shape = PillShape
+                    ) {
+                        Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Share")
+                    }
+                }
+                Spacer(modifier = Modifier.height(18.dp))
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Filled.QrCode2,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        QrCode(content = addonUrl, size = 180.dp)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Scan on another device to add this bridge",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    } else if (settings.serverEnabled) {
+        SettingsGroupCard(title = "Starting…") {
+            Text(
+                text = serverState.lastError ?: "The bridge is starting…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (serverState.lastError != null) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AboutContent() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val version = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "1.0"
+    }
+
+    val accent = com.streambridge.app.ui.theme.LocalAccent.current
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(accent.gradient))
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.SettingsIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Stream Bridge",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                text = "Version $version",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    SettingsGroupCard(title = "How it works") {
+        Text(
+            text = "Stream Bridge ships completely empty: no catalogs, no metadata, " +
+                "no streams and no providers are bundled. Everything you see comes " +
+                "from Stremio-compatible extensions you install yourself, and the " +
+                "app works offline with your local library.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+
+    SettingsGroupCard(title = "Credits") {
+        Text(
+            text = "Built with Jetpack Compose, Media3 / ExoPlayer, Room, DataStore, " +
+                "OkHttp, kotlinx.serialization, Coil and ZXing. Stream Bridge " +
+                "implements the open Stremio addon protocol and is an independent " +
+                "project with original code, branding and artwork.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        TextButtonRow(
+            label = "View source on GitHub",
+            onClick = {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/sascio/MyBridge"))
+                    )
+                }
+            }
+        )
+    }
+
+    SettingsGroupCard(title = "Disclaimer") {
+        Text(
+            text = "Stream Bridge provides no content of its own and does not host, " +
+                "bundle or recommend any content source. Use only content you are " +
+                "legally entitled to access.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+// ---------------------------------------------------------------------
+// Shared building blocks
+// ---------------------------------------------------------------------
+
+@Composable
+private fun SettingsLinkCard(
+    icon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            icon()
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsGroupCard(
+    title: String,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(12.dp))
             content()
@@ -425,149 +816,34 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ToggleRow(
+private fun SwitchSettingRow(
     title: String,
-    subtitle: String?,
+    subtitle: String,
     checked: Boolean,
-    onChecked: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, style = MaterialTheme.typography.titleSmall)
-            if (!subtitle.isNullOrBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        Switch(checked = checked, onCheckedChange = onChecked)
-    }
-}
-
-@Composable
-private fun IntegrationSection(
-    name: String,
-    description: String,
-    enabled: Boolean,
-    keyValue: String,
-    enabledValid: Boolean,
-    signupUrl: String,
-    onEnabled: (Boolean) -> Unit,
-    onKey: (String) -> Unit
-) {
-    val context = LocalContext.current
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(checked = enabled, onCheckedChange = onEnabled)
-        }
-        if (enabled) {
-            Spacer(modifier = Modifier.height(8.dp))
-            var key by remember(keyValue) { mutableStateOf(keyValue) }
-            OutlinedTextField(
-                value = key,
-                onValueChange = { key = it },
-                label = { Text(text = "$name API key") },
-                singleLine = true,
-                trailingIcon = {
-                    TextButton(onClick = { onKey(key) }) { Text(text = "Save") }
-                },
-                supportingText = {
-                    Text(
-                        text = if (enabledValid && keyValue.isNotBlank()) {
-                            "Key saved on this device"
-                        } else {
-                            "Enter your own API key to activate"
-                        }
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
             )
-            TextButton(onClick = {
-                try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(signupUrl)))
-                } catch (_: Exception) {
-                }
-            }) {
-                Icon(
-                    imageVector = Icons.Filled.OpenInNew,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Get an API key")
-            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
 @Composable
-private fun ServerUrlActions(url: String) {
-    val clipboard = LocalClipboardManager.current
-    val context = LocalContext.current
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            modifier = Modifier.clickable {
-                clipboard.setText(AnnotatedString(url))
-            }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ContentCopy,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Copy URL", style = MaterialTheme.typography.labelLarge)
-            }
-        }
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.clickable {
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(
-                        Intent.EXTRA_TEXT,
-                        "Add my Stream Bridge addon: $url"
-                    )
-                }
-                try {
-                    context.startActivity(Intent.createChooser(send, "Share bridge URL"))
-                } catch (_: Exception) {
-                }
-            }
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Share,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Share", style = MaterialTheme.typography.labelLarge)
-            }
-        }
+private fun TextButtonRow(label: String, onClick: () -> Unit) {
+    Spacer(modifier = Modifier.height(6.dp))
+    androidx.compose.material3.TextButton(onClick = onClick) {
+        Text(text = label, color = MaterialTheme.colorScheme.primary)
     }
 }

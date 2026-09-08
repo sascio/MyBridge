@@ -17,7 +17,7 @@ private val Context.settingsDataStore by preferencesDataStore(name = "stream_bri
  * device inside DataStore.
  */
 data class SettingsState(
-    val accent: String = "violet",
+    val accent: String = "gold",
     val pureBlack: Boolean = false,
     val autoplayNext: Boolean = true,
     val watchedThresholdPercent: Int = 95,

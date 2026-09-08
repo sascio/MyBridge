@@ -17,10 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -43,16 +42,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.streambridge.app.addon.model.MediaItem
+import com.streambridge.app.ui.theme.LocalAccent
 import kotlinx.coroutines.delay
 
 /**
- * Cinematic hero banner: auto-rotating backdrop, gradient scrim,
- * title, meta line and a primary action.
+ * Cinematic hero banner: auto-rotating backdrop with a deep gradient
+ * scrim, title, meta line, accent-gradient play button, capsule info
+ * button and page dots.
  */
 @Composable
 fun Hero(
     items: List<MediaItem>,
     modifier: Modifier = Modifier,
+    onPlay: (MediaItem) -> Unit,
     onOpenDetails: (MediaItem) -> Unit
 ) {
     if (items.isEmpty()) return
@@ -64,24 +66,18 @@ fun Hero(
         }
     }
     val item = items[index.coerceIn(0, items.lastIndex)]
+    val accent = LocalAccent.current
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(430.dp)
-            .clickable { onOpenDetails(item) }
+            .height(440.dp)
     ) {
         Crossfade(targetState = item, label = "hero") { current ->
-            if (!current.backdrop.isNullOrBlank()) {
+            val artwork = current.backdrop ?: current.poster
+            if (!artwork.isNullOrBlank()) {
                 AsyncImage(
-                    model = current.backdrop,
-                    contentDescription = current.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else if (!current.poster.isNullOrBlank()) {
-                AsyncImage(
-                    model = current.poster,
+                    model = artwork,
                     contentDescription = current.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -102,15 +98,16 @@ fun Hero(
             }
         }
 
+        // Scrims: bottom anchor gradient + subtle top shade for status bar.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         0f to Color(0x66000000),
-                        0.45f to Color.Transparent,
-                        0.75f to Color(0xCC070609),
-                        1f to Color(0xFF0B0A10)
+                        0.35f to Color.Transparent,
+                        0.62f to Color(0x59000000),
+                        1f to Color(0xF2050505)
                     )
                 )
         )
@@ -119,91 +116,135 @@ fun Hero(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 22.dp)
+                .padding(horizontal = 22.dp)
+                .padding(bottom = 18.dp)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = if (item.isSeries) "SERIES" else "MOVIE",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
-                }
-                item.rating?.let { rating ->
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Icon(
-                        imageVector = Icons.Filled.Star,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD166),
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = rating,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color(0xFFFFD166)
-                    )
-                }
-                item.releaseInfo?.let { release ->
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = release,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
             Text(
                 text = item.name,
-                style = MaterialTheme.typography.displaySmall,
-                fontWeight = FontWeight.ExtraBold,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Black,
+                color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            if (!item.description.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = item.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+            val meta = listOfNotNull(
+                item.releaseInfo?.takeIf { it.isNotBlank() },
+                item.rating?.takeIf { it.isNotBlank() }
+            )
+            if (meta.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    item.rating?.takeIf { it.isNotBlank() }?.let { rating ->
+                        Surface(
+                            color = Color(0xCC141414),
+                            contentColor = accent.primary,
+                            shape = CircleShape
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Star,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = rating,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (item.releaseInfo?.isNotBlank() == true) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                    }
+                    item.releaseInfo?.takeIf { it.isNotBlank() }?.let { year ->
+                        Text(
+                            text = year,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Color(0xFFCFCFCF),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = { onOpenDetails(item) },
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color(0xFF0B0A10)
-                )
-            ) {
-                Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Watch now", fontWeight = FontWeight.Bold)
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Play: accent-gradient capsule.
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(Brush.horizontalGradient(accent.gradient))
+                        .clickable { onPlay(item) }
+                        .padding(horizontal = 26.dp, vertical = 12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = Color(0xFF141414),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Play",
+                            color = Color(0xFF141414),
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Info: glassy capsule.
+                Surface(
+                    color = Color(0x66141414),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(percent = 50),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp, Color(0x59FFFFFF)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clickable { onOpenDetails(item) }
+                            .padding(horizontal = 22.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Details",
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                    }
+                }
             }
 
             if (items.size > 1) {
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items.indices.forEach { dot ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    repeat(items.size) { dot ->
                         Box(
                             modifier = Modifier
-                                .size(if (dot == index) 16.dp else 6.dp, 6.dp)
-                                .clip(CircleShape)
+                                .size(width = if (dot == index) 16.dp else 6.dp, height = 6.dp)
+                                .clip(RoundedCornerShape(percent = 50))
                                 .background(
-                                    if (dot == index) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                    }
+                                    if (dot == index) accent.primary else Color(0x80FFFFFF)
                                 )
                         )
                     }

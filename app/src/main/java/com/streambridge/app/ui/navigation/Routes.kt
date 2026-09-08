@@ -13,6 +13,11 @@ object Routes {
     const val SETTINGS = "settings"
     const val EXTENSIONS = "extensions"
 
+    /** Sub-pages of the settings hub: settings/{page}. */
+    const val SETTINGS_PAGE = "settings/{page}"
+
+    val settingsPages = listOf("appearance", "playback", "integrations", "network", "about")
+
     const val DETAIL =
         "detail?type={type}&id={id}&name={name}&poster={poster}&backdrop={backdrop}" +
             "&source={source}&imdbId={imdbId}&releaseInfo={releaseInfo}&rating={rating}"

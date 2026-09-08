@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -57,7 +58,8 @@ fun HomeScreen(
     onOpenExtensions: () -> Unit,
     onOpenSearch: () -> Unit,
     onResumePlayback: (WatchProgressEntity) -> Unit,
-    onBrowseGenre: (String) -> Unit
+    onBrowseGenre: (String) -> Unit,
+    onPlayItem: (MediaItem) -> Unit
 ) {
     val vm: HomeViewModel = viewModel(factory = HomeViewModel.factory(container))
     val uiState by vm.uiState.collectAsStateWithLifecycle()
@@ -139,12 +141,19 @@ fun HomeScreen(
                 modifier = Modifier.padding(padding)
             )
 
-            is HomeUiState.Ready -> LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
+            is HomeUiState.Ready -> {
+                val pillScroll = com.streambridge.app.ui.components.LocalPillNavScroll.current
+                val listModifier = if (pillScroll != null) {
+                    Modifier.nestedScroll(pillScroll.nestedScrollConnection)
+                } else {
+                    Modifier
+                }
+                LazyColumn(
+                    modifier = listModifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
                 val sections = state.data.sections
                 if (sections.none { it is HomeSection.Rail || it is HomeSection.Hero }) {
                     item {
@@ -161,7 +170,11 @@ fun HomeScreen(
                     sections.forEach { section ->
                         when (section) {
                             is HomeSection.Hero -> item(key = "hero") {
-                                Hero(items = section.items, onOpenDetails = onOpenDetail)
+                                Hero(
+                                    items = section.items,
+                                    onPlay = onPlayItem,
+                                    onOpenDetails = onOpenDetail
+                                )
                             }
 
                             is HomeSection.Genres -> item(key = "genres") {
@@ -230,6 +243,7 @@ fun HomeScreen(
                     }
                 }
             }
+            }
         }
         }
     }
@@ -279,7 +293,11 @@ private fun GenresRow(
                 androidx.compose.material3.SuggestionChip(
                     onClick = { onBrowseGenre(genre.name) },
                     label = { Text(text = "${genre.name} · ${genre.count}") },
-                    shape = MaterialTheme.shapes.medium
+                    shape = com.streambridge.app.ui.theme.PillShape,
+                    border = androidx.compose.material3.SuggestionChipDefaults.suggestionChipBorder(
+                        enabled = true,
+                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                    )
                 )
             }
         }

@@ -1,5 +1,6 @@
 package com.streambridge.app.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
@@ -15,7 +17,6 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,14 +24,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * A titled horizontal rail with an optional "More" action.
+ * A titled horizontal shelf: headline, optional subtitle, optional
+ * "See all" affordance, then caller-provided lazy content.
  */
 @Composable
 fun Rail(
     title: String,
-    subtitle: String? = null,
-    onMore: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    onSeeAll: (() -> Unit)? = null,
     content: LazyListScope.() -> Unit
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
@@ -43,7 +45,7 @@ fun Rail(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
                 if (!subtitle.isNullOrBlank()) {
@@ -54,12 +56,24 @@ fun Rail(
                     )
                 }
             }
-            if (onMore != null) {
-                TextButton(onClick = onMore) {
-                    Text(text = "More")
+            if (onSeeAll != null) {
+                Row(
+                    modifier = Modifier
+                        .clickable(onClick = onSeeAll)
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "See all",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = null
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
