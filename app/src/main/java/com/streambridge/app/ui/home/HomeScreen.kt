@@ -20,8 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -67,7 +65,6 @@ fun HomeScreen(
     container: AppContainer,
     onOpenDetail: (MediaItem) -> Unit,
     onOpenExtensions: () -> Unit,
-    onOpenSearch: () -> Unit,
     onResumePlayback: (WatchProgressEntity) -> Unit,
     onBrowseGenre: (String) -> Unit,
     onPlayItem: (MediaItem) -> Unit,
@@ -90,11 +87,11 @@ fun HomeScreen(
             when (val state = uiState) {
                 HomeUiState.NoExtensions -> EmptyState(
                     iconRes = R.drawable.ic_empty_extensions,
-                    title = "No extensions yet",
+                    title = "No addons yet",
                     body = "Stream Bridge starts completely empty — nothing is bundled or preinstalled. " +
-                        "Add a Stremio-compatible extension to bring in catalogs, " +
+                        "Add a Stremio-compatible addon to bring in catalogs, " +
                         "metadata and streams.",
-                    actionLabel = "Add your first extension",
+                    actionLabel = "Add your first addon",
                     onAction = onOpenExtensions,
                     modifier = Modifier
                         .fillMaxSize()
@@ -164,7 +161,7 @@ fun HomeScreen(
                                 EmptyState(
                                     iconRes = R.drawable.ic_empty_search,
                                     title = "Nothing to show yet",
-                                    body = "Your extensions returned no content. Check that they are " +
+                                    body = "Your addons returned no content. Check that they are " +
                                         "enabled and reachable, then refresh.",
                                     actionLabel = "Retry",
                                     onAction = vm::retry,
@@ -258,11 +255,10 @@ fun HomeScreen(
         }
 
         // Upper navigation: transparent overlay floating ON the hero
-        // artwork — never a solid bar above it.
-        HomeTopOverlay(
-            onOpenSearch = onOpenSearch,
-            onOpenExtensions = onOpenExtensions
-        )
+        // artwork — never a solid bar above it. Search lives in the
+        // bottom navigation and plugin/addon management in
+        // Settings > Content & Discovery, so this stays brand-only.
+        HomeTopOverlay()
     }
 }
 
@@ -272,10 +268,7 @@ fun HomeScreen(
  * for readability.
  */
 @Composable
-private fun HomeTopOverlay(
-    onOpenSearch: () -> Unit,
-    onOpenExtensions: () -> Unit
-) {
+private fun HomeTopOverlay() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -306,44 +299,7 @@ private fun HomeTopOverlay(
                     color = Color(0xB3CFCFCF)
                 )
             }
-            GlassIconButton(
-                icon = Icons.Filled.Search,
-                contentDescription = "Search",
-                onClick = onOpenSearch
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            GlassIconButton(
-                icon = Icons.Filled.Extension,
-                contentDescription = "Extensions",
-                onClick = onOpenExtensions,
-                tint = MaterialTheme.colorScheme.primary
-            )
         }
-    }
-}
-
-/** Circular translucent icon button that stays readable over artwork. */
-@Composable
-private fun GlassIconButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color = Color.White
-) {
-    Surface(
-        onClick = onClick,
-        shape = androidx.compose.foundation.shape.CircleShape,
-        color = Color(0x66141414),
-        contentColor = tint,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x40FFFFFF))
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = contentDescription,
-            modifier = Modifier
-                .size(40.dp)
-                .padding(9.dp)
-        )
     }
 }
 

@@ -1,12 +1,6 @@
 package com.streambridge.app.ui.components
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +12,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,12 +51,16 @@ import kotlinx.coroutines.delay
 /**
  * Cinematic hero carousel: a full-bleed, edge-to-edge rotating backdrop
  * that extends behind the status bar and the top navigation overlay.
- * Content sits low on the artwork — large title, a Type • Genre • Year
- * metadata line, a white pill CTA to details plus a glass play action —
- * and a modern pagination indicator (active dot expands into a pill).
+ *
+ * The artwork pages are horizontally SWIPEABLE with snap-to-page
+ * behavior (HorizontalPager); the auto-rotation pauses while the user
+ * interacts and resumes afterwards. Content sits low on the artwork —
+ * large title, a Type • Genre • Year metadata line, a white pill CTA to
+ * details plus a glass play action — and a modern pagination indicator
+ * (active dot expands into a pill) tracks the settled page.
  *
  * All content comes from the app's real catalog data; nothing is
- * hard-coded. Auto-rotates every 7 s while more than one item exists.
+ * hard-coded.
  */
 @Composable
 fun Hero(
@@ -68,54 +70,71 @@ fun Hero(
     onOpenDetails: (MediaItem) -> Unit
 ) {
     if (items.isEmpty()) return
-    var index by remember(items) { mutableIntStateOf(0) }
-    LaunchedEffect(items.size) {
-        while (items.size > 1) {
+
+    val pageCount = items.size
+    val pagerState = rememberPagerState(pageCount = { pageCount })
+    // The content block follows the SETTLED page, so swipes never jolt
+    // the title/CTA mid-gesture.
+    var settledPage by remember { mutableIntStateOf(0) }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.settledPage }
+            .collect { page -> settledPage = page.coerceIn(0, items.lastIndex) }
+    }
+
+    // Auto-rotate every 7 s while idle; pause while the user is paging
+    // or has just interacted, then resume from wherever they landed.
+    LaunchedEffect(pageCount) {
+        while (pageCount > 1) {
             delay(7000)
-            index = (index + 1) % items.size
+            if (!pagerState.isScrollInProgress) {
+                val next = (pagerState.currentPage + 1) % pageCount
+                pagerState.animateScrollToPage(next)
+            }
         }
     }
-    val item = items[index.coerceIn(0, items.lastIndex)]
+
+    val item = items[settledPage.coerceIn(0, items.lastIndex)]
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .height(500.dp)
     ) {
-        Crossfade(
-            targetState = item,
-            animationSpec = tween(600),
-            label = "hero-artwork"
-        ) { current ->
+        // Swipeable, snap-to-page artwork with a crossfade per page.
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize(),
+            beyondViewportPageCount = 1 // preloads neighbors: no flash between pages
+        ) { page ->
+            val current = items[page.coerceIn(0, items.lastIndex)]
             val artwork = current.backdrop ?: current.poster
-            if (!artwork.isNullOrBlank()) {
-                // Decode at roughly the on-screen size: a long edge of
-                // ~1080 px and the hero height. Keeps memory in check on
-                // large devices without visible quality loss.
-                val heroHeightPx = with(LocalDensity.current) { 500.dp.roundToPx() }
-                AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(artwork)
-                        .size(1080, heroHeightPx)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = current.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                listOf(
-                                    MaterialTheme.colorScheme.surfaceVariant,
-                                    MaterialTheme.colorScheme.background
+            Box(modifier = Modifier.fillMaxSize()) {
+                if (!artwork.isNullOrBlank()) {
+                    val heroHeightPx = with(LocalDensity.current) { 500.dp.roundToPx() }
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(artwork)
+                            .size(1080, heroHeightPx)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = current.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.surfaceVariant,
+                                        MaterialTheme.colorScheme.background
+                                    )
                                 )
                             )
-                        )
-                )
+                    )
+                }
             }
         }
 
@@ -232,14 +251,14 @@ fun Hero(
             }
 
             // Pagination: active indicator expands into a rounded pill.
-            if (items.size > 1) {
+            if (pageCount > 1) {
                 Spacer(modifier = Modifier.height(20.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    repeat(items.size) { dot ->
-                        val active = dot == index
-                        val dotWidth by animateDpAsState(
+                    repeat(pageCount) { dot ->
+                        val active = dot == settledPage
+                        val dotWidth by androidx.compose.animation.core.animateDpAsState(
                             targetValue = if (active) 24.dp else 6.dp,
-                            animationSpec = spring(
+                            animationSpec = androidx.compose.animation.core.spring(
                                 dampingRatio = 0.75f,
                                 stiffness = 400f
                             ),

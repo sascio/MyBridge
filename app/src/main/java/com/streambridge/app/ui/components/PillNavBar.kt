@@ -1,16 +1,11 @@
 package com.streambridge.app.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,7 +14,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -50,7 +47,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.lerp
 
@@ -139,10 +138,11 @@ data class PillTab(
  * Floating capsule navigation bar with an adaptive compact/expanded
  * transformation:
  *
- *  - EXPANDED: full pill with icons and labels, a soft highlight pill
- *    that slides between destinations, soft shadow.
- *  - COMPACT: labels fold away, the bar shrinks slightly and settles
- *    closer to the content — still fully usable, icons evenly spaced.
+ *  - EXPANDED: full pill with icons above labels, a soft highlight
+ *    pill that slides between destinations, soft shadow.
+ *  - COMPACT: the bar shrinks slightly and settles closer to the
+ *    content; items keep the icon-above-label structure with smaller,
+ *    faded labels — never a horizontal icon+label collision.
  *
  * The transition is a continuous interpolation driven by
  * [PillNavScrollState] (or fixed by [layoutMode]); there is never an
@@ -170,8 +170,6 @@ fun PillNavBar(
         ),
         label = "nav-compact-fraction"
     )
-    val expanded = fraction < 0.5f
-
     Surface(
         modifier = modifier.graphicsLayer {
             // Subtle overall shrink while compact (keeps it feeling
@@ -191,11 +189,11 @@ fun PillNavBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
-                    horizontal = lerp(8.dp, 4.dp, fraction),
-                    vertical = lerp(8.dp, 4.dp, fraction)
+                    horizontal = lerp(8.dp, 5.dp, fraction),
+                    vertical = lerp(6.dp, 4.dp, fraction)
                 )
         ) {
-            val itemHeight = 46.dp
+            val itemHeight = lerp(58.dp, 46.dp, fraction)
             val slotWidth = maxWidth / tabs.size
             val selectedIndex = tabs.indexOfFirst { it.route == selectedRoute }
                 .coerceAtLeast(0)
@@ -236,7 +234,11 @@ fun PillNavBar(
                         animationSpec = tween(200),
                         label = "nav-item-tint"
                     )
-                    Row(
+                    // STRICT vertical layout: icon above, label below —
+                    // labels can never sit beside an icon and collide
+                    // with a neighboring item. Each slot is equal-width
+                    // (weight) and centers its content.
+                    Column(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
@@ -245,31 +247,32 @@ fun PillNavBar(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
                             ) { onSelect(tab) },
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             imageVector = if (selected) tab.selectedIcon else tab.icon,
                             contentDescription = tab.label,
                             tint = tint,
-                            modifier = Modifier.size(lerp(22.dp, 21.dp, fraction))
+                            modifier = Modifier.size(lerp(22.dp, 20.dp, fraction))
                         )
-                        AnimatedVisibility(
-                            visible = expanded,
-                            enter = expandHorizontally(expandFrom = Alignment.Start) +
-                                fadeIn(tween(180)),
-                            exit = shrinkHorizontally(shrinkTowards = Alignment.Start) +
-                                fadeOut(tween(150))
-                        ) {
-                            Text(
-                                text = tab.label,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                color = tint,
-                                maxLines = 1,
-                                modifier = Modifier.padding(start = 8.dp, end = 4.dp)
-                            )
-                        }
+                        // The label always stays below the icon. In the
+                        // compact state it scales down and fades rather
+                        // than disappearing sideways.
+                        Text(
+                            text = tab.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = tint.copy(alpha = lerp(1f, 0.55f, fraction)),
+                            fontSize = lerp(
+                                12.sp,
+                                10.sp,
+                                fraction
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Clip,
+                            modifier = Modifier.padding(top = lerp(4.dp, 2.dp, fraction))
+                        )
                     }
                 }
             }

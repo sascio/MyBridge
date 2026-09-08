@@ -164,7 +164,6 @@ private fun StreamBridgeNavHost(
                 container = container,
                 onOpenDetail = { item -> navController.navigate(Nav.detail(item)) },
                 onOpenExtensions = { navController.navigate(Routes.EXTENSIONS) },
-                onOpenSearch = { navController.navigate(Routes.SEARCH) { launchSingleTop = true } },
                 onResumePlayback = { entry -> navController.navigate(Nav.resumePlayback(entry)) },
                 onBrowseGenre = { genre -> navController.navigate(Nav.browse(genre)) },
                 onOpenCatalog = { ref ->
