@@ -47,6 +47,12 @@ class StreamResolverTest {
         }
 
         override suspend fun fetchRaw(baseUrl: String, path: String): String = "{}"
+
+        override suspend fun fetchSubtitles(
+            baseUrl: String,
+            type: String,
+            id: String
+        ): List<com.streambridge.app.addon.model.AddonSubtitle> = emptyList()
     }
 
     private fun extension(

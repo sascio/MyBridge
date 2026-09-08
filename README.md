@@ -46,21 +46,63 @@ you explicitly install and enable.
 - Errors with retry; per-title **stream selection** sheet
 - Playback positions and history persisted locally
 
-### Extensions
+### Extensions (Addons) & Plugins
 - **Zero extensions bundled, preinstalled or hidden** — the list starts empty
 - Add any Stremio-compatible addon by manifest URL
 - Manifest is **fetched and validated** before install (id, name, version,
   resources, catalogs)
 - Enable / disable / remove / refresh individual extensions, refresh all
-- Rich, honest error reporting for unreachable or invalid addons
+- **Reorder** addons — order is the aggregation priority used across
+  catalogs, search, streams, subtitles and metadata merging
+- Community **addon catalogs** (`addon_catalog` resource): browse and
+  install addons recommended by other addons you already trust
+- Rich, honest error reporting for unreachable or invalid addons; one
+  broken or slow addon never breaks browsing, search or playback
+
+Stream Bridge distinguishes two kinds of sources in the UI:
+
+| Concept | Where | What it is |
+| --- | --- | --- |
+| **Addons** | Extensions screen | HTTP *protocol* sources (Stremio/Nuvio manifests). Declarative, validated, safe to query. |
+| **Plugins** | Plugin repositories screen | Runtime *code* packages (Cloudstream `.cs3`). **Listed for discovery only — never executed.** |
 
 ### Stremio-compatible architecture
 The core speaks the open Stremio addon protocol:
 `manifest.json`, `catalog/{type}/{id}[/{extras}].json`,
-`meta/{type}/{id}.json`, `stream/{type}/{videoId}.json` — for movies,
-series and episodes, with lenient parsing for real-world addon responses
-(camelCase and snake_case fields, string/object cast lists, numeric
-ratings, …).
+`meta/{type}/{id}.json`, `stream/{type}/{videoId}.json`,
+`subtitles/{type}/{videoId}.json` and
+`addon_catalog/{type}/{id}.json` — for movies, series and episodes, with
+lenient parsing for real-world addon responses (camelCase and snake_case
+fields, string/object cast lists, numeric ratings, …).
+
+Aggregation across many addons handles:
+
+- **Priority** — your extension order (reorder in the Extensions screen)
+- **Deduplication** — identical streams/subtitles/metas collapse
+- **Isolation** — timeouts and per-addon error containment
+- **ID mapping** — IMDb (`tt…`) vs TMDB (`tmdb:…`) vs addon-local ids,
+  including the `{imdb}:{season}:{episode}` convention
+- **Metadata merging** — one authoritative meta (your preferred metadata
+  addon or the source addon), gaps filled from others
+
+Every stream is normalized into a unified model (classification
+direct/torrent/external, resolution, quality, language, size, seeders)
+and grouped by provider in the player's stream picker.
+
+### Cloudstream compatibility — an honest limitation
+Cloudstream *plugins* are compiled Kotlin (`.cs3`) code that must run
+inside a Cloudstream fork. Executing arbitrary downloaded code would be
+unsafe and is **not implemented**. What Stream Bridge offers instead:
+
+- A dedicated **Plugin repositories** screen that loads any Cloudstream
+  `repo.json` / `plugins.json` and lists its plugins (name, version,
+  description, language, TV types, operational status)
+- A clearly labeled explainer that these plugins are **never executed**
+- No fake install or play buttons for them
+
+Stremio and Nuvio addons, by contrast, are fully supported because they
+are plain HTTP protocols.
+
 
 ### LAN bridge server & QR
 - Optional local HTTP server exposes all your installed extensions as one
@@ -135,6 +177,8 @@ app/src/main/java/com/streambridge/app/
 - Extension manifests and URLs are validated before install; nothing is
   installed or activated silently.
 - No secrets, API keys or credentials are bundled with the app.
+- **No arbitrary code execution**: Cloudstream plugins are listed, never
+  run. Only declarative HTTP addons (Stremio/Nuvio protocol) are queried.
 - The LAN bridge serves read-only JSON over GET/HEAD with CORS; it never
   executes downloaded code.
 
