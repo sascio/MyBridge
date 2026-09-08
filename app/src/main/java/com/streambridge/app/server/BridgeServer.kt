@@ -336,8 +336,8 @@ class BridgeServer(
 
     companion object {
         private const val WORKER_THREADS = 6
-        private const val CLIENT_TIMEOUT_MS = 20000
-        private const val UPSTREAM_TIMEOUT_MS = 25000
+        private const val CLIENT_TIMEOUT_MS = 20_000L
+        private const val UPSTREAM_TIMEOUT_MS = 25_000L
         private const val MAX_HEADERS = 100
         private const val MAX_BODY_BYTES = 8 * 1024
         private const val PORT_SCAN_RANGE = 20
