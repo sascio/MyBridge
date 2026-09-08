@@ -11,6 +11,7 @@ import com.streambridge.app.data.db.WatchProgressEntity
 import com.streambridge.app.data.library.LibraryRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals

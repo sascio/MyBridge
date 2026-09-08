@@ -120,8 +120,7 @@ class AddonModelsParsingTest {
         """.trimIndent()
 
         val response = json.decodeFromString(MetaResponse.serializer(), objectCast)
-        val meta: AddonMeta? = response.meta
-        assertNotNull(meta)
+        val meta = checkNotNull(response.meta)
         assertEquals(listOf("Steve Carell", "Rainn Wilson"), meta.cast)
         assertEquals(listOf("Greg Daniels"), meta.director)
         assertEquals(2, meta.videos.size)
