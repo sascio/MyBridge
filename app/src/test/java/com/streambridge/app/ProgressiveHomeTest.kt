@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -130,7 +132,8 @@ class ProgressiveHomeTest {
     private fun repository(
         api: FakeApi,
         dao: FakeDao,
-        dedupeScope: CoroutineScope
+        dedupeScope: CoroutineScope,
+        scheduler: TestCoroutineScheduler
     ): DiscoveryRepository {
         val manager = ExtensionManager(dao, api, json, dedupeScope)
         // Let the manager's init flow populate its state synchronously.
@@ -144,7 +147,11 @@ class ProgressiveHomeTest {
             extensionManager = manager,
             tmdb = TmdbClient(SbHttpClient(), json),
             mdblist = MdbListClient(SbHttpClient(), json),
-            dedupeScope = dedupeScope
+            dedupeScope = dedupeScope,
+            // Keep section-building on the test scheduler: a real
+            // Dispatchers.Default hop races virtual time and makes the
+            // emission order nondeterministic.
+            computationDispatcher = StandardTestDispatcher(scheduler)
         )
     }
 
@@ -155,7 +162,7 @@ class ProgressiveHomeTest {
         api.latencyMs = { base -> if (base.contains("fast")) 1_000L else 8_000L }
         val dao = FakeDao(listOf(entity("fast", "Fast"), entity("slow", "Slow")))
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job())
-        val repo = repository(api, dao, scope)
+        val repo = repository(api, dao, scope, testScheduler)
 
         val emissions = repo.loadHomeProgressive(
             SettingsState(), watchedKeys = emptySet()
@@ -197,7 +204,7 @@ class ProgressiveHomeTest {
         }
         val dao = FakeDao(listOf(entity("ok", "Ok"), entity("broken", "Broken")))
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job())
-        val repo = repository(api, dao, scope)
+        val repo = repository(api, dao, scope, testScheduler)
 
         val emissions = repo.loadHomeProgressive(SettingsState(), emptySet()).toList()
 
@@ -214,7 +221,7 @@ class ProgressiveHomeTest {
         val api = FakeApi()
         val dao = FakeDao(listOf(entity("alpha", "Alpha")))
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job())
-        val repo = repository(api, dao, scope)
+        val repo = repository(api, dao, scope, testScheduler)
 
         repo.loadHomeProgressive(SettingsState(), emptySet()).toList()
         assertEquals(1, api.catalogCalls["https://alpha.example.com"])
@@ -238,7 +245,7 @@ class ProgressiveHomeTest {
         api.latencyMs = { 1_000L }
         val dao = FakeDao(listOf(entity("gamma", "Gamma")))
         val scope = CoroutineScope(UnconfinedTestDispatcher(testScheduler) + Job())
-        val repo = repository(api, dao, scope)
+        val repo = repository(api, dao, scope, testScheduler)
 
         val results = coroutineScope {
             listOf(

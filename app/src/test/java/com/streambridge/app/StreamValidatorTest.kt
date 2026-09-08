@@ -99,8 +99,9 @@ class StreamValidatorTest {
             StreamValidator.ContentType.DASH,
             StreamValidator.inferContentType("https://x.example.com/video.mp4", "application/dash+xml")
         )
+        // No MIME hint: extension detection applies unchanged.
         assertEquals(
-            StreamValidator.ContentType.PROGRESSIVE,
+            StreamValidator.ContentType.HLS,
             StreamValidator.inferContentType("https://x.example.com/index.m3u8", null)
         )
         // Unknown MIME falls through to extension detection.

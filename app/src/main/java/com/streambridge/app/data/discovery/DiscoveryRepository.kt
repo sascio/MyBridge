@@ -15,6 +15,7 @@ import com.streambridge.app.data.integrations.MdbListClient
 import com.streambridge.app.data.integrations.TmdbClient
 import com.streambridge.app.data.settings.SettingsState
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,7 +52,9 @@ class DiscoveryRepository(
     private val extensionManager: ExtensionManager,
     private val tmdb: TmdbClient,
     private val mdblist: MdbListClient,
-    private val dedupeScope: CoroutineScope
+    private val dedupeScope: CoroutineScope,
+    /** Injectable so tests keep virtual-time determinism for emissions. */
+    private val computationDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
 
     // -----------------------------------------------------------------
@@ -282,7 +285,7 @@ class DiscoveryRepository(
         errors: List<String>,
         watchedKeys: Set<String>,
         includeErrors: Boolean
-    ): HomeData = withContext(Dispatchers.Default) {
+    ): HomeData = withContext(computationDispatcher) {
         val sections = mutableListOf<HomeSection>()
 
         val allItems = catalogResults.flatMap { it.third }
@@ -404,7 +407,7 @@ class DiscoveryRepository(
                 }
             }
             val results = (addonAsync + tmdbAsync).awaitAll().flatten()
-            withContext(Dispatchers.Default) {
+            withContext(computationDispatcher) {
                 MetaMerger.merge(results)
             }
         }
@@ -454,7 +457,7 @@ class DiscoveryRepository(
             }.awaitAll().flatten()
         }
 
-        return withContext(Dispatchers.Default) {
+        return withContext(computationDispatcher) {
             MetaMerger.merge(results)
         }
     }
