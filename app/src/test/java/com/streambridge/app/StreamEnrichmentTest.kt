@@ -58,9 +58,9 @@ class StreamEnrichmentTest {
     fun `picker sort puts playable direct streams before torrents`() {
         val sorted = StreamEnrichment.sortForPicker(
             listOf(
-                option("1080p", infoHash = "aa", addon = "T"),
-                option("480p", url = "https://sd", addon = "D"),
-                option("1080p", url = "https://hd", addon = "D")
+                StreamEnrichment.enrich(option("1080p", infoHash = "aa", addon = "T")),
+                StreamEnrichment.enrich(option("480p", url = "https://sd", addon = "D")),
+                StreamEnrichment.enrich(option("1080p", url = "https://hd", addon = "D"))
             )
         )
         assertEquals("https://hd", sorted[0].url)

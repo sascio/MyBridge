@@ -90,7 +90,7 @@ class AddonCatalogParsingTest {
             AddonMeta.serializer(),
             """{"id": "x", "name": "X", "writer": [{"name": "Anne"}, "Bob", 42]}"""
         )
-        assertEquals(listOf("Anne", "Bob"), meta.writer)
+        assertEquals(listOf("Anne", "Bob", "42"), meta.writer)
     }
 
     @Test

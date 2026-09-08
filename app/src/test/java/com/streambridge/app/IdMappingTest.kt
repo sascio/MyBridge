@@ -33,15 +33,20 @@ class IdMappingTest {
     }
 
     @Test
-    fun `episode candidates use stremio convention and dedupe`() {
+    fun `episode video id is used as-is with imdb fallback`() {
+        // Addon-local episode ids are already complete.
         assertEquals(
             listOf("custom:1:2", "tt456:1:2"),
-            IdMapping.episodeVideoIds("custom", "tt456", 1, 2)
+            IdMapping.episodeVideoIds("custom:1:2", "tt456", 1, 2)
         )
-        // Same imdb meta id: only one candidate
+        // IMDb-shaped id dedupes against the fallback
         assertEquals(
             listOf("tt456:1:2"),
-            IdMapping.episodeVideoIds("tt456", "tt456", 1, 2)
+            IdMapping.episodeVideoIds("tt456:1:2", "tt456", 1, 2)
+        )
+        assertEquals(
+            listOf("tt456:1:2"),
+            IdMapping.episodeVideoIds("tt456:1:2", null, 1, 2)
         )
     }
 

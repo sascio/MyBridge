@@ -26,18 +26,24 @@ object IdMapping {
             if (!imdbId.isNullOrBlank() && imdbId != metaId) add(imdbId)
         }
 
-    /** Candidate video ids for an episode, Stremio convention "{imdb}:{s}:{e}". */
+    /**
+     * Candidate video ids for an episode. Addons construct episode ids
+     * as complete ids (Stremio convention "{seriesId}:{s}:{e}", often
+     * IMDb-based but frequently addon-local), so the episode's own id is
+     * used as-is; the IMDb fallback follows the "{imdb}:{s}:{e}"
+     * convention for cross-addon resolution.
+     */
     fun episodeVideoIds(
-        metaId: String,
+        videoId: String,
         imdbId: String?,
         season: Int,
         episode: Int
     ): List<String> {
-        val ids = buildList {
-            if (metaId.isNotBlank()) add("$metaId:$season:$episode")
-            if (!imdbId.isNullOrBlank() && imdbId != metaId) add("$imdbId:$season:$episode")
-        }
-        return ids.distinct()
+        val fallback = if (!imdbId.isNullOrBlank()) "$imdbId:$season:$episode" else null
+        return listOfNotNull(
+            videoId.takeIf { it.isNotBlank() },
+            fallback?.takeIf { it != videoId }
+        )
     }
 
     /** Best-effort IMDb extraction from any shape of id. */

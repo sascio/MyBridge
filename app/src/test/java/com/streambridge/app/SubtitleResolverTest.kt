@@ -101,7 +101,7 @@ class SubtitleResolverTest {
         val subtitles = resolver.resolveForEpisode(
             listOf(extension("a")),
             "series",
-            "custom",
+            "custom:1:2",
             imdbId = "tt456",
             season = 1,
             episode = 2
