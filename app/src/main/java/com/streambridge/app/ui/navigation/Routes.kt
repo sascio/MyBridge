@@ -37,7 +37,7 @@ object Routes {
     const val PLUGINS = "plugins"
 
     /** Routes rendered edge-to-edge (no scaffold padding). */
-    val fullBleedRoutePrefixes = listOf("player", "detail")
+    val fullBleedRoutePrefixes = listOf("player", "detail", "home")
 }
 
 object Nav {

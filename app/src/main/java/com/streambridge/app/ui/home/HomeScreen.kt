@@ -1,6 +1,9 @@
 package com.streambridge.app.ui.home
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -9,28 +12,30 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,19 +43,24 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.streambridge.app.R
 import com.streambridge.app.addon.model.HomeSection
 import com.streambridge.app.addon.model.MediaItem
-import com.streambridge.app.core.TimeFormat
 import com.streambridge.app.data.db.LibraryItemEntity
 import com.streambridge.app.data.db.WatchProgressEntity
 import com.streambridge.app.di.AppContainer
+import com.streambridge.app.ui.components.ContinueWatchingCard
 import com.streambridge.app.ui.components.EmptyState
 import com.streambridge.app.ui.components.ErrorChip
 import com.streambridge.app.ui.components.ErrorState
-import com.streambridge.app.ui.components.FullScreenLoading
 import com.streambridge.app.ui.components.Hero
 import com.streambridge.app.ui.components.PosterCard
 import com.streambridge.app.ui.components.Rail
 import com.streambridge.app.ui.components.RailLoadingPlaceholder
+import com.streambridge.app.ui.theme.PillShape
 
+/**
+ * Cinematic, edge-to-edge Home: the hero artwork extends behind the
+ * status bar and a transparent upper-navigation overlay; content rails
+ * flow underneath with generous spacing. No solid top app bar.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -71,228 +81,284 @@ fun HomeScreen(
     val uiSettings by vm.uiSettings.collectAsStateWithLifecycle()
     val catalogRefs by vm.catalogRefs.collectAsStateWithLifecycle()
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "STREAM BRIDGE",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Black
-                        )
-                        Text(
-                            text = "Your media, your bridges",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onOpenSearch) {
-                        Icon(
-                            imageVector = Icons.Filled.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(onClick = onOpenExtensions) {
-                        Icon(
-                            imageVector = Icons.Filled.Extension,
-                            contentDescription = "Extensions",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
-        }
-    ) { padding ->
+    Box(modifier = Modifier.fillMaxSize()) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = { if (uiState !is HomeUiState.Loading) vm.refresh() },
             modifier = Modifier.fillMaxSize()
         ) {
-        when (val state = uiState) {
-            HomeUiState.NoExtensions -> EmptyState(
-                iconRes = R.drawable.ic_empty_extensions,
-                title = "No extensions yet",
-                body = "Stream Bridge starts completely empty — nothing is bundled or preinstalled. " +
-                    "Add a Stremio-compatible extension to bring in catalogs, " +
-                    "metadata and streams.",
-                actionLabel = "Add your first extension",
-                onAction = onOpenExtensions,
-                modifier = Modifier.padding(padding)
-            )
-
-            HomeUiState.Loading -> Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
-                repeat(3) {
-                    Spacer(modifier = Modifier.height(if (it == 0) 8.dp else 22.dp))
-                    RailLoadingPlaceholder()
-                }
-            }
-
-            is HomeUiState.Failed -> ErrorState(
-                message = state.message,
-                onRetry = vm::retry,
-                modifier = Modifier.padding(padding)
-            )
-
-            is HomeUiState.Ready -> {
-                val pillScroll = com.streambridge.app.ui.components.LocalPillNavScroll.current
-                val listModifier = if (pillScroll != null) {
-                    Modifier.nestedScroll(pillScroll.nestedScrollConnection)
-                } else {
-                    Modifier
-                }
-                // Derived state hoisted OUT of the LazyColumn scope:
-                // LazyListScope is not a composable scope, and these were
-                // previously re-computed on every lazy-list rebuild.
-                val sections = remember(state.data.sections, uiSettings.homeShowRecommendations) {
-                    state.data.sections.filterNot { section ->
-                        section is HomeSection.Rail &&
-                            section.key == "recommended" &&
-                            !uiSettings.homeShowRecommendations
-                    }
-                }
-                val seeAllBySection = remember(catalogRefs) {
-                    catalogRefs.associateBy { ref ->
-                        "${ref.addonId}::${ref.catalogId}:${ref.type}"
-                    }
-                }
-                val posterWidth = when (uiSettings.posterSize) {
-                    "small" -> 104.dp
-                    "large" -> 140.dp
-                    else -> 122.dp
-                }
-                LazyColumn(
-                    modifier = listModifier
+            when (val state = uiState) {
+                HomeUiState.NoExtensions -> EmptyState(
+                    iconRes = R.drawable.ic_empty_extensions,
+                    title = "No extensions yet",
+                    body = "Stream Bridge starts completely empty — nothing is bundled or preinstalled. " +
+                        "Add a Stremio-compatible extension to bring in catalogs, " +
+                        "metadata and streams.",
+                    actionLabel = "Add your first extension",
+                    onAction = onOpenExtensions,
+                    modifier = Modifier
                         .fillMaxSize()
-                        .padding(padding),
-                    contentPadding = PaddingValues(bottom = 24.dp)
+                        .statusBarsPadding()
+                        .padding(top = 72.dp)
+                )
+
+                HomeUiState.Loading -> Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .padding(top = 64.dp)
                 ) {
-                if (sections.none { it is HomeSection.Rail || it is HomeSection.Hero }) {
-                    item {
-                        EmptyState(
-                            iconRes = R.drawable.ic_empty_search,
-                            title = "Nothing to show yet",
-                            body = "Your extensions returned no content. Check that they are " +
-                                "enabled and reachable, then refresh.",
-                            actionLabel = "Retry",
-                            onAction = vm::retry
-                        )
+                    repeat(3) {
+                        Spacer(modifier = Modifier.height(if (it == 0) 8.dp else 22.dp))
+                        RailLoadingPlaceholder()
                     }
-                } else {
-                    sections.forEach { section ->
-                        when (section) {
-                            is HomeSection.Hero -> item(key = "hero") {
-                                Hero(
-                                    items = section.items,
-                                    onPlay = onPlayItem,
-                                    onOpenDetails = onOpenDetail
+                }
+
+                is HomeUiState.Failed -> ErrorState(
+                    message = state.message,
+                    onRetry = vm::retry,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .padding(top = 72.dp)
+                )
+
+                is HomeUiState.Ready -> {
+                    val pillScroll = com.streambridge.app.ui.components.LocalPillNavScroll.current
+                    val listModifier = if (pillScroll != null) {
+                        Modifier.nestedScroll(pillScroll.nestedScrollConnection)
+                    } else {
+                        Modifier
+                    }
+                    // Derived state hoisted OUT of the LazyColumn scope:
+                    // LazyListScope is not a composable scope, and these
+                    // would be re-computed on every lazy-list rebuild.
+                    val sections = remember(state.data.sections, uiSettings.homeShowRecommendations) {
+                        state.data.sections.filterNot { section ->
+                            section is HomeSection.Rail &&
+                                section.key == "recommended" &&
+                                !uiSettings.homeShowRecommendations
+                        }
+                    }
+                    val seeAllBySection = remember(catalogRefs) {
+                        catalogRefs.associateBy { ref ->
+                            "${ref.addonId}::${ref.catalogId}:${ref.type}"
+                        }
+                    }
+                    val posterWidth = when (uiSettings.posterSize) {
+                        "small" -> 104.dp
+                        "large" -> 140.dp
+                        else -> 122.dp
+                    }
+                    LazyColumn(
+                        modifier = listModifier.fillMaxSize(),
+                        // Room for the navigation bar that overlays the
+                        // content (floating pill, or the classic bar in
+                        // the traditional layout mode).
+                        contentPadding = PaddingValues(
+                            bottom = if (uiSettings.navLayout == "classic") 152.dp else 128.dp
+                        )
+                    ) {
+                        if (sections.none { it is HomeSection.Rail || it is HomeSection.Hero }) {
+                            item {
+                                EmptyState(
+                                    iconRes = R.drawable.ic_empty_search,
+                                    title = "Nothing to show yet",
+                                    body = "Your extensions returned no content. Check that they are " +
+                                        "enabled and reachable, then refresh.",
+                                    actionLabel = "Retry",
+                                    onAction = vm::retry,
+                                    modifier = Modifier
+                                        .statusBarsPadding()
+                                        .padding(top = 72.dp)
                                 )
                             }
-
-                            is HomeSection.Genres -> item(key = "genres") {
-                                GenresRow(genres = section.genres, onBrowseGenre = onBrowseGenre)
-                            }
-
-                            is HomeSection.Rail -> item(key = section.key) {
-                                val seeAllRef = seeAllBySection[section.key]
-                                Rail(
-                                    title = section.title,
-                                    subtitle = section.subtitle,
-                                    onSeeAll = seeAllRef?.let { ref ->
-                                        { onOpenCatalog(ref) }
-                                    }
-                                ) {
-                                    items(section.items, key = { it.key + it.name }) { item ->
-                                        PosterCard(
-                                            item = item,
-                                            width = posterWidth,
-                                            onClick = { onOpenDetail(item) }
+                        } else {
+                            sections.forEach { section ->
+                                when (section) {
+                                    is HomeSection.Hero -> item(key = "hero") {
+                                        Hero(
+                                            items = section.items,
+                                            onPlay = onPlayItem,
+                                            onOpenDetails = onOpenDetail
                                         )
+                                    }
+
+                                    is HomeSection.Genres -> item(key = "genres") {
+                                        GenresRow(genres = section.genres, onBrowseGenre = onBrowseGenre)
+                                    }
+
+                                    is HomeSection.Rail -> item(key = section.key) {
+                                        val seeAllRef = seeAllBySection[section.key]
+                                        Rail(
+                                            title = section.title,
+                                            subtitle = section.subtitle,
+                                            onSeeAll = seeAllRef?.let { ref ->
+                                                { onOpenCatalog(ref) }
+                                            }
+                                        ) {
+                                            items(section.items, key = { it.key + it.name }) { item ->
+                                                PosterCard(
+                                                    item = item,
+                                                    width = posterWidth,
+                                                    onClick = { onOpenDetail(item) }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
 
-                    if (continueWatching.isNotEmpty()) {
-                        if (uiSettings.homeShowContinueWatching) {
-                    item(key = "continue-watching") {
-                            ContinueWatchingRail(
-                                entries = continueWatching,
-                                onResume = onResumePlayback,
-                                onOpenDetail = onOpenDetail
-                            )
-                        }
-                    }
-                    }
-
-                    if (recentlyAdded.isNotEmpty()) {
-                        if (uiSettings.homeShowRecentlyAdded) {
-                    item(key = "recently-added") {
-                            Rail(title = "Recently added to your library") {
-                                items(
-                                    recentlyAdded,
-                                    key = { it.metaKey }
-                                ) { entry ->
-                                    PosterCard(
-                                        item = entry.toMediaItem(),
-                                        width = 122.dp,
-                                        onClick = { onOpenDetail(entry.toMediaItem()) }
+                            if (continueWatching.isNotEmpty() && uiSettings.homeShowContinueWatching) {
+                                item(key = "continue-watching") {
+                                    ContinueWatchingRail(
+                                        entries = continueWatching,
+                                        onResume = onResumePlayback
                                     )
                                 }
                             }
-                        }
-                    }
-                    }
 
-                    if (state.data.sourceErrors.isNotEmpty()) {
-                        item(key = "source-errors") {
-                            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                                Text(
-                                    text = "Some sources had problems",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                state.data.sourceErrors.take(3).forEach { message ->
-                                    ErrorChip(message = message)
-                                    Spacer(modifier = Modifier.height(6.dp))
+                            if (recentlyAdded.isNotEmpty() && uiSettings.homeShowRecentlyAdded) {
+                                item(key = "recently-added") {
+                                    Rail(title = "Recently added to your library") {
+                                        items(
+                                            recentlyAdded,
+                                            key = { it.metaKey }
+                                        ) { entry ->
+                                            PosterCard(
+                                                item = entry.toMediaItem(),
+                                                width = 122.dp,
+                                                onClick = { onOpenDetail(entry.toMediaItem()) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (state.data.sourceErrors.isNotEmpty()) {
+                                item(key = "source-errors") {
+                                    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                                        Text(
+                                            text = "Some sources had problems",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        state.data.sourceErrors.take(3).forEach { message ->
+                                            ErrorChip(message = message)
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Upper navigation: transparent overlay floating ON the hero
+        // artwork — never a solid bar above it.
+        HomeTopOverlay(
+            onOpenSearch = onOpenSearch,
+            onOpenExtensions = onOpenExtensions
+        )
+    }
+}
+
+/**
+ * Transparent upper navigation. Renders over whatever is on screen
+ * (hero artwork when at the top of Home) with a soft gradient scrim
+ * for readability.
+ */
+@Composable
+private fun HomeTopOverlay(
+    onOpenSearch: () -> Unit,
+    onOpenExtensions: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    0f to Color(0xB3000000),
+                    1f to Color(0x00000000)
+                )
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "STREAM BRIDGE",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                    color = Color.White
+                )
+                Text(
+                    text = "Your media, your bridges",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xB3CFCFCF)
+                )
             }
+            GlassIconButton(
+                icon = Icons.Filled.Search,
+                contentDescription = "Search",
+                onClick = onOpenSearch
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            GlassIconButton(
+                icon = Icons.Filled.Extension,
+                contentDescription = "Extensions",
+                onClick = onOpenExtensions,
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
-        }
+    }
+}
+
+/** Circular translucent icon button that stays readable over artwork. */
+@Composable
+private fun GlassIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    tint: Color = Color.White
+) {
+    Surface(
+        onClick = onClick,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = Color(0x66141414),
+        contentColor = tint,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x40FFFFFF))
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            modifier = Modifier
+                .size(40.dp)
+                .padding(9.dp)
+        )
     }
 }
 
 @Composable
 private fun ContinueWatchingRail(
     entries: List<WatchProgressEntity>,
-    onResume: (WatchProgressEntity) -> Unit,
-    onOpenDetail: (MediaItem) -> Unit
+    onResume: (WatchProgressEntity) -> Unit
 ) {
     Rail(title = "Continue watching", subtitle = "Pick up where you left off") {
-        items(entries, key = { it.metaKey + ":" + it.videoId }) { entry ->
-            val fraction = TimeFormat.progressFraction(entry.positionMs, entry.durationMs)
-            PosterCard(
-                item = entry.toMediaItem(),
-                width = 168.dp,
-                progress = fraction,
+        itemsIndexed(entries, key = { _, entry -> entry.metaKey + ":" + entry.videoId }) { index, entry ->
+            ContinueWatchingCard(
+                entry = entry,
+                width = 280.dp,
+                // The most recent unfinished item is what plays next.
+                isNextUp = index == 0,
                 onClick = { onResume(entry) }
             )
         }
@@ -321,15 +387,20 @@ private fun GenresRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             genres.forEach { genre ->
-                androidx.compose.material3.SuggestionChip(
+                Surface(
                     onClick = { onBrowseGenre(genre.name) },
-                    label = { Text(text = "${genre.name} · ${genre.count}") },
-                    shape = com.streambridge.app.ui.theme.PillShape,
-                    border = androidx.compose.material3.SuggestionChipDefaults.suggestionChipBorder(
-                        enabled = true,
-                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                    shape = PillShape,
+                    color = Color(0x14FFFFFF),
+                    contentColor = Color(0xFFEFEFEF),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x1FFFFFFF))
+                ) {
+                    Text(
+                        text = "${genre.name} · ${genre.count}",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                     )
-                )
+                }
             }
         }
         Spacer(modifier = Modifier.height(18.dp))

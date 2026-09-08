@@ -1,8 +1,12 @@
 package com.streambridge.app.ui.components
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +23,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,19 +39,26 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.streambridge.app.addon.model.MediaItem
-import com.streambridge.app.ui.theme.LocalAccent
 import kotlinx.coroutines.delay
 
 /**
- * Cinematic hero banner: auto-rotating backdrop with a deep gradient
- * scrim, title, meta line, accent-gradient play button, capsule info
- * button and page dots.
+ * Cinematic hero carousel: a full-bleed, edge-to-edge rotating backdrop
+ * that extends behind the status bar and the top navigation overlay.
+ * Content sits low on the artwork — large title, a Type • Genre • Year
+ * metadata line, a white pill CTA to details plus a glass play action —
+ * and a modern pagination indicator (active dot expands into a pill).
+ *
+ * All content comes from the app's real catalog data; nothing is
+ * hard-coded. Auto-rotates every 7 s while more than one item exists.
  */
 @Composable
 fun Hero(
@@ -66,18 +76,29 @@ fun Hero(
         }
     }
     val item = items[index.coerceIn(0, items.lastIndex)]
-    val accent = LocalAccent.current
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(440.dp)
+            .height(500.dp)
     ) {
-        Crossfade(targetState = item, label = "hero") { current ->
+        Crossfade(
+            targetState = item,
+            animationSpec = tween(600),
+            label = "hero-artwork"
+        ) { current ->
             val artwork = current.backdrop ?: current.poster
             if (!artwork.isNullOrBlank()) {
+                // Decode at roughly the on-screen size: a long edge of
+                // ~1080 px and the hero height. Keeps memory in check on
+                // large devices without visible quality loss.
+                val heroHeightPx = with(LocalDensity.current) { 500.dp.roundToPx() }
                 AsyncImage(
-                    model = artwork,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(artwork)
+                        .size(1080, heroHeightPx)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = current.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
@@ -98,15 +119,17 @@ fun Hero(
             }
         }
 
-        // Scrims: bottom anchor gradient + subtle top shade for status bar.
+        // Scrims: a soft shade at the very top (status bar / nav overlay
+        // readability) and a strong cinematic fade into the app background.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color(0x66000000),
-                        0.35f to Color.Transparent,
-                        0.62f to Color(0x59000000),
+                        0f to Color(0x99000000),
+                        0.30f to Color(0x14000000),
+                        0.55f to Color(0x33000000),
+                        0.78f to Color(0xB3000000),
                         1f to Color(0xF2050505)
                     )
                 )
@@ -116,135 +139,118 @@ fun Hero(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(horizontal = 22.dp)
-                .padding(bottom = 18.dp)
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 22.dp)
         ) {
+            // Large cinematic title.
             Text(
                 text = item.name,
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.displaySmall.copy(fontSize = 34.sp),
                 fontWeight = FontWeight.Black,
                 color = Color.White,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
 
-            val meta = listOfNotNull(
-                item.releaseInfo?.takeIf { it.isNotBlank() },
-                item.rating?.takeIf { it.isNotBlank() }
-            )
-            if (meta.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    item.rating?.takeIf { it.isNotBlank() }?.let { rating ->
-                        Surface(
-                            color = Color(0xCC141414),
-                            contentColor = accent.primary,
-                            shape = CircleShape
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Star,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = rating,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                        if (item.releaseInfo?.isNotBlank() == true) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                        }
-                    }
-                    item.releaseInfo?.takeIf { it.isNotBlank() }?.let { year ->
-                        Text(
-                            text = year,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFCFCFCF),
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+            // Type • first genre • year, from the real metadata.
+            val metaLine = listOfNotNull(
+                item.type.replaceFirstChar { it.uppercase() }.takeIf { it.isNotBlank() },
+                item.genres.firstOrNull { it.isNotBlank() },
+                item.releaseInfo?.takeIf { it.isNotBlank() }
+            ).joinToString("  •  ")
+            if (metaLine.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = metaLine,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Color(0xFFCFCFCF),
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Play: accent-gradient capsule.
-                Box(
+                // Primary CTA: white pill, black text, subtle press scale.
+                val detailsInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { onOpenDetails(item) },
+                    interactionSource = detailsInteraction,
+                    shape = RoundedCornerShape(percent = 50),
+                    color = Color(0xFFF2F2F2),
+                    shadowElevation = 8.dp,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(percent = 50))
-                        .background(Brush.horizontalGradient(accent.gradient))
-                        .clickable { onPlay(item) }
-                        .padding(horizontal = 26.dp, vertical = 12.dp)
+                        .pressScale(detailsInteraction)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 28.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.PlayArrow,
+                            imageVector = Icons.Filled.Info,
                             contentDescription = null,
-                            tint = Color(0xFF141414),
-                            modifier = Modifier.size(22.dp)
+                            tint = Color(0xFF101014),
+                            modifier = Modifier.size(20.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Play",
-                            color = Color(0xFF141414),
+                            text = "View Details",
+                            color = Color(0xFF101014),
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
 
-                // Info: glassy capsule.
+                // Secondary action: glass capsule play button.
+                val playInteraction = remember { MutableInteractionSource() }
                 Surface(
-                    color = Color(0x66141414),
-                    contentColor = Color.White,
-                    shape = RoundedCornerShape(percent = 50),
+                    onClick = { onPlay(item) },
+                    interactionSource = playInteraction,
+                    shape = CircleShape,
+                    color = Color(0x59141414),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp, Color(0x59FFFFFF)
-                    )
+                    ),
+                    modifier = Modifier
+                        .size(50.dp)
+                        .pressScale(playInteraction, pressedScale = 0.93f)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .clickable { onOpenDetails(item) }
-                            .padding(horizontal = 22.dp, vertical = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Details",
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.titleSmall
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
                         )
                     }
                 }
             }
 
+            // Pagination: active indicator expands into a rounded pill.
             if (items.size > 1) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     repeat(items.size) { dot ->
+                        val active = dot == index
+                        val dotWidth by animateDpAsState(
+                            targetValue = if (active) 24.dp else 6.dp,
+                            animationSpec = spring(
+                                dampingRatio = 0.75f,
+                                stiffness = 400f
+                            ),
+                            label = "hero-dot-width"
+                        )
                         Box(
                             modifier = Modifier
-                                .size(width = if (dot == index) 16.dp else 6.dp, height = 6.dp)
+                                .size(width = dotWidth, height = 6.dp)
                                 .clip(RoundedCornerShape(percent = 50))
                                 .background(
-                                    if (dot == index) accent.primary else Color(0x80FFFFFF)
+                                    if (active) Color(0xFFF2F2F2) else Color(0x59FFFFFF)
                                 )
                         )
                     }

@@ -2,6 +2,7 @@ package com.streambridge.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,16 +56,22 @@ fun PosterCard(
     badgeText: String? = null,
     onClick: () -> Unit
 ) {
+    val pressInteraction = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
             .width(width)
-            .clickable(onClick = onClick)
+            .pressScale(pressInteraction)
+            .clickable(
+                interactionSource = pressInteraction,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             if (!item.poster.isNullOrBlank()) {
