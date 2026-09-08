@@ -69,7 +69,7 @@ data class NuvioInstalledRepository(
  * existing settings/library data is never touched (no migration risk).
  */
 class NuvioPluginStore(
-    context: Context,
+    private val context: Context,
     private val scope: CoroutineScope
 ) {
 

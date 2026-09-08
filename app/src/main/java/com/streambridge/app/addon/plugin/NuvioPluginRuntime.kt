@@ -6,8 +6,12 @@ import com.dokar.quickjs.binding.function
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import okhttp3.MediaType.Companion.toMediaType
+import kotlinx.serialization.json.put
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -191,15 +195,14 @@ class NuvioPluginRuntime {
             .header("User-Agent", UA)
         headers.forEach { (name, value) -> builder.header(name, value) }
         if (method == "POST") {
+            // The content type is provider-controlled; a malformed value
+            // must not crash the request path.
             val contentType = headers.entries
                 .firstOrNull { it.key.equals("Content-Type", ignoreCase = true) }?.value
                 ?: "application/x-www-form-urlencoded"
-            builder.post(
-                okhttp3.RequestBody.create(
-                    okhttp3.MediaType.parse(contentType),
-                    (body ?: "").toByteArray(Charsets.UTF_8)
-                )
-            )
+            val mediaType = runCatching { contentType.toMediaType() }
+                .getOrDefault("application/x-www-form-urlencoded".toMediaType())
+            builder.post((body ?: "").toByteArray(Charsets.UTF_8).toRequestBody(mediaType))
         }
         val built = try {
             builder.build()

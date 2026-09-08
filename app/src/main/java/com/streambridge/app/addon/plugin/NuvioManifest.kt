@@ -68,7 +68,7 @@ object NuvioManifest {
         } catch (e: Exception) {
             return ParseResult.Invalid("The manifest is not valid JSON: ${e.message?.take(80)}")
         }
-        val array = when (root) {
+        val array: JsonArray = when (root) {
             is JsonArray -> root
             is JsonObject -> {
                 val container = root.keys.firstNotNullOfOrNull { key ->
@@ -79,7 +79,7 @@ object NuvioManifest {
                         "The manifest does not contain a provider list " +
                             "(expected a JSON array or an object with a \"providers\" array)"
                     )
-                root[container] ?: JsonArray(emptyList())
+                (root[container] as? JsonArray) ?: JsonArray(emptyList())
             }
             else -> return ParseResult.Invalid("The manifest has an unexpected shape")
         }

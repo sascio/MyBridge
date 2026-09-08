@@ -12,10 +12,10 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Client for the opensubtitles.com API (v3), powering the built-in
@@ -120,10 +120,7 @@ class OpenSubtitlesClient(
                     .header("Authorization", "Bearer $token")
                     .header("User-Agent", USER_AGENT)
                     .post(
-                        RequestBody.create(
-                            MediaType.parse("application/json"),
-                            """{"file_id":$fileId}"""
-                        )
+                        """{"file_id":$fileId}""".toRequestBody("application/json".toMediaType())
                     )
                     .build()
             ).execute().use { response ->
@@ -148,10 +145,8 @@ class OpenSubtitlesClient(
                         .header("Api-Key", apiKey)
                         .header("User-Agent", USER_AGENT)
                         .post(
-                            RequestBody.create(
-                                MediaType.parse("application/json"),
-                                """{"username":"${escape(username)}","password":"${escape(password)}"}"""
-                            )
+                            """{"username":"${escape(username)}","password":"${escape(password)}"}"""
+                                .toRequestBody("application/json".toMediaType())
                         )
                         .build()
                 ).execute().use { response ->

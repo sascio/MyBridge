@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
@@ -121,9 +122,9 @@ class NuvioPluginManager(
      */
     suspend fun resolveStreams(
         type: String,
-        tmdbId: String,
+        tmdbId: String?,
         imdbId: String?,
-        metaId: String,
+        metaId: String?,
         season: Int?,
         episode: Int?
     ): List<StreamOption> {
@@ -207,7 +208,7 @@ class NuvioPluginManager(
             if (text.length > MAX_MANIFEST_BYTES) {
                 throw NuvioPluginException("Repository manifest is too large")
             }
-            return text
+            text
         }
     }
 
