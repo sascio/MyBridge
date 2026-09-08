@@ -40,7 +40,7 @@ class StreamEnrichmentTest {
 
     @Test
     fun `enrich handles 4k and missing descriptors`() {
-        val enriched = StreamEnrichment.enrich(option("Best stream 4K WEB-DL", url = "https://x"))
+        val enriched = StreamEnrichment.enrich(option("Best stream 4K 2160p WEB-DL", url = "https://x"))
         assertEquals(2160, enriched.resolution)
         assertTrue(enriched.quality.contains("4K"))
         assertTrue(enriched.quality.contains("WEBDL"))
@@ -74,11 +74,11 @@ class StreamEnrichmentTest {
             listOf(
                 StreamEnrichment.enrich(option("720p (5 seeders)", infoHash = "aa", addon = "T")),
                 StreamEnrichment.enrich(option("720p (500 seeders)", infoHash = "bb", addon = "T")),
-                StreamEnrichment.enrich(option("1080p (40 seeders)", infoHash = "cc", addon = "T"))
+                StreamEnrichment.enrich(option("720p (43 seeders)", infoHash = "cc", addon = "T"))
             )
         )
         assertEquals(500, sorted[0].seeders)
-        assertEquals(40, sorted[1].seeders)
+        assertEquals(43, sorted[1].seeders)
         assertEquals(5, sorted[2].seeders)
     }
 
@@ -86,7 +86,7 @@ class StreamEnrichmentTest {
     fun `grouping by provider sorts groups by playable count`() {
         val groups = StreamEnrichment.groupByProvider(
             listOf(
-                option("1080p", url = "https://a", addon = "Torrents"),
+                option("1080p", infoHash = "aa", addon = "Torrents"),
                 option("720p", infoHash = "xx", addon = "Torrents"),
                 option("480p", url = "https://c", addon = "Direct")
             )

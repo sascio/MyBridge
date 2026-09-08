@@ -234,7 +234,8 @@ fun SettingsScreen(
         else -> SettingsRootContent(
             vm = vm,
             onOpenPage = onOpenPage,
-            onOpenExtensions = onOpenExtensions
+            onOpenExtensions = onOpenExtensions,
+            onOpenPlugins = onOpenPlugins
         )
     }
 }
@@ -248,7 +249,8 @@ fun SettingsScreen(
 private fun SettingsRootContent(
     vm: SettingsViewModel,
     onOpenPage: (String) -> Unit,
-    onOpenExtensions: () -> Unit
+    onOpenExtensions: () -> Unit,
+    onOpenPlugins: () -> Unit
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val extensionCount by vm.extensionCount.collectAsStateWithLifecycle()

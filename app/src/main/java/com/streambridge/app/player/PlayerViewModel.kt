@@ -3,7 +3,6 @@ package com.streambridge.app.player
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.createSavedStateHandle
@@ -488,8 +487,8 @@ class PlayerViewModel(
         source = ""
     )
 
-    private fun ResolvedSubtitle.toMediaSubtitle(): MediaItem.SubtitleConfiguration =
-        MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.url))
+    private fun ResolvedSubtitle.toMediaSubtitle(): androidx.media3.common.MediaItem.SubtitleConfiguration =
+        androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.url))
             .setMimeType(subtitleMimeType(subtitle.url))
             .setLanguage(subtitle.subtitle.lang.ifBlank { null })
             .setSelectionFlags(C.SELECTION_FLAG_AUTOSELECT)

@@ -56,8 +56,8 @@ class SubtitleResolver(private val api: AddonApi) {
                         .canServe(extension, "subtitles", type, candidateIds.firstOrNull() ?: "")
             }
             .map { extension ->
-                async {
-                    withTimeoutOrNull(SUBTITLE_TIMEOUT_MS) {
+                async<List<AddonSubtitleWithAddon>> {
+                    val fetched: List<AddonSubtitle> = withTimeoutOrNull(SUBTITLE_TIMEOUT_MS) {
                         candidateIds.flatMap { candidate ->
                             try {
                                 api.fetchSubtitles(extension.baseUrl, type, candidate)
@@ -66,8 +66,9 @@ class SubtitleResolver(private val api: AddonApi) {
                             }
                         }
                     } ?: emptyList()
-                }.let { deferred ->
-                    deferred.await().map { AddonSubtitleWithAddon(extension.displayName, it) }
+                    fetched.map { subtitle ->
+                        AddonSubtitleWithAddon(extension.displayName, subtitle)
+                    }
                 }
             }
             .awaitAll()

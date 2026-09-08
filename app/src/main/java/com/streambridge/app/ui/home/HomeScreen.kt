@@ -60,7 +60,7 @@ fun HomeScreen(
     onResumePlayback: (WatchProgressEntity) -> Unit,
     onBrowseGenre: (String) -> Unit,
     onPlayItem: (MediaItem) -> Unit,
-    onOpenCatalog: (com.streambridge.app.addon.CatalogRef) -> Unit
+    onOpenCatalog: (com.streambridge.app.addon.model.CatalogRef) -> Unit
 ) {
     val vm: HomeViewModel = viewModel(factory = HomeViewModel.factory(container))
     val uiState by vm.uiState.collectAsStateWithLifecycle()

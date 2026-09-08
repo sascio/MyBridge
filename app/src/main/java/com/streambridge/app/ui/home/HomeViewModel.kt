@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.streambridge.app.addon.ExtensionManager
+import com.streambridge.app.addon.model.CatalogRef
 import com.streambridge.app.addon.model.HomeData
 import com.streambridge.app.data.db.LibraryItemEntity
 import com.streambridge.app.data.db.WatchProgressEntity
@@ -22,8 +23,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
-import com.streambridge.app.addon.CatalogRef
-import com.streambridge.app.data.settings.SettingsState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn

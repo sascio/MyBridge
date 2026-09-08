@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -249,7 +250,7 @@ class ExtensionManager(
     suspend fun moveDown(addonId: String) = reorder(addonId, +1)
 
     private suspend fun reorder(addonId: String, direction: Int) {
-        val all = kotlinx.coroutines.flow.first(dao.observeAll())
+        val all = dao.observeAll().first()
         if (all.isEmpty()) return
         val index = all.indexOfFirst { it.addonId == addonId }
         if (index < 0) return

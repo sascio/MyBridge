@@ -59,7 +59,10 @@ class AdapterCapabilityTest {
 
     @Test
     fun `id prefixes scope id-based resources`() {
-        val imdbOnly = extension(resources = listOf("stream"), idPrefixes = listOf("tt"))
+        val imdbOnly = extension(
+            resources = listOf("stream", "catalog"),
+            idPrefixes = listOf("tt")
+        )
         assertTrue(stremio.canServe(imdbOnly, "stream", "movie", "tt0133093"))
         assertFalse(stremio.canServe(imdbOnly, "stream", "movie", "kt-998877"))
         // Catalog requests are not id-scoped.

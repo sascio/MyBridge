@@ -68,7 +68,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.streambridge.app.R
-import com.streambridge.app.addon.CatalogRef
+import com.streambridge.app.addon.model.CatalogRef
 import com.streambridge.app.addon.ExtensionManager
 import com.streambridge.app.addon.InstalledExtension
 import com.streambridge.app.addon.InstallOutcome
