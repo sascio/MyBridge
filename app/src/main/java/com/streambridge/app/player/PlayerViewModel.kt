@@ -74,6 +74,7 @@ sealed interface PlayerEvent {
 class PlayerViewModel(
     savedStateHandle: SavedStateHandle,
     context: Context,
+    okHttpClient: okhttp3.OkHttpClient,
     private val streamResolver: StreamResolver,
     private val subtitleResolver: SubtitleResolver,
     private val libraryRepository: LibraryRepository,
@@ -131,7 +132,7 @@ class PlayerViewModel(
     private val _sourceLabel = MutableStateFlow("")
     val sourceLabel: StateFlow<String> = _sourceLabel.asStateFlow()
 
-    val holder: PlayerHolder = PlayerHolder(context) { event ->
+    val holder: PlayerHolder = PlayerHolder(context, okHttpClient) { event ->
         when (event) {
             is PlayerHolder.PlaybackEvent.StateChanged -> _playback.value = PlaybackUiState(
                 isPlaying = event.isPlaying,
@@ -157,7 +158,16 @@ class PlayerViewModel(
         viewModelScope.launch {
             autoplayNext = settingsRepository.state.first().autoplayNext
         }
-        resolveStreams(autoStart = true)
+        // Start immediately with the stream chosen on the detail screen
+        // (avoids a second identical addon fan-out); otherwise resolve.
+        val preselected = PlaybackCache.preselectedStream
+        PlaybackCache.preselectedStream = null
+        if (preselected != null && preselected.isPlayable) {
+            currentStreams = listOf(preselected)
+            selectStream(preselected)
+        } else {
+            resolveStreams(autoStart = true)
+        }
     }
 
     /** Re-resolves streams for the current request. */
@@ -165,16 +175,14 @@ class PlayerViewModel(
         val current = _currentRequest.value
         viewModelScope.launch {
             _phase.value = PlayerPhase.Resolving
-            val extensions = extensionManager.enabledExtensions.value
-            val streams = if (current.type == "series" && current.videoId.isNotBlank()) {
-                streamResolver.resolveEpisode(
-                    extensions, current.type, current.videoId, current.imdbId,
-                    current.season, current.episode
+            val streams = try {
+                resolveCurrentStreams(current)
+            } catch (e: Exception) {
+                android.util.Log.w("SBPlayer", "Stream resolution failed", e)
+                _phase.value = PlayerPhase.NoStreams(
+                    "Stream resolution failed: ${e.message ?: "network error"}"
                 )
-            } else {
-                streamResolver.resolveMovie(
-                    extensions, current.type, current.metaId, current.imdbId
-                )
+                return@launch
             }
             currentStreams = streams
             val playable = streams.filter { it.isPlayable }
@@ -206,6 +214,22 @@ class PlayerViewModel(
         }
     }
 
+    private suspend fun resolveCurrentStreams(
+        current: PlaybackRequest
+    ): List<StreamOption> {
+        val extensions = extensionManager.enabledExtensions.value
+        return if (current.type == "series" && current.videoId.isNotBlank()) {
+            streamResolver.resolveEpisode(
+                extensions, current.type, current.videoId, current.imdbId,
+                current.season, current.episode
+            )
+        } else {
+            streamResolver.resolveMovie(
+                extensions, current.type, current.metaId, current.imdbId
+            )
+        }
+    }
+
     private fun preferredStream(playable: List<StreamOption>): StreamOption? {
         val lastAddon = activeStream?.addonName
         val lastBinge = activeStream?.bingeGroup
@@ -215,7 +239,16 @@ class PlayerViewModel(
 
     fun selectStream(option: StreamOption) {
         when {
-            option.isPlayable -> startPlayback(option)
+            option.isPlayable -> {
+                val verdict = StreamValidator.validate(option.url)
+                if (verdict is StreamValidator.Result.Invalid) {
+                    // Bad link: tell the user and keep the picker open so
+                    // they can choose another source immediately.
+                    _events.tryEmit(PlayerEvent.Message(verdict.reason))
+                } else {
+                    startPlayback(option)
+                }
+            }
             option.isTorrent -> _events.tryEmit(
                 PlayerEvent.Message(
                     "Torrent streams are not supported by the built-in player. Stream Bridge does not download torrents."
@@ -242,7 +275,12 @@ class PlayerViewModel(
                 else -> saved.positionMs
             }
             _playbackSpeed.value = settings.defaultPlaybackSpeed
-            holder.play(url, resumePosition, speed = settings.defaultPlaybackSpeed)
+            holder.play(
+                url = url,
+                startPositionMs = resumePosition,
+                speed = settings.defaultPlaybackSpeed,
+                headers = option.headers
+            )
             startProgressTicker()
             loadExternalSubtitles()
         }
@@ -283,6 +321,13 @@ class PlayerViewModel(
     fun applyExternalSubtitle(subtitle: ResolvedSubtitle) {
         val stream = activeStream ?: return
         val url = stream.url ?: return
+        val verdict = StreamValidator.validate(subtitle.subtitle.url)
+        if (verdict is StreamValidator.Result.Invalid) {
+            _events.tryEmit(
+                PlayerEvent.Message("Subtitle link is invalid: ${verdict.reason}")
+            )
+            return
+        }
         _selectedExternalSubtitle.value = subtitle.subtitle.url
         val position = holder.player.currentPosition.coerceAtLeast(0L)
         holder.applyExternalSubtitles(
@@ -328,6 +373,14 @@ class PlayerViewModel(
             }
 
             is PlayerPhase.Error -> {
+                // A side-loaded external subtitle can be the reason the
+                // source failed (404/CORS/garbage). Retry without it so the
+                // video itself gets a fair chance; the user can re-select
+                // a working subtitle afterwards.
+                if (_selectedExternalSubtitle.value != null) {
+                    _selectedExternalSubtitle.value = null
+                    _events.tryEmit(PlayerEvent.Message("Retrying without the external subtitle"))
+                }
                 val stream = activeStream
                 if (stream?.url != null) {
                     _phase.value = PlayerPhase.Playing(stream)
@@ -510,6 +563,7 @@ class PlayerViewModel(
                 PlayerViewModel(
                     savedStateHandle = this.createSavedStateHandle(),
                     context = appContext,
+                    okHttpClient = container.httpClient.client,
                     streamResolver = container.streamResolver,
                     subtitleResolver = container.subtitleResolver,
                     libraryRepository = container.libraryRepository,

@@ -112,6 +112,16 @@ fun PlayerScreen(
     val showPicker by vm.showPicker.collectAsStateWithLifecycle()
     val queue by vm.queue.collectAsStateWithLifecycle()
 
+    // Toast-like caption for one-shot player messages (invalid link picked,
+    // torrent notice, subtitle retry note). Auto-clears after a pause.
+    var eventCaption by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(eventCaption) {
+        if (eventCaption != null) {
+            delay(2500)
+            eventCaption = null
+        }
+    }
+
     // Immersive mode: hide system bars, keep the screen on, landscape.
     val view = LocalView.current
     DisposableEffect(Unit) {
@@ -124,6 +134,7 @@ fun PlayerScreen(
         view.context.findActivity()?.requestedOrientation =
             android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
+            vm.persistProgressNow()
             controller?.show(WindowInsetsCompat.Type.systemBars())
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             view.context.findActivity()?.requestedOrientation =
@@ -135,9 +146,7 @@ fun PlayerScreen(
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
-                is PlayerEvent.Message -> {
-                    // surfaced in-player as a toast-like caption; kept minimal
-                }
+                is PlayerEvent.Message -> eventCaption = event.text
 
                 is PlayerEvent.OpenExternal -> {
                     try {
@@ -257,8 +266,31 @@ fun PlayerScreen(
                 title = "Playback error",
                 body = p.message,
                 actionLabel = "Retry",
-                onAction = vm::retryPlayback
+                onAction = vm::retryPlayback,
+                secondaryLabel = "Choose another source",
+                onSecondary = vm::openPicker
             )
+        }
+
+        // One-shot message pill above the phase overlays.
+        eventCaption?.let { caption ->
+            Surface(
+                color = Color(0xE6141414),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x40FFFFFF)),
+                shape = com.streambridge.app.ui.theme.PillShape,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 46.dp)
+            ) {
+                Text(
+                    text = caption,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
         }
     }
 
@@ -279,7 +311,9 @@ private fun CenterCaption(
     title: String,
     body: String,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -309,6 +343,15 @@ private fun CenterCaption(
                 Spacer(modifier = Modifier.height(20.dp))
                 Button(onClick = onAction, shape = RoundedCornerShape(14.dp)) {
                     Text(text = actionLabel, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (secondaryLabel != null && onSecondary != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.OutlinedButton(
+                    onClick = onSecondary,
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(text = secondaryLabel, color = Color.White)
                 }
             }
         }
@@ -351,7 +394,13 @@ private fun PlayerControls(
 
     val nextEpisode = queue?.let { (episodes, index) -> episodes.getOrNull(index + 1) }
     val remainingMs = playback.durationMs - playback.positionMs
-    if (remainingMs > 90_000) nextCardDismissed = false
+    // Reset the "Up Next" dismissal when the user is far from the end
+    // again (e.g. seeked back). Done in a side effect — writing state
+    // directly during composition is not allowed to stick.
+    val farFromEnd = remainingMs > 90_000
+    LaunchedEffect(farFromEnd) {
+        if (farFromEnd) nextCardDismissed = false
+    }
     val showNextCard = hasNext && !nextCardDismissed &&
         playback.durationMs > 0 && remainingMs in 0..60_000
 

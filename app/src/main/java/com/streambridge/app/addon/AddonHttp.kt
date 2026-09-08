@@ -23,6 +23,13 @@ class SbHttpClient(
     private val baseClient: OkHttpClient = defaultClient()
 ) {
 
+    /**
+     * The shared OkHttp stack (connection pool + dispatcher are shared by
+     * every derived client). The player uses it too so video connections
+     * reuse the same pool and user-agent.
+     */
+    val client: OkHttpClient get() = baseClient
+
     fun clientWithTimeout(timeoutMs: Long): OkHttpClient {
         return baseClient.newBuilder()
             .callTimeout(timeoutMs, TimeUnit.MILLISECONDS)

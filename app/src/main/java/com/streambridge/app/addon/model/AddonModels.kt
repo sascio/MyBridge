@@ -217,8 +217,46 @@ data class MetaResponse(
 @Serializable
 data class AddonStreamBehaviorHints(
     val notWebReady: Boolean? = null,
-    @Serializable(with = LenientStringSerializer::class) val bingeGroup: String = ""
+    @Serializable(with = LenientStringSerializer::class) val bingeGroup: String = "",
+    /** Headers the addon requires for its (proxied) stream URL. */
+    val proxyHeaders: AddonProxyHeaders? = null
 )
+
+/**
+ * Stremio's proxyHeaders shape: `{"request": {"User-Agent": ..., ...}}`.
+ * Some addons send odd value types; the lenient serializer coerces
+ * primitives to strings instead of failing the whole stream response.
+ */
+@Serializable
+data class AddonProxyHeaders(
+    @Serializable(with = LenientStringMapSerializer::class)
+    val request: Map<String, String> = emptyMap()
+)
+
+/** Accepts a JSON object of primitives (or anything else) as a string map. */
+object LenientStringMapSerializer : KSerializer<Map<String, String>> {
+    private val delegate =
+        kotlinx.serialization.builtins.MapSerializer(String.serializer(), String.serializer())
+    override val descriptor: SerialDescriptor = delegate.descriptor
+
+    override fun deserialize(decoder: Decoder): Map<String, String> {
+        val input = decoder as? JsonDecoder
+        if (input == null) return delegate.deserialize(decoder)
+        return when (val element = input.decodeJsonElement()) {
+            is JsonObject -> element.entries.mapNotNull { (key, value) ->
+                when (value) {
+                    is JsonPrimitive -> key to (value.contentOrNull ?: return@mapNotNull null)
+                    else -> null
+                }
+            }.toMap()
+            else -> emptyMap()
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: Map<String, String>) {
+        delegate.serialize(encoder, value)
+    }
+}
 
 @Serializable
 data class AddonStream(

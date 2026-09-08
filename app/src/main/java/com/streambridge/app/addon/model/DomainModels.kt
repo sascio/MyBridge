@@ -6,6 +6,7 @@ package com.streambridge.app.addon.model
  */
 
 /** A single piece of media shown in rails, grids and search results. */
+@androidx.compose.runtime.Immutable
 data class MediaItem(
     val id: String,
     val imdbId: String?,
@@ -83,6 +84,7 @@ enum class StreamClassification { DIRECT, TORRENT, EXTERNAL, YOUTUBE }
  * Unified stream model: every adapter (Stremio, Nuvio, Cloudstream-style)
  * normalizes into this, and the UI/pplayer never see the origin format.
  */
+@androidx.compose.runtime.Immutable
 data class StreamOption(
     val id: String,
     val label: String,
@@ -99,7 +101,9 @@ data class StreamOption(
     val resolution: Int = 0,
     val language: String = "",
     val sizeBytes: Long = 0L,
-    val seeders: Int = 0
+    val seeders: Int = 0,
+    /** HTTP headers the addon says this stream needs (already sanitized). */
+    val headers: Map<String, String> = emptyMap()
 ) {
     val isPlayable: Boolean get() = url != null
     val shortLabel: String get() = if (label.isBlank()) addonName else label
@@ -153,7 +157,9 @@ data class CatalogRef(
 
 /** Sections rendered by the Home screen. */
 sealed interface HomeSection {
+    @androidx.compose.runtime.Immutable
     data class Hero(val items: List<MediaItem>) : HomeSection
+    @androidx.compose.runtime.Immutable
     data class Rail(
         val key: String,
         val title: String,
@@ -161,11 +167,13 @@ sealed interface HomeSection {
         val items: List<MediaItem>,
         val sourceAddonId: String
     ) : HomeSection
+    @androidx.compose.runtime.Immutable
     data class Genres(val genres: List<GenreInfo>) : HomeSection
 }
 
 data class GenreInfo(val name: String, val count: Int)
 
+@androidx.compose.runtime.Immutable
 data class HomeData(
     val sections: List<HomeSection>,
     val sourceErrors: List<String>
@@ -237,7 +245,10 @@ fun AddonStream.toStreamOption(addonName: String): StreamOption? {
             addonName = addonName,
             isTorrent = false,
             isExternal = false,
-            bingeGroup = bingeGroup
+            bingeGroup = bingeGroup,
+            headers = com.streambridge.app.addon.StreamHeaders.sanitize(
+                behaviorHints?.proxyHeaders?.request
+            )
         )
         isTorrent -> StreamOption(
             id = "torrent:${torrentHash.lowercase()}:${torrentFileIndex}",
