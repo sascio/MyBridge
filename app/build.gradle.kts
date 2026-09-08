@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "com.streambridge.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.streambridge.app"
