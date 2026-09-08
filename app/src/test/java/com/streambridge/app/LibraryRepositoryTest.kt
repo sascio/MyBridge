@@ -121,6 +121,15 @@ class LibraryRepositoryTest {
         override fun observeEnabled(): Flow<List<ExtensionEntity>> =
             rows.map { map -> map.values.filter { it.enabled } }
 
+        override suspend fun maxSortOrder(): Int? =
+            rows.value.values.maxOfOrNull { it.sortOrder }
+
+        override suspend fun setSortOrder(addonId: String, sortOrder: Int) {
+            rows.value[addonId]?.let { entity ->
+                rows.value = rows.value + (addonId to entity.copy(sortOrder = sortOrder))
+            }
+        }
+
         override suspend fun byId(addonId: String): ExtensionEntity? = rows.value[addonId]
 
         override suspend fun upsert(entity: ExtensionEntity) {

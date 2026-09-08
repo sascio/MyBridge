@@ -2,6 +2,7 @@ package com.streambridge.app
 
 import com.streambridge.app.addon.AddonApi
 import com.streambridge.app.addon.InstalledExtension
+import com.streambridge.app.addon.ResolvedSubtitle
 import com.streambridge.app.addon.SubtitleResolver
 import com.streambridge.app.addon.model.AddonCatalog
 import com.streambridge.app.addon.model.AddonManifest
@@ -147,15 +148,15 @@ class SubtitleResolverTest {
 
     @Test
     fun `display labels prefer explicit label then language`() {
-        val withLabel = SubtitleResolver.ResolvedSubtitle(
+        val withLabel = ResolvedSubtitle(
             addonName = "A",
             subtitle = AddonSubtitle(url = "u", lang = "eng", label = "English")
         )
-        val codeOnly = SubtitleResolver.ResolvedSubtitle(
+        val codeOnly = ResolvedSubtitle(
             addonName = "A",
             subtitle = AddonSubtitle(url = "u", lang = "en")
         )
-        val blank = SubtitleResolver.ResolvedSubtitle(
+        val blank = ResolvedSubtitle(
             addonName = "A",
             subtitle = AddonSubtitle(url = "u", lang = "")
         )
