@@ -71,7 +71,7 @@ object MetaMerger {
             .filter { item ->
                 item.genres.any { it.trim().lowercase() in normalizedWatched }
             }
-            .filter { item.key !in excludeKeys }
+            .filter { it.key !in excludeKeys }
             .groupBy { mergeKey(it) }
             .map { (_, group) -> group.first() }
             .sortedByDescending { item ->

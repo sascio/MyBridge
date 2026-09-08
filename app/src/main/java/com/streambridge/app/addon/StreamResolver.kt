@@ -1,5 +1,6 @@
 package com.streambridge.app.addon
 
+import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.addon.model.toStreamOption
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll

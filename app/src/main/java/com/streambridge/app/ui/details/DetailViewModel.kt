@@ -42,7 +42,7 @@ sealed interface DetailEvent {
 }
 
 class DetailViewModel(
-    savedStateHandle: SavedStateHandle,
+    private val savedStateHandle: SavedStateHandle,
     private val discovery: DiscoveryRepository,
     private val extensionManager: ExtensionManager,
     private val streamResolver: StreamResolver,

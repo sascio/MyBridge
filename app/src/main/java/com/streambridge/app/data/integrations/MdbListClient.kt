@@ -4,6 +4,7 @@ import com.streambridge.app.addon.SbHttpClient
 import com.streambridge.app.addon.model.LenientStringSerializer
 import com.streambridge.app.addon.model.MediaItem
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.net.URLEncoder
 
@@ -55,7 +56,7 @@ class MdbListClient(
         val user = json.decodeFromString(MdbUser.serializer(), userBody)
         if (user.id == 0L) return emptyList()
         val listsBody = http.get("$BASE/api/lists/user/${user.id}?apikey=${enc(apiKey)}")
-        return json.decodeFromString(MdbListSummary.serializer(), listsBody)
+        return json.decodeFromString(ListSerializer(MdbListSummary.serializer()), listsBody)
             .filter { it.id != 0L }
             .map { MdbList(it.id, it.name.ifBlank { "List ${it.id}" }) }
     }

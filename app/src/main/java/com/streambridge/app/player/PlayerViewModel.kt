@@ -193,7 +193,7 @@ class PlayerViewModel(
     private fun preferredStream(playable: List<StreamOption>): StreamOption? {
         val lastAddon = activeStream?.addonName
         val lastBinge = activeStream?.bingeGroup
-        return playable.firstOrNull { lastBinge.isNotBlank() && it.bingeGroup == lastBinge }
+        return playable.firstOrNull { !lastBinge.isNullOrBlank() && it.bingeGroup == lastBinge }
             ?: playable.firstOrNull { lastAddon != null && it.addonName == lastAddon }
     }
 

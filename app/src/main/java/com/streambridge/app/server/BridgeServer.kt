@@ -309,7 +309,7 @@ class BridgeServer(
         output.flush()
     }
 
-    private fun <T> runServerCall(block: () -> T): T? {
+    private fun runServerCall(block: () -> String?): String? {
         return runBlocking {
             withTimeoutOrNull(UPSTREAM_TIMEOUT_MS) { block() }
         }

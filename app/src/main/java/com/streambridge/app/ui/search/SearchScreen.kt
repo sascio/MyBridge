@@ -95,7 +95,7 @@ class SearchViewModel(
             ) { q, extensions -> q to extensions }
                 .flatMapLatest { (q, _) ->
                     if (q.trim().length < 2) {
-                        flowOf(SearchUiState.Idle)
+                        flowOf<SearchUiState>(SearchUiState.Idle)
                     } else {
                         flow {
                             emit(SearchUiState.Loading)
@@ -288,7 +288,7 @@ private fun SearchLoadingGrid() {
                             .weight(1f)
                             .height(180.dp)
                             .clip(MaterialTheme.shapes.medium)
-                            .then(androidx.compose.foundation.background(Modifier, brush))
+                            .background(brush)
                     )
                 }
             }

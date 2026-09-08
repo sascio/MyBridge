@@ -473,7 +473,7 @@ private fun AddExtensionDialog(
         title = {
             Text(
                 text = when (state) {
-                    AddDialogState.Confirm -> "Install this extension?"
+                    is AddDialogState.Confirm -> "Install this extension?"
                     else -> "Add extension"
                 },
                 fontWeight = FontWeight.Bold
@@ -481,7 +481,7 @@ private fun AddExtensionDialog(
         },
         text = {
             when (state) {
-                AddDialogState.Idle, AddDialogState.Failed -> {
+                AddDialogState.Idle, is AddDialogState.Failed -> {
                     Column {
                         OutlinedTextField(
                             value = url,
@@ -581,7 +581,7 @@ private fun AddExtensionDialog(
                     enabled = url.isNotBlank()
                 ) { Text(text = "Check manifest") }
 
-                AddDialogState.Failed -> TextButton(onClick = { onCheck(url) }) {
+                is AddDialogState.Failed -> TextButton(onClick = { onCheck(url) }) {
                     Text(text = "Try again")
                 }
 
@@ -589,7 +589,7 @@ private fun AddExtensionDialog(
                     onClick = { onInstall(state.manifest, state.baseUrl) }
                 ) { Text(text = "Install") }
 
-                AddDialogState.Done -> TextButton(onClick = onDismiss) {
+                is AddDialogState.Done -> TextButton(onClick = onDismiss) {
                     Text(text = "Done")
                 }
 
@@ -598,7 +598,7 @@ private fun AddExtensionDialog(
         },
         dismissButton = {
             when (state) {
-                AddDialogState.Confirm -> TextButton(onClick = onReset) {
+                is AddDialogState.Confirm -> TextButton(onClick = onReset) {
                     Text(text = "Back")
                 }
 

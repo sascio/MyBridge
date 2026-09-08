@@ -59,12 +59,31 @@ jobs:
               log = 'No gradle-build.log captured: ' + e.message;
             }
             const lines = log.split('\n');
-            const tail = lines.slice(-500).join('\n');
+            // All compiler/test error lines first (they are what matters),
+            // then a short tail for task-level context.
+            const errorLines = lines.filter(l =>
+              /^e: /.test(l) ||
+              /error:/.test(l) ||
+              /FAILED/.test(l) ||
+              /What went wrong/.test(l) ||
+              /^> /.test(l) ||
+              /tests? (failed|completed)/i.test(l)
+            );
+            const tail = lines.slice(-120).join('\n');
+            const errorBlock = errorLines.slice(0, 400).join('\n');
             const body = [
               'CI build failed for commit `' + context.sha.slice(0, 7) + '` on branch `' + (context.ref || '') + '`.',
               '',
+              '## Errors',
+              '',
               '```',
-              tail.slice(0, 55000),
+              errorBlock.slice(0, 40000),
+              '```',
+              '',
+              '## Log tail',
+              '',
+              '```',
+              tail.slice(0, 12000),
               '```'
             ].join('\n');
             await github.rest.issues.create({

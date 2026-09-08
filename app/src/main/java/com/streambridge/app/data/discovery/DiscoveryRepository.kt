@@ -43,7 +43,7 @@ class DiscoveryRepository(
         val refs = extensionManager.catalogRefs(extensions)
         val errors = ConcurrentLinkedQueue<String>()
 
-        val catalogResults: List<Pair<String, String, List<MediaItem>>> = coroutineScope {
+        val catalogResults: List<Triple<String, String, List<MediaItem>>> = coroutineScope {
             refs.map { ref ->
                 async {
                     val items = try {
@@ -156,7 +156,13 @@ class DiscoveryRepository(
             }
         }
 
-        // Recommendations from watch history genre affinity.
+        // Recommendations from watch-history genre affinity.
+        val watchedGenres = allItems.asSequence()
+            .filter { it.key in watchedKeys }
+            .flatMap { item -> item.genres.asSequence() }
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .toSet()
         val recommendations = MetaMerger.recommendations(allItems, watchedGenres, watchedKeys, RAIL_SIZE)
         if (recommendations.isNotEmpty()) {
             sections.add(HomeSection.Rail("recommended", "Recommended for you", "Based on what you watch", recommendations, "merged"))

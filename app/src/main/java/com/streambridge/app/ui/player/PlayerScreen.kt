@@ -76,6 +76,7 @@ import com.streambridge.app.player.PlayerPhase
 import com.streambridge.app.player.PlayerViewModel
 import kotlinx.coroutines.delay
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
     container: AppContainer,
