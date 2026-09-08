@@ -24,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,7 +36,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.streambridge.app.addon.model.MediaItem
 
 /**
@@ -64,8 +68,21 @@ fun PosterCard(
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             if (!item.poster.isNullOrBlank()) {
+                // Decode at display resolution (width x 3/2 for the 2:3
+                // card), not at the source bitmap size: posters are the
+                // highest-volume image surface on Home.
+                val density = LocalDensity.current
+                val decodeSize = remember(width, density) {
+                    with(density) {
+                        width.roundToPx() to (width * 3f / 2f).roundToPx()
+                    }
+                }
                 AsyncImage(
-                    model = item.poster,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.poster)
+                        .size(decodeSize.first, decodeSize.second)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = item.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()

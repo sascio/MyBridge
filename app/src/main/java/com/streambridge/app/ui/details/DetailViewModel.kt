@@ -83,6 +83,15 @@ class DetailViewModel(
     private val _progressEntries = MutableStateFlow<List<WatchProgressEntity>>(emptyList())
     val progressEntries: StateFlow<List<WatchProgressEntity>> = _progressEntries.asStateFlow()
 
+    /**
+     * Same data keyed by videoId. Episode rows look up progress per row,
+     * so the per-row cost must stay O(1) instead of a linear scan over
+     * every entry (O(episodes x entries) per list render).
+     */
+    val progressByVideoId: StateFlow<Map<String, WatchProgressEntity>> = _progressEntries
+        .map { entries -> entries.associateBy { it.videoId } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val _selectedSeason = MutableStateFlow<Int?>(null)
     val selectedSeason: StateFlow<Int?> = _selectedSeason.asStateFlow()
 
@@ -347,7 +356,12 @@ class DetailViewModel(
                         )
                     )
 
-                    playable.size == 1 -> navigateToPlayer(videoId, season, episodeNumber, episodeTitle)
+                    playable.size == 1 -> {
+                        // Hand the chosen stream to the player directly:
+                        // one resolution total, no second addon fan-out.
+                        PlaybackCache.preselectedStream = playable.first()
+                        navigateToPlayer(videoId, season, episodeNumber, episodeTitle)
+                    }
 
                     else -> {
                         pendingSelection = PendingSelection(videoId, season, episodeNumber, episodeTitle)
@@ -373,6 +387,9 @@ class DetailViewModel(
         val current = pendingSelection ?: return
         dismissStreamSheet()
         if (option.isPlayable) {
+            // The user already picked this stream — hand it over instead
+            // of re-resolving every addon in the player screen.
+            PlaybackCache.preselectedStream = option
             navigateToPlayer(current.videoId, current.season, current.episode, current.episodeTitle)
         } else if (option.isTorrent) {
             _events.tryEmit(
@@ -412,9 +429,7 @@ class DetailViewModel(
         _streamSheet.value = null
     }
 
-    fun progressFor(videoId: String): WatchProgressEntity? {
-        return _progressEntries.value.firstOrNull { it.videoId == videoId }
-    }
+    fun progressFor(videoId: String): WatchProgressEntity? = progressByVideoId.value[videoId]
 
     /** Most recent unfinished episode, if any. */
     private fun continueEpisode(details: MediaDetails): Episode? {
