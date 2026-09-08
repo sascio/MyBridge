@@ -263,8 +263,8 @@ fun PillNavBar(
                             text = tab.label,
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                            color = tint.copy(alpha = lerp(1f, 0.55f, fraction)),
-                            fontSize = lerp(12f, 10f, fraction).sp,
+                            color = tint.copy(alpha = 1f - 0.45f * fraction),
+                            fontSize = (12f - 2f * fraction).sp,
                             maxLines = 1,
                             overflow = TextOverflow.Clip,
                             modifier = Modifier.padding(top = lerp(4.dp, 2.dp, fraction))
