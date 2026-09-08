@@ -1,6 +1,8 @@
 package com.streambridge.app.ui.search
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -63,7 +65,10 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 sealed interface SearchUiState {
@@ -83,6 +88,10 @@ class SearchViewModel(
     val query = MutableStateFlow("")
 
     private val _state = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
+
+    val recentQueries: StateFlow<List<String>> = settings.state
+        .map { it.recentQueries }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
     private var attempt = 0
@@ -102,6 +111,9 @@ class SearchViewModel(
                             val result = try {
                                 val settingsSnapshot: SettingsState = settings.state.first()
                                 val results = discovery.search(q, settingsSnapshot)
+                                if (results.isNotEmpty()) {
+                                    settings.rememberQuery(q)
+                                }
                                 SearchUiState.Results(
                                     movies = results.filter { it.type == "movie" },
                                     series = results.filter { it.type == "series" }
@@ -115,6 +127,10 @@ class SearchViewModel(
                 }
                 .collect { _state.value = it }
         }
+    }
+
+    fun clearRecentQueries() {
+        viewModelScope.launch { settings.clearRecentQueries() }
     }
 
     fun updateQuery(value: String) {
@@ -154,6 +170,7 @@ fun SearchScreen(
     val vm: SearchViewModel = viewModel(factory = SearchViewModel.factory(container))
     val state by vm.state.collectAsStateWithLifecycle()
     val query by vm.query.collectAsStateWithLifecycle()
+    val recentQueries by vm.recentQueries.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -207,12 +224,50 @@ fun SearchScreen(
         }
 
         when (val s = state) {
-            SearchUiState.Idle -> EmptyState(
-                iconRes = R.drawable.ic_empty_search,
-                title = "Search across your extensions",
-                body = "Results come from the extensions you installed — plus TMDB if you enabled it. " +
-                    "Type at least two letters to start."
-            )
+            SearchUiState.Idle -> {
+                if (recentQueries.isNotEmpty()) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Recent searches",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            androidx.compose.material3.TextButton(onClick = vm::clearRecentQueries) {
+                                Text(text = "Clear all")
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            recentQueries.forEach { recent ->
+                                androidx.compose.material3.SuggestionChip(
+                                    onClick = { vm.updateQuery(recent) },
+                                    label = { Text(text = recent) },
+                                    shape = com.streambridge.app.ui.theme.PillShape
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    EmptyState(
+                        iconRes = R.drawable.ic_empty_search,
+                        title = "Search across your extensions",
+                        body = "Results come from the extensions you installed — plus TMDB if you enabled it. " +
+                            "Type at least two letters to start."
+                    )
+                }
+            }
 
             SearchUiState.Loading -> SearchLoadingGrid()
 

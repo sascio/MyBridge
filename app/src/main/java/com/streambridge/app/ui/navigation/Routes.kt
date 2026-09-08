@@ -77,4 +77,6 @@ object Nav {
 
     fun browse(genre: String): String =
         "browse?genre=${enc(genre)}"
+
+    fun settingsPage(page: String): String = "settings/$page"
 }

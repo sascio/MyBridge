@@ -1,11 +1,21 @@
 package com.streambridge.app.player
 
 import android.content.Context
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.exoplayer.ExoPlayer
 import android.net.Uri
+
+/** A selectable subtitle or audio track exposed by the current stream. */
+data class TrackOption(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String,
+    val selected: Boolean
+)
 
 /**
  * Thin wrapper around Media3 ExoPlayer with a listener that reports
@@ -103,6 +113,55 @@ class PlayerHolder(
         val position = player.currentPosition.coerceAtLeast(0L)
         val duration = if (player.duration > 0) player.duration else 0L
         return position to duration
+    }
+
+    // -----------------------------------------------------------------
+    // Track selection (subtitles / audio)
+    // -----------------------------------------------------------------
+
+    fun textTracks(): List<TrackOption> = collectTracks(C.TRACK_TYPE_TEXT, "Subtitle")
+
+    fun audioTracks(): List<TrackOption> = collectTracks(C.TRACK_TYPE_AUDIO, "Audio")
+
+    private fun collectTracks(@androidx.annotation.IntRange(from = 0) type: Int, fallbackPrefix: String): List<TrackOption> {
+        val result = mutableListOf<TrackOption>()
+        val groups = player.currentTracks.groups
+        for (groupIndex in groups.indices) {
+            val group = groups[groupIndex]
+            if (group.getType() != type) continue
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val label = format.label?.takeIf { it.isNotBlank() }
+                    ?: format.language?.uppercase()
+                    ?: "$fallbackPrefix ${result.size + 1}"
+                result += TrackOption(groupIndex, trackIndex, label, group.isTrackSelected(trackIndex))
+            }
+        }
+        return result
+    }
+
+    /** Selects a text track, or disables text tracks entirely when null. */
+    fun selectTextTrack(option: TrackOption?) {
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (option == null) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        } else {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
+            builder.setOverrideForType(
+                TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex)
+            )
+        }
+        player.trackSelectionParameters = builder.build()
+    }
+
+    fun selectAudioTrack(option: TrackOption) {
+        val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex))
+            .build()
     }
 
     fun release() {

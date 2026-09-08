@@ -11,6 +11,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,8 +29,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Tune
@@ -74,6 +79,10 @@ import com.streambridge.app.di.AppContainer
 import com.streambridge.app.player.PlayerEvent
 import com.streambridge.app.player.PlayerPhase
 import com.streambridge.app.player.PlayerViewModel
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.streambridge.app.player.TrackOption
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -292,6 +301,8 @@ private fun CenterCaption(
 }
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
 private fun PlayerControls(
     vm: PlayerViewModel,
     request: com.streambridge.app.player.PlaybackRequest,
@@ -303,10 +314,29 @@ private fun PlayerControls(
     // Collected here (not at screen level) so the 500 ms ticker only
     // recomposes these controls, never the whole player screen.
     val playback by vm.playback.collectAsStateWithLifecycle()
+    val queue by vm.queue.collectAsStateWithLifecycle()
 
     var controlsVisible by remember { mutableStateOf(true) }
     var dragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableStateOf(0f) }
+    var gestureHint by remember { mutableStateOf<String?>(null) }
+    var showSubtitles by remember { mutableStateOf(false) }
+    var showAudio by remember { mutableStateOf(false) }
+    var nextCardDismissed by remember { mutableStateOf(false) }
+
+    // Auto-hide the gesture hint shortly after the last update.
+    LaunchedEffect(gestureHint) {
+        if (gestureHint != null) {
+            delay(700)
+            gestureHint = null
+        }
+    }
+
+    val nextEpisode = queue?.let { (episodes, index) -> episodes.getOrNull(index + 1) }
+    val remainingMs = playback.durationMs - playback.positionMs
+    if (remainingMs > 90_000) nextCardDismissed = false
+    val showNextCard = hasNext && !nextCardDismissed &&
+        playback.durationMs > 0 && remainingMs in 0..60_000
 
     // Auto-hide the controls a few seconds after the last interaction.
     LaunchedEffect(controlsVisible, playback.isPlaying) {
@@ -316,10 +346,116 @@ private fun PlayerControls(
         }
     }
 
+    val context = LocalContext.current
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .clickable { controlsVisible = !controlsVisible }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { controlsVisible = !controlsVisible },
+                    onDoubleTap = { offset ->
+                        val forward = offset.x >= size.width / 2f
+                        vm.seekBy(if (forward) 10_000L else -10_000L)
+                        gestureHint = if (forward) "10s forward" else "10s back"
+                    }
+                )
+            }
+            .pointerInput(Unit) {
+                val audioManager =
+                    context.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+                val maxVolume = audioManager?.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0
+
+                fun activityWindow(): android.view.Window? {
+                    var ctx = context
+                    while (ctx is android.content.ContextWrapper) {
+                        if (ctx is android.app.Activity) return ctx.window
+                        ctx = ctx.baseContext
+                    }
+                    return null
+                }
+
+                var mode: PlayerGesture? = null
+                var totalX = 0f
+                var totalY = 0f
+                var startX = 0f
+                var seekFrom = 0L
+                var startBrightness = 0.5f
+                var startVolume = 0
+
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        mode = null
+                        totalX = 0f
+                        totalY = 0f
+                        startX = offset.x
+                        seekFrom = vm.holder.player.currentPosition.coerceAtLeast(0L)
+                        startBrightness = activityWindow()?.attributes?.screenBrightness
+                            ?.takeIf { it >= 0f } ?: 0.5f
+                        startVolume = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0
+                    },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        totalX += amount.x
+                        totalY += amount.y
+                        if (mode == null) {
+                            val absX = kotlin.math.abs(totalX)
+                            val absY = kotlin.math.abs(totalY)
+                            if (absX < 14f && absY < 14f) return@detectDragGestures
+                            mode = if (absX > absY) {
+                                PlayerGesture.Seek
+                            } else if (startX < size.width / 2f) {
+                                PlayerGesture.Brightness
+                            } else {
+                                PlayerGesture.Volume
+                            }
+                        }
+                        when (mode) {
+                            PlayerGesture.Seek -> {
+                                val seconds = with(density) { totalX.toDp().value }.toLong()
+                                gestureHint = (if (seconds >= 0) "+" else "") + "${seconds}s" +
+                                    " (" + com.streambridge.app.core.TimeFormat.msToClock(
+                                        (seekFrom + seconds * 1000).coerceAtLeast(0L)
+                                    ) + ")"
+                            }
+                            PlayerGesture.Brightness -> {
+                                val window = activityWindow() ?: return@detectDragGestures
+                                val delta = with(density) { (-totalY).toDp().value } / 320f
+                                val value = (startBrightness + delta).coerceIn(0.02f, 1f)
+                                val attrs = window.attributes
+                                attrs.screenBrightness = value
+                                window.attributes = attrs
+                                gestureHint = "Brightness ${(value * 100).toInt()}%"
+                            }
+                            PlayerGesture.Volume -> {
+                                val audio = audioManager ?: return@detectDragGestures
+                                if (maxVolume <= 0) return@detectDragGestures
+                                val steps = with(density) { (-totalY).toDp().value } / 24f
+                                val target = (startVolume + steps.toInt()).coerceIn(0, maxVolume)
+                                if (target != audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)) {
+                                    audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, target, 0)
+                                }
+                                gestureHint = "Volume ${target * 100 / maxVolume}%"
+                            }
+                            null -> Unit
+                        }
+                    },
+                    onDragEnd = {
+                        if (mode == PlayerGesture.Seek) {
+                            val seconds = with(density) { totalX.toDp().value }.toLong()
+                            if (seconds != 0L) {
+                                vm.seekBy(seconds * 1000L)
+                            }
+                        }
+                        mode = null
+                        gestureHint = null
+                    },
+                    onDragCancel = {
+                        mode = null
+                        gestureHint = null
+                    }
+                )
+            }
     ) {
         if (playback.buffering) {
             Box(
@@ -329,6 +465,122 @@ private fun PlayerControls(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = Color.White, modifier = Modifier.size(52.dp))
+            }
+        }
+
+        gestureHint?.let { hint ->
+            Surface(
+                shape = com.streambridge.app.ui.theme.PillShape,
+                color = Color(0xB3141414),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x40FFFFFF)),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                Text(
+                    text = hint,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
+                )
+            }
+        }
+
+        // Skip-intro capsule during the opening minutes of long content.
+        val showSkipIntro = !dragging && playback.durationMs > 8 * 60_000L &&
+            playback.positionMs in 25_000..210_000
+        AnimatedVisibility(
+            visible = showSkipIntro,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp, bottom = 108.dp)
+        ) {
+            Surface(
+                shape = com.streambridge.app.ui.theme.PillShape,
+                color = Color(0xD9141414),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x59FFFFFF)),
+                onClick = { vm.seekBy(90_000L) }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.FastForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Skip intro",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
+
+        // Up-next card in the final minute of an episode.
+        AnimatedVisibility(
+            visible = showNextCard,
+            enter = fadeIn() + slideInVertically { it / 2 },
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 20.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xF0141414),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x40FFFFFF))
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Up next",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = nextEpisode?.title?.takeIf { it.isNotBlank() }
+                                ?: "Next episode",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Surface(
+                        shape = com.streambridge.app.ui.theme.PillShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        onClick = { vm.playNextEpisode() }
+                    ) {
+                        Text(
+                            text = "Play now",
+                            color = Color(0xFF141414),
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(onClick = { nextCardDismissed = true }) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Dismiss",
+                            tint = Color(0xFF9C9C9C)
+                        )
+                    }
+                }
             }
         }
 
@@ -508,6 +760,20 @@ private fun PlayerControls(
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = { showSubtitles = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Subtitles,
+                        contentDescription = "Subtitles",
+                        tint = Color.White
+                    )
+                }
+                IconButton(onClick = { showAudio = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Audiotrack,
+                        contentDescription = "Audio track",
+                        tint = Color.White
+                    )
+                }
                 IconButton(onClick = vm::openPicker) {
                     Icon(
                         imageVector = Icons.Filled.Tune,
@@ -519,9 +785,106 @@ private fun PlayerControls(
         }
     }
 
+    // Subtitle / audio track selection sheets.
+    if (showSubtitles) {
+        ModalBottomSheet(onDismissRequest = { showSubtitles = false }) {
+            TrackSelectionSheet(
+                title = "Subtitles",
+                allowOff = true,
+                options = vm.holder.textTracks(),
+                onSelect = { option ->
+                    vm.holder.selectTextTrack(option)
+                    showSubtitles = false
+                }
+            )
+        }
+    }
+    if (showAudio) {
+        ModalBottomSheet(onDismissRequest = { showAudio = false }) {
+            TrackSelectionSheet(
+                title = "Audio",
+                allowOff = false,
+                options = vm.holder.audioTracks(),
+                onSelect = { option ->
+                    if (option != null) {
+                        vm.holder.selectAudioTrack(option)
+                    }
+                    showAudio = false
+                }
+            )
+        }
+    }
+
     // Back press while controls are visible hides them first.
     BackHandler(enabled = controlsVisible) {
         controlsVisible = false
+    }
+}
+
+private enum class PlayerGesture { Seek, Brightness, Volume }
+
+@Composable
+private fun TrackSelectionSheet(
+    title: String,
+    allowOff: Boolean,
+    options: List<TrackOption>,
+    onSelect: (TrackOption?) -> Unit
+) {
+    Column(modifier = Modifier.padding(bottom = 28.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+        )
+        if (options.isEmpty() && !allowOff) {
+            Text(
+                text = "No tracks available yet. They appear once the stream provides them.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+        }
+        if (allowOff) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(null) }
+                    .padding(horizontal = 20.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Off", modifier = Modifier.weight(1f))
+                if (options.none { it.selected }) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+        options.forEach { option ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(option) }
+                    .padding(horizontal = 20.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = option.label,
+                    modifier = Modifier.weight(1f),
+                    fontWeight = if (option.selected) FontWeight.Bold else FontWeight.Normal
+                )
+                if (option.selected) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
     }
 }
 

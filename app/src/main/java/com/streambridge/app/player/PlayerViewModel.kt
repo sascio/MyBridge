@@ -268,6 +268,13 @@ class PlayerViewModel(
 
     fun seekTo(positionMs: Long) = holder.seekTo(positionMs)
 
+    /** Relative seek used by double-tap and skip-intro gestures. */
+    fun seekBy(deltaMs: Long) {
+        val current = holder.player.currentPosition.coerceAtLeast(0L)
+        val duration = holder.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        holder.seekTo((current + deltaMs).coerceIn(0L, duration))
+    }
+
     // -----------------------------------------------------------------
     // Progress persistence
     // -----------------------------------------------------------------

@@ -26,7 +26,8 @@ data class SettingsState(
     val mdblistEnabled: Boolean = false,
     val mdblistApiKey: String = "",
     val serverEnabled: Boolean = false,
-    val serverPort: Int = 0 // 0 = automatic (ephemeral port)
+    val serverPort: Int = 0, // 0 = automatic (ephemeral port)
+    val recentQueries: List<String> = emptyList()
 ) {
     val tmdbActive: Boolean get() = tmdbEnabled && tmdbApiKey.isNotBlank()
     val mdblistActive: Boolean get() = mdblistEnabled && mdblistApiKey.isNotBlank()
@@ -45,6 +46,7 @@ class SettingsRepository(private val context: Context) {
         val MDBLIST_API_KEY = stringPreferencesKey("mdblist_api_key")
         val SERVER_ENABLED = booleanPreferencesKey("server_enabled")
         val SERVER_PORT = intPreferencesKey("server_port")
+        val RECENT_QUERIES = stringSetPreferencesKey("recent_queries")
     }
 
     private val defaults = SettingsState()
@@ -61,8 +63,55 @@ class SettingsRepository(private val context: Context) {
             mdblistEnabled = prefs[Keys.MDBLIST_ENABLED] ?: defaults.mdblistEnabled,
             mdblistApiKey = prefs[Keys.MDBLIST_API_KEY] ?: "",
             serverEnabled = prefs[Keys.SERVER_ENABLED] ?: defaults.serverEnabled,
-            serverPort = (prefs[Keys.SERVER_PORT] ?: defaults.serverPort).coerceIn(0, 65535)
+            serverPort = (prefs[Keys.SERVER_PORT] ?: defaults.serverPort).coerceIn(0, 65535),
+            recentQueries = prefs[Keys.RECENT_QUERIES]
+                ?.mapNotNull { entry ->
+                    val separator = entry.indexOf(" # ")
+                    if (separator <= 0) return@mapNotNull null
+                    val timestamp = entry.substring(0, separator).toLongOrNull() ?: return@mapNotNull null
+                    val query = entry.substring(separator + 3)
+                    if (query.isBlank()) null else timestamp to query
+                }
+                ?.sortedByDescending { it.first }
+                ?.map { it.second }
+                ?: emptyList()
         )
+    }
+
+    /** Remembers a search query (most recent first, capped at 10). */
+    suspend fun rememberQuery(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return
+        val now = System.currentTimeMillis()
+        edit { prefs ->
+            val existing = prefs[Keys.RECENT_QUERIES] ?: emptySet()
+            val kept = existing.mapNotNull { entry ->
+                val separator = entry.indexOf(" # ")
+                if (separator <= 0) return@mapNotNull null
+                val timestamp = entry.substring(0, separator).toLongOrNull() ?: return@mapNotNull null
+                val text = entry.substring(separator + 3)
+                if (text.isBlank() || text == trimmed) null else timestamp to text
+            }
+            val capped = (kept + (now to trimmed))
+                .sortedByDescending { it.first }
+                .take(10)
+            prefs[Keys.RECENT_QUERIES] = capped.map { (timestamp, text) ->
+                "$timestamp # $text"
+            }.toSet()
+        }
+    }
+
+    suspend fun forgetQuery(query: String) {
+        edit { prefs ->
+            val existing = prefs[Keys.RECENT_QUERIES] ?: return@edit
+            prefs[Keys.RECENT_QUERIES] = existing.filterNot {
+                it.substringAfter(" # ", it) == query
+            }.toSet()
+        }
+    }
+
+    suspend fun clearRecentQueries() {
+        edit { prefs -> prefs.remove(Keys.RECENT_QUERIES) }
     }
 
     suspend fun setAccent(value: String) = edit { it[Keys.ACCENT] = value }
