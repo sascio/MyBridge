@@ -30,6 +30,11 @@ data class SettingsState(
     val tmdbApiKey: String = "",
     val mdblistEnabled: Boolean = false,
     val mdblistApiKey: String = "",
+    // OpenSubtitles (opensubtitles.com API v3) — built-in subtitle addon
+    val opensubtitlesEnabled: Boolean = false,
+    val opensubtitlesApiKey: String = "",
+    val opensubtitlesUsername: String = "",
+    val opensubtitlesPassword: String = "",
     val serverEnabled: Boolean = false,
     val serverPort: Int = 0, // 0 = automatic (ephemeral port)
     val recentQueries: List<String> = emptyList(),
@@ -53,6 +58,11 @@ data class SettingsState(
 ) {
     val tmdbActive: Boolean get() = tmdbEnabled && tmdbApiKey.isNotBlank()
     val mdblistActive: Boolean get() = mdblistEnabled && mdblistApiKey.isNotBlank()
+
+    /** OpenSubtitles is usable when enabled and fully configured. */
+    val opensubtitlesActive: Boolean
+        get() = opensubtitlesEnabled && opensubtitlesApiKey.isNotBlank() &&
+            opensubtitlesUsername.isNotBlank() && opensubtitlesPassword.isNotBlank()
 }
 
 class SettingsRepository(private val context: Context) {
@@ -66,6 +76,10 @@ class SettingsRepository(private val context: Context) {
         val TMDB_API_KEY = stringPreferencesKey("tmdb_api_key")
         val MDBLIST_ENABLED = booleanPreferencesKey("mdblist_enabled")
         val MDBLIST_API_KEY = stringPreferencesKey("mdblist_api_key")
+        val OPENSUBTITLES_ENABLED = booleanPreferencesKey("opensubtitles_enabled")
+        val OPENSUBTITLES_API_KEY = stringPreferencesKey("opensubtitles_api_key")
+        val OPENSUBTITLES_USERNAME = stringPreferencesKey("opensubtitles_username")
+        val OPENSUBTITLES_PASSWORD = stringPreferencesKey("opensubtitles_password")
         val SERVER_ENABLED = booleanPreferencesKey("server_enabled")
         val SERVER_PORT = intPreferencesKey("server_port")
         val RECENT_QUERIES = stringSetPreferencesKey("recent_queries")
@@ -95,6 +109,10 @@ class SettingsRepository(private val context: Context) {
             tmdbApiKey = prefs[Keys.TMDB_API_KEY] ?: "",
             mdblistEnabled = prefs[Keys.MDBLIST_ENABLED] ?: defaults.mdblistEnabled,
             mdblistApiKey = prefs[Keys.MDBLIST_API_KEY] ?: "",
+            opensubtitlesEnabled = prefs[Keys.OPENSUBTITLES_ENABLED] ?: defaults.opensubtitlesEnabled,
+            opensubtitlesApiKey = prefs[Keys.OPENSUBTITLES_API_KEY] ?: "",
+            opensubtitlesUsername = prefs[Keys.OPENSUBTITLES_USERNAME] ?: "",
+            opensubtitlesPassword = prefs[Keys.OPENSUBTITLES_PASSWORD] ?: "",
             serverEnabled = prefs[Keys.SERVER_ENABLED] ?: defaults.serverEnabled,
             serverPort = (prefs[Keys.SERVER_PORT] ?: defaults.serverPort).coerceIn(0, 65535),
             startupTab = prefs[Keys.STARTUP_TAB] ?: defaults.startupTab,
@@ -201,6 +219,18 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setMdblistEnabled(value: Boolean) = edit { it[Keys.MDBLIST_ENABLED] = value }
     suspend fun setMdblistApiKey(value: String) = edit { it[Keys.MDBLIST_API_KEY] = value.trim() }
+
+    suspend fun setOpensubtitlesEnabled(value: Boolean) =
+        edit { it[Keys.OPENSUBTITLES_ENABLED] = value }
+
+    suspend fun setOpensubtitlesApiKey(value: String) =
+        edit { it[Keys.OPENSUBTITLES_API_KEY] = value.trim() }
+
+    suspend fun setOpensubtitlesUsername(value: String) =
+        edit { it[Keys.OPENSUBTITLES_USERNAME] = value.trim() }
+
+    suspend fun setOpensubtitlesPassword(value: String) =
+        edit { it[Keys.OPENSUBTITLES_PASSWORD] = value }
 
     suspend fun setServerEnabled(value: Boolean) = edit { it[Keys.SERVER_ENABLED] = value }
     suspend fun setServerPort(value: Int) = edit { it[Keys.SERVER_PORT] = value.coerceIn(0, 65535) }

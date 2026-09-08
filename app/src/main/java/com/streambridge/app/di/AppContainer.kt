@@ -6,11 +6,13 @@ import com.streambridge.app.addon.ExtensionManager
 import com.streambridge.app.addon.HttpAddonApi
 import com.streambridge.app.addon.SbHttpClient
 import com.streambridge.app.addon.StreamResolver
+import com.streambridge.app.addon.plugin.NuvioPluginManager
 import com.streambridge.app.addon.SubtitleResolver
 import com.streambridge.app.core.NetworkMonitor
 import com.streambridge.app.data.db.StreamBridgeDatabase
 import com.streambridge.app.data.discovery.DiscoveryRepository
 import com.streambridge.app.data.integrations.MdbListClient
+import com.streambridge.app.data.integrations.OpenSubtitlesClient
 import com.streambridge.app.data.integrations.TmdbClient
 import com.streambridge.app.data.library.LibraryRepository
 import com.streambridge.app.data.settings.SettingsRepository
@@ -45,8 +47,20 @@ class AppContainer(context: Context) {
     val extensionManager: ExtensionManager =
         ExtensionManager(database.extensionDao(), addonApi, json, applicationScope)
 
-    val streamResolver: StreamResolver = StreamResolver(addonApi)
-    val subtitleResolver: SubtitleResolver = SubtitleResolver(addonApi)
+    // Nuvio-compatible plugin system (Settings > Content & Discovery > Plugin).
+    val pluginManager: NuvioPluginManager by lazy {
+        NuvioPluginManager(context.applicationContext, applicationScope, httpClient.client)
+    }
+
+    val openSubtitlesClient: OpenSubtitlesClient =
+        OpenSubtitlesClient(httpClient, json)
+
+    val streamResolver: StreamResolver = StreamResolver(api = addonApi, pluginManager = pluginManager)
+    val subtitleResolver: SubtitleResolver = SubtitleResolver(
+        api = addonApi,
+        openSubtitles = openSubtitlesClient,
+        settingsRepository = settingsRepository
+    )
 
     val libraryRepository: LibraryRepository =
         LibraryRepository(database.libraryDao(), database.progressDao())

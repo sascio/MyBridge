@@ -72,6 +72,18 @@ class PlayerHolder(
     /** Sanitized headers of the stream currently loaded (for restarts). */
     private var activeHeaders: Map<String, String> = emptyMap()
 
+    /**
+     * Registers headers for an auxiliary URL (e.g. a side-loaded
+     * subtitle download that needs its own User-Agent/Authorization).
+     * Cleared whenever a new stream starts.
+     */
+    fun associateHeaders(url: String, headers: Map<String, String>) {
+        val safe = StreamHeaders.sanitize(headers)
+        if (safe.isNotEmpty()) {
+            headersByUrl[url] = safe
+        }
+    }
+
     // A stream can legitimately be silent for long stretches (slow CDN,
     // paused buffering of live edges); 30 s without a byte is a generous
     // inactivity ceiling. Shares the app's pool/dispatcher via newBuilder().

@@ -336,6 +336,11 @@ class PlayerViewModel(
             subtitleConfigurations = listOf(subtitle.toMediaSubtitle()),
             speed = _playbackSpeed.value
         )
+        // Subtitle downloads may need their own headers (OpenSubtitles).
+        // Registered AFTER the restart — play() resets per-URL headers.
+        if (subtitle.headers.isNotEmpty()) {
+            holder.associateHeaders(subtitle.subtitle.url, subtitle.headers)
+        }
     }
 
     /** Clears any side-loaded external subtitle. */
