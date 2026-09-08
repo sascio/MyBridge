@@ -490,7 +490,7 @@ class PlayerViewModel(
     private fun ResolvedSubtitle.toMediaSubtitle(): androidx.media3.common.MediaItem.SubtitleConfiguration =
         androidx.media3.common.MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(subtitle.url))
             .setMimeType(subtitleMimeType(subtitle.url))
-            .setLanguage(subtitle.subtitle.lang.ifBlank { null })
+            .setLanguage(subtitle.lang.ifBlank { null })
             .setSelectionFlags(C.SELECTION_FLAG_AUTOSELECT)
             .build()
 
