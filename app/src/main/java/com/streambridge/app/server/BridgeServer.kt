@@ -169,7 +169,7 @@ class BridgeServer(
 
     private fun handleClient(client: Socket) {
         try {
-            client.soTimeout = CLIENT_TIMEOUT_MS
+            client.soTimeout = CLIENT_TIMEOUT_MS.toInt()
             client.use { socket ->
                 val reader = BufferedReader(
                     InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8)
