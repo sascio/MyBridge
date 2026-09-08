@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.OndemandVideo
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Tune
@@ -217,6 +218,13 @@ fun SettingsScreen(
             AppearanceContent(settings = settings, vm = vm)
         }
 
+        "content" -> SettingsSubPage(title = "Content & Discovery", onBack = onBack) {
+            ContentDiscoveryContent(
+                onOpenPlugins = onOpenPlugins,
+                onOpenExtensions = onOpenExtensions
+            )
+        }
+
         "playback" -> SettingsSubPage(title = "Playback", onBack = onBack) {
             PlaybackContent(settings = settings, vm = vm)
         }
@@ -255,7 +263,6 @@ private fun SettingsRootContent(
     onOpenPlugins: () -> Unit
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
-    val extensionCount by vm.extensionCount.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -354,19 +361,9 @@ private fun SettingsRootContent(
             )
             SettingsLinkCard(
                 icon = { Icon(Icons.Filled.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                title = "Extensions",
-                subtitle = if (extensionCount == 0) {
-                    "None installed yet"
-                } else {
-                    "$extensionCount installed"
-                },
-                onClick = onOpenExtensions
-            )
-            SettingsLinkCard(
-                icon = { Icon(Icons.Filled.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                title = "Plugin repositories",
-                subtitle = "Browse Cloudstream repositories (read-only)",
-                onClick = onOpenPlugins
+                title = "Content & Discovery",
+                subtitle = "Plugins (Nuvio-compatible) and addons",
+                onClick = { onOpenPage("content") }
             )
             SettingsLinkCard(
                 icon = { Icon(Icons.Filled.CloudQueue, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
@@ -992,7 +989,9 @@ private fun AboutContent() {
     SettingsGroupCard(title = "Credits") {
         Text(
             text = "Built with Jetpack Compose, Media3 / ExoPlayer, Room, DataStore, " +
-                "OkHttp, kotlinx.serialization, Coil and ZXing. Stream Bridge " +
+                "OkHttp, kotlinx.serialization, Coil and ZXing. Nuvio-compatible " +
+                "plugins run in the embedded QuickJS engine via quickjs-kt " +
+                "(Apache-2.0; QuickJS itself is MIT). Stream Bridge " +
                 "implements the open Stremio addon protocol and is an independent " +
                 "project with original code, branding and artwork.",
             style = MaterialTheme.typography.bodyMedium,
@@ -1120,4 +1119,52 @@ private fun TextButtonRow(label: String, onClick: () -> Unit) {
     androidx.compose.material3.TextButton(onClick = onClick) {
         Text(text = label, color = MaterialTheme.colorScheme.primary)
     }
+}
+
+/**
+ * Content & Discovery: the single hub for the two SEPARATE systems —
+ * Nuvio-compatible plugins (local JavaScript providers) and Stremio
+ * protocol addons (catalogs, metadata, streams, subtitles). They are
+ * never merged into one screen.
+ */
+@Composable
+private fun ContentDiscoveryContent(
+    onOpenPlugins: () -> Unit,
+    onOpenExtensions: () -> Unit
+) {
+    SettingsGroupCard(title = "Sources") {
+        SettingsLinkCard(
+            icon = {
+                Icon(
+                    Icons.Filled.Extension,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = "Plugin",
+            subtitle = "Manage Nuvio-compatible plugins (local providers)",
+            onClick = onOpenPlugins
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SettingsLinkCard(
+            icon = {
+                Icon(
+                    Icons.Filled.VideoLibrary,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = "Addon",
+            subtitle = "Manage addons, metadata and subtitles",
+            onClick = onOpenExtensions
+        )
+    }
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+        text = "Plugins run provider code on your device in a sandboxed JavaScript " +
+            "runtime. Addons use the Stremio addon protocol and answer over HTTP. " +
+            "The two systems are managed separately on purpose.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Extension
@@ -73,6 +74,7 @@ import com.streambridge.app.addon.ExtensionManager
 import com.streambridge.app.addon.InstalledExtension
 import com.streambridge.app.addon.InstallOutcome
 import com.streambridge.app.addon.model.AddonManifest
+import com.streambridge.app.data.settings.SettingsState
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.ui.components.EmptyState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -178,8 +180,8 @@ class ExtensionsViewModel(
             val failures = outcomes.count { it is InstallOutcome.Failure }
             _banner.value = when {
                 outcomes.isEmpty() -> "Nothing to refresh"
-                failures == 0 -> "All extensions refreshed"
-                else -> "$failures of ${outcomes.size} extensions failed to refresh"
+                failures == 0 -> "All addons refreshed"
+                else -> "$failures of ${outcomes.size} addons failed to refresh"
             }
         }
     }
@@ -277,7 +279,7 @@ fun ExtensionsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text(text = "Extensions", fontWeight = FontWeight.Bold) },
+                title = { Text(text = "Addons", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -305,7 +307,7 @@ fun ExtensionsScreen(
             ExtendedFloatingActionButton(
                 onClick = { showAddDialog = true; vm.resetAddState() },
                 icon = { Icon(imageVector = Icons.Filled.Add, contentDescription = null) },
-                text = { Text(text = "Add extension", fontWeight = FontWeight.Bold) },
+                text = { Text(text = "Add addon", fontWeight = FontWeight.Bold) },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = Color(0xFF0B0A10)
             )
@@ -344,16 +346,18 @@ fun ExtensionsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    BuiltinAddonsSection(container = container)
+                    Spacer(modifier = Modifier.height(24.dp))
                     EmptyState(
                         iconRes = R.drawable.ic_empty_extensions,
-                        title = "No extensions installed",
+                        title = "No addons installed",
                         body = "Stream Bridge ships empty on purpose. Add any Stremio-compatible " +
                             "addon by its manifest URL to bring in catalogs, metadata and streams.",
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "An extension URL looks like https://example.com/manifest.json",
+                        text = "An addon URL looks like https://example.com/manifest.json",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -369,6 +373,9 @@ fun ExtensionsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item(key = "builtin-addons") {
+                    BuiltinAddonsSection(container = container)
+                }
                 if (addonCatalogs.isNotEmpty()) {
                     item(key = "addon-catalogs") {
                         Column {
@@ -378,7 +385,7 @@ fun ExtensionsScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Addon catalogs listed by your installed extensions",
+                                text = "Addon catalogs listed by your installed addons",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -419,8 +426,9 @@ fun ExtensionsScreen(
                 }
                 item {
                     Text(
-                        text = "Extensions are Stremio-compatible addons. Stream Bridge never " +
-                            "installs or activates anything without you.",
+                        text = "Addons use the Stremio addon protocol (catalogs, metadata, streams, " +
+                            "subtitles). Stream Bridge never installs or activates anything " +
+                            "without you.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 6.dp)
@@ -692,7 +700,7 @@ private fun ExtensionCard(
                 IconButton(onClick = onDetails) {
                     Icon(
                         imageVector = Icons.Filled.Info,
-                        contentDescription = "Extension details",
+                        contentDescription = "Addon details",
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -781,7 +789,7 @@ private fun AddExtensionDialog(
             Text(
                 text = when (state) {
                     is AddDialogState.Confirm -> "Install this extension?"
-                    else -> "Add extension"
+                    else -> "Add addon"
                 },
                 fontWeight = FontWeight.Bold
             )
@@ -915,4 +923,219 @@ private fun AddExtensionDialog(
             }
         }
     )
+}
+
+// ---------------------------------------------------------------------
+// Built-in addons (pre-installed by design, separate from user addons)
+// ---------------------------------------------------------------------
+
+/**
+ * Tiny VM for the built-in addon cards: exposes the OpenSubtitles
+ * configuration and persists changes through the existing settings
+ * architecture.
+ */
+class BuiltinAddonsViewModel(
+    private val settingsRepository: com.streambridge.app.data.settings.SettingsRepository
+) : ViewModel() {
+
+    val settings = settingsRepository.state
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsState())
+
+    fun setOpensubtitlesEnabled(enabled: Boolean) = viewModelScope.launch {
+        settingsRepository.setOpensubtitlesEnabled(enabled)
+    }
+
+    fun setOpensubtitlesCredentials(apiKey: String, username: String, password: String) =
+        viewModelScope.launch {
+            settingsRepository.setOpensubtitlesApiKey(apiKey)
+            settingsRepository.setOpensubtitlesUsername(username)
+            settingsRepository.setOpensubtitlesPassword(password)
+        }
+
+    companion object {
+        fun factory(container: AppContainer) = viewModelFactory {
+            initializer { BuiltinAddonsViewModel(container.settingsRepository) }
+        }
+    }
+}
+
+/**
+ * The two addons that ship with Stream Bridge by design: the built-in
+ * metadata resolution and Open Subtitles V3 (opensubtitles.com API v3,
+ * activated only when the user supplies their own free credentials —
+ * nothing is bundled). These live under Addon, never under Plugin.
+ */
+@Composable
+private fun BuiltinAddonsSection(container: AppContainer) {
+    val vm: BuiltinAddonsViewModel = viewModel(factory = BuiltinAddonsViewModel.factory(container))
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    var showOpenSubtitlesConfig by remember { mutableStateOf(false) }
+
+    Column {
+        Text(
+            text = "Built-in addons",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "Included with Stream Bridge",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Metadata: the app's own metadata pipeline. Always on.
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Filled.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(26.dp)
+                )
+                Spacer(modifier = Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Metadata",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        androidx.compose.material3.Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = com.streambridge.app.ui.theme.PillShape
+                        ) {
+                            Text(
+                                text = "Built-in · Always on",
+                                style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Resolves titles, posters and episode data from your " +
+                            "enabled addons and integrations",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Open Subtitles V3: built-in, user-activated.
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Filled.Subtitles,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Open Subtitles V3",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = when {
+                                settings.opensubtitlesActive ->
+                                    "opensubtitles.com subtitles in the player"
+                                settings.opensubtitlesEnabled ->
+                                    "Needs your API key and account to fetch subtitles"
+                                else -> "Add your opensubtitles.com credentials to use it"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    androidx.compose.material3.Switch(
+                        checked = settings.opensubtitlesEnabled,
+                        onCheckedChange = { vm.setOpensubtitlesEnabled(it) }
+                    )
+                }
+                androidx.compose.material3.TextButton(onClick = { showOpenSubtitlesConfig = true }) {
+                    Text(text = "Configure account")
+                }
+            }
+        }
+    }
+
+    if (showOpenSubtitlesConfig) {
+        var apiKey by remember(settings.opensubtitlesApiKey) {
+            mutableStateOf(settings.opensubtitlesApiKey)
+        }
+        var username by remember(settings.opensubtitlesUsername) {
+            mutableStateOf(settings.opensubtitlesUsername)
+        }
+        var password by remember(settings.opensubtitlesPassword) {
+            mutableStateOf(settings.opensubtitlesPassword)
+        }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showOpenSubtitlesConfig = false },
+            title = { Text(text = "Open Subtitles V3") },
+            text = {
+                Column {
+                    Text(
+                        text = "Create a free account at opensubtitles.com and generate an " +
+                            "API key (consume page). Credentials stay on your device.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = apiKey,
+                        onValueChange = { apiKey = it },
+                        label = { Text(text = "API key") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text(text = "Username") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text(text = "Password") },
+                        singleLine = true,
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.setOpensubtitlesCredentials(apiKey, username, password)
+                        showOpenSubtitlesConfig = false
+                    }
+                ) { Text(text = "Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showOpenSubtitlesConfig = false }) { Text(text = "Cancel") }
+            }
+        )
+    }
 }

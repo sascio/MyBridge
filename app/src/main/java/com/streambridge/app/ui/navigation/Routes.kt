@@ -16,7 +16,9 @@ object Routes {
     /** Sub-pages of the settings hub: settings/{page}. */
     const val SETTINGS_PAGE = "settings/{page}"
 
-    val settingsPages = listOf("appearance", "playback", "integrations", "network", "about")
+    val settingsPages = listOf(
+        "content", "appearance", "playback", "integrations", "network", "about"
+    )
 
     const val DETAIL =
         "detail?type={type}&id={id}&name={name}&poster={poster}&backdrop={backdrop}" +
