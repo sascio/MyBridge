@@ -43,7 +43,7 @@ class ProgressiveHomeTest {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true; coerceInputValues = true }
 
     /** AddonApi fake with per-base-URL latency and call counting. */
-    private class FakeApi : AddonApi {
+    private open class FakeApi : AddonApi {
         val catalogCalls = mutableMapOf<String, Int>()
         var latencyMs: (String) -> Long = { 0 }
 
