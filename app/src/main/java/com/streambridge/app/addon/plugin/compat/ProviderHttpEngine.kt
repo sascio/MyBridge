@@ -62,6 +62,13 @@ class ProviderHttpEngine(
     private val cookieJar = ProviderCookieJar()
 
     /**
+     * The provider's "browsing context": the URL of the most recent
+     * response. `document.cookie` reads and writes the jar scoped to
+     * this origin — the same model a browser page has after navigating.
+     */
+    private var cookieContextUrl: String = ""
+
+    /**
      * Derived client: shares the base client's connection pool and
      * dispatcher, but owns the per-execution cookie jar and its own
      * socket timeouts so plugin requests are bounded by the engine's
@@ -155,6 +162,7 @@ class ProviderHttpEngine(
             throw controlledNetworkError(e)
         }
 
+        cookieContextUrl = response.request.url.toString()
         return try {
             response.use { r -> readEnvelope(r) }
         } catch (e: java.io.InterruptedIOException) {
@@ -247,6 +255,25 @@ class ProviderHttpEngine(
     // -----------------------------------------------------------------
     // URL validation (unchanged security posture)
     // -----------------------------------------------------------------
+
+    /**
+     * Cookie values visible to provider JS via `document.cookie` — the
+     * same jar fetch() uses, scoped to the origin of the most recent
+     * response (the browsing context). JS and fetch() therefore see one
+     * consistent cookie state.
+     */
+    fun cookieHeaderForContext(): String {
+        val httpUrl = cookieContextUrl.toHttpUrlOrNull() ?: return ""
+        return cookieJar.loadForRequest(httpUrl)
+            .joinToString("; ") { cookie -> cookie.name + "=" + cookie.value }
+    }
+
+    /** Applies one `document.cookie = "k=v; Path=/"` assignment. */
+    fun setCookieFromJs(value: String) {
+        val httpUrl = cookieContextUrl.toHttpUrlOrNull() ?: return
+        val cookie = Cookie.parse(httpUrl, value) ?: return
+        cookieJar.saveFromResponse(httpUrl, listOf(cookie))
+    }
 
     private fun validateFetchUrl(raw: String): HttpUrl {
         val url = raw.trim()

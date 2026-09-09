@@ -3,9 +3,15 @@ package com.streambridge.app.addon.plugin
 import com.dokar.quickjs.QuickJs
 import com.dokar.quickjs.binding.asyncFunction
 import com.dokar.quickjs.binding.function
+import com.streambridge.app.addon.plugin.compat.CompatPrelude
+import com.streambridge.app.addon.plugin.compat.CryptoCapability
+import com.streambridge.app.addon.plugin.compat.ProviderAnalyzer
 import com.streambridge.app.addon.plugin.compat.ProviderHttpEngine
+import com.streambridge.app.addon.plugin.compat.ProviderProfile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Base64
@@ -103,13 +109,35 @@ class NuvioPluginRuntime(
     /**
      * Executes a provider module and returns its raw stream results.
      * Runs entirely on the IO dispatcher; never blocks the main thread.
+     *
+     * [extraModules] carries pre-fetched relative modules (keyed by both
+     * their raw specifier and absolute URL) so providers that ship as
+     * several files work without bundling.
      */
     suspend fun execute(
         http: OkHttpClient,
         codeUrl: String,
         code: String,
-        request: NuvioStreamRequest
+        request: NuvioStreamRequest,
+        extraModules: Map<String, String> = emptyMap()
     ): List<NuvioRawStream> = withContext(Dispatchers.IO) {
+        // Static analysis BEFORE execution: powers the structured
+        // compatibility diagnostics when the provider fails.
+        val profile = try {
+            ProviderAnalyzer.analyze(code)
+        } catch (_: Exception) {
+            null
+        }
+        if (profile != null) {
+            logPlugin(
+                "compat",
+                ("cjs=" + profile.isCommonJS +
+                    " esm=" + profile.isESM +
+                    " requires=[" + profile.requiredModules.joinToString(",").take(80) + "]" +
+                    " browserGlobals=[" + profile.browserGlobals.joinToString(",").take(40) + "]")
+                    .take(220)
+            )
+        }
         val fetchCount = AtomicInteger(0)
         // One HTTP engine per execution: its cookie jar (and any
         // connection state) dies with this call.
@@ -130,12 +158,28 @@ class NuvioPluginRuntime(
             // such as the prelude's final assignment).
             val result = try {
                 quickJs.evaluate<Any?>(PRELUDE, filename = "sb-prelude.js")
-                quickJs.evaluate<Any?>(buildWrapper(code, request), filename = "provider.js")
+                // The compatibility layer reads its context (the exact
+                // user agent fetch() sends, the provider's real URL) from
+                // these assignments before it builds location/navigator.
+                quickJs.evaluate<Any?>(
+                    "globalThis.__sbUserAgent = " + JsonPrimitive(ProviderHttpEngine.PROVIDER_UA) + ";" +
+                        "globalThis.__sbLocationHref = " + JsonPrimitive(codeUrl) + ";",
+                    filename = "sb-context.js"
+                )
+                quickJs.evaluate<Any?>(CompatPrelude.JS, filename = "sb-compat.js")
+                extraModules.forEach { (name, moduleSource) ->
+                    quickJs.evaluate<Any?>(
+                        "globalThis.__sbRegisterModuleSource(" + JsonPrimitive(name) + ", " +
+                            JsonPrimitive(moduleSource) + ");",
+                        filename = "sb-module.js"
+                    )
+                }
+                quickJs.evaluate<Any?>(buildWrapper(code, request, codeUrl), filename = "provider.js")
                 val error = quickJs.evaluate<Any?>(
                     "__sbOut.error == null ? '' : String(__sbOut.error)"
                 )
                 if (error is String && error.isNotBlank()) {
-                    throw NuvioPluginException(error.take(200))
+                    throw providerFailure(error, profile)
                 }
                 quickJs.evaluate<Any?>(
                     "Array.isArray(__sbOut.result) ? __sbOut.result : []"
@@ -146,17 +190,34 @@ class NuvioPluginRuntime(
                 // Syntax errors, synchronous throws, timeouts, conversion
                 // failures: a uniform controlled failure carrying the
                 // engine's line info.
-                throw NuvioPluginException(e.message?.take(200) ?: "Provider failed to execute")
+                throw providerFailure(e.message ?: "", profile)
+            } catch (e: NuvioPluginException) {
+                throw e
             } catch (e: Exception) {
                 // Interruption/limit exceptions that are not derived from
                 // QuickJsException in every engine version: still a
                 // controlled failure, never a raw escape into the caller.
-                throw NuvioPluginException(e.message?.take(200) ?: "Provider failed to execute")
+                throw providerFailure(e.message ?: "", profile)
             }
             mapStreams(result)
         } finally {
             quickJs.close()
         }
+    }
+
+    /**
+     * Wraps a provider error message with the structured compatibility
+     * diagnostic (Status / Detected / Missing / Action) whenever static
+     * analysis can add context about WHAT the provider needed.
+     */
+    private fun providerFailure(message: String, profile: ProviderProfile?): NuvioPluginException {
+        val headline = message.take(200).ifBlank { "Provider failed to execute" }
+        val full = if (profile != null && ProviderAnalyzer.shouldAttachDiagnostic(headline, profile)) {
+            headline + "\n\n" + ProviderAnalyzer.diagnostic(profile, headline)
+        } else {
+            headline
+        }
+        return NuvioPluginException(full.take(700))
     }
 
     // -----------------------------------------------------------------
@@ -214,6 +275,43 @@ class NuvioPluginRuntime(
             Base64.getEncoder().withoutPadding()
                 .encodeToString(input.toByteArray(Charsets.ISO_8859_1))
         }
+
+        // Real-delay timers: the JS side schedules through this binding
+        // and the engine's async-job loop keeps the call alive until the
+        // pending timers settle (the result wrapper races a short grace
+        // window so abandoned timers can never stall a resolved call).
+        quickJs.asyncFunction<Any?>("__sbSetTimeout") { args ->
+            val ms = (args.getOrNull(1) as? Number)?.toLong() ?: 0L
+            delay(ms.coerceIn(0L, 30_000L))
+            null
+        }
+
+        // document.cookie — the SAME jar the HTTP engine uses, scoped
+        // to the origin of the most recent response (browsing context).
+        quickJs.function<Any?>("__sbGetCookies") { _ ->
+            engine.cookieHeaderForContext()
+        }
+        quickJs.function<Any?>("__sbSetCookie") { args ->
+            engine.setCookieFromJs(args.getOrNull(0)?.toString().orEmpty())
+            null
+        }
+
+        // The crypto capability: hashing, HMAC, AES (CBC/CTR/ECB/GCM),
+        // random bytes and PBKDF2, implemented with javax.crypto.
+        quickJs.function<Any?>("__sbCrypto") { args ->
+            val op = args.getOrNull(0)?.toString().orEmpty()
+            val payload = args.getOrNull(1)?.toString() ?: "{}"
+            try {
+                CryptoCapability.handle(op, payload)
+            } catch (e: CryptoCapability.Unsupported) {
+                throw NuvioPluginException(e.message ?: "The crypto operation is not supported")
+            } catch (e: Exception) {
+                throw NuvioPluginException(
+                    "The crypto operation failed: " +
+                        (e.message?.take(100) ?: e.javaClass.simpleName)
+                )
+            }
+        }
     }
 
     // -----------------------------------------------------------------
@@ -249,12 +347,14 @@ class NuvioPluginRuntime(
 
     /**
      * The CommonJS invocation wrapper. The provider file is evaluated
-     * as a classic script with `module`/`exports`/`require` in scope,
-     * then its exported getStreams() is invoked; the promise chain
-     * captures the result into __sbOut (quickjs-kt drains all pending
-     * promise jobs before evaluate() returns).
+     * as a classic script with `module`/`exports` in scope and the
+     * compatibility layer's global `require` resolving modules; then
+     * its exported getStreams() is invoked. The promise chain captures
+     * the result into __sbOut (quickjs-kt drains all pending promise
+     * jobs before evaluate() returns), giving pending fire-and-forget
+     * timers a short grace window first.
      */
-    private fun buildWrapper(code: String, request: NuvioStreamRequest): String {
+    private fun buildWrapper(code: String, request: NuvioStreamRequest, codeUrl: String): String {
         // The provider code is concatenated, never interpolated: real
         // provider bundles freely use JS template literals (`${...}`),
         // which a Kotlin template string would mangle.
@@ -262,14 +362,14 @@ class NuvioPluginRuntime(
         val type = escapeJs(request.mediaType)
         val season = request.season?.toString() ?: "null"
         val episode = request.episode?.toString() ?: "null"
+        val filename = escapeJs(codeUrl)
+        val dirname = escapeJs(codeUrl.substringBeforeLast('/', missingDelimiterValue = "/"))
         val head = """
             var __sbOut = { result: null, error: null, done: false };
             var module = { exports: {} };
             var exports = module.exports;
-            function require(name) {
-              throw new Error("require('" + name + "') is not supported in the plugin sandbox; " +
-                "the provider file must be a self-contained bundle");
-            }
+            var __filename = "$filename";
+            var __dirname = "$dirname";
             (function() {
         """.trimIndent()
         val tail = """
@@ -280,6 +380,19 @@ class NuvioPluginRuntime(
                   throw new Error("The provider does not export getStreams(tmdbId, mediaType, season, episode)");
                 }
                 return module.exports.getStreams("$id", "$type", $season, $episode);
+              })
+              .then(function(r) {
+                // Fire-and-forget timers get a short grace window to
+                // land — but calls without pending timers pay nothing,
+                // and nothing stalls on an abandoned 30s timer.
+                if (!__sbHasPendingTimers()) { return r; }
+                return new Promise(function(resolve) {
+                  var grace = setTimeout(function() { resolve(); }, 250);
+                  __sbTimerIdle().then(function() {
+                    clearTimeout(grace);
+                    resolve();
+                  });
+                }).then(function() { return r; });
               })
               .then(function(r) { __sbOut.result = (r == null) ? [] : r; __sbOut.done = true; })
               .catch(function(e) {
@@ -429,7 +542,11 @@ class NuvioPluginRuntime(
             var parts = init.split("&");
             for (var i = 0; i < parts.length; i++) {
               var kv = parts[i].split("=");
-              this._pairs.push([decodeURIComponent(kv[0]), decodeURIComponent(kv[1] || "")]);
+              // application/x-www-form-urlencoded: '+' means space.
+              this._pairs.push([
+                decodeURIComponent(kv[0].replace(/\+/g, " ")),
+                decodeURIComponent((kv[1] || "").replace(/\+/g, " "))
+              ]);
             }
           }
         };

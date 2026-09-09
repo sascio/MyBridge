@@ -5,6 +5,7 @@ import com.streambridge.app.addon.StreamHeaders
 import com.streambridge.app.addon.UrlValidator
 import com.streambridge.app.addon.model.StreamClassification
 import com.streambridge.app.addon.model.StreamOption
+import com.streambridge.app.addon.plugin.compat.ProviderAnalyzer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -18,6 +19,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
 
@@ -168,7 +170,10 @@ class NuvioPluginManager(
                             val codeUrl = NuvioManifest.providerCodeUrl(repo.manifestUrl, provider.filename)
                                 ?: return@withTimeoutOrNull emptyList()
                             val code = providerCode(codeUrl)
-                            val raw = runtime.execute(http, codeUrl, code, request)
+                            val raw = runtime.execute(
+                                http, codeUrl, code, request,
+                                extraModules = providerModules(codeUrl, code)
+                            )
                             raw.map { stream -> stream.toStreamOption(provider, repo) }
                         } ?: emptyList()
                     } catch (cancellation: kotlinx.coroutines.CancellationException) {
@@ -205,6 +210,40 @@ class NuvioPluginManager(
             !metaId.isNullOrBlank() -> metaId
             else -> ""
         }
+
+    /**
+     * Pre-fetches the relative modules a provider requires (bounded:
+     * at most [MAX_RELATIVE_MODULES] files), so multi-file providers
+     * work. Failures are logged and skipped — a missing module then
+     * surfaces as the provider's own controlled MODULE_NOT_FOUND.
+     */
+    private suspend fun providerModules(codeUrl: String, code: String): Map<String, String> {
+        val specs = try {
+            ProviderAnalyzer.analyze(code).relativeModules
+        } catch (_: Exception) {
+            emptyList()
+        }
+        if (specs.isEmpty()) return emptyMap()
+        val base = codeUrl.toHttpUrlOrNull() ?: return emptyMap()
+        val modules = HashMap<String, String>()
+        for (spec in specs.take(MAX_RELATIVE_MODULES)) {
+            val absolute = runCatching { base.resolve(spec)?.toString() }.getOrNull()
+            if (absolute == null || !absolute.startsWith("http")) continue
+            val source = try {
+                withContext(Dispatchers.IO) { runtime.fetchProviderCode(http, absolute) }
+            } catch (e: Exception) {
+                logPlugin(
+                    "compat",
+                    "relative module " + spec + " unavailable: " + (e.message?.take(60) ?: "")
+                )
+                continue
+            }
+            // Register under both the raw specifier and the absolute URL.
+            modules[spec] = source
+            modules[absolute] = source
+        }
+        return modules
+    }
 
     private suspend fun providerCode(codeUrl: String): String {
         codeCache[codeUrl]?.let { entry ->
@@ -265,6 +304,7 @@ class NuvioPluginManager(
 
     companion object {
         private const val PROVIDER_TIMEOUT_MS = 35_000L
+        private const val MAX_RELATIVE_MODULES = 4
         private const val CODE_CACHE_TTL_MS = 10 * 60 * 1000L
         private const val MAX_MANIFEST_BYTES = 2 * 1024 * 1024
     }
