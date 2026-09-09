@@ -122,6 +122,10 @@ dependencies {
 
     // Networking
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Brotli response decoding for the provider HTTP engine (pure-Java
+    // decoder; gzip/deflate are handled by the JDK). Used directly by
+    // ProviderHttpEngine, hence the explicit declaration.
+    implementation("org.brotli:dec:0.1.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
