@@ -173,10 +173,11 @@ class ProviderHttpEngineTest {
         )
 
         assertEquals("DONE", title)
-        assertEquals("PUT", server.takeRequest().method)
-        assertEquals("state=paused",
-            server.takeRequest().body.readUtf8())
-        assertEquals("DELETE", server.takeRequest().method)
+        val put = server.takeRequest()
+        assertEquals("PUT", put.method)
+        assertEquals("state=paused", put.body.readUtf8())
+        val delete = server.takeRequest()
+        assertEquals("DELETE", delete.method)
     }
 
     @Test
@@ -255,7 +256,7 @@ class ProviderHttpEngineTest {
             async function getStreams(tmdbId, mediaType, season, episode) {
               var response = await fetch("$base/gz", { headers: { "Accept-Encoding": "gzip" } });
               var text = await response.text();
-              return [{ name: "T", title: text.slice(0, 13) + "|" + text.length,
+              return [{ name: "T", title: text.slice(0, 12) + "|" + text.length,
                         url: "https://cdn.example.com/v.mp4", quality: "test" }];
             }
             module.exports = { getStreams: getStreams };
@@ -359,9 +360,13 @@ class ProviderHttpEngineTest {
 
     @Test
     fun `oversized binary responses are capped, never oom`() {
-        // 64-byte cap instead of the 10 MB production ceiling.
+        // 64-byte cap instead of the 10 MB production ceiling. The
+        // fixture keeps an invalid-UTF-8 byte (0xFF) inside every
+        // 64-byte block, so the CAPPED prefix is genuinely binary —
+        // otherwise a text body would gain the truncation marker and
+        // grow past the cap in the byte count.
         val tight = NuvioPluginRuntime(maxResponseBytes = 64)
-        val big = ByteArray(1024) { (it % 251).toByte() } // not valid UTF-8
+        val big = ByteArray(1024) { if (it % 64 == 63) 0xFF.toByte() else (it % 64).toByte() }
         server.enqueue(
             MockResponse()
                 .setHeader("Content-Type", "application/octet-stream")

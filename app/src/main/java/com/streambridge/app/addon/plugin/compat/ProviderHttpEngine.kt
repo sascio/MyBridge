@@ -253,11 +253,13 @@ class ProviderHttpEngine(
         if (url.length > 2048 || url.contains(' ') || url.contains('\n') || url.contains('\r')) {
             throw NuvioPluginException("Provider requested an invalid URL")
         }
-        val httpUrl = url.toHttpUrlOrNull()
-            ?: throw NuvioPluginException("Provider requested an invalid URL")
-        if (httpUrl.scheme != "http" && httpUrl.scheme != "https") {
+        // Legacy guard first so the message stays specific (and stable
+        // for providers that catch and inspect it).
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
             throw NuvioPluginException("Plugin fetch supports http(s) URLs only")
         }
+        val httpUrl = url.toHttpUrlOrNull()
+            ?: throw NuvioPluginException("Provider requested an invalid URL")
         return httpUrl
     }
 
