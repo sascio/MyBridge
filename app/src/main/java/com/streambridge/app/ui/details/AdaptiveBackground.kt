@@ -103,6 +103,9 @@ object AdaptiveColorLogic {
         val s = hsv[1]
         val v = hsv[2]
         if (s < MIN_SATURATION) return null
+        // Already background-safe: return the exact input, with no HSV
+        // round trip (which would quantize channels by a step or two).
+        if (s <= MAX_SATURATION && v <= MAX_VALUE) return argb
         val safeS = if (s > MAX_SATURATION) MAX_SATURATION else s
         val safeV = if (v > MAX_VALUE) MAX_VALUE else v
         return hsvToArgb(hsv[0], safeS, safeV)
