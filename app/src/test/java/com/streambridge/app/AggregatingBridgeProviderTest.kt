@@ -120,10 +120,14 @@ class AggregatingBridgeProviderTest {
     }
 
     private fun manager(vararg entities: ExtensionEntity): ExtensionManager {
-        val manager = ExtensionManager(FakeDao(entities.toList()), FakeApi(), json, CoroutineScope(Job()))
+        // Unconfined so the manager's derived enabledExtensions flow is
+        // collected synchronously at construction (no race with the
+        // provider reading its value right afterwards).
+        val scope = CoroutineScope(Job() + kotlinx.coroutines.Dispatchers.Unconfined)
+        val manager = ExtensionManager(FakeDao(entities.toList()), FakeApi(), json, scope)
         runBlocking {
             kotlinx.coroutines.withTimeout(2000) {
-                manager.extensions.first { it.isNotEmpty() }
+                manager.enabledExtensions.first { it.isNotEmpty() }
             }
         }
         return manager

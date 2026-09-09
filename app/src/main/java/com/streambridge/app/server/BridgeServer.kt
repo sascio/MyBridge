@@ -225,10 +225,22 @@ class BridgeServer(
 
     private fun route(rawTarget: String): Triple<Int, String, String> {
         val path = rawTarget.substringBefore("?")
-        val segments = path.trim('/')
+        val rawSegments = path.trim('/')
             .split("/")
             .filter { it.isNotEmpty() }
             .map { decodeSegment(it) }
+        // The Stremio protocol suffixes every resource path with ".json".
+        // Ids and extras are the segments WITHOUT it — handing the suffix
+        // through would make every upstream request query "id.json.json"
+        // and silently answer empty. ("manifest.json" keeps its name.)
+        val isResourcePath = rawSegments.firstOrNull() in setOf("catalog", "meta", "stream", "subtitles")
+        val segments = if (
+            isResourcePath && rawSegments.isNotEmpty() && rawSegments.last().endsWith(".json")
+        ) {
+            rawSegments.dropLast(1) + rawSegments.last().removeSuffix(".json")
+        } else {
+            rawSegments
+        }
 
         val provider = providerFactory()
 

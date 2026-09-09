@@ -19,6 +19,9 @@ class BridgeServerTest {
 
     private val client = OkHttpClient()
 
+    /** Records what the router hands to the provider (id fidelity). */
+    private val received = mutableListOf<String>()
+
     private val provider = object : BridgeContentProvider {
         override fun manifest(): String = """{"id":"app.streambridge.bridge","name":"Stream Bridge"}"""
 
@@ -27,23 +30,31 @@ class BridgeServerTest {
         override fun landing(baseUrl: String): String = """{"service":"Stream Bridge"}"""
 
         override fun catalog(type: String, compositeCatalogId: String, extraSegment: String?): String {
+            received.add("catalog/$compositeCatalogId/$extraSegment")
             if (compositeCatalogId != "com.good::top") {
                 throw BridgeNotFoundException("no such catalog")
             }
             return """{"metas":[{"id":"tt1","name":"A"}]}"""
         }
 
-        override fun meta(type: String, id: String): String? =
-            if (id == "tt1") """{"meta":{"id":"tt1"}}""" else null
+        override fun meta(type: String, id: String): String? {
+            received.add("meta/$id")
+            return if (id == "tt1") """{"meta":{"id":"tt1"}}""" else null
+        }
 
-        override fun stream(type: String, id: String): String = """{"streams":[]}"""
+        override fun stream(type: String, id: String): String {
+            received.add("stream/$id")
+            return """{"streams":[]}"""
+        }
 
-        override fun subtitles(type: String, id: String): String =
-            if (id == "tt1") {
+        override fun subtitles(type: String, id: String): String {
+            received.add("subtitles/$id")
+            return if (id == "tt1") {
                 """{"subtitles":[{"url":"https://subs.example.com/tt1.en.vtt","lang":"eng","label":"English"}]}"""
             } else {
                 """{"subtitles":[]}"""
             }
+        }
     }
 
     private val server = BridgeServer(
@@ -153,6 +164,38 @@ class BridgeServerTest {
             assertEquals(200, it.code)
             assertEquals("""{"subtitles":[]}""", it.body!!.string())
         }
+    }
+
+    @Test
+    fun `resource ids and extras arrive without the json suffix`() {
+        server.start()
+        awaitRunning()
+        received.clear()
+
+        listOf(
+            "/meta/movie/tt1.json",
+            "/stream/movie/tt1.json",
+            "/subtitles/movie/tt1.json",
+            "/catalog/movie/com.good::top/search=batman&skip=100.json"
+        ).forEach { target ->
+            client.newCall(Request.Builder().url(baseUrl() + target).build()).execute().use { resp ->
+                assertEquals(200, resp.code)
+            }
+        }
+
+        // The Stremio protocol suffixes paths with ".json"; the provider
+        // must receive ids and extras WITHOUT it (this was once broken:
+        // every upstream query asked for "id.json.json" and answered
+        // empty).
+        assertEquals(
+            listOf(
+                "meta/tt1",
+                "stream/tt1",
+                "subtitles/tt1",
+                "catalog/com.good::top/search=batman&skip=100"
+            ),
+            received
+        )
     }
 
     @Test
