@@ -133,25 +133,28 @@ class PluginsViewModel(
             cloudstream = CloudstreamBrowse.Loading(url)
         )
         viewModelScope.launch {
-            val verdict = UrlValidator.validate(url)
-            if (verdict is UrlValidator.Result.Invalid) {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    cloudstream = CloudstreamBrowse.Failed(verdict.reason)
-                )
-                return@launch
-            }
-            try {
-                val repository = cloudstreamAdapter.loadRepository(verdict.url)
-                _state.value = _state.value.copy(
-                    busy = false,
-                    cloudstream = CloudstreamBrowse.Ready(repository)
-                )
-            } catch (e: Exception) {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    cloudstream = CloudstreamBrowse.Failed(e.message ?: "Could not load the repository")
-                )
+            when (val verdict = UrlValidator.validate(url)) {
+                is UrlValidator.Result.Invalid -> {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        cloudstream = CloudstreamBrowse.Failed(verdict.reason)
+                    )
+                }
+
+                is UrlValidator.Result.Valid -> {
+                    try {
+                        val repository = cloudstreamAdapter.loadRepository(verdict.url)
+                        _state.value = _state.value.copy(
+                            busy = false,
+                            cloudstream = CloudstreamBrowse.Ready(repository)
+                        )
+                    } catch (e: Exception) {
+                        _state.value = _state.value.copy(
+                            busy = false,
+                            cloudstream = CloudstreamBrowse.Failed(e.message ?: "Could not load the repository")
+                        )
+                    }
+                }
             }
         }
     }
