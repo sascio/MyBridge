@@ -488,7 +488,7 @@ class NuvioPluginRuntime(
             var __dirname = "$dirname";
             (function() {
         """.trimIndent()
-        return head + "\n" + code + "\n" + wrapperTail(request)
+        return head + "\n" + code + "\n})();\n" + wrapperTail(request)
     }
 
     private fun wrapperTail(request: NuvioStreamRequest): String {
@@ -497,7 +497,6 @@ class NuvioPluginRuntime(
         val season = request.season?.toString() ?: "null"
         val episode = request.episode?.toString() ?: "null"
         val tail = """
-            })();
             Promise.resolve()
               .then(function() {
                 if (!module.exports || typeof module.exports.getStreams !== "function") {
