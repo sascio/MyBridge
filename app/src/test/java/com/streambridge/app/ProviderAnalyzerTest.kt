@@ -62,6 +62,23 @@ class ProviderAnalyzerTest {
     }
 
     @Test
+    fun `esm detection never hijacks commonjs bundles`() {
+        // esbuild-bundled CJS providers mention import/export interop
+        // helpers and even the words in strings — but they carry
+        // module.exports, so they must stay on the CommonJS path.
+        val profile = ProviderAnalyzer.analyze(
+            """
+            var __toESM = (mod) => ({ ...mod, default: mod });
+            var import_cheerio = __toESM(require("cheerio"));
+            function getStreams() { return "exports test"; }
+            module.exports = { getStreams: getStreams };
+            """.trimIndent()
+        )
+        assertTrue(profile.isCommonJS)
+        assertFalse(profile.isESM)
+    }
+
+    @Test
     fun `detects browser and Node globals`() {
         val profile = ProviderAnalyzer.analyze(
             """

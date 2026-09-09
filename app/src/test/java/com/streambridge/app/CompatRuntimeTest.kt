@@ -452,6 +452,82 @@ class CompatRuntimeTest {
     }
 
     // -----------------------------------------------------------------
+    // ES modules
+    // -----------------------------------------------------------------
+
+    @Test
+    fun `esm providers with named exports and node imports run`() {
+        val title = firstTitle(
+            """
+            import { createHash } from "node:crypto";
+            export async function getStreams(tmdbId, mediaType, season, episode) {
+              var hash = createHash("md5").update(tmdbId).digest("hex").slice(0, 6);
+              return [{ name: "T", title: hash,
+                        url: "https://cdn.example.com/v.mp4", quality: "test" }];
+            }
+            """.trimIndent()
+        )
+        // md5("550").slice(0, 6)
+        assertEquals("01f78b", title)
+    }
+
+    @Test
+    fun `esm default export objects run`() {
+        val title = firstTitle(
+            """
+            import querystring from "querystring";
+            export default {
+              getStreams: function() {
+                var qs = querystring.stringify({ a: "1", b: ["2", "3"] });
+                return [{ name: "T", title: qs,
+                          url: "https://cdn.example.com/v.mp4", quality: "test" }];
+              }
+            };
+            """.trimIndent()
+        )
+        assertEquals("a=1&b=2&b=3", title)
+    }
+
+    @Test
+    fun `esm default export functions run`() {
+        val title = firstTitle(
+            """
+            import { Buffer } from "buffer";
+            export default async function getStreams() {
+              var b64 = Buffer.from("hello", "utf8").toString("base64");
+              return [{ name: "T", title: b64,
+                        url: "https://cdn.example.com/v.mp4", quality: "test" }];
+            }
+            """.trimIndent()
+        )
+        assertEquals("aGVsbG8=", title)
+    }
+
+    @Test
+    fun `esm providers import relative modules by url resolution`() {
+        val streams = runBlocking {
+            runtime.execute(
+                http, codeUrl,
+                """
+                import { double } from "./util.js";
+                export async function getStreams() {
+                  return [{ name: "T", title: String(double(21)),
+                            url: "https://cdn.example.com/v.mp4", quality: "test" }];
+                }
+                """.trimIndent(),
+                request,
+                extraModules = mapOf(
+                    "./util.js" to "export function double(x) { return x * 2; }",
+                    "https://repo.example/providers/util.js" to
+                        "export function double(x) { return x * 2; }"
+                )
+            )
+        }
+        assertEquals(1, streams.size)
+        assertEquals("42", streams[0].title)
+    }
+
+    // -----------------------------------------------------------------
     // Misc compat surfaces
     // -----------------------------------------------------------------
 

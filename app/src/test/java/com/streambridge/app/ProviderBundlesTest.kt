@@ -249,6 +249,33 @@ class ProviderBundlesTest {
     }
 
     @Test
+    fun `esm providers import the real cheerio bundle`() {
+        val streams = runBlocking {
+            runtime.execute(
+                http, "https://repo.example/providers/p.js",
+                """
+                import * as cheerio from "cheerio";
+                export async function getStreams() {
+                  var html = "<ul><li class='it' data-u='https://cdn.example.com/a.mp4'>A</li>" +
+                             "<li class='it' data-u='https://cdn.example.com/b.mp4'>B</li></ul>";
+                  var dollar = cheerio.load(html);
+                  return dollar("li.it").map(function(i, el) {
+                    var item = dollar(el);
+                    return { name: "Src", title: item.text().trim(),
+                             url: item.attr("data-u"), quality: "1080p" };
+                  }).get();
+                }
+                """.trimIndent(),
+                request,
+                extraModules = modules
+            )
+        }
+        assertEquals(2, streams.size)
+        assertEquals("A", streams[0].title)
+        assertEquals("https://cdn.example.com/b.mp4", streams[1].url)
+    }
+
+    @Test
     fun `cheerio and forge coexist and memoize within one execution`() {
         val streams = runBlocking {
             runtime.execute(
