@@ -2,7 +2,7 @@ package com.streambridge.app.ui.sources
 
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -604,7 +604,8 @@ private fun StreamCard(
             .background(SourceCardSurface)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null
+                indication = null,
+                onClick = onClick
             )
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically

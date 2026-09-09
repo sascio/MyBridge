@@ -341,7 +341,7 @@ class DetailViewModel(
             episode = episodeNumber,
             episodeTitle = episodeTitle
         )
-        pendingHeaderInfo = HeaderInfo(
+        _pendingHeaderInfo.value = HeaderInfo(
             releaseInfo = details.releaseInfo ?: item.releaseInfo ?: "",
             rating = details.rating ?: item.rating ?: ""
         )
