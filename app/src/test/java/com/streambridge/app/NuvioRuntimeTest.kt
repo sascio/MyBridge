@@ -192,6 +192,57 @@ class NuvioRuntimeTest {
     }
 
     @Test
+    fun `response headers expose a web-like Headers interface`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setBody("""{"ok":true}""")
+                .addHeader("X-Stream-Bridge", "header-probe")
+        )
+        val code = """
+            function getStreams() {
+              return fetch("$base/h").then(function(r) {
+                var direct = r.headers.get("x-stream-bridge");
+                var missing = r.headers.get("does-not-exist");
+                var has = r.headers.has("X-Stream-Bridge");
+                return [{
+                  name: "H",
+                  title: direct + "|" + String(missing) + "|" + String(has),
+                  url: "https://cdn.example.com/v.mp4"
+                }];
+              });
+            }
+            module.exports = { getStreams: getStreams };
+        """.trimIndent()
+        val streams = runtime.execute(http, "https://unused/code.js", code, request)
+        assertEquals("header-probe|null|true", streams[0].title)
+    }
+
+    @Test
+    fun `URL and TextDecoder shims serve provider code`() = runBlocking {
+        val code = """
+            function getStreams() {
+              var u = new URL("https://api.example.com/search/page?q=ninja&lang=en#top");
+              var host = u.hostname;
+              var q = u.searchParams.get("q");
+              var rel = new URL("../b/c.js", "https://cdn.example.com/a/x.js").href;
+              var bytes = new Uint8Array([0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x20, 0xe2, 0x9c, 0x93]);
+              var decoded = new TextDecoder().decode(bytes);
+              return [{
+                name: "U",
+                title: host + "|" + q + "|" + rel + "|" + decoded,
+                url: "https://cdn.example.com/v.mp4"
+              }];
+            }
+            module.exports = { getStreams: getStreams };
+        """.trimIndent()
+        val streams = runtime.execute(http, "https://unused/code.js", code, request)
+        assertEquals(
+            "api.example.com|ninja|https://cdn.example.com/b/c.js|hello \u2713",
+            streams[0].title
+        )
+    }
+
+    @Test
     fun `episode arguments reach the provider`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"streams":[]}"""))
         val code = """

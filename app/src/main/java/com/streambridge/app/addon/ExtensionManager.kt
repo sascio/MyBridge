@@ -96,7 +96,15 @@ class ExtensionManager(
     sealed interface CheckResult {
         data class InvalidUrl(val reason: String) : CheckResult
         data class Unreachable(val reason: String) : CheckResult
-        data class InvalidManifest(val issues: List<String>) : CheckResult
+        /**
+         * @param isNuvioPlugin true when the manifest failed Stremio
+         * validation but parses as a Nuvio plugin repository — the user
+         * should be pointed to the Plugin screen instead.
+         */
+        data class InvalidManifest(
+            val issues: List<String>,
+            val isNuvioPlugin: Boolean = false
+        ) : CheckResult
         data class Ok(
             val manifest: AddonManifest,
             val baseUrl: String,
@@ -124,7 +132,12 @@ class ExtensionManager(
         }
         return when (val verdict = ManifestValidator.validate(manifest)) {
             is ManifestValidator.Result.Invalid ->
-                CheckResult.InvalidManifest(verdict.issues)
+                CheckResult.InvalidManifest(
+                    issues = verdict.issues,
+                    isNuvioPlugin = com.streambridge.app.addon.plugin.NuvioManifest
+                        .parse(manifest) is
+                        com.streambridge.app.addon.plugin.NuvioManifest.ParseResult.Valid
+                )
 
             ManifestValidator.Result.Valid -> {
                 val ecosystem = AddonAdapterRegistry.forUrl(baseUrl).ecosystem

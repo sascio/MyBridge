@@ -92,7 +92,11 @@ sealed interface AddDialogState {
     data class Confirm(val manifest: AddonManifest, val baseUrl: String) : AddDialogState
     data object Installing : AddDialogState
     data class Done(val name: String) : AddDialogState
-    data class Failed(val message: String) : AddDialogState
+    data class Failed(
+        val message: String,
+        /** The URL is a Nuvio plugin repository, not a Stremio addon. */
+        val isNuvioPlugin: Boolean = false
+    ) : AddDialogState
 }
 
 class ExtensionsViewModel(
@@ -124,7 +128,8 @@ class ExtensionsViewModel(
 
                 is ExtensionManager.CheckResult.InvalidManifest ->
                     _addState.value = AddDialogState.Failed(
-                        "Manifest validation failed: ${result.issues.joinToString("; ")}"
+                        "Manifest validation failed: ${result.issues.joinToString("; ")}",
+                        isNuvioPlugin = result.isNuvioPlugin
                     )
 
                 is ExtensionManager.CheckResult.Ok ->
@@ -263,7 +268,8 @@ sealed interface CatalogBrowseState {
 @Composable
 fun ExtensionsScreen(
     container: AppContainer,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenPlugins: () -> Unit = {}
 ) {
     val vm: ExtensionsViewModel = viewModel(factory = ExtensionsViewModel.factory(container))
     val extensions by vm.extensions.collectAsStateWithLifecycle()
@@ -444,7 +450,12 @@ fun ExtensionsScreen(
             onDismiss = { showAddDialog = false; vm.dismissDialog() },
             onCheck = vm::checkUrl,
             onInstall = vm::installConfirmed,
-            onReset = vm::resetAddState
+            onReset = vm::resetAddState,
+            onOpenPlugins = {
+                showAddDialog = false
+                vm.dismissDialog()
+                onOpenPlugins()
+            }
         )
     }
 
@@ -778,7 +789,8 @@ private fun AddExtensionDialog(
     onDismiss: () -> Unit,
     onCheck: (String) -> Unit,
     onInstall: (AddonManifest, String) -> Unit,
-    onReset: () -> Unit
+    onReset: () -> Unit,
+    onOpenPlugins: () -> Unit = {}
 ) {
     var url by remember { mutableStateOf("") }
     val clipboard = LocalClipboardManager.current
@@ -819,11 +831,22 @@ private fun AddExtensionDialog(
                             Text(text = "Paste from clipboard")
                         }
                         if (state is AddDialogState.Failed) {
-                            Text(
-                                text = state.message,
-                                color = MaterialTheme.colorScheme.error,
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                            if (state.isNuvioPlugin) {
+                                Text(
+                                    text = "This URL is a Nuvio plugin repository, " +
+                                        "not a Stremio addon. Plugins and addons are two " +
+                                        "separate systems — add it on the Plugin screen " +
+                                        "(Settings > Content & Discovery > Plugin).",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            } else {
+                                Text(
+                                    text = state.message,
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
                 }
@@ -896,8 +919,14 @@ private fun AddExtensionDialog(
                     enabled = url.isNotBlank()
                 ) { Text(text = "Check manifest") }
 
-                is AddDialogState.Failed -> TextButton(onClick = { onCheck(url) }) {
-                    Text(text = "Try again")
+                is AddDialogState.Failed -> if (state.isNuvioPlugin) {
+                    TextButton(onClick = onOpenPlugins) {
+                        Text(text = "Open Plugins")
+                    }
+                } else {
+                    TextButton(onClick = { onCheck(url) }) {
+                        Text(text = "Try again")
+                    }
                 }
 
                 is AddDialogState.Confirm -> TextButton(

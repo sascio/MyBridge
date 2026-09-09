@@ -241,7 +241,8 @@ private fun StreamBridgeNavHost(
         composable(Routes.EXTENSIONS) {
             ExtensionsScreen(
                 container = container,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenPlugins = { navController.navigate(Routes.PLUGINS) { launchSingleTop = true } }
             )
         }
 

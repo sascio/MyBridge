@@ -362,7 +362,7 @@ class NuvioPluginRuntime {
               ok: !!r.ok,
               status: r.status,
               statusText: r.statusText || "",
-              headers: r.headers || {},
+              headers: __sbHeaders(r.headers || {}),
               text: function() { return Promise.resolve(r.body || ""); },
               json: function() { return Promise.resolve(JSON.parse(r.body || "null")); }
             };
@@ -403,6 +403,186 @@ class NuvioPluginRuntime {
           return out.join("&");
         };
         globalThis.URLSearchParams = URLSearchParams;
+
+        // ---- Web API shims providers rely on -------------------------
+
+        // Headers: plain lowercase map plus case-insensitive get()/has().
+        function __sbHeaders(raw) {
+          var h = {};
+          for (var k in raw) {
+            if (Object.prototype.hasOwnProperty.call(raw, k)) { h[k] = raw[k]; }
+          }
+          h.get = function(name) {
+            var key = String(name).toLowerCase();
+            return Object.prototype.hasOwnProperty.call(this, key) ? this[key] : null;
+          };
+          h.has = function(name) {
+            return this.get(name) !== null;
+          };
+          return h;
+        }
+
+        // URL: pragmatic RFC-3986-style parser with relative resolution.
+        function __sbNormalizePath(path) {
+          var segs = String(path).split("/");
+          var out = [];
+          for (var i = 0; i < segs.length; i++) {
+            var s = segs[i];
+            if (s === ".") {
+              if (i === segs.length - 1) { out.push(""); }
+              continue;
+            }
+            if (s === "..") {
+              if (out.length > 0 && out[out.length - 1] !== "") { out.pop(); }
+              if (i === segs.length - 1) { out.push(""); }
+              continue;
+            }
+            out.push(s);
+          }
+          return out.join("/");
+        }
+
+        function __sbParseUrl(url) {
+          var rest = String(url);
+          var hash = "";
+          var hashIndex = rest.indexOf("#");
+          if (hashIndex !== -1) { hash = rest.slice(hashIndex); rest = rest.slice(0, hashIndex); }
+          var search = "";
+          var searchIndex = rest.indexOf("?");
+          if (searchIndex !== -1) { search = rest.slice(searchIndex); rest = rest.slice(0, searchIndex); }
+          var m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(rest);
+          if (!m) { return null; }
+          var protocol = m[1].toLowerCase();
+          rest = rest.slice(m[0].length);
+          var hadAuthority = rest.slice(0, 2) === "//";
+          var host = "", port = "", pathname = "";
+          if (hadAuthority) {
+            var slash = rest.indexOf("/", 2);
+            var authority = slash === -1 ? rest.slice(2) : rest.slice(2, slash);
+            pathname = slash === -1 ? "/" : rest.slice(slash);
+            var at = authority.lastIndexOf("@");
+            if (at !== -1) { authority = authority.slice(at + 1); }
+            var colon = authority.lastIndexOf(":");
+            if (colon !== -1 && authority.indexOf("]") === -1) {
+              port = authority.slice(colon + 1);
+              host = authority.slice(0, colon);
+            } else {
+              host = authority;
+            }
+          } else {
+            pathname = rest;
+          }
+          if (pathname === "" && hadAuthority) { pathname = "/"; }
+          // Hierarchical paths are normalized (dot segments removed),
+          // opaque paths (mailto:, data:) are left untouched.
+          if (hadAuthority || pathname.slice(0, 1) === "/") {
+            pathname = __sbNormalizePath(pathname);
+          }
+          return {
+            protocol: protocol, host: host, port: port, pathname: pathname,
+            search: search, hash: hash, hasAuthority: hadAuthority
+          };
+        }
+
+        function __sbResolveUrl(base, ref) {
+          var b = __sbParseUrl(base);
+          if (!b) { return ref; }
+          var r = String(ref);
+          if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(r)) { return r; }
+          var rHash = "", rSearch = "";
+          var hi = r.indexOf("#");
+          if (hi !== -1) { rHash = r.slice(hi); r = r.slice(0, hi); }
+          var si = r.indexOf("?");
+          if (si !== -1) { rSearch = r.slice(si); r = r.slice(0, si); }
+          var origin = b.protocol + "://" + b.host + (b.port ? ":" + b.port : "");
+          if (r === "") {
+            // Empty or query/fragment-only reference: keep the base path,
+            // replace the query when the reference carries one.
+            return origin + b.pathname + (rSearch !== "" ? rSearch : b.search) + rHash;
+          }
+          if (r.slice(0, 2) === "//") { return b.protocol + ":" + r + rSearch + rHash; }
+          if (r.slice(0, 1) === "/") { return origin + __sbNormalizePath(r) + rSearch + rHash; }
+          var dir = b.pathname.slice(0, b.pathname.lastIndexOf("/") + 1);
+          return origin + __sbNormalizePath(dir + r) + rSearch + rHash;
+        }
+
+        function URL(input, base) {
+          if (!(this instanceof URL)) { return new URL(input, base); }
+          var href = String(input == null ? "" : input);
+          if (base !== undefined && base !== null) {
+            href = __sbResolveUrl(String(base instanceof URL ? base.href : base), href);
+          }
+          var parts = __sbParseUrl(href);
+          if (!parts) { throw new Error("Invalid URL: " + href); }
+          this._u = parts;
+          this._searchParams = new URLSearchParams(
+            parts.search.indexOf("?") === 0 ? parts.search.slice(1) : "");
+        }
+        URL.prototype.toString = function() { return this.href; };
+        Object.defineProperty(URL.prototype, "href", { get: function() {
+          var u = this._u;
+          var auth = u.hasAuthority ? "//" + u.host + (u.port ? ":" + u.port : "") : "";
+          return u.protocol + ":" + auth + u.pathname + u.search + u.hash;
+        } });
+        Object.defineProperty(URL.prototype, "protocol", { get: function() { return this._u.protocol + ":"; } });
+        Object.defineProperty(URL.prototype, "host", { get: function() {
+          return this._u.host + (this._u.port ? ":" + this._u.port : "");
+        } });
+        Object.defineProperty(URL.prototype, "hostname", { get: function() { return this._u.host; } });
+        Object.defineProperty(URL.prototype, "port", { get: function() { return this._u.port; } });
+        Object.defineProperty(URL.prototype, "pathname", { get: function() { return this._u.pathname; } });
+        Object.defineProperty(URL.prototype, "search", { get: function() { return this._u.search; } });
+        Object.defineProperty(URL.prototype, "hash", { get: function() { return this._u.hash; } });
+        Object.defineProperty(URL.prototype, "origin", { get: function() {
+          var u = this._u;
+          if (!u.hasAuthority || (u.protocol !== "http" && u.protocol !== "https")) { return "null"; }
+          return u.protocol + "://" + u.host + (u.port ? ":" + u.port : "");
+        } });
+        Object.defineProperty(URL.prototype, "searchParams", { get: function() { return this._searchParams; } });
+        globalThis.URL = URL;
+
+        // TextDecoder: UTF-8 (default) with a latin-1 best effort.
+        function __sbCodePointToString(cp) {
+          if (cp < 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) { cp = 0xfffd; }
+          if (cp <= 0xffff) { return String.fromCharCode(cp); }
+          cp -= 0x10000;
+          return String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+        }
+        function TextDecoder(label) {
+          this._label = String(label == null ? "utf-8" : label).toLowerCase();
+          this.encoding = "utf-8";
+        }
+        TextDecoder.prototype.decode = function(data) {
+          var bytes = data || [];
+          var n = bytes.length;
+          var out = "";
+          var utf8 = this._label === "" || this._label === "utf-8" || this._label === "utf8";
+          if (utf8) {
+            var i = 0;
+            while (i < n) {
+              var b = bytes[i] & 0xff;
+              var cp = 0xfffd, extra = 0;
+              if (b < 0x80) { cp = b; }
+              else if ((b & 0xe0) === 0xc0) { cp = b & 0x1f; extra = 1; }
+              else if ((b & 0xf0) === 0xe0) { cp = b & 0x0f; extra = 2; }
+              else if ((b & 0xf8) === 0xf0) { cp = b & 0x07; extra = 3; }
+              i++;
+              var ok = true;
+              for (var j = 0; j < extra && i < n; j++) {
+                var cb = bytes[i] & 0xff;
+                if ((cb & 0xc0) !== 0x80) { ok = false; break; }
+                cp = (cp << 6) | (cb & 0x3f);
+                i++;
+              }
+              if (!ok || (extra > 0 && cp < 0x80)) { cp = 0xfffd; }
+              out += __sbCodePointToString(cp);
+            }
+            return out;
+          }
+          for (var k = 0; k < n; k++) { out += String.fromCharCode(bytes[k] & 0xff); }
+          return out;
+        };
+        globalThis.TextDecoder = TextDecoder;
     """.trimIndent()
 
     private fun escapeJs(value: String): String =

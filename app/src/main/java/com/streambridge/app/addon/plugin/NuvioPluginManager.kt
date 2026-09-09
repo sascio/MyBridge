@@ -79,7 +79,11 @@ class NuvioPluginManager(
                     }
                     val repository = NuvioInstalledRepository(
                         manifestUrl = validated,
-                        name = NuvioPluginStore.repositoryNameFor(validated),
+                        // Prefer the repository's own display name; fall
+                        // back to the manifest URL's host.
+                        name = parsed.repositoryName.ifBlank {
+                            NuvioPluginStore.repositoryNameFor(validated)
+                        },
                         providers = providers,
                         enabledProviderIds = enabled,
                         addedAt = existing?.addedAt ?: System.currentTimeMillis(),

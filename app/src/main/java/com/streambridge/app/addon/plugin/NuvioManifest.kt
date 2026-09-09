@@ -51,16 +51,25 @@ object NuvioManifest {
     }
 
     sealed interface ParseResult {
-        data class Valid(val providers: List<Provider>) : ParseResult
+        /**
+         * @param repositoryName the manifest's own display name (root
+         * "name" field), blank when the manifest does not declare one.
+         */
+        data class Valid(
+            val providers: List<Provider>,
+            val repositoryName: String = ""
+        ) : ParseResult
+
         data class Invalid(val reason: String) : ParseResult
     }
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
-     * Parses a Nuvio repository manifest. Accepts both common shapes:
-     * a top-level array of providers, or an object with a
-     * `providers`/`plugins`/`addons` array.
+     * Parses a Nuvio repository manifest. Accepts the shapes seen in the
+     * wild: a top-level array of providers, or an object with a
+     * `providers`/`plugins`/`addons`/`scrapers` array (real Nuvio
+     * repositories use all of these container keys).
      */
     fun parse(manifestText: String): ParseResult {
         val root = try {
@@ -68,16 +77,19 @@ object NuvioManifest {
         } catch (e: Exception) {
             return ParseResult.Invalid("The manifest is not valid JSON: ${e.message?.take(80)}")
         }
+        var repositoryName = ""
         val array: JsonArray = when (root) {
             is JsonArray -> root
             is JsonObject -> {
+                repositoryName = root.string("name")
                 val container = root.keys.firstNotNullOfOrNull { key ->
                     val value = root[key]
                     if (value is JsonArray && key in CONTAINER_KEYS) key else null
                 }
                     ?: return ParseResult.Invalid(
                         "The manifest does not contain a provider list " +
-                            "(expected a JSON array or an object with a \"providers\" array)"
+                            "(expected a JSON array or an object with a " +
+                            "providers/plugins/addons/scrapers array)"
                     )
                 (root[container] as? JsonArray) ?: JsonArray(emptyList())
             }
@@ -91,10 +103,10 @@ object NuvioManifest {
         if (providers.isEmpty()) {
             return ParseResult.Invalid("The manifest does not contain any usable providers")
         }
-        return ParseResult.Valid(providers)
+        return ParseResult.Valid(providers, repositoryName)
     }
 
-    private val CONTAINER_KEYS = setOf("providers", "plugins", "addons")
+    private val CONTAINER_KEYS = setOf("providers", "plugins", "addons", "scrapers")
 
     private fun parseProvider(obj: JsonObject, index: Int): Provider? {
         val id = obj.string("id").ifBlank { obj.string("name").ifBlank { "provider-$index" } }

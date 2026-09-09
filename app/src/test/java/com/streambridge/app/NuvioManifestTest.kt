@@ -102,6 +102,44 @@ class NuvioManifestTest {
     }
 
     @Test
+    fun `parses a scrapers-keyed repository with a name`() {
+        // Shape of real Nuvio repositories (e.g. All-in-One-Nuvio),
+        // which key their provider list under "scrapers".
+        val result = NuvioManifest.parse(
+            """
+            {
+              "name": "All-in-One-Nuvio",
+              "version": "1.0.0",
+              "scrapers": [
+                {
+                  "id": "1shows",
+                  "name": "1Shows",
+                  "description": "Movies | Series in 4k",
+                  "version": "1.0.0",
+                  "author": "A2R14N",
+                  "supportedTypes": ["movie", "tv"],
+                  "filename": "providers/1shows.js",
+                  "enabled": true,
+                  "hasSettings": false,
+                  "formats": ["mkv", "mp4", "m3u8"],
+                  "logo": "https://example.com/logo.png",
+                  "contentLanguage": ["en", "hi"]
+                }
+              ]
+            }
+            """.trimIndent()
+        )
+        assertTrue(result is NuvioManifest.ParseResult.Valid)
+        val valid = result as NuvioManifest.ParseResult.Valid
+        assertEquals("All-in-One-Nuvio", valid.repositoryName)
+        assertEquals(1, valid.providers.size)
+        assertEquals("1shows", valid.providers[0].id)
+        assertEquals("providers/1shows.js", valid.providers[0].filename)
+        assertTrue(valid.providers[0].enabled)
+        assertTrue(valid.providers[0].supportsType("tv"))
+    }
+
+    @Test
     fun `provider code urls resolve relative to the manifest`() {
         val manifestUrl = "https://raw.example.com/nuvio/main/manifest.json"
         assertEquals(
