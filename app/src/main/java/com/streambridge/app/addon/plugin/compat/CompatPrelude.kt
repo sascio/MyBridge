@@ -1987,9 +1987,13 @@ function __sbDigestResult(result, encoding) {
   throw new Error("Unsupported digest encoding: " + encoding);
 }
 
-var crypto = {};
+// NOTE: built under a dedicated name. In QuickJS, a script-level
+// `var crypto` IS the globalThis.crypto binding — a plain `var crypto`
+// here would be silently replaced by the webcrypto surface below, and
+// the lazily-evaluated module init would export the wrong object.
+var __sbCryptoModule = {};
 
-crypto.createHash = function(algorithm) {
+__sbCryptoModule.createHash = function(algorithm) {
   var alg = String(algorithm || "").toLowerCase().replace("-", "");
   var chunks = [];
   return {
@@ -2012,7 +2016,7 @@ crypto.createHash = function(algorithm) {
   };
 };
 
-crypto.createHmac = function(algorithm, key) {
+__sbCryptoModule.createHmac = function(algorithm, key) {
   var alg = String(algorithm || "").toLowerCase().replace("-", "");
   var keyBytes = __sbToBytes(key, "utf8");
   var chunks = [];
@@ -2038,7 +2042,7 @@ crypto.createHmac = function(algorithm, key) {
   };
 };
 
-crypto.randomBytes = function(size, callback) {
+__sbCryptoModule.randomBytes = function(size, callback) {
   var n = Number(size);
   if (!isFinite(n) || n < 0 || n > (1 << 20) || Math.floor(n) !== n) {
     throw new Error("randomBytes(): invalid size");
@@ -2055,7 +2059,7 @@ crypto.randomBytes = function(size, callback) {
   return new Buffer(__sbB64ToBytes(result.b64));
 };
 
-crypto.pbkdf2Sync = function(password, salt, iterations, keylen, digest) {
+__sbCryptoModule.pbkdf2Sync = function(password, salt, iterations, keylen, digest) {
   var result = __sbCryptoCall("pbkdf2", {
     password: typeof password === "string" ? password :
       __sbDecodeBytes(__sbToBytes(password), "utf8"),
@@ -2067,14 +2071,14 @@ crypto.pbkdf2Sync = function(password, salt, iterations, keylen, digest) {
   return new Buffer(__sbB64ToBytes(result.b64));
 };
 
-crypto.pbkdf2 = function(password, salt, iterations, keylen, digest, callback) {
+__sbCryptoModule.pbkdf2 = function(password, salt, iterations, keylen, digest, callback) {
   var cb = typeof digest === "function" ? digest : callback;
   if (typeof cb !== "function") {
     throw new Error("pbkdf2(): callback required");
   }
   setImmediate(function() {
     try {
-      cb(null, crypto.pbkdf2Sync(password, salt, iterations, keylen,
+      cb(null, __sbCryptoModule.pbkdf2Sync(password, salt, iterations, keylen,
         typeof digest === "function" ? undefined : digest));
     } catch (e) {
       cb(e);
@@ -2094,7 +2098,7 @@ function __sbCipherAlgorithms() {
   return algs;
 }
 
-crypto.getCiphers = function() { return __sbCipherAlgorithms().slice(); };
+__sbCryptoModule.getCiphers = function() { return __sbCipherAlgorithms().slice(); };
 
 function __sbAssertCipherAlgorithm(algorithm) {
   var alg = String(algorithm || "").toLowerCase();
@@ -2168,14 +2172,14 @@ function __sbCollectUpdates(algorithm, key, iv, isDecrypt) {
   };
 }
 
-crypto.createCipheriv = function(algorithm, key, iv) {
+__sbCryptoModule.createCipheriv = function(algorithm, key, iv) {
   if (algorithm == null || key == null) {
     throw new Error("createCipheriv(): algorithm and key are required");
   }
   return __sbCollectUpdates(algorithm, key, iv, false);
 };
 
-crypto.createDecipheriv = function(algorithm, key, iv) {
+__sbCryptoModule.createDecipheriv = function(algorithm, key, iv) {
   if (algorithm == null || key == null) {
     throw new Error("createDecipheriv(): algorithm and key are required");
   }
@@ -2325,7 +2329,7 @@ subtle.decrypt = function(algorithm, key, data) {
   });
 };
 
-crypto.webcrypto = {
+__sbCryptoModule.webcrypto = {
   subtle: subtle,
   getRandomValues: function(view) {
     if (!(view instanceof Uint8Array)) {
@@ -2348,8 +2352,8 @@ crypto.webcrypto = {
       "-" + hex.slice(16, 20) + "-" + hex.slice(20, 32);
   }
 };
-crypto.subtle = subtle;
-globalThis.crypto = crypto.webcrypto;
+__sbCryptoModule.subtle = subtle;
+globalThis.crypto = __sbCryptoModule.webcrypto;
 
 // -----------------------------------------------------------------------------
 // Storage (scoped to this provider execution, quota-enforced)
@@ -2697,9 +2701,7 @@ __sbRegisterBuiltin("stream", function(module) {
   module.exports.PassThrough = Transform;
 });
 __sbRegisterBuiltin("crypto", function(module) {
-  module.exports = crypto;
-  module.exports.webcrypto = crypto.webcrypto;
-  module.exports.subtle = subtle;
+  module.exports = __sbCryptoModule;
 });
 __sbRegisterBuiltin("process", function(module) { module.exports = process; });
 __sbRegisterBuiltin("timers", function(module) {
