@@ -55,6 +55,7 @@ import com.streambridge.app.ui.library.LibraryScreen
 import com.streambridge.app.ui.player.PlayerScreen
 import com.streambridge.app.ui.plugins.PluginsScreen
 import com.streambridge.app.ui.search.SearchScreen
+import com.streambridge.app.ui.sources.SourceSelectionScreen
 import com.streambridge.app.ui.settings.SettingsScreen
 
 private val tabs = listOf(
@@ -195,8 +196,8 @@ private fun StreamBridgeNavHost(
                 },
                 onPlayItem = { item ->
                     if (item.type == "movie") {
-                        // Movies can go straight to the player, which resolves
-                        // streams itself; series need episode selection first.
+                        // Play always opens the source-selection screen
+                        // immediately; series need episode selection first.
                         val request = com.streambridge.app.player.PlaybackRequest(
                             type = "movie",
                             metaId = item.id,
@@ -209,7 +210,9 @@ private fun StreamBridgeNavHost(
                             episode = 0,
                             episodeTitle = null
                         )
-                        navController.navigate(Nav.player(request))
+                        navController.navigate(
+                            Nav.sourceSelect(request, item.releaseInfo, item.rating)
+                        )
                     } else {
                         navController.navigate(Nav.detail(item))
                     }
@@ -309,9 +312,45 @@ private fun StreamBridgeNavHost(
             DetailScreen(
                 container = container,
                 onBack = { navController.popBackStack() },
-                onOpenPlayer = { request -> navController.navigate(Nav.player(request)) },
+                onOpenSources = { request, releaseInfo, rating ->
+                    navController.navigate(Nav.sourceSelect(request, releaseInfo, rating))
+                },
                 onOpenDetail = { item -> navController.navigate(Nav.detail(item)) },
                 onBrowseGenre = { genre -> navController.navigate(Nav.browse(genre)) }
+            )
+        }
+
+        composable(
+            route = Routes.SOURCE_SELECT,
+            // The source screen enters like a sheet rising over the
+            // details page and settles in place.
+            enterTransition = {
+                slideInVertically(animationSpec = tween(340)) { it / 3 } + fadeIn(tween(340))
+            },
+            exitTransition = { fadeOut(tween(200)) },
+            popEnterTransition = { fadeIn(tween(220)) },
+            popExitTransition = {
+                slideOutVertically(animationSpec = tween(300)) { it / 3 } + fadeOut(tween(300))
+            },
+            arguments = listOf(
+                navArgument("type") { type = NavType.StringType; defaultValue = "movie" },
+                navArgument("metaId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("name") { type = NavType.StringType; defaultValue = "" },
+                navArgument("imdbId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("poster") { type = NavType.StringType; defaultValue = "" },
+                navArgument("backdrop") { type = NavType.StringType; defaultValue = "" },
+                navArgument("videoId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("season") { type = NavType.StringType; defaultValue = "0" },
+                navArgument("episode") { type = NavType.StringType; defaultValue = "0" },
+                navArgument("episodeTitle") { type = NavType.StringType; defaultValue = "" },
+                navArgument("releaseInfo") { type = NavType.StringType; defaultValue = "" },
+                navArgument("rating") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) {
+            SourceSelectionScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onOpenPlayer = { request -> navController.navigate(Nav.player(request)) }
             )
         }
 

@@ -33,17 +33,14 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -77,7 +74,6 @@ import com.streambridge.app.R
 import com.streambridge.app.addon.model.Episode
 import com.streambridge.app.addon.model.MediaDetails
 import com.streambridge.app.addon.model.MediaItem
-import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.core.TimeFormat
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.player.PlaybackRequest
@@ -102,7 +98,7 @@ private val DetailDivider = Color(0xFF232329)
 fun DetailScreen(
     container: AppContainer,
     onBack: () -> Unit,
-    onOpenPlayer: (PlaybackRequest) -> Unit,
+    onOpenSources: (PlaybackRequest, String, String) -> Unit,
     onOpenDetail: (MediaItem) -> Unit,
     onBrowseGenre: (String) -> Unit
 ) {
@@ -113,9 +109,7 @@ fun DetailScreen(
     val selectedSeason by vm.selectedSeason.collectAsStateWithLifecycle()
     val episodes by vm.episodes.collectAsStateWithLifecycle()
     val related by vm.related.collectAsStateWithLifecycle()
-    val streamSheet by vm.streamSheet.collectAsStateWithLifecycle()
     val pendingRequest by vm.pendingRequest.collectAsStateWithLifecycle()
-    val resolving by vm.resolving.collectAsStateWithLifecycle()
     val watchedThreshold by vm.watchedThreshold.collectAsStateWithLifecycle()
     val isWatched = progressEntries.any { entry ->
         TimeFormat.isFinished(entry.positionMs, entry.durationMs, watchedThreshold)
@@ -146,7 +140,8 @@ fun DetailScreen(
 
     LaunchedEffect(pendingRequest) {
         pendingRequest?.let { request ->
-            onOpenPlayer(request)
+            val header = vm.pendingHeaderInfo.value
+            onOpenSources(request, header.releaseInfo, header.rating)
             vm.consumePendingRequest()
         }
     }
@@ -181,7 +176,6 @@ fun DetailScreen(
                     selectedSeason = selectedSeason,
                     episodes = episodes,
                     related = related,
-                    resolving = resolving,
                     vm = vm,
                     onBack = onBack,
                     onOpenDetail = onOpenDetail,
@@ -190,17 +184,8 @@ fun DetailScreen(
             }
         }
     }
-
-    val sheetStreams = streamSheet
-    if (sheetStreams != null) {
-        ModalBottomSheet(onDismissRequest = vm::dismissStreamSheet) {
-            StreamPickerContent(
-                streams = sheetStreams,
-                onSelect = vm::onStreamSelected
-            )
-        }
-    }
 }
+
 
 @Composable
 private fun DetailContent(
@@ -212,7 +197,6 @@ private fun DetailContent(
     selectedSeason: Int?,
     episodes: List<Episode>,
     related: List<MediaItem>,
-    resolving: Boolean,
     vm: DetailViewModel,
     onBack: () -> Unit,
     onOpenDetail: (MediaItem) -> Unit,
@@ -381,22 +365,14 @@ private fun DetailContent(
                         contentColor = Color(0xFF101014)
                     )
                 ) {
-                    if (resolving) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            strokeWidth = 2.dp,
-                            color = Color(0xFF101014)
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(26.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        val label = primaryActionLabel(details, progressEntries)
-                        Text(text = label, fontWeight = FontWeight.Bold)
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(26.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    val label = primaryActionLabel(details, progressEntries)
+                    Text(text = label, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 DetailCircleButton(
@@ -1009,85 +985,6 @@ private fun EpisodeRow(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun StreamPickerContent(
-    streams: List<StreamOption>,
-    onSelect: (StreamOption) -> Unit
-) {
-    Column(modifier = Modifier.padding(bottom = 24.dp)) {
-        Text(
-            text = "Choose a stream",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
-        )
-        Text(
-            text = "${streams.size} streams from your addons and plugins",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp)
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        streams.forEach { stream ->
-            StreamOptionRow(stream = stream, onClick = { onSelect(stream) })
-        }
-    }
-}
-
-@Composable
-private fun StreamOptionRow(stream: StreamOption, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        val (badgeColor, badgeText) = when {
-            stream.isPlayable -> MaterialTheme.colorScheme.primary to "HTTP"
-            stream.isTorrent -> MaterialTheme.colorScheme.error to "TOR"
-            else -> MaterialTheme.colorScheme.tertiary to "WEB"
-        }
-        Surface(
-            color = badgeColor.copy(alpha = 0.18f),
-            contentColor = badgeColor,
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Text(
-                text = badgeText,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stream.shortLabel,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = listOfNotNull(
-                    stream.addonName,
-                    stream.description?.take(70)
-                ).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (stream.isTorrent || stream.isExternal) {
-            Icon(
-                imageVector = Icons.Filled.Link,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }

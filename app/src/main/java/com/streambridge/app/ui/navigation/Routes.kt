@@ -24,6 +24,12 @@ object Routes {
         "detail?type={type}&id={id}&name={name}&poster={poster}&backdrop={backdrop}" +
             "&source={source}&imdbId={imdbId}&releaseInfo={releaseInfo}&rating={rating}"
 
+    /** Dedicated source-selection screen (opened immediately by Play). */
+    const val SOURCE_SELECT =
+        "sources?type={type}&metaId={metaId}&name={name}&imdbId={imdbId}&poster={poster}" +
+            "&backdrop={backdrop}&videoId={videoId}&season={season}&episode={episode}" +
+            "&episodeTitle={episodeTitle}&releaseInfo={releaseInfo}&rating={rating}"
+
     const val PLAYER =
         "player?type={type}&metaId={metaId}&name={name}&imdbId={imdbId}&poster={poster}" +
             "&backdrop={backdrop}&videoId={videoId}&season={season}&episode={episode}" +
@@ -39,7 +45,7 @@ object Routes {
     const val PLUGINS = "plugins"
 
     /** Routes rendered edge-to-edge (no scaffold padding). */
-    val fullBleedRoutePrefixes = listOf("player", "detail", "home")
+    val fullBleedRoutePrefixes = listOf("player", "sources", "detail", "home")
 }
 
 object Nav {
@@ -57,6 +63,26 @@ object Nav {
             "&imdbId=${enc(item.imdbId)}" +
             "&releaseInfo=${enc(item.releaseInfo)}" +
             "&rating=${enc(item.rating)}"
+
+    /** Route to the dedicated source-selection screen for a request. */
+    fun sourceSelect(
+        request: PlaybackRequest,
+        releaseInfo: String? = null,
+        rating: String? = null
+    ): String =
+        "sources" +
+            "?type=${enc(request.type)}" +
+            "&metaId=${enc(request.metaId)}" +
+            "&name=${enc(request.metaName)}" +
+            "&imdbId=${enc(request.imdbId)}" +
+            "&poster=${enc(request.poster)}" +
+            "&backdrop=${enc(request.backdrop)}" +
+            "&videoId=${enc(request.videoId)}" +
+            "&season=${request.season}" +
+            "&episode=${request.episode}" +
+            "&episodeTitle=${enc(request.episodeTitle)}" +
+            "&releaseInfo=${enc(releaseInfo)}" +
+            "&rating=${enc(rating)}"
 
     fun player(request: PlaybackRequest): String =
         "player" +

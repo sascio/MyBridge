@@ -7,11 +7,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.streambridge.app.addon.ExtensionManager
-import com.streambridge.app.addon.StreamResolver
 import com.streambridge.app.addon.model.Episode
 import com.streambridge.app.addon.model.MediaDetails
 import com.streambridge.app.addon.model.MediaItem
-import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.data.db.LibraryItemEntity
 import com.streambridge.app.data.db.WatchProgressEntity
 import com.streambridge.app.data.discovery.DiscoveryRepository
@@ -31,7 +29,6 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 sealed interface DetailUiState {
@@ -50,7 +47,6 @@ class DetailViewModel(
     private val savedStateHandle: SavedStateHandle,
     private val discovery: DiscoveryRepository,
     private val extensionManager: ExtensionManager,
-    private val streamResolver: StreamResolver,
     private val library: LibraryRepository,
     private val settings: SettingsRepository
 ) : ViewModel() {
@@ -101,18 +97,18 @@ class DetailViewModel(
     private val _related = MutableStateFlow<List<MediaItem>>(emptyList())
     val related: StateFlow<List<MediaItem>> = _related.asStateFlow()
 
-    private val _streamSheet = MutableStateFlow<List<StreamOption>?>(null)
-    val streamSheet: StateFlow<List<StreamOption>?> = _streamSheet.asStateFlow()
-
     private val _pendingRequest = MutableStateFlow<PlaybackRequest?>(null)
     val pendingRequest: StateFlow<PlaybackRequest?> = _pendingRequest.asStateFlow()
 
-    private val _resolving = MutableStateFlow(false)
+    /** Extra header info for the source-selection screen (never played). */
+    data class HeaderInfo(val releaseInfo: String, val rating: String)
+
+    private val _pendingHeaderInfo = MutableStateFlow(HeaderInfo("", ""))
+    val pendingHeaderInfo: StateFlow<HeaderInfo> = _pendingHeaderInfo.asStateFlow()
 
     val watchedThreshold: StateFlow<Int> = settings.state
         .map { it.watchedThresholdPercent }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 95)
-    val resolving: StateFlow<Boolean> = _resolving.asStateFlow()
 
     private val _events = MutableSharedFlow<DetailEvent>(extraBufferCapacity = 4)
     val events: SharedFlow<DetailEvent> = _events.asSharedFlow()
@@ -308,7 +304,7 @@ class DetailViewModel(
             .sortedWith(compareBy({ it.season }, { it.number }))
             .map { PlaybackCache.QueueEpisode(it.id, it.season, it.number, it.title) }
 
-        resolveAndPlay(
+        openSourceSelection(
             videoId = episode.id,
             season = episode.season,
             episodeNumber = episode.number,
@@ -318,89 +314,15 @@ class DetailViewModel(
 
     private fun playMovie(details: MediaDetails) {
         PlaybackCache.pendingQueue = emptyList()
-        resolveAndPlay(videoId = "", season = 0, episodeNumber = 0, episodeTitle = null)
+        openSourceSelection(videoId = "", season = 0, episodeNumber = 0, episodeTitle = null)
     }
 
-    private fun resolveAndPlay(
-        videoId: String,
-        season: Int,
-        episodeNumber: Int,
-        episodeTitle: String?
-    ) {
-        val details = (_detailState.value as? DetailUiState.Ready)?.details ?: return
-        viewModelScope.launch {
-            _resolving.value = true
-            try {
-                val extensions = extensionManager.enabledExtensions.value
-                val streams = if (videoId.isNotBlank()) {
-                    streamResolver.resolveEpisode(
-                        extensions, details.type, videoId, details.imdbId ?: item.imdbId,
-                        season, episodeNumber
-                    )
-                } else {
-                    streamResolver.resolveMovie(
-                        extensions, details.type, details.id, details.imdbId ?: item.imdbId
-                    )
-                }
-                val playable = streams.filter { it.isPlayable }
-                when {
-                    streams.isEmpty() -> _events.tryEmit(
-                        DetailEvent.Message(
-                            "No streams found. Install a stream extension and make sure it covers this title."
-                        )
-                    )
-
-                    playable.isEmpty() -> _events.tryEmit(
-                        DetailEvent.Message(
-                            "Found ${streams.size} stream(s), but none are direct HTTP streams the built-in player can open."
-                        )
-                    )
-
-                    playable.size == 1 -> {
-                        // Hand the chosen stream to the player directly:
-                        // one resolution total, no second addon fan-out.
-                        PlaybackCache.preselectedStream = playable.first()
-                        navigateToPlayer(videoId, season, episodeNumber, episodeTitle)
-                    }
-
-                    else -> {
-                        pendingSelection = PendingSelection(videoId, season, episodeNumber, episodeTitle)
-                        _streamSheet.value = streams
-                    }
-                }
-            } finally {
-                _resolving.value = false
-            }
-        }
-    }
-
-    private data class PendingSelection(
-        val videoId: String,
-        val season: Int,
-        val episode: Int,
-        val episodeTitle: String?
-    )
-
-    private var pendingSelection: PendingSelection? = null
-
-    fun onStreamSelected(option: StreamOption) {
-        val current = pendingSelection ?: return
-        dismissStreamSheet()
-        if (option.isPlayable) {
-            // The user already picked this stream — hand it over instead
-            // of re-resolving every addon in the player screen.
-            PlaybackCache.preselectedStream = option
-            navigateToPlayer(current.videoId, current.season, current.episode, current.episodeTitle)
-        } else if (option.isTorrent) {
-            _events.tryEmit(
-                DetailEvent.Message("Torrent streams cannot be played by the built-in player.")
-            )
-        } else if (option.isExternal) {
-            _events.tryEmit(DetailEvent.Message("This stream opens outside Stream Bridge."))
-        }
-    }
-
-    private fun navigateToPlayer(
+    /**
+     * Opens the dedicated source-selection screen IMMEDIATELY — streams
+     * are not resolved here. The source screen runs every provider
+     * concurrently and shows results progressively as they arrive.
+     */
+    private fun openSourceSelection(
         videoId: String,
         season: Int,
         episodeNumber: Int,
@@ -419,14 +341,15 @@ class DetailViewModel(
             episode = episodeNumber,
             episodeTitle = episodeTitle
         )
+        pendingHeaderInfo = HeaderInfo(
+            releaseInfo = details.releaseInfo ?: item.releaseInfo ?: "",
+            rating = details.rating ?: item.rating ?: ""
+        )
     }
 
     fun consumePendingRequest() {
         _pendingRequest.value = null
-    }
-
-    fun dismissStreamSheet() {
-        _streamSheet.value = null
+        _pendingHeaderInfo.value = HeaderInfo("", "")
     }
 
     fun progressFor(videoId: String): WatchProgressEntity? = progressByVideoId.value[videoId]
@@ -453,7 +376,6 @@ class DetailViewModel(
                     savedStateHandle = this.createSavedStateHandle(),
                     discovery = container.discoveryRepository,
                     extensionManager = container.extensionManager,
-                    streamResolver = container.streamResolver,
                     library = container.libraryRepository,
                     settings = container.settingsRepository
                 )
