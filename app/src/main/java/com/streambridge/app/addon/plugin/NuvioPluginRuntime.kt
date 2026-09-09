@@ -191,7 +191,7 @@ class NuvioPluginRuntime {
         method: String,
         headers: Map<String, String>,
         body: String?
-    ): Map<String, Any?> {
+    ): String {
         val verdict = validateFetchUrl(url)
         if (method != "GET" && method != "POST") {
             throw NuvioPluginException("fetch() supports GET and POST only")
@@ -222,20 +222,20 @@ class NuvioPluginRuntime {
                     input.readAtMost(MAX_RESPONSE_BYTES)
                 } ?: ByteArray(0)
                 val truncated = body.size >= MAX_RESPONSE_BYTES
-                // Response headers are passed as a JSON string: the binding
-                // return path then only maps primitives (always safe).
-                val headersJson = kotlinx.serialization.json.buildJsonObject {
-                    response.headers.toMultimap().forEach { (name, values) ->
-                        put(name.lowercase(), values.firstOrNull() ?: "")
-                    }
+                // The whole response travels as ONE JSON string: binding
+                // returns must be primitives to convert reliably (a Kotlin
+                // Map return does not become a usable JS object).
+                kotlinx.serialization.json.buildJsonObject {
+                    put("ok", response.isSuccessful)
+                    put("status", response.code)
+                    put("statusText", response.message)
+                    put("body", String(body, Charsets.UTF_8) + if (truncated) TRUNCATION_NOTE else "")
+                    put("headers", kotlinx.serialization.json.buildJsonObject {
+                        response.headers.toMultimap().forEach { (name, values) ->
+                            put(name.lowercase(), values.firstOrNull() ?: "")
+                        }
+                    })
                 }.toString()
-                mapOf(
-                    "ok" to response.isSuccessful,
-                    "status" to response.code,
-                    "statusText" to response.message,
-                    "body" to (String(body, Charsets.UTF_8) + if (truncated) TRUNCATION_NOTE else ""),
-                    "headersJson" to headersJson
-                )
             }
         }
     }
@@ -355,14 +355,14 @@ class NuvioPluginRuntime {
             method: options.method || "GET",
             headers: headers,
             body: body
-          }).then(function(r) {
-            var headers = {};
-            try { headers = JSON.parse(r.headersJson || "{}"); } catch (e) { headers = {}; }
+          }).then(function(envelope) {
+            var r = {};
+            try { r = JSON.parse(envelope); } catch (e) { r = {}; }
             return {
               ok: !!r.ok,
               status: r.status,
               statusText: r.statusText || "",
-              headers: headers,
+              headers: r.headers || {},
               text: function() { return Promise.resolve(r.body || ""); },
               json: function() { return Promise.resolve(JSON.parse(r.body || "null")); }
             };
