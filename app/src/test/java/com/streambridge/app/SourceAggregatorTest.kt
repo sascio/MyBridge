@@ -116,7 +116,7 @@ class SourceAggregatorTest {
 
     @Test
     fun `sources execute concurrently not sequentially`() = runTest {
-        val started = currentTime
+        val started = testScheduler.currentTime
         val results = StreamSourceAggregator().aggregate(
             listOf(
                 FakeSource("a") { delay(1000); playable("https://a/v.mp4") },
@@ -125,7 +125,7 @@ class SourceAggregatorTest {
         ) { }
         // Both sources ran in parallel: total virtual time is one
         // source's duration, not the sum of both.
-        assertEquals(1000L, currentTime - started)
+        assertEquals(1000L, testScheduler.currentTime - started)
         assertEquals(2, results.size)
     }
 
