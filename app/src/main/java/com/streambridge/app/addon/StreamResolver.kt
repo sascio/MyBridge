@@ -3,18 +3,18 @@ package com.streambridge.app.addon
 import com.streambridge.app.addon.adapter.AddonAdapterRegistry
 import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.addon.plugin.NuvioPluginManager
-import com.streambridge.app.addon.model.toStreamOption
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Resolves playable streams for a movie or a specific series episode by
  * asking every enabled extension, mirroring how Stremio fans out stream
  * requests across addons. Uses the adapter layer for capability
  * filtering (resources, types, idPrefixes) and enriches every result
- * into the unified stream model.
+ * into the unified stream model. Addon extensions and Nuvio plugin
+ * providers run CONCURRENTLY as independent sources — one slow source
+ * never delays the others.
  */
 class StreamResolver(
     private val api: AddonApi,
@@ -55,63 +55,45 @@ class StreamResolver(
         episode: Int? = null
     ): List<StreamOption> = coroutineScope {
         val primaryId = candidateIds.firstOrNull() ?: ""
-        extensions
+        val addonSources = extensions
             .filter { extension ->
                 extension.enabled && AddonAdapterRegistry.forEcosystem(extension.ecosystem)
                     .canServe(extension, "stream", type, primaryId)
             }
-            .map { extension ->
-                async {
-                    withTimeoutOrNull(STREAM_TIMEOUT_MS) {
-                        candidateIds.mapNotNull { candidate ->
-                            try {
-                                api.fetchStreams(extension.baseUrl, type, candidate)
-                            } catch (_: Exception) {
-                                null
-                            }
-                        }
-                            .flatMap { response -> response.streams }
-                            .mapNotNull { stream -> stream.toStreamOption(extension.displayName) }
-                    } ?: emptyList()
-                }
-            }
-            .awaitAll()
-            .flatten()
-            .toMutableList()
-            .apply {
-                // Nuvio plugin providers key their scrapes off TMDB ids;
-                // extract one when this item carries it. TMDB ids may be
-                // series-level ("tmdb:550") or episode-level
-                // ("tmdb:550:1:2") — providers want the bare series id.
-                val firstId = candidateIds.firstOrNull()
-                val tmdbId = firstId
-                    ?.takeIf { it.startsWith("tmdb:") }
-                    ?.removePrefix("tmdb:")
-                    ?.substringBefore(':')
-                    ?.takeIf { it.isNotBlank() }
-                pluginManager?.let { plugins ->
-                    addAll(
-                        try {
-                            plugins.resolveStreams(
-                                type = type,
-                                tmdbId = tmdbId,
-                                imdbId = imdbId,
-                                metaId = firstId,
-                                season = season,
-                                episode = episode
-                            )
-                        } catch (_: Exception) {
-                            emptyList()
-                        }
-                    )
-                }
-            }
-            .distinctBy { it.id }
-            .let { StreamEnrichment.enrichAll(it) }
-            .let { StreamEnrichment.sortForPicker(it) }
-    }
+            .map { extension -> StremioAddonSource(api, extension, type, candidateIds) }
 
-    companion object {
-        private const val STREAM_TIMEOUT_MS = 20000L
+        // Nuvio plugin providers key their scrapes off TMDB ids;
+        // extract one when this item carries it. TMDB ids may be
+        // series-level ("tmdb:550") or episode-level
+        // ("tmdb:550:1:2") — providers want the bare series id.
+        val tmdbId = primaryId
+            .takeIf { it.startsWith("tmdb:") }
+            ?.removePrefix("tmdb:")
+            ?.substringBefore(':')
+            ?.takeIf { it.isNotBlank() }
+        val pluginSources = pluginManager?.providerSources(
+            type = type,
+            tmdbId = tmdbId,
+            imdbId = imdbId,
+            metaId = primaryId,
+            season = season,
+            episode = episode
+        ) ?: emptyList()
+
+        // Addons and plugin providers execute CONCURRENTLY (they are
+        // independent); each source carries its own timeout and failure
+        // isolation.
+        val results = (addonSources + pluginSources)
+            .map { source -> async { source.resolve() } }
+            .awaitAll()
+
+        // Record plugin failures for the picker (unchanged contract),
+        // then combine everything the sources returned.
+        pluginManager?.finishResolution(results.subList(addonSources.size, results.size))
+
+        results
+            .flatMap { result -> (result.status as? SourceStatus.Success)?.streams ?: emptyList() }
+            .distinctBy { it.id }
+            .let { StreamEnrichment.sortForPicker(it) }
     }
 }

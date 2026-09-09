@@ -1,7 +1,11 @@
 package com.streambridge.app.addon.plugin
 
 import android.content.Context
+import com.streambridge.app.addon.SourceResult
+import com.streambridge.app.addon.SourceStatus
+import com.streambridge.app.addon.StreamEnrichment
 import com.streambridge.app.addon.StreamHeaders
+import com.streambridge.app.addon.StreamSource
 import com.streambridge.app.addon.UrlValidator
 import com.streambridge.app.addon.model.StreamClassification
 import com.streambridge.app.addon.model.StreamOption
@@ -152,55 +156,57 @@ class NuvioPluginManager(
         season: Int?,
         episode: Int?
     ): List<StreamOption> {
-        val repos = store.repositories.first()
-        val enabled = repos.flatMap { repo ->
-            repo.enabledProviders.map { provider -> repo to provider }
-        }.filter { (_, provider) ->
-            provider.supportsType(if (type.equals("series", true)) "tv" else type)
+        val sources = providerSources(type, tmdbId, imdbId, metaId, season, episode)
+        if (sources.isEmpty()) {
+            _lastProviderErrors.value = emptyList()
+            return emptyList()
         }
-        if (enabled.isEmpty()) return emptyList()
-
-        val request = NuvioStreamRequest.from(type, bestProviderId(tmdbId, imdbId, metaId), season, episode)
-
-        val failures = java.util.Collections.synchronizedList(ArrayList<ProviderFailure>())
-        val streams = coroutineScope {
-            enabled.map { (repo, provider) ->
-                async {
-                    try {
-                        withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
-                            val codeUrl = NuvioManifest.providerCodeUrl(repo.manifestUrl, provider.filename)
-                                ?: return@withTimeoutOrNull emptyList()
-                            val code = providerCode(codeUrl)
-                            val raw = runtime.execute(
-                                http, codeUrl, code, request,
-                                extraModules = compatBundles + providerModules(codeUrl, code)
-                            )
-                            raw.map { stream -> stream.toStreamOption(provider, repo) }
-                        } ?: emptyList()
-                    } catch (cancellation: kotlinx.coroutines.CancellationException) {
-                        throw cancellation
-                    } catch (e: Exception) {
-                        // One broken provider must never affect the others;
-                        // its failure is reported to the picker instead.
-                        logPlugin("error", "provider ${provider.id} failed: ${e.message}")
-                        failures.add(
-                            ProviderFailure(
-                                providerName = provider.displayName,
-                                repositoryName = repo.name,
-                                reason = e.message?.take(120) ?: "provider failed"
-                            )
-                        )
-                        emptyList()
-                    }
-                }
-            }.awaitAll()
-                .filterNotNull()
-                .flatten()
-                .filterNotNull()
-                .distinctBy { it.id }
+        val results = coroutineScope {
+            sources.map { source -> async { source.resolve() } }.awaitAll()
         }
-        _lastProviderErrors.value = failures.toList()
-        return streams
+        return finishResolution(results)
+    }
+
+    /**
+     * The enabled plugin providers matching [type], each wrapped as an
+     * independently executable [StreamSource] with its own timeout and
+     * status classification. Sources never throw, so the caller can
+     * fan them out (concurrently, progressively) any way it likes.
+     */
+    fun providerSources(
+        type: String,
+        tmdbId: String?,
+        imdbId: String?,
+        metaId: String?,
+        season: Int?,
+        episode: Int?
+    ): List<StreamSource> {
+        val mediaType = if (type.equals("series", true)) "tv" else type
+        val repos = store.repositories.value
+        return repos
+            .flatMap { repo -> repo.enabledProviders.map { provider -> repo to provider } }
+            .filter { (_, provider) -> provider.supportsType(mediaType) }
+            .map { (repo, provider) ->
+                NuvioProviderSource(
+                    repo = repo,
+                    provider = provider,
+                    request = NuvioStreamRequest.from(
+                        type, bestProviderId(tmdbId, imdbId, metaId), season, episode
+                    )
+                )
+            }
+    }
+
+    /**
+     * Reduces the per-provider outcomes of one resolution into the
+     * combined stream list and records provider failures for the
+     * picker (unchanged contract of [resolveStreams]).
+     */
+    fun finishResolution(results: List<SourceResult>): List<StreamOption> {
+        _lastProviderErrors.value = providerFailures(results)
+        return results
+            .flatMap { result -> (result.status as? SourceStatus.Success)?.streams ?: emptyList() }
+            .distinctBy { it.id }
     }
 
     /** Nuvio providers key their scrapes off TMDB ids; fall back honestly. */
@@ -211,6 +217,63 @@ class NuvioPluginManager(
             !metaId.isNullOrBlank() -> metaId
             else -> ""
         }
+
+    /**
+     * One Nuvio plugin provider as an executable source: fetches its
+     * code (cached), runs it in the sandboxed JS runtime with the
+     * compatibility bundles and its relative modules, and normalizes
+     * the streams it returned. Failures and timeouts are classified,
+     * never thrown — isolation is absolute.
+     */
+    private inner class NuvioProviderSource(
+        private val repo: NuvioInstalledRepository,
+        private val provider: NuvioInstalledRepository.StoredProvider,
+        private val request: NuvioStreamRequest
+    ) : StreamSource {
+
+        override val id: String = "plugin:${repo.manifestUrl}:${provider.id}"
+        override val name: String = provider.displayName
+        override val origin: String = repo.name
+
+        override suspend fun resolve(): SourceResult {
+            val codeUrl = NuvioManifest.providerCodeUrl(repo.manifestUrl, provider.filename)
+                ?: return SourceResult(
+                    id, name, origin, SourceStatus.Failed("provider code URL is invalid")
+                )
+            return try {
+                val raw = withTimeoutOrNull(PROVIDER_TIMEOUT_MS) {
+                    val code = providerCode(codeUrl)
+                    runtime.execute(
+                        http, codeUrl, code, request,
+                        extraModules = compatBundles + providerModules(codeUrl, code)
+                    )
+                }
+                when {
+                    raw == null -> {
+                        logPlugin("error", "provider ${provider.id} timed out")
+                        SourceResult(id, name, origin, SourceStatus.Timeout)
+                    }
+                    else -> {
+                        val mapped = raw.mapNotNull { it.toStreamOption(provider, repo) }
+                            .distinctBy { it.id }
+                        val enriched = StreamEnrichment.sortForPicker(StreamEnrichment.enrichAll(mapped))
+                        SourceResult(
+                            id, name, origin,
+                            if (enriched.isEmpty()) SourceStatus.Empty
+                            else SourceStatus.Success(enriched)
+                        )
+                    }
+                }
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
+            } catch (e: Exception) {
+                // One broken provider must never affect the others;
+                // its failure is reported to the picker instead.
+                logPlugin("error", "provider ${provider.id} failed: ${e.message}")
+                SourceResult(id, name, origin, SourceStatus.fromException(e))
+            }
+        }
+    }
 
     /**
      * The standard compatibility bundles (real cheerio and node-forge,
@@ -338,6 +401,26 @@ class NuvioPluginManager(
         private const val MAX_MANIFEST_BYTES = 2 * 1024 * 1024
     }
 }
+
+/**
+ * Maps per-provider resolution outcomes to picker failure rows.
+ * Successes and honest empty results never become failures; timeouts,
+ * network errors and provider errors do, with a bounded reason.
+ */
+internal fun providerFailures(results: List<SourceResult>): List<ProviderFailure> =
+    results.mapNotNull { result ->
+        val reason = when (val status = result.status) {
+            is SourceStatus.Timeout -> "timed out"
+            is SourceStatus.NetworkError -> status.reason.ifBlank { "network error" }
+            is SourceStatus.Failed -> status.reason.ifBlank { "provider failed" }
+            else -> return@mapNotNull null
+        }
+        ProviderFailure(
+            providerName = result.name,
+            repositoryName = result.origin,
+            reason = reason.take(120)
+        )
+    }
 
 /**
  * Normalizes a Nuvio stream object into Stream Bridge's stream model.
