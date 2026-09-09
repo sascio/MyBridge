@@ -1,5 +1,8 @@
 package com.streambridge.app.ui.details
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +15,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -24,8 +27,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.TaskAlt
@@ -39,8 +42,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -59,12 +60,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.streambridge.app.R
 import com.streambridge.app.addon.model.Episode
 import com.streambridge.app.addon.model.MediaDetails
 import com.streambridge.app.addon.model.MediaItem
@@ -76,6 +85,17 @@ import com.streambridge.app.ui.components.ErrorState
 import com.streambridge.app.ui.components.FullScreenLoading
 import com.streambridge.app.ui.components.PosterCard
 import com.streambridge.app.ui.components.Rail
+
+// Local palette for the redesigned detail page. The screen stays dark
+// and cinematic: near-black surfaces, white primary text, grays for
+// secondary text, and one accent (the theme primary) for active states.
+private val DetailTextPrimary = Color(0xFFF6F6F6)
+private val DetailTextSecondary = Color(0xFFC9C9C9)
+private val DetailTextTertiary = Color(0xFF9C9C9C)
+private val DetailChipSurface = Color(0xE61B1B22)
+private val DetailChipSurfaceActive = Color(0xFF2C2C36)
+private val DetailCardSurface = Color(0xFF16161C)
+private val DetailDivider = Color(0xFF232329)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,6 +122,20 @@ fun DetailScreen(
     }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Adaptive background: the dominant color of this title's artwork,
+    // behind everything, fading into the base theme color. Extracted
+    // asynchronously and cached per title (see AdaptiveBackground.kt).
+    val item = vm.item
+    val headerArtwork = when (val state = detailState) {
+        is DetailUiState.Ready ->
+            state.details.backdrop ?: state.details.poster ?: item.backdrop ?: item.poster
+        else -> item.backdrop ?: item.poster
+    }
+    val adaptiveColor by rememberAdaptiveBackgroundColor(
+        imageUrl = headerArtwork,
+        mediaKey = item.key
+    )
+
     LaunchedEffect(Unit) {
         vm.events.collect { event ->
             when (event) {
@@ -118,10 +152,17 @@ fun DetailScreen(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Base + adaptive tint: strongest at the top behind the hero,
+            // fully faded by ~46% height; the rest of the page is the
+            // untouched base color.
+            AdaptiveBackgroundGradient(
+                adaptiveColor = adaptiveColor,
+                baseColor = MaterialTheme.colorScheme.background
+            )
             when (val state = detailState) {
                 DetailUiState.Loading -> FullScreenLoading(label = "Loading details…")
 
@@ -182,13 +223,15 @@ private fun DetailContent(
         contentPadding = PaddingValues(bottom = 32.dp)
     ) {
         // -------------------------------------------------------------
-        // Backdrop header
+        // Hero backdrop: full-bleed artwork, dimmed for readability,
+        // with the title (official logo art when the addon provides it)
+        // and genre line centered over it.
         // -------------------------------------------------------------
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(320.dp)
+                    .height(460.dp)
             ) {
                 val headerImage = details.backdrop ?: details.poster ?: item.backdrop ?: item.poster
                 if (headerImage != null) {
@@ -212,98 +255,104 @@ private fun DetailContent(
                             )
                     )
                 }
+                // Readability scrim: darker at the very top (over the
+                // status-bar icons), breathing room mid-frame, solid
+                // fade into the page background at the bottom edge.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                0f to Color(0x50070609),
-                                0.5f to Color.Transparent,
+                                0f to Color(0x96000000),
+                                0.34f to Color(0x24000000),
+                                0.62f to Color(0x66000000),
                                 1f to MaterialTheme.colorScheme.background
                             )
                         )
                 )
-                IconButton(
+                // Back navigation (existing handler), glass circle.
+                Surface(
                     onClick = onBack,
+                    shape = CircleShape,
+                    color = Color(0x59000000),
+                    border = BorderStroke(1.dp, Color(0x40FFFFFF)),
                     modifier = Modifier
                         .statusBarsPadding()
-                        .padding(6.dp)
+                        .padding(start = 14.dp, top = 6.dp)
+                        .size(42.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
                 }
-            }
-        }
-
-        // -------------------------------------------------------------
-        // Poster + title block
-        // -------------------------------------------------------------
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .offset(y = (-52).dp)
-            ) {
-                val posterUrl = details.poster ?: item.poster
+                // Brand mark centered at the top of the hero.
                 Box(
                     modifier = Modifier
-                        .width(118.dp)
-                        .aspectRatio(2f / 3f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .statusBarsPadding()
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
                 ) {
-                    if (posterUrl != null) {
-                        AsyncImage(
-                            model = posterUrl,
-                            contentDescription = details.name,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                    DetailBrandMark()
                 }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.padding(top = 52.dp)) {
-                    Text(
-                        text = details.name,
-                        style = MaterialTheme.typography.headlineMedium,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        val chips = buildList {
-                            details.releaseInfo?.let { add(it) }
-                            TimeFormat.minutesToLabel(TimeFormat.runtimeToMinutes(details.runtime))
-                                .takeIf { it.isNotBlank() }
-                                ?.let { add(it) }
-                            add(if (details.isSeries) "Series" else "Movie")
-                        }
+                // Title block: logo art (or bold white title) + genres.
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val logo = details.logo
+                    if (!logo.isNullOrBlank()) {
+                        AsyncImage(
+                            model = logo,
+                            contentDescription = details.name,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .heightIn(max = 72.dp)
+                        )
+                    } else {
                         Text(
-                            text = chips.joinToString("  ·  "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = details.name,
+                            style = MaterialTheme.typography.displaySmall.copy(fontSize = 32.sp),
+                            fontWeight = FontWeight.Black,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    details.rating?.let { rating ->
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.Star,
-                                contentDescription = null,
-                                tint = Color(0xFFFFD166),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "$rating / 10",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color(0xFFFFD166)
-                            )
+                    if (details.genres.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        // Genre tags as a centered "A • B • C" line; each
+                        // tag still opens genre browse (existing handler).
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            details.genres.forEachIndexed { index, genre ->
+                                if (index > 0) {
+                                    Text(
+                                        text = "  •  ",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = DetailTextSecondary
+                                    )
+                                }
+                                Text(
+                                    text = genre,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = DetailTextSecondary,
+                                    maxLines = 1,
+                                    modifier = Modifier.clickable { onBrowseGenre(genre) }
+                                )
+                            }
                         }
                     }
                 }
@@ -311,105 +360,151 @@ private fun DetailContent(
         }
 
         // -------------------------------------------------------------
-        // Actions
+        // Action buttons: white Play pill + circular toggles. Every
+        // onClick is the pre-existing handler, unchanged.
         // -------------------------------------------------------------
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
-                    .offset(y = (-28).dp),
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
                     onClick = vm::playPrimary,
                     modifier = Modifier
                         .weight(1f)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(15.dp),
+                        .height(54.dp),
+                    shape = RoundedCornerShape(percent = 50),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color(0xFF0B0A10)
+                        containerColor = Color(0xFFF2F2F2),
+                        contentColor = Color(0xFF101014)
                     )
                 ) {
                     if (resolving) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
                             strokeWidth = 2.dp,
-                            color = Color(0xFF0B0A10)
+                            color = Color(0xFF101014)
                         )
                     } else {
-                        Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(26.dp)
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         val label = primaryActionLabel(details, progressEntries)
                         Text(text = label, fontWeight = FontWeight.Bold)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                IconButton(
-                    onClick = vm::toggleFavorite,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Icon(
-                        imageVector = if (flags.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                        contentDescription = if (flags.favorite) "Remove from favorites" else "Add to favorites",
-                        tint = if (flags.favorite) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.width(10.dp))
-                IconButton(
+                DetailCircleButton(
                     onClick = { if (isWatched) vm.markUnwatched() else vm.markWatched() },
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                    active = isWatched,
+                    contentDescription = if (isWatched) "Mark unwatched" else "Mark watched"
                 ) {
                     Icon(
                         imageVector = if (isWatched) Icons.Filled.TaskAlt else Icons.Outlined.TaskAlt,
-                        contentDescription = if (isWatched) "Mark unwatched" else "Mark watched",
-                        tint = if (isWatched) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        contentDescription = null,
+                        tint = if (isWatched) MaterialTheme.colorScheme.primary else Color.White
                     )
                 }
                 Spacer(modifier = Modifier.width(10.dp))
-                IconButton(
+                DetailCircleButton(
                     onClick = vm::toggleWatchlist,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                    active = flags.watchlist,
+                    contentDescription = if (flags.watchlist) "Remove from watchlist" else "Add to watchlist"
                 ) {
                     Icon(
-                        imageVector = if (flags.watchlist) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                        contentDescription = if (flags.watchlist) "Remove from watchlist" else "Add to watchlist",
-                        tint = if (flags.watchlist) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        imageVector = if (flags.watchlist) Icons.Filled.Check else Icons.Filled.Add,
+                        contentDescription = null,
+                        tint = if (flags.watchlist) MaterialTheme.colorScheme.primary else Color.White
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                DetailCircleButton(
+                    onClick = vm::toggleFavorite,
+                    active = flags.favorite,
+                    contentDescription = if (flags.favorite) "Remove from favorites" else "Add to favorites"
+                ) {
+                    Icon(
+                        imageVector = if (flags.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = null,
+                        tint = if (flags.favorite) MaterialTheme.colorScheme.primary else Color.White
                     )
                 }
             }
         }
 
         // -------------------------------------------------------------
-        // Genres
+        // Metadata row: year • runtime • type badge, then rating badge.
         // -------------------------------------------------------------
-        if (details.genres.isNotEmpty()) {
-            item {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(details.genres) { genre ->
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            modifier = Modifier.clickable { onBrowseGenre(genre) }
-                        ) {
+        item {
+            Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    details.releaseInfo?.takeIf { it.isNotBlank() }?.let { release ->
+                        Text(
+                            text = release,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DetailTextPrimary,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "  •  ",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DetailTextTertiary
+                        )
+                    }
+                    TimeFormat.minutesToLabel(TimeFormat.runtimeToMinutes(details.runtime))
+                        .takeIf { it.isNotBlank() }
+                        ?.let { runtime ->
                             Text(
-                                text = genre,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                text = runtime,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = DetailTextSecondary
+                            )
+                            Text(
+                                text = "  •  ",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = DetailTextTertiary
+                            )
+                        }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, Color(0xFF7A7A85))
+                    ) {
+                        Text(
+                            text = if (details.isSeries) "SERIES" else "MOVIE",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = DetailTextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                details.rating?.takeIf { it.isNotBlank() }?.let { rating ->
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = DetailChipSurface
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD166),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "$rating / 10",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = DetailTextPrimary,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                     }
@@ -419,34 +514,7 @@ private fun DetailContent(
         }
 
         // -------------------------------------------------------------
-        // Description
-        // -------------------------------------------------------------
-        if (!details.description.isNullOrBlank()) {
-            item {
-                var expanded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Text(
-                        text = "Overview",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = details.description,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = if (expanded.value) Int.MAX_VALUE else 4,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    TextButton(onClick = { expanded.value = !expanded.value }) {
-                        Text(text = if (expanded.value) "Show less" else "Show more")
-                    }
-                }
-            }
-        }
-
-        // -------------------------------------------------------------
-        // Crew
+        // Crew: gray label + white names on one line each.
         // -------------------------------------------------------------
         val crew = buildList {
             if (details.director.isNotEmpty()) add("Director" to details.director)
@@ -455,84 +523,134 @@ private fun DetailContent(
         if (crew.isNotEmpty()) {
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    Spacer(modifier = Modifier.height(4.dp))
                     crew.forEach { (role, names) ->
                         Text(
-                            text = role,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = buildAnnotatedString {
+                                withStyle(
+                                    SpanStyle(
+                                        color = DetailTextTertiary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                ) { append("$role:   ") }
+                                withStyle(
+                                    SpanStyle(
+                                        color = DetailTextPrimary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                ) { append(names.joinToString(", ")) }
+                            },
+                            style = MaterialTheme.typography.bodyLarge
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Synopsis: light gray, clamped to 4 lines, expandable
+        // (existing expand/collapse state).
+        // -------------------------------------------------------------
+        if (!details.description.isNullOrBlank()) {
+            item {
+                var expanded = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Text(
+                        text = details.description,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = DetailTextSecondary,
+                        maxLines = if (expanded.value) Int.MAX_VALUE else 4,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    TextButton(onClick = { expanded.value = !expanded.value }) {
                         Text(
-                            text = names.joinToString(", "),
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            text = if (expanded.value) "Show Less \u25B4" else "Show More \u25BE",
+                            color = DetailTextPrimary
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
         }
 
-        // Trailer link (external player) when the addon provides one.
+        // Trailer (external player, existing intent) as a pill row.
         if (!details.trailer.isNullOrBlank()) {
             item {
-                val context = androidx.compose.ui.platform.LocalContext.current
-                androidx.compose.material3.TextButton(
+                val context = LocalContext.current
+                Surface(
                     onClick = {
                         runCatching {
                             context.startActivity(
-                                android.content.Intent(
-                                    android.content.Intent.ACTION_VIEW,
-                                    android.net.Uri.parse(details.trailer)
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    Uri.parse(details.trailer)
                                 )
                             )
                         }
                     },
-                    modifier = Modifier.padding(horizontal = 12.dp)
+                    shape = RoundedCornerShape(percent = 50),
+                    color = Color(0x26FFFFFF),
+                    border = BorderStroke(1.dp, Color(0x40FFFFFF)),
+                    modifier = Modifier.padding(horizontal = 20.dp)
                 ) {
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Filled.PlayCircleOutline,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Watch trailer")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayCircleOutline,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Watch trailer",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
 
         // -------------------------------------------------------------
-        // Cast
+        // Cast: horizontal circular avatars (initials — the protocol
+        // provides names, not headshots), white bold names.
         // -------------------------------------------------------------
         if (details.cast.isNotEmpty()) {
             item {
                 Column {
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Cast",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        color = DetailTextPrimary,
                         modifier = Modifier.padding(horizontal = 20.dp)
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         items(details.cast.take(20)) { name ->
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                    color = DetailChipSurface,
+                                    border = BorderStroke(1.dp, Color(0x26FFFFFF))
                                 ) {
                                     Box(
-                                        modifier = Modifier.size(56.dp),
+                                        modifier = Modifier.size(64.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = name.take(1).uppercase(),
                                             style = MaterialTheme.typography.titleLarge,
-                                            color = MaterialTheme.colorScheme.primary
+                                            fontWeight = FontWeight.Bold,
+                                            color = DetailTextPrimary
                                         )
                                     }
                                 }
@@ -540,21 +658,23 @@ private fun DetailContent(
                                 Text(
                                     text = name,
                                     style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = DetailTextPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.width(72.dp),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    textAlign = TextAlign.Center
                                 )
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(18.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
                 }
             }
         }
 
         // -------------------------------------------------------------
-        // Seasons & episodes
+        // Seasons & episodes (series) — unchanged behavior.
         // -------------------------------------------------------------
         if (details.isSeries) {
             item {
@@ -563,6 +683,7 @@ private fun DetailContent(
                         text = "Episodes",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
+                        color = DetailTextPrimary,
                         modifier = Modifier.padding(horizontal = 20.dp)
                     )
                     if (details.seasons.isNotEmpty()) {
@@ -581,7 +702,7 @@ private fun DetailContent(
                     Text(
                         text = "No episodes listed for this season.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = DetailTextTertiary,
                         modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
                     )
                 }
@@ -597,11 +718,79 @@ private fun DetailContent(
         }
 
         // -------------------------------------------------------------
-        // Related
+        // Details card: key-value list with thin dividers, built only
+        // from the fields this title's metadata actually provides.
+        // -------------------------------------------------------------
+        val detailRows = buildList {
+            add("Type" to if (details.isSeries) "Series" else "Movie")
+            details.releaseInfo?.takeIf { it.isNotBlank() }?.let { add("Release" to it) }
+            TimeFormat.minutesToLabel(TimeFormat.runtimeToMinutes(details.runtime))
+                .takeIf { it.isNotBlank() }
+                ?.let { add("Runtime" to it) }
+            details.country?.takeIf { it.isNotBlank() }?.let { add("Country" to it) }
+            if (details.genres.isNotEmpty()) add("Genres" to details.genres.joinToString(", "))
+            details.awards?.takeIf { it.isNotBlank() }?.let { add("Awards" to it) }
+            sourceHost(details.sourceAddonBase)?.let { add("Source" to it) }
+        }
+        if (detailRows.size > 1) {
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Text(
+                        text = if (details.isSeries) "Series Details" else "Movie Details",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = DetailTextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = DetailCardSurface
+                    ) {
+                        Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                            detailRows.forEachIndexed { index, (label, value) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = DetailTextTertiary,
+                                        modifier = Modifier.weight(0.34f)
+                                    )
+                                    Text(
+                                        text = value,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = DetailTextPrimary,
+                                        fontWeight = FontWeight.Medium,
+                                        textAlign = TextAlign.End,
+                                        modifier = Modifier.weight(0.66f)
+                                    )
+                                }
+                                if (index < detailRows.lastIndex) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(horizontal = 16.dp)
+                                            .fillMaxWidth()
+                                            .height(1.dp)
+                                            .background(DetailDivider)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+            }
+        }
+
+        // -------------------------------------------------------------
+        // More like this (existing rail + navigation).
         // -------------------------------------------------------------
         if (related.isNotEmpty()) {
             item {
-                Rail(title = "More like this") {
+                Rail(title = "More Like This") {
                     items(related, key = { it.key + it.name }) { relatedItem ->
                         PosterCard(
                             item = relatedItem,
@@ -612,8 +801,80 @@ private fun DetailContent(
                 }
             }
         }
+
+        // -------------------------------------------------------------
+        // Footer: honest attribution to the addon that provided the
+        // metadata for this title.
+        // -------------------------------------------------------------
+        sourceHost(details.sourceAddonBase)?.let { host ->
+            item {
+                Text(
+                    text = "Metadata by $host",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF7C7C86),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 10.dp)
+                )
+            }
+        }
     }
 }
+
+/** Small rounded brand mark shown centered at the top of the hero. */
+@Composable
+private fun DetailBrandMark() {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(
+                Brush.linearGradient(listOf(Color(0xFF6E5BFF), Color(0xFF3FA9F5)))
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+/**
+ * Circular secondary action button (dark surface, white icon; the theme
+ * accent marks the active state). Purely visual — the onClick is the
+ * caller's existing handler.
+ */
+@Composable
+private fun DetailCircleButton(
+    onClick: () -> Unit,
+    active: Boolean,
+    contentDescription: String,
+    content: @Composable () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = if (active) DetailChipSurfaceActive else DetailChipSurface,
+        border = BorderStroke(1.dp, Color(0x1FFFFFFF)),
+        modifier = Modifier.size(52.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            content()
+        }
+    }
+}
+
+/** Display host of an addon base URL, for honest attribution. */
+private fun sourceHost(baseUrl: String?): String? =
+    baseUrl
+        ?.removePrefix("https://")
+        ?.removePrefix("http://")
+        ?.substringBefore('/')
+        ?.takeIf { it.isNotBlank() }
 
 private fun primaryActionLabel(
     details: MediaDetails,
@@ -646,14 +907,14 @@ private fun SeasonChips(
                 color = if (isSelected) {
                     MaterialTheme.colorScheme.primary
                 } else {
-                    MaterialTheme.colorScheme.surfaceVariant
+                    DetailChipSurface
                 },
                 modifier = Modifier.clickable { onSelect(season) }
             ) {
                 Text(
                     text = if (season == 0) "Specials" else "Season $season",
                     style = MaterialTheme.typography.labelLarge,
-                    color = if (isSelected) Color(0xFF0B0A10) else MaterialTheme.colorScheme.onSurface,
+                    color = if (isSelected) Color(0xFF0B0A10) else DetailTextPrimary,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
                 )
             }
@@ -734,6 +995,7 @@ private fun EpisodeRow(
             Text(
                 text = episode.title,
                 style = MaterialTheme.typography.titleSmall,
+                color = DetailTextPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -742,7 +1004,7 @@ private fun EpisodeRow(
                 Text(
                     text = episode.overview,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = DetailTextSecondary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -764,7 +1026,7 @@ private fun StreamPickerContent(
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
         )
         Text(
-            text = "${streams.size} streams from your extensions",
+            text = "${streams.size} streams from your addons and plugins",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = 20.dp)

@@ -127,6 +127,8 @@ dependencies {
 
     // Images
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Dominant-color extraction for the adaptive detail background
+    implementation("androidx.palette:palette-ktx:1.0.0")
     // Embedded JavaScript runtime for Nuvio-compatible plugins (sandboxed
     // QuickJS; Apache-2.0, GPL-compatible). Same engine family Nuvio uses.
     implementation("io.github.dokar3:quickjs-kt:1.0.15")
