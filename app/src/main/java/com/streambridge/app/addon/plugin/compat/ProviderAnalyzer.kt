@@ -113,7 +113,10 @@ object ProviderAnalyzer {
             IMPORT_LITERAL.findAll(code).map { it.groupValues[1] }.toList() +
             IMPORT_BARE.findAll(code).map { it.groupValues[1] }.toList()).distinct()
 
-        val isEsm = ESM_IMPORT.containsMatchIn(code) || ESM_EXPORT.containsMatchIn(code)
+        // Conservative: a file with module.exports is a CommonJS bundle
+        // (esbuild output); routing it down the ESM path would break it.
+        val isEsm = (ESM_IMPORT.containsMatchIn(code) || ESM_EXPORT.containsMatchIn(code)) &&
+            !code.contains("module.exports")
         val isCjs = !isEsm && CJS_MARKERS.any { code.contains(it) }
 
         return ProviderProfile(

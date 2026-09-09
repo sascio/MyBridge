@@ -1,8 +1,10 @@
 package com.streambridge.app.addon.plugin
 
+import com.dokar.quickjs.ModuleContent
 import com.dokar.quickjs.QuickJs
 import com.dokar.quickjs.binding.asyncFunction
 import com.dokar.quickjs.binding.function
+import com.dokar.quickjs.moduleLoader
 import com.streambridge.app.addon.plugin.compat.CompatPrelude
 import com.streambridge.app.addon.plugin.compat.CryptoCapability
 import com.streambridge.app.addon.plugin.compat.ProviderAnalyzer
@@ -12,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Base64
@@ -106,6 +109,17 @@ class NuvioPluginRuntime(
         }
     }
 
+    private val jsIdentifier = Regex("[A-Za-z_$][A-Za-z0-9_$]*")
+    private val reservedExportNames = setOf(
+        "class", "function", "var", "let", "const", "default", "export",
+        "import", "return", "if", "else", "new", "delete", "typeof",
+        "void", "in", "of", "for", "while", "do", "switch", "case",
+        "break", "continue", "this", "super", "extends", "instanceof",
+        "try", "catch", "finally", "throw", "with", "yield", "await",
+        "static", "enum", "implements", "package", "protected",
+        "interface", "private", "public", "arguments", "eval"
+    )
+
     /**
      * Executes a provider module and returns its raw stream results.
      * Runs entirely on the IO dispatcher; never blocks the main thread.
@@ -142,7 +156,23 @@ class NuvioPluginRuntime(
         // One HTTP engine per execution: its cookie jar (and any
         // connection state) dies with this call.
         val engine = ProviderHttpEngine(http, fetchTimeoutMs, maxResponseBytes)
-        val quickJs = QuickJs.create(jobDispatcher = Dispatchers.IO)
+        // ES module graph for ESM providers: populated after the compat
+        // layer is evaluated, before the entry module runs.
+        val esmModules = HashMap<String, String>()
+        val isEsm = profile?.isESM == true
+        val loader = moduleLoader {
+            normalize { baseName, requestedName ->
+                if (requestedName.startsWith("./") || requestedName.startsWith("../")) {
+                    runCatching {
+                        baseName.toHttpUrlOrNull()?.resolve(requestedName)?.toString()
+                    }.getOrNull() ?: requestedName
+                } else {
+                    requestedName
+                }
+            }
+            load { name -> esmModules[name]?.let { ModuleContent.Source(it) } }
+        }
+        val quickJs = QuickJs.create(jobDispatcher = Dispatchers.IO, moduleLoader = loader)
         try {
             quickJs.memoryLimit = memoryLimitBytes
             quickJs.maxStackSize = stackLimitBytes
@@ -174,7 +204,20 @@ class NuvioPluginRuntime(
                         filename = "sb-module.js"
                     )
                 }
-                quickJs.evaluate<Any?>(buildWrapper(code, request, codeUrl), filename = "provider.js")
+                if (isEsm) {
+                    registerEsmModules(quickJs, esmModules, profile!!, codeUrl, code, extraModules)
+                    quickJs.evaluate<Any?>(
+                        "import * as __sbProviderModule from " + JsonPrimitive(codeUrl) + ";" +
+                            "globalThis.__sbEsmProvider = __sbProviderModule;",
+                        filename = "sb-esm-entry.js",
+                        asModule = true
+                    )
+                    quickJs.evaluate<Any?>(
+                        buildEsmWrapper(request), filename = "provider-esm.js"
+                    )
+                } else {
+                    quickJs.evaluate<Any?>(buildWrapper(code, request, codeUrl), filename = "provider.js")
+                }
                 val error = quickJs.evaluate<Any?>(
                     "__sbOut.error == null ? '' : String(__sbOut.error)"
                 )
@@ -203,6 +246,81 @@ class NuvioPluginRuntime(
         } finally {
             quickJs.close()
         }
+    }
+
+    /**
+     * Builds the ESM module graph for an ES-module provider: shims that
+     * bridge bare imports into the CommonJS registry (with full named
+     * exports, enumerated from the real module), pre-fetched relative
+     * modules under their absolute URLs, and the provider itself under
+     * its real code URL.
+     */
+    private fun registerEsmModules(
+        quickJs: QuickJs,
+        esmModules: HashMap<String, String>,
+        profile: ProviderProfile,
+        codeUrl: String,
+        code: String,
+        extraModules: Map<String, String>
+    ) {
+        for (spec in profile.requiredModules) {
+            if (ProviderAnalyzer.isRelativeModule(spec)) { continue }
+            val moduleName = ProviderAnalyzer.normalizeSpecifier(spec)
+            // Enumerate the real module's exports so `import { load } from
+            // "cheerio"` resolves — no hardcoded export tables.
+            val keysJson = try {
+                quickJs.evaluate<Any?>(
+                    "JSON.stringify(Object.keys(require(" + JsonPrimitive(moduleName) + ")))"
+                ) as? String ?: "[]"
+            } catch (e: com.dokar.quickjs.QuickJsException) {
+                throw NuvioPluginException(e.message ?: "Cannot load module '" + moduleName + "'")
+            }
+            val keys = try {
+                val array = kotlinx.serialization.json.Json.parseToJsonElement(keysJson)
+                (array as? kotlinx.serialization.json.JsonArray)
+                    ?.mapNotNull { element ->
+                        (element as? kotlinx.serialization.json.JsonPrimitive)?.content
+                    }
+                    ?.filter { key -> jsIdentifier.matches(key) && key !in reservedExportNames }
+                    ?: emptyList()
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val shim = buildString {
+                append("var __m = require(").append(JsonPrimitive(moduleName)).append(");\n")
+                append("export default __m;\n")
+                for (key in keys) {
+                    append("export var ").append(key).append(" = __m.").append(key).append(";\n")
+                }
+            }
+            esmModules[spec] = shim
+            if (moduleName != spec) { esmModules[moduleName] = shim }
+        }
+        // Relative modules live under their absolute URLs (the normalizer
+        // resolves every relative import). Bare names in extraModules are
+        // the CJS bundles — the shims above own those names.
+        extraModules.forEach { (name, source) ->
+            if (name.startsWith("http")) { esmModules[name] = source }
+        }
+        esmModules[codeUrl] = code
+    }
+
+    /** The classic-script harness that runs an ESM provider's exports. */
+    private fun buildEsmWrapper(request: NuvioStreamRequest): String {
+        val head = """
+            var __sbOut = { result: null, error: null, done: false };
+            var __sbNamespace = globalThis.__sbEsmProvider || {};
+            var module = { exports: (typeof __sbNamespace.getStreams === "function")
+              ? __sbNamespace
+              : (__sbNamespace && typeof __sbNamespace.default === "object" &&
+                 typeof __sbNamespace.default.getStreams === "function")
+                ? __sbNamespace.default
+                : (__sbNamespace && typeof __sbNamespace.default === "function")
+                  ? { getStreams: __sbNamespace.default }
+                  : {} };
+            var exports = module.exports;
+        """.trimIndent()
+        return head + "\n" + wrapperTail(request)
     }
 
     /**
@@ -272,7 +390,9 @@ class NuvioPluginRuntime(
 
         quickJs.function<Any?>("__sbBtoa") { args ->
             val input = args.getOrNull(0)?.toString().orEmpty()
-            Base64.getEncoder().withoutPadding()
+            // Standard PADDED base64, exactly like browsers and Node —
+            // Buffer.toString("base64") and btoa() must agree with them.
+            Base64.getEncoder()
                 .encodeToString(input.toByteArray(Charsets.ISO_8859_1))
         }
 
@@ -358,10 +478,6 @@ class NuvioPluginRuntime(
         // The provider code is concatenated, never interpolated: real
         // provider bundles freely use JS template literals (`${...}`),
         // which a Kotlin template string would mangle.
-        val id = escapeJs(request.tmdbId)
-        val type = escapeJs(request.mediaType)
-        val season = request.season?.toString() ?: "null"
-        val episode = request.episode?.toString() ?: "null"
         val filename = escapeJs(codeUrl)
         val dirname = escapeJs(codeUrl.substringBeforeLast('/', missingDelimiterValue = "/"))
         val head = """
@@ -372,6 +488,14 @@ class NuvioPluginRuntime(
             var __dirname = "$dirname";
             (function() {
         """.trimIndent()
+        return head + "\n" + code + "\n" + wrapperTail(request)
+    }
+
+    private fun wrapperTail(request: NuvioStreamRequest): String {
+        val id = escapeJs(request.tmdbId)
+        val type = escapeJs(request.mediaType)
+        val season = request.season?.toString() ?: "null"
+        val episode = request.episode?.toString() ?: "null"
         val tail = """
             })();
             Promise.resolve()
@@ -404,7 +528,7 @@ class NuvioPluginRuntime(
                 __sbOut.done = true;
               });
         """.trimIndent()
-        return head + "\n" + code + "\n" + tail
+        return tail
     }
 
     /**
