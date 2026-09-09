@@ -153,12 +153,25 @@ class ExtensionManager(
         }
     }
 
-    /** Persists an extension that passed [check]. */
+    /**
+     * Persists an extension that passed [check]. Defense in depth: the
+     * URL and the manifest are re-validated here too, so no call path
+     * (including installs discovered inside an addon catalog) can
+     * persist an unvalidated or non-local-http source.
+     */
     suspend fun installChecked(
         manifest: AddonManifest,
         baseUrl: String,
         ecosystem: String = "stremio"
-    ): InstalledExtension {
+    ): InstallOutcome {
+        when (val urlVerdict = UrlValidator.validate(baseUrl)) {
+            is UrlValidator.Result.Invalid ->
+                return InstallOutcome.Failure("Extension URL rejected: ${urlVerdict.reason}")
+            is UrlValidator.Result.Valid -> Unit
+        }
+        if (ManifestValidator.validate(manifest) is ManifestValidator.Result.Invalid) {
+            return InstallOutcome.Failure("Manifest failed validation before install")
+        }
         val now = System.currentTimeMillis()
         val existing = dao.byId(manifest.id)
         val entity = ExtensionEntity(
@@ -174,7 +187,7 @@ class ExtensionManager(
             updatedAt = now
         )
         dao.upsert(entity)
-        return entity.toInstalledExtension()
+        return InstallOutcome.Success(entity.toInstalledExtension())
     }
 
     /**
@@ -189,9 +202,7 @@ class ExtensionManager(
                 "Not a valid Stremio-compatible addon: ${result.issues.joinToString("; ")}"
             )
 
-            is CheckResult.Ok -> InstallOutcome.Success(
-                installChecked(result.manifest, result.baseUrl, result.ecosystem)
-            )
+            is CheckResult.Ok -> installChecked(result.manifest, result.baseUrl, result.ecosystem)
         }
     }
 
@@ -312,8 +323,15 @@ class ExtensionManager(
     )
 
     /**
-     * Fetches the addons listed in an addon catalog. Each "meta" in the
-     * response carries a transport URL to another addon's manifest.
+     * Fetches the addons listed in an addon catalog. Two real-world
+     * response shapes are accepted:
+     *  - `{"metas":[{..., "transportUrl": ...}]}` — preview entries whose
+     *    manifests must be fetched from their transport URL;
+     *  - `{"addons":[{"transportUrl": ..., "manifest": {...}}]}` — the
+     *    envelope Cinemeta (the official addon catalog) answers with,
+     *    carrying each manifest inline.
+     * Transport URLs are validated with the same install rules (plain
+     * http only for local networks) before anything is fetched.
      */
     suspend fun fetchAddonCatalogEntries(
         baseUrl: String,
@@ -325,6 +343,28 @@ class ExtensionManager(
         } catch (_: Exception) {
             return emptyList()
         }
+
+        // Inline-manifest entries (Cinemeta's "addons" envelope).
+        val inline = try {
+            json.decodeFromString(
+                com.streambridge.app.addon.model.AddonCatalogResponse.serializer(),
+                body
+            ).addons
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val inlineEntries = inline.mapNotNull { entry ->
+            val base = transportBaseOrNull(entry.transportUrl) ?: return@mapNotNull null
+            val manifest = entry.manifest ?: return@mapNotNull null
+            if (ManifestValidator.validate(manifest) is ManifestValidator.Result.Invalid) {
+                null
+            } else {
+                CatalogEntry(manifest, base)
+            }
+        }
+        if (inlineEntries.isNotEmpty()) return inlineEntries
+
+        // Preview entries: fetch each manifest from its transport URL.
         val metas = try {
             json.decodeFromString(
                 com.streambridge.app.addon.model.CatalogResponse.serializer(),
@@ -334,9 +374,7 @@ class ExtensionManager(
             emptyList()
         }
         return metas.mapNotNull { preview ->
-            val transport = preview.transportUrl.takeIf { it.isNotBlank() }
-                ?: return@mapNotNull null
-            val base = HttpAddonApi.normalizeBase(transport)
+            val base = transportBaseOrNull(preview.transportUrl) ?: return@mapNotNull null
             val manifest = try {
                 api.fetchManifest(base)
             } catch (_: Exception) {
@@ -347,6 +385,20 @@ class ExtensionManager(
             } else {
                 CatalogEntry(manifest, base)
             }
+        }
+    }
+
+    /**
+     * Normalizes and validates a discovered transport URL against the
+     * install rules; null when the URL is unusable (invalid, or plain
+     * http on a public host).
+     */
+    private fun transportBaseOrNull(transportUrl: String): String? {
+        if (transportUrl.isBlank()) return null
+        val base = HttpAddonApi.normalizeBase(transportUrl)
+        return when (val verdict = UrlValidator.validate(base)) {
+            is UrlValidator.Result.Valid -> verdict.url
+            is UrlValidator.Result.Invalid -> null
         }
     }
 

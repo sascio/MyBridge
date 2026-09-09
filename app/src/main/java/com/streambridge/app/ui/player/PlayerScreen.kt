@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
@@ -298,6 +299,7 @@ fun PlayerScreen(
         ModalBottomSheet(onDismissRequest = vm::dismissPicker) {
             StreamPickerSheet(
                 streams = currentStreamsOf(vm),
+                providerErrors = vm.providerErrors.collectAsStateWithLifecycle().value,
                 onSelect = vm::selectStream
             )
         }
@@ -1153,6 +1155,7 @@ private fun PlayerIconButton(
 @Composable
 private fun StreamPickerSheet(
     streams: List<StreamOption>,
+    providerErrors: List<com.streambridge.app.addon.plugin.ProviderFailure> = emptyList(),
     onSelect: (StreamOption) -> Unit
 ) {
     val grouped = remember(streams) {
@@ -1183,6 +1186,44 @@ private fun StreamPickerSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
             )
+        }
+        // Plugin providers that failed during this resolution: shown as
+        // honest error rows, never hidden — their failure is isolated and
+        // does not affect the sources listed above/below.
+        providerErrors.forEach { failure ->
+            Spacer(modifier = Modifier.height(6.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .padding(horizontal = 20.dp)
+                    .fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = failure.providerName + " — failed",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            text = failure.reason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
         }
         grouped.forEach { (provider, options) ->
             Spacer(modifier = Modifier.height(10.dp))

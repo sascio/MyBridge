@@ -10,7 +10,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -18,6 +20,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
+
+/** A plugin provider that failed during the last picker resolution. */
+data class ProviderFailure(
+    val providerName: String,
+    val repositoryName: String,
+    val reason: String
+)
 
 /**
  * Manages Nuvio-compatible plugin repositories: installing, refreshing,
@@ -36,6 +45,10 @@ class NuvioPluginManager(
 
     private val store = NuvioPluginStore(context, scope)
     private val runtime = NuvioPluginRuntime()
+
+    /** Failures of the LAST picker resolution, surfaced as picker rows. */
+    private val _lastProviderErrors = MutableStateFlow<List<ProviderFailure>>(emptyList())
+    val lastProviderErrors: StateFlow<List<ProviderFailure>> = _lastProviderErrors.asStateFlow()
 
     /** Short-lived cache of provider code, so repeated resolution does not re-download. */
     private val codeCache = ConcurrentHashMap<String, CacheEntry>()
@@ -95,7 +108,11 @@ class NuvioPluginManager(
                 }
             }
         } catch (e: Exception) {
-            Result.failure(NuvioPluginException(e.message ?: "Could not load the repository"))
+            val message = e.message ?: "Could not load the repository"
+            // Persist the failure so the Plugins screen can show it next
+            // to the repository (the URL is already validated at this point).
+            runCatching { store.setRecordedError(validated, message) }
+            Result.failure(NuvioPluginException(message))
         }
     }
 
@@ -142,7 +159,8 @@ class NuvioPluginManager(
 
         val request = NuvioStreamRequest.from(type, bestProviderId(tmdbId, imdbId, metaId), season, episode)
 
-        return coroutineScope {
+        val failures = java.util.Collections.synchronizedList(ArrayList<ProviderFailure>())
+        val streams = coroutineScope {
             enabled.map { (repo, provider) ->
                 async {
                     try {
@@ -153,9 +171,19 @@ class NuvioPluginManager(
                             val raw = runtime.execute(http, codeUrl, code, request)
                             raw.map { stream -> stream.toStreamOption(provider, repo) }
                         } ?: emptyList()
+                    } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                        throw cancellation
                     } catch (e: Exception) {
-                        // One broken provider must never affect the others.
+                        // One broken provider must never affect the others;
+                        // its failure is reported to the picker instead.
                         logPlugin("error", "provider ${provider.id} failed: ${e.message}")
+                        failures.add(
+                            ProviderFailure(
+                                providerName = provider.displayName,
+                                repositoryName = repo.name,
+                                reason = e.message?.take(120) ?: "provider failed"
+                            )
+                        )
                         emptyList()
                     }
                 }
@@ -165,6 +193,8 @@ class NuvioPluginManager(
                 .filterNotNull()
                 .distinctBy { it.id }
         }
+        _lastProviderErrors.value = failures.toList()
+        return streams
     }
 
     /** Nuvio providers key their scrapes off TMDB ids; fall back honestly. */
@@ -258,7 +288,7 @@ fun NuvioRawStream.toStreamOption(
     ) {
         return null
     }
-    val verdict = UrlValidator.validate(raw)
+    val verdict = UrlValidator.validate(raw, allowPublicHttp = true)
     val playableUrl = when (verdict) {
         is UrlValidator.Result.Invalid -> null
         is UrlValidator.Result.Valid -> verdict.url

@@ -141,8 +141,13 @@ class ExtensionsViewModel(
     fun installConfirmed(manifest: AddonManifest, baseUrl: String) {
         _addState.value = AddDialogState.Installing
         viewModelScope.launch {
-            val installed = extensionManager.installChecked(manifest, baseUrl)
-            _addState.value = AddDialogState.Done(installed.displayName)
+            when (val outcome = extensionManager.installChecked(manifest, baseUrl)) {
+                is InstallOutcome.Success ->
+                    _addState.value = AddDialogState.Done(outcome.extension.displayName)
+
+                is InstallOutcome.Failure ->
+                    _addState.value = AddDialogState.Failed(outcome.reason)
+            }
         }
     }
 
@@ -239,8 +244,13 @@ class ExtensionsViewModel(
 
     fun installFromCatalog(entry: ExtensionManager.CatalogEntry) {
         viewModelScope.launch {
-            extensionManager.installChecked(entry.manifest, entry.transportUrl)
-            _banner.value = "Installed ${entry.manifest.name}"
+            when (val outcome = extensionManager.installChecked(entry.manifest, entry.transportUrl)) {
+                is InstallOutcome.Success ->
+                    _banner.value = "Installed ${outcome.extension.displayName}"
+
+                is InstallOutcome.Failure ->
+                    _banner.value = "Could not install ${entry.manifest.name}: ${outcome.reason}"
+            }
         }
     }
 

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -52,6 +53,9 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.streambridge.app.addon.UrlValidator
+import com.streambridge.app.addon.adapter.CloudstreamAdapter
+import com.streambridge.app.addon.model.PluginListing
 import com.streambridge.app.addon.plugin.NuvioInstalledRepository
 import com.streambridge.app.addon.plugin.NuvioPluginManager
 import com.streambridge.app.di.AppContainer
@@ -68,13 +72,28 @@ data class PluginsUiState(
     val repositories: List<NuvioInstalledRepository> = emptyList(),
     val busy: Boolean = false,
     /** Human-readable failure of the last add/refresh attempt, if any. */
-    val operationError: String = ""
+    val operationError: String = "",
+    /** A Cloudstream repository being browsed (read-only listing). */
+    val cloudstream: CloudstreamBrowse = CloudstreamBrowse.Hidden
 ) {
     val hasContent: Boolean get() = repositories.isNotEmpty()
 }
 
+/**
+ * Browsing a Cloudstream repository (repo.json / plugins.json). The
+ * plugins it lists are compiled Cloudstream code and can never be
+ * executed here — this is a read-only information view.
+ */
+sealed interface CloudstreamBrowse {
+    data object Hidden : CloudstreamBrowse
+    data class Loading(val url: String) : CloudstreamBrowse
+    data class Failed(val reason: String) : CloudstreamBrowse
+    data class Ready(val repository: CloudstreamAdapter.CloudstreamRepository) : CloudstreamBrowse
+}
+
 class PluginsViewModel(
-    private val manager: NuvioPluginManager
+    private val manager: NuvioPluginManager,
+    private val cloudstreamAdapter: CloudstreamAdapter = CloudstreamAdapter.instance
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PluginsUiState())
@@ -90,6 +109,12 @@ class PluginsViewModel(
 
     fun addRepository(url: String) {
         if (url.isBlank()) return
+        // Cloudstream repo.json / plugins.json URLs open the read-only
+        // repository browser instead of the Nuvio installer.
+        if (cloudstreamAdapter.acceptsUrl(url)) {
+            browseCloudstream(url)
+            return
+        }
         _state.value = _state.value.copy(busy = true, operationError = "")
         viewModelScope.launch {
             val result = manager.addRepository(url)
@@ -98,6 +123,41 @@ class PluginsViewModel(
                 operationError = result.exceptionOrNull()?.message ?: ""
             )
         }
+    }
+
+    /** Loads a Cloudstream repository listing (never installed/executed). */
+    fun browseCloudstream(url: String) {
+        _state.value = _state.value.copy(
+            busy = true,
+            operationError = "",
+            cloudstream = CloudstreamBrowse.Loading(url)
+        )
+        viewModelScope.launch {
+            val verdict = UrlValidator.validate(url)
+            if (verdict is UrlValidator.Result.Invalid) {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    cloudstream = CloudstreamBrowse.Failed(verdict.reason)
+                )
+                return@launch
+            }
+            try {
+                val repository = cloudstreamAdapter.loadRepository(verdict.url)
+                _state.value = _state.value.copy(
+                    busy = false,
+                    cloudstream = CloudstreamBrowse.Ready(repository)
+                )
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    cloudstream = CloudstreamBrowse.Failed(e.message ?: "Could not load the repository")
+                )
+            }
+        }
+    }
+
+    fun closeCloudstream() {
+        _state.value = _state.value.copy(cloudstream = CloudstreamBrowse.Hidden)
     }
 
     fun refreshRepository(manifestUrl: String) {
@@ -125,7 +185,12 @@ class PluginsViewModel(
 
     companion object {
         fun factory(container: AppContainer) = viewModelFactory {
-            initializer { PluginsViewModel(container.pluginManager) }
+            initializer {
+                PluginsViewModel(
+                    manager = container.pluginManager,
+                    cloudstreamAdapter = CloudstreamAdapter.instance
+                )
+            }
         }
     }
 }
@@ -289,7 +354,8 @@ fun PluginsScreen(
             text = {
                 Column {
                     Text(
-                        text = "Paste the manifest URL of a Nuvio-compatible repository.",
+                        text = "Paste a Nuvio-compatible repository manifest URL. " +
+                            "A Cloudstream repo.json / plugins.json URL opens a read-only listing.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -323,6 +389,117 @@ fun PluginsScreen(
                 TextButton(onClick = { showAddDialog = false }) { Text(text = "Cancel") }
             }
         )
+    }
+
+    when (val browse = state.cloudstream) {
+        is CloudstreamBrowse.Ready -> {
+            AlertDialog(
+                onDismissRequest = vm::closeCloudstream,
+                title = { Text(text = "Cloudstream repository") },
+                text = {
+                    Column {
+                        Text(
+                            text = browse.repository.name.ifBlank { "Repository" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (browse.repository.description.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = browse.repository.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${browse.repository.plugins.size} plugins — read-only listing",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Cloudstream plugins are compiled code and cannot run in Stream Bridge. They are listed for information only.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        LazyColumn(
+                            modifier = Modifier.heightIn(max = 320.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(browse.repository.plugins) { plugin ->
+                                CloudstreamPluginRow(plugin = plugin)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = vm::closeCloudstream) { Text(text = "Close") }
+                }
+            )
+        }
+
+        is CloudstreamBrowse.Failed -> {
+            AlertDialog(
+                onDismissRequest = vm::closeCloudstream,
+                title = { Text(text = "Cloudstream repository") },
+                text = {
+                    Text(
+                        text = browse.reason,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = vm::closeCloudstream) { Text(text = "Close") }
+                }
+            )
+        }
+
+        CloudstreamBrowse.Hidden, is CloudstreamBrowse.Loading -> Unit
+    }
+}
+
+@Composable
+private fun CloudstreamPluginRow(plugin: PluginListing) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Text(
+                text = plugin.name.ifBlank { plugin.internalName },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            val status = when {
+                plugin.isOperational -> "operational"
+                plugin.status == 0 -> "offline"
+                else -> "status ${plugin.status}"
+            }
+            Text(
+                text = listOfNotNull(
+                    "v${plugin.version}".takeIf { plugin.version > 0 },
+                    plugin.language.takeIf { it.isNotBlank() },
+                    status
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (plugin.description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = plugin.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 

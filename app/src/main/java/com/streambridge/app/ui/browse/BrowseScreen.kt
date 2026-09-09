@@ -98,6 +98,14 @@ fun BrowseScreen(
     onBack: () -> Unit
 ) {
     val vm: BrowseViewModel = viewModel(factory = BrowseViewModel.factory(container))
+    // Appearance > Poster size drives the grid density.
+    val settings by container.settingsRepository.state
+        .collectAsStateWithLifecycle(initialValue = com.streambridge.app.data.settings.SettingsState())
+    val genreColumns = when (settings.posterSize) {
+        "small" -> 4
+        "large" -> 2
+        else -> 3
+    }
     val state by vm.state.collectAsStateWithLifecycle()
 
     Column(
@@ -141,7 +149,7 @@ fun BrowseScreen(
                     )
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(3),
+                        columns = GridCells.Fixed(genreColumns),
                         contentPadding = PaddingValues(
                             start = 20.dp, end = 20.dp, top = 12.dp, bottom = 24.dp
                         ),

@@ -25,6 +25,51 @@ class UrlValidatorTest {
     }
 
     @Test
+    fun `plain http on a public host is rejected for installs`() {
+        val result = UrlValidator.validate("http://public-addon.example.com/manifest.json")
+        assertTrue(result is UrlValidator.Result.Invalid)
+        assertTrue(
+            (result as UrlValidator.Result.Invalid).reason.contains("https")
+        )
+    }
+
+    @Test
+    fun `https on a public host keeps full verification`() {
+        val result = UrlValidator.validate("https://v3-cinemeta.strem.io/manifest.json")
+        assertTrue(result is UrlValidator.Result.Valid)
+        assertEquals(
+            "https://v3-cinemeta.strem.io/manifest.json",
+            (result as UrlValidator.Result.Valid).url
+        )
+    }
+
+    @Test
+    fun `http localhost and local names are allowed`() {
+        assertTrue(UrlValidator.validate("http://127.0.0.1:11470/manifest.json") is UrlValidator.Result.Valid)
+        assertTrue(UrlValidator.validate("http://localhost:8080/manifest.json") is UrlValidator.Result.Valid)
+        assertTrue(UrlValidator.validate("http://my-nas.local/manifest.json") is UrlValidator.Result.Valid)
+    }
+
+    @Test
+    fun `more private ranges are recognized as local`() {
+        assertTrue(UrlValidator.validate("http://10.0.0.5/manifest.json") is UrlValidator.Result.Valid)
+        assertTrue(UrlValidator.validate("http://172.16.4.9/manifest.json") is UrlValidator.Result.Valid)
+        assertTrue(UrlValidator.validate("http://[::1]:8080/manifest.json") is UrlValidator.Result.Valid)
+        assertTrue(UrlValidator.validate("http://169.254.7.7/manifest.json") is UrlValidator.Result.Valid)
+    }
+
+    @Test
+    fun `content urls may use public http when explicitly allowed`() {
+        val result = UrlValidator.validate(
+            "http://cdn.example.com/video.mp4",
+            allowPublicHttp = true
+        )
+        assertTrue(result is UrlValidator.Result.Valid)
+        // The install path still refuses the very same URL.
+        assertTrue(UrlValidator.validate("http://cdn.example.com/video.mp4") is UrlValidator.Result.Invalid)
+    }
+
+    @Test
     fun `scheme is added when missing`() {
         val result = UrlValidator.validate("example.com/manifest.json")
         assertTrue(result is UrlValidator.Result.Valid)

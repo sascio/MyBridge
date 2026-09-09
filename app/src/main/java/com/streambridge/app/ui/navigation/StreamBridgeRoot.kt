@@ -24,6 +24,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.flow.first
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -73,6 +77,24 @@ fun StreamBridgeRoot(container: AppContainer) {
     val settings by container.settingsRepository.state
         .collectAsState(initial = SettingsState())
     val navMode = remember(settings.navLayout) { NavLayoutMode.fromKey(settings.navLayout) }
+
+    // Startup tab (General > Startup): applied once per app launch, after
+    // the persisted settings have actually been read from DataStore — the
+    // composable's initial default state must not count as "read".
+    var startupTabApplied by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val tab = container.settingsRepository.state.first().startupTab
+        if (!startupTabApplied && tab != "home") {
+            val route = when (tab) {
+                "search" -> Routes.SEARCH
+                "library" -> Routes.LIBRARY
+                "settings" -> Routes.SETTINGS
+                else -> null
+            }
+            route?.let { navController.navigate(it) { launchSingleTop = true } }
+        }
+        startupTabApplied = true
+    }
 
     val selectTab: (PillTab) -> Unit = { tab ->
         if (currentRoute != tab.route) {

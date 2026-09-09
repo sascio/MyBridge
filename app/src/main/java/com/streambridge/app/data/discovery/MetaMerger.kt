@@ -1,6 +1,7 @@
 package com.streambridge.app.data.discovery
 
 import com.streambridge.app.addon.model.GenreInfo
+import com.streambridge.app.addon.model.MediaDetails
 import com.streambridge.app.addon.model.MediaItem
 
 /**
@@ -8,6 +9,40 @@ import com.streambridge.app.addon.model.MediaItem
  * Unit tested.
  */
 object MetaMerger {
+
+    /**
+     * Metadata merging for full detail pages: the primary meta stays
+     * authoritative (name, ids, episodes of the winning source), and any
+     * field it is missing is filled from the fallbacks in order — so one
+     * addon's rich artwork/rating/cast can complete another's skeleton.
+     */
+    fun mergeDetails(primary: MediaDetails, fallbacks: List<MediaDetails>): MediaDetails {
+        if (fallbacks.isEmpty()) return primary
+        var merged = primary
+        for (fallback in fallbacks) {
+            merged = merged.copy(
+                poster = merged.poster ?: fallback.poster,
+                backdrop = merged.backdrop ?: fallback.backdrop,
+                logo = merged.logo ?: fallback.logo,
+                description = merged.description ?: fallback.description,
+                releaseInfo = merged.releaseInfo ?: fallback.releaseInfo,
+                runtime = merged.runtime ?: fallback.runtime,
+                rating = merged.rating ?: fallback.rating,
+                genres = if (merged.genres.isEmpty()) fallback.genres else merged.genres,
+                cast = if (merged.cast.isEmpty()) fallback.cast else merged.cast,
+                director = if (merged.director.isEmpty()) fallback.director else merged.director,
+                writer = if (merged.writer.isEmpty()) fallback.writer else merged.writer,
+                trailer = merged.trailer ?: fallback.trailer,
+                country = merged.country ?: fallback.country,
+                awards = merged.awards ?: fallback.awards,
+                // Episodes only when the authoritative source listed none
+                // at all (never mixed across addons — ids differ).
+                episodes = if (merged.episodes.isEmpty()) fallback.episodes else merged.episodes
+            )
+        }
+        return merged
+    }
+
 
     /**
      * Merges items from multiple sources, dropping duplicates.

@@ -62,7 +62,22 @@ data class NuvioRawStream(
  * engine exposes nothing but what is defined here. Any failure is a
  * controlled exception, never a crash.
  */
-class NuvioPluginRuntime {
+class NuvioPluginRuntime(
+    /**
+     * Sandbox limits. The defaults are the production values; they are
+     * constructor-injectable so the JVM tests can exercise each limit
+     * (busy loop, deep recursion, memory bomb, request cap, response
+     * cap) quickly instead of waiting for the real ceilings.
+     */
+    private val memoryLimitBytes: Long = 128L * 1024 * 1024,
+    private val stackLimitBytes: Long = 1024L * 1024,
+    private val busyTimeoutMs: Long = 30_000L,
+    private val fetchTimeoutMs: Long = 15_000L,
+    private val maxFetchesPerCall: Int = 80,
+    private val maxResponseBytes: Int = 10 * 1024 * 1024,
+    private val maxCodeBytes: Int = 8 * 1024 * 1024,
+    private val maxStreamsPerCall: Int = 40
+) {
 
     /** Downloads provider code over HTTP with a short timeout. */
     fun fetchProviderCode(http: OkHttpClient, codeUrl: String): String {
@@ -76,9 +91,9 @@ class NuvioPluginRuntime {
                 throw NuvioPluginException("Provider code download failed (HTTP ${response.code})")
             }
             val body = response.body ?: throw NuvioPluginException("Provider code response was empty")
-            val bytes = body.byteStream().use { it.readAtMost(MAX_CODE_BYTES) }
-            if (bytes.size >= MAX_CODE_BYTES) {
-                throw NuvioPluginException("Provider code exceeds the ${MAX_CODE_BYTES / 1024 / 1024} MB limit")
+            val bytes = body.byteStream().use { it.readAtMost(maxCodeBytes) }
+            if (bytes.size >= maxCodeBytes) {
+                throw NuvioPluginException("Provider code exceeds the ${maxCodeBytes / 1024 / 1024} MB limit")
             }
             return String(bytes, Charsets.UTF_8)
         }
@@ -97,11 +112,11 @@ class NuvioPluginRuntime {
         val fetchCount = AtomicInteger(0)
         val quickJs = QuickJs.create(jobDispatcher = Dispatchers.IO)
         try {
-            quickJs.memoryLimit = MEMORY_LIMIT_BYTES
-            quickJs.maxStackSize = STACK_LIMIT_BYTES
+            quickJs.memoryLimit = memoryLimitBytes
+            quickJs.maxStackSize = stackLimitBytes
             // Only time spent executing JavaScript counts here; the
             // overall wall clock is bounded by the caller's timeout.
-            quickJs.evaluationTimeoutMillis = JS_BUSY_TIMEOUT_MS
+            quickJs.evaluationTimeoutMillis = busyTimeoutMs
 
             bindHostFunctions(quickJs, http, fetchCount)
 
@@ -154,8 +169,8 @@ class NuvioPluginRuntime {
                 ?: emptyMap()
             val body = options["body"]?.toString()
 
-            if (fetchCount.incrementAndGet() > MAX_FETCHES_PER_CALL) {
-                throw NuvioPluginException("Provider exceeded $MAX_FETCHES_PER_CALL requests per call")
+            if (fetchCount.incrementAndGet() > maxFetchesPerCall) {
+                throw NuvioPluginException("Provider exceeded $maxFetchesPerCall requests per call")
             }
             performFetch(http, url, method, headers, body)
         }
@@ -216,12 +231,12 @@ class NuvioPluginRuntime {
             throw NuvioPluginException("fetch() received a malformed URL: " +
                 e.message?.take(120).orEmpty())
         }
-        return withTimeout(FETCH_TIMEOUT_MS) {
+        return withTimeout(fetchTimeoutMs) {
             http.newCall(built).execute().use { response ->
                 val body = response.body?.byteStream()?.use { input ->
-                    input.readAtMost(MAX_RESPONSE_BYTES)
+                    input.readAtMost(maxResponseBytes)
                 } ?: ByteArray(0)
-                val truncated = body.size >= MAX_RESPONSE_BYTES
+                val truncated = body.size >= maxResponseBytes
                 // The whole response travels as ONE JSON string: binding
                 // returns must be primitives to convert reliably (a Kotlin
                 // Map return does not become a usable JS object).
@@ -275,7 +290,7 @@ class NuvioPluginRuntime {
                     ?.toMap()
                     ?: emptyMap()
             )
-        }.take(MAX_STREAMS_PER_CALL)
+        }.take(maxStreamsPerCall)
     }
 
     // -----------------------------------------------------------------
@@ -603,14 +618,6 @@ class NuvioPluginRuntime {
 
     companion object {
         private const val UA = "Mozilla/5.0 (Linux; Android 14) StreamBridge/1.0"
-        private const val MEMORY_LIMIT_BYTES = 128L * 1024 * 1024
-        private const val STACK_LIMIT_BYTES = 1024L * 1024
-        private const val JS_BUSY_TIMEOUT_MS = 30_000L
-        private const val FETCH_TIMEOUT_MS = 15_000L
-        private const val MAX_FETCHES_PER_CALL = 80
-        private const val MAX_RESPONSE_BYTES = 10 * 1024 * 1024
-        private const val MAX_CODE_BYTES = 8 * 1024 * 1024
-        private const val MAX_STREAMS_PER_CALL = 40
         private const val TRUNCATION_NOTE = "\n<!-- response truncated by the plugin sandbox -->"
     }
 }

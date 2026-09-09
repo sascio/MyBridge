@@ -525,7 +525,15 @@ class DiscoveryRepository(
                 { it.first.addonId == item.source }
             )
         )
-        return best?.let { (extension, meta) -> meta.toMediaDetails(extension.baseUrl) }
+        // Metadata merging: the winning meta stays authoritative, and any
+        // field it is missing (artwork, rating, cast, episodes…) is filled
+        // from the other addons that answered, in priority order.
+        return best?.let { (extension, meta) ->
+            val fallbacks = metas
+                .filterNot { it.first.addonId == extension.addonId }
+                .map { (otherExtension, otherMeta) -> otherMeta.toMediaDetails(otherExtension.baseUrl) }
+            MetaMerger.mergeDetails(meta.toMediaDetails(extension.baseUrl), fallbacks)
+        }
     }
 
     /** Loads a season of a TMDB-sourced series. */

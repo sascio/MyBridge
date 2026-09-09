@@ -152,6 +152,19 @@ fun CatalogGridScreen(
     onBack: () -> Unit
 ) {
     val vm: CatalogGridViewModel = viewModel(factory = CatalogGridViewModel.factory(container))
+    // Appearance > Poster size drives the grid density (same mapping as Home).
+    val settings by container.settingsRepository.state
+        .collectAsStateWithLifecycle(initialValue = com.streambridge.app.data.settings.SettingsState())
+    val gridMinSize = when (settings.posterSize) {
+        "small" -> 96.dp
+        "large" -> 140.dp
+        else -> 116.dp
+    }
+    val posterWidth = when (settings.posterSize) {
+        "small" -> 104.dp
+        "large" -> 140.dp
+        else -> 122.dp
+    }
     val state by vm.state.collectAsStateWithLifecycle()
     val gridState = rememberLazyGridState()
 
@@ -203,7 +216,7 @@ fun CatalogGridScreen(
             )
 
             is CatalogGridUiState.Ready -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 110.dp),
+                columns = GridCells.Adaptive(minSize = gridMinSize),
                 state = gridState,
                 contentPadding = PaddingValues(
                     start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp
@@ -217,7 +230,7 @@ fun CatalogGridScreen(
                 items(s.items, key = { it.key + it.name }) { item ->
                     PosterCard(
                         item = item,
-                        width = 150.dp,
+                        width = posterWidth,
                         onClick = { onOpenDetail(item) }
                     )
                 }

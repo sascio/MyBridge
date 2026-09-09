@@ -79,8 +79,18 @@ class PlayerViewModel(
     private val subtitleResolver: SubtitleResolver,
     private val libraryRepository: LibraryRepository,
     private val settingsRepository: SettingsRepository,
-    private val extensionManager: ExtensionManager
+    private val extensionManager: ExtensionManager,
+    /** Plugin manager, for honest per-provider failure rows in the picker. */
+    private val pluginManager: com.streambridge.app.addon.plugin.NuvioPluginManager? = null
 ) : ViewModel() {
+
+    /**
+     * Plugin providers that failed during the last picker resolution
+     * (isolated failures — the other providers' results still resolve).
+     */
+    val providerErrors: StateFlow<List<com.streambridge.app.addon.plugin.ProviderFailure>> =
+        pluginManager?.lastProviderErrors
+            ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList())
 
     private val request = PlaybackRequest(
         type = savedStateHandle.get<String>("type") ?: "movie",
@@ -573,7 +583,8 @@ class PlayerViewModel(
                     subtitleResolver = container.subtitleResolver,
                     libraryRepository = container.libraryRepository,
                     settingsRepository = container.settingsRepository,
-                    extensionManager = container.extensionManager
+                    extensionManager = container.extensionManager,
+                    pluginManager = container.pluginManager
                 )
             }
         }

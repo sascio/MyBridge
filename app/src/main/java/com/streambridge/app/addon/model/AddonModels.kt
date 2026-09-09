@@ -9,6 +9,7 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.JsonDecoder
+import kotlinx.serialization.json.JsonNames
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonArray
@@ -143,6 +144,7 @@ data class AddonManifest(
 @Serializable
 data class AddonMetaPreview(
     val id: String = "",
+    @JsonNames("imdb_id")
     val imdbId: String? = null,
     val type: String = "",
     val name: String = "",
@@ -163,6 +165,24 @@ data class AddonMetaBehaviorHints(
     @Serializable(with = LenientStringSerializer::class) val defaultVideoId: String = ""
 )
 
+/** A YouTube-style trailer reference (`{"source": "<ytId>", "type": "Trailer"}`). */
+@Serializable
+data class AddonTrailerRef(
+    @Serializable(with = LenientStringSerializer::class) val source: String = "",
+    @Serializable(with = LenientStringSerializer::class) val type: String = ""
+)
+
+/** Stremio's `trailerStreams` shape (`{"title": ..., "ytId": ...}`). */
+@Serializable
+data class AddonTrailerStream(
+    @Serializable(with = LenientStringSerializer::class) val title: String = "",
+    @Serializable(with = LenientStringSerializer::class) val ytId: String = "",
+    @SerialName("yt_id")
+    @Serializable(with = LenientStringSerializer::class) val ytIdLegacy: String = ""
+) {
+    val youtubeId: String get() = ytId.ifBlank { ytIdLegacy }
+}
+
 @Serializable
 data class AddonVideo(
     val id: String = "",
@@ -181,6 +201,7 @@ data class AddonVideo(
 @Serializable
 data class AddonMeta(
     val id: String = "",
+    @JsonNames("imdb_id")
     val imdbId: String? = null,
     val type: String = "",
     val name: String = "",
@@ -198,15 +219,51 @@ data class AddonMeta(
     @Serializable(with = LenientStringSerializer::class) val country: String = "",
     @Serializable(with = LenientStringSerializer::class) val awards: String = "",
     @Serializable(with = LenientStringSerializer::class) val trailer: String = "",
+    /** IMDb-style trailer refs (`{"source": ytId}`), used when `trailer` is absent. */
+    val trailers: List<AddonTrailerRef> = emptyList(),
+    /** Stremio `trailerStreams` refs, used when `trailer` is absent. */
+    val trailerStreams: List<AddonTrailerStream> = emptyList(),
     @Serializable(with = LenientStringSerializer::class) val released: String = "",
     @Serializable(with = LenientStringSerializer::class) val language: String = "",
     val videos: List<AddonVideo> = emptyList(),
     val behaviorHints: AddonMetaBehaviorHints? = null
-)
+) {
+    /**
+     * Best trailer URL: a direct URL when the addon sent one, otherwise
+     * the first YouTube reference (Cinemeta sends `trailers`/`trailerStreams`
+     * instead of a URL). Bare ids are shaped into watch URLs.
+     */
+    val effectiveTrailer: String
+        get() {
+            if (trailer.isNotBlank()) return trailer
+            val ytId = trailerStreams.firstOrNull { it.youtubeId.isNotBlank() }?.youtubeId
+                ?: trailers.firstOrNull { it.source.isNotBlank() }?.source
+                ?: return ""
+            return if (ytId.startsWith("http")) ytId else "https://www.youtube.com/watch?v=$ytId"
+        }
+}
 
 @Serializable
 data class CatalogResponse(
     val metas: List<AddonMetaPreview> = emptyList()
+)
+
+/**
+ * The shape real-world `addon_catalog` endpoints answer with (Cinemeta,
+ * the official catalog, uses this): a list of addons, each carrying its
+ * transport URL and its FULL embedded manifest. Accepted in addition to
+ * the `{"metas":[...]}` preview shape.
+ */
+@Serializable
+data class AddonCatalogEntry(
+    @Serializable(with = LenientStringSerializer::class) val transportUrl: String = "",
+    @Serializable(with = LenientStringSerializer::class) val transportName: String = "",
+    val manifest: AddonManifest? = null
+)
+
+@Serializable
+data class AddonCatalogResponse(
+    val addons: List<AddonCatalogEntry> = emptyList()
 )
 
 @Serializable
