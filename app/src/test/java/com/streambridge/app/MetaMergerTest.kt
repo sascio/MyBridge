@@ -211,7 +211,7 @@ class MetaMergerTest {
         val merged = MetaMerger.mergeDetails(details("primary"), listOf(details("a"), details("b")))
         assertEquals(null, merged.poster)
         assertEquals(null, merged.description)
-        assertEquals(emptyList(), merged.cast)
-        assertEquals(emptyList(), merged.episodes)
+        assertTrue(merged.cast.isEmpty())
+        assertTrue(merged.episodes.isEmpty())
     }
 }
