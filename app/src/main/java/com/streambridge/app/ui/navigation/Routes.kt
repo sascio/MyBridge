@@ -35,7 +35,7 @@ object Routes {
     const val CATALOG_GRID =
         "catalog?addon={addon}&type={type}&id={id}&name={name}&base={base}"
 
-    /** Cloudstream-style plugin repositories (read-only browser). */
+    /** Nuvio-compatible plugin repository manager. */
     const val PLUGINS = "plugins"
 
     /** Routes rendered edge-to-edge (no scaffold padding). */

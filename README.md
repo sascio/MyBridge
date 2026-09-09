@@ -1,12 +1,15 @@
 # Stream Bridge
 
-**A cinematic, extension-driven media discovery & streaming client for Android.**
+**A cinematic, addon- and plugin-driven media discovery & streaming client
+for Android.**
 
 Stream Bridge is an original, dark-first Android app for browsing and playing
 media. It ships **completely empty** — no catalogs, no metadata, no streams,
-no providers. You bring your own sources by installing **Stremio-compatible
-extensions** (addons). Everything you see in the app comes from extensions
-you explicitly install and enable.
+no providers. You bring your own sources in two separate systems:
+**addons** (Stremio-compatible HTTP protocol sources) and **plugins**
+(Nuvio-compatible JavaScript providers that run locally in a sandboxed
+engine). Everything you see in the app comes from sources you explicitly
+install and enable.
 
 > Stream Bridge provides no content of its own. Use only content you are
 > legally entitled to access. The app does not bundle, host or recommend any
@@ -17,17 +20,18 @@ you explicitly install and enable.
 ## Features
 
 ### Discovery
-- Cinematic **hero banner** with auto-rotating featured titles
-- Rails built from every enabled extension catalog, plus merged
+- Cinematic **hero banner** — swipeable artwork with snap paging and
+  pausable auto-rotation
+- Rails built from every enabled addon catalog, plus merged
   **Movies** / **TV Shows** rails across sources
 - **Continue Watching** with real resume positions
 - **Recommended for you** — genre affinity from your watch history
-- **Browse by genre** across all extensions
+- **Browse by genre** across all addons
 - Recently added to your library
 - Polished loading, empty and error states everywhere
 
 ### Search
-- Real search with 350 ms debounce across all extensions that declare a
+- Real search with 350 ms debounce across all addons that declare a
   `search` extra (plus TMDB if you enable it)
 - Separate movie / series result sections, retry on failure
 
@@ -44,14 +48,18 @@ you explicitly install and enable.
 - Resume from persisted position
 - **Next / previous episode** with an episode queue and autoplay
 - Errors with retry; per-title **stream selection** sheet
+- **Subtitles**: side-loaded from addons and the built-in Open Subtitles
+  source (with per-source request headers), selectable in the player
 - Playback positions and history persisted locally
 
-### Extensions (Addons) & Plugins
-- **Zero extensions bundled, preinstalled or hidden** — the list starts empty
+### Addons (Stremio protocol)
+- **Zero addons bundled, preinstalled or hidden** — the list starts empty
+  (the only built-ins are the app's own Metadata resolution, always on,
+  and Open Subtitles V3, which activates only with *your* credentials)
 - Add any Stremio-compatible addon by manifest URL
 - Manifest is **fetched and validated** before install (id, name, version,
   resources, catalogs)
-- Enable / disable / remove / refresh individual extensions, refresh all
+- Enable / disable / remove / refresh individual addons, refresh all
 - **Reorder** addons — order is the aggregation priority used across
   catalogs, search, streams, subtitles and metadata merging
 - Community **addon catalogs** (`addon_catalog` resource): browse and
@@ -59,12 +67,36 @@ you explicitly install and enable.
 - Rich, honest error reporting for unreachable or invalid addons; one
   broken or slow addon never breaks browsing, search or playback
 
-Stream Bridge distinguishes two kinds of sources in the UI:
+### Plugins (Nuvio-compatible, executed locally)
+- **Zero plugins bundled, preinstalled or hidden** — starts empty
+- Add a Nuvio-compatible plugin repository by manifest URL; its providers
+  are discovered from the manifest
+- Enable / disable providers per repository, refresh, remove — all choices
+  persisted on-device
+- Enabled providers run for movies **and** TV episodes
+  (`getStreams(tmdbId, mediaType, season, episode)`) whenever you open a
+  stream picker, and their results appear alongside addon streams in the
+  same unified picker and player
+- Per-provider failure isolation and timeouts: one broken plugin never
+  affects the others, browsing or playback
+
+**Plugin code is untrusted and treated that way.** Every call runs in a
+fresh QuickJS instance (embedded via quickjs-kt) with:
+
+- Memory, stack and execution-time limits; a hard request-count cap
+- A `fetch` that only speaks plain HTTP GET/POST with per-request
+  timeouts and response-size caps — no file, Android or Java access of
+  any kind
+- Controlled failures: a plugin error surfaces as a message, never a
+  crash; unsupported providers are reported as unsupported
+
+Stream Bridge distinguishes two kinds of sources in the UI — managed in
+**Settings → Content & Discovery**, always separate:
 
 | Concept | Where | What it is |
 | --- | --- | --- |
-| **Addons** | Extensions screen | HTTP *protocol* sources (Stremio/Nuvio manifests). Declarative, validated, safe to query. |
-| **Plugins** | Plugin repositories screen | Runtime *code* packages (Cloudstream `.cs3`). **Listed for discovery only — never executed.** |
+| **Addon** | Addon screen | HTTP *protocol* sources (Stremio manifests, incl. Cloudstream repository browsing). Declarative, validated, safe to query. |
+| **Plugin** | Plugin screen | Nuvio-compatible JavaScript *code* providers. Executed locally inside the sandboxed QuickJS engine. |
 
 ### Stremio-compatible architecture
 The core speaks the open Stremio addon protocol:
@@ -77,7 +109,7 @@ fields, string/object cast lists, numeric ratings, …).
 
 Aggregation across many addons handles:
 
-- **Priority** — your extension order (reorder in the Extensions screen)
+- **Priority** — your addon order (reorder in the Addon screen)
 - **Deduplication** — identical streams/subtitles/metas collapse
 - **Isolation** — timeouts and per-addon error containment
 - **ID mapping** — IMDb (`tt…`) vs TMDB (`tmdb:…`) vs addon-local ids,
@@ -91,21 +123,19 @@ and grouped by provider in the player's stream picker.
 
 ### Cloudstream compatibility — an honest limitation
 Cloudstream *plugins* are compiled Kotlin (`.cs3`) code that must run
-inside a Cloudstream fork. Executing arbitrary downloaded code would be
-unsafe and is **not implemented**. What Stream Bridge offers instead:
+inside a Cloudstream fork. Executing them would be unsafe and is **not
+implemented** — no fake install or play buttons. What Stream Bridge
+offers instead is repository *browsing*: Cloudstream `repo.json`
+descriptors can be added as read-only addon sources that list their
+plugins (name, version, description, language, TV types, status).
 
-- A dedicated **Plugin repositories** screen that loads any Cloudstream
-  `repo.json` / `plugins.json` and lists its plugins (name, version,
-  description, language, TV types, operational status)
-- A clearly labeled explainer that these plugins are **never executed**
-- No fake install or play buttons for them
-
-Stremio and Nuvio addons, by contrast, are fully supported because they
-are plain HTTP protocols.
+Stremio addons and Nuvio-compatible *JavaScript* plugins, by contrast,
+are fully supported — the former as declarative HTTP sources, the latter
+inside the sandboxed engine described above.
 
 
 ### LAN bridge server & QR
-- Optional local HTTP server exposes all your installed extensions as one
+- Optional local HTTP server exposes all your installed addons as one
   aggregated Stremio-compatible addon on your Wi-Fi
 - Automatic LAN IPv4 detection (nothing hard-coded), automatic or custom
   port, network-change aware
@@ -124,8 +154,8 @@ bundled or committed, and the app works fully without them.
 
 ### Settings
 Appearance (accent colors, pure-black OLED mode) · Playback (autoplay,
-watched threshold) · Extensions · Integrations · Network/LAN bridge ·
-About & credits
+watched threshold) · **Content & Discovery** (separate Plugin and Addon
+management) · Integrations · Network/LAN bridge · About & credits
 
 ---
 
@@ -146,7 +176,7 @@ About & credits
 ./gradlew testDebugUnitTest      # unit tests
 ```
 
-Requirements: JDK 17, Android SDK 35. The Gradle wrapper handles the rest.
+Requirements: JDK 17, Android SDK 36. The Gradle wrapper handles the rest.
 
 ## Project layout
 
@@ -154,19 +184,21 @@ Requirements: JDK 17, Android SDK 35. The Gradle wrapper handles the rest.
 app/src/main/java/com/streambridge/app/
 ├── addon/            Stremio-compatible engine: models, HTTP client,
 │                     URL & manifest validation, extension manager,
-│                     stream resolution
+│                     stream resolution — plus plugin/ (Nuvio manifest,
+│                     store, sandboxed QuickJS runtime, manager)
 ├── core/             Time formatting, network monitoring
 ├── data/
 │   ├── db/           Room database (extensions, library, watch progress)
 │   ├── discovery/    Home aggregation, search, genre browse, merging
-│   ├── integrations/ Optional TMDB + MDBList clients
+│   ├── integrations/ Optional TMDB + MDBList clients, OpenSubtitles V3
 │   ├── library/      Favorites / watchlist / progress repository
 │   └── settings/     DataStore-backed settings
 ├── player/           ExoPlayer holder, playback view model
 ├── server/           LAN bridge HTTP server + aggregation provider
 ├── di/               Manual dependency container
 └── ui/               Compose UI: theme, components, home, search,
-                     details, player, library, extensions, settings
+                     details, player, library, extensions (addons),
+                     plugins, settings
 ```
 
 ## Security notes
@@ -174,20 +206,24 @@ app/src/main/java/com/streambridge/app/
 - HTTPS certificate validation is never bypassed.
 - Plain `http://` is allowed *only* so LAN-hosted addons and the local
   bridge can work; public addon hosts keep full TLS verification.
-- Extension manifests and URLs are validated before install; nothing is
+- Addon manifests and URLs are validated before install; nothing is
   installed or activated silently.
 - No secrets, API keys or credentials are bundled with the app.
-- **No arbitrary code execution**: Cloudstream plugins are listed, never
-  run. Only declarative HTTP addons (Stremio/Nuvio protocol) are queried.
+- **Controlled, sandboxed execution only**: Nuvio-compatible plugin code
+  runs in an embedded QuickJS engine with no host access beyond a limited
+  `fetch` — memory/stack/time limits, request caps, per-provider
+  isolation. Cloudstream `.cs3` plugins are never run. Declarative HTTP
+  addons (Stremio protocol) are only queried, never executed.
 - The LAN bridge serves read-only JSON over GET/HEAD with CORS; it never
   executes downloaded code.
 
 ## Credits
 
 Built with Jetpack Compose, Media3/ExoPlayer, Room, DataStore, OkHttp,
-kotlinx.serialization, Coil and ZXing. Stream Bridge implements the open
-Stremio addon *protocol*; it is an independent project with original code,
-branding and artwork.
+kotlinx.serialization, Coil, ZXing and quickjs-kt (embedded QuickJS;
+Apache-2.0, QuickJS itself MIT). Stream Bridge implements the open Stremio
+addon *protocol* and runs Nuvio-compatible plugins locally in a sandbox;
+it is an independent project with original code, branding and artwork.
 
 ## License
 
