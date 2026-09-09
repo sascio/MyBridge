@@ -2337,15 +2337,20 @@ subtle.decrypt = function(algorithm, key, data) {
 __sbCryptoModule.webcrypto = {
   subtle: subtle,
   getRandomValues: function(view) {
-    if (!(view instanceof Uint8Array)) {
-      throw new TypeError("getRandomValues(): Uint8Array required");
+    // WebCrypto accepts any integer typed array (forge passes Uint32Array).
+    if (view == null || typeof view !== "object" || !ArrayBuffer.isView(view) ||
+        view.length === undefined) {
+      throw new TypeError("getRandomValues(): typed array required");
     }
-    if (view.length > 65536) {
+    if (view instanceof Float32Array || view instanceof Float64Array) {
+      throw new TypeError("getRandomValues(): float arrays are not allowed");
+    }
+    if (view.byteLength > 65536) {
       throw new Error("getRandomValues(): length exceeds 65536 bytes");
     }
-    var result = __sbCryptoCall("randomBytes", { len: view.length });
+    var result = __sbCryptoCall("randomBytes", { len: view.byteLength });
     var bytes = __sbB64ToBytes(result.b64);
-    for (var i = 0; i < bytes.length; i++) { view[i] = bytes[i]; }
+    new Uint8Array(view.buffer, view.byteOffset, view.byteLength).set(bytes);
     return view;
   },
   randomUUID: function() {

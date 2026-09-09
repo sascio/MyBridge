@@ -396,7 +396,11 @@ class NuvioPluginRuntime(
               })
               .then(function(r) { __sbOut.result = (r == null) ? [] : r; __sbOut.done = true; })
               .catch(function(e) {
-                __sbOut.error = (e && e.message) ? String(e.message) : String(e);
+                var msg = (e && e.message) ? String(e.message) : String(e);
+                if (e && e.stack) {
+                  msg += "\n" + String(e.stack).split("\n").slice(0, 4).join("\n");
+                }
+                __sbOut.error = msg;
                 __sbOut.done = true;
               });
         """.trimIndent()
@@ -536,7 +540,11 @@ class NuvioPluginRuntime(
         globalThis.btoa = function(s) { return __sbBtoa(String(s)); };
         var URLSearchParams = function(init) {
           this._pairs = [];
-          if (init && typeof init === "object") {
+          if (init && init instanceof URLSearchParams) {
+            for (var i = 0; i < init._pairs.length; i++) {
+              this._pairs.push([init._pairs[i][0], init._pairs[i][1]]);
+            }
+          } else if (init && typeof init === "object") {
             for (var k in init) { this._pairs.push([k, String(init[k])]); }
           } else if (typeof init === "string" && init.length > 0) {
             var parts = init.split("&");
@@ -557,12 +565,61 @@ class NuvioPluginRuntime(
           }
           this.append(k, v);
         };
+        URLSearchParams.prototype.has = function(k) {
+          for (var i = 0; i < this._pairs.length; i++) {
+            if (this._pairs[i][0] === k) { return true; }
+          }
+          return false;
+        };
         URLSearchParams.prototype.get = function(k) {
           for (var i = 0; i < this._pairs.length; i++) {
             if (this._pairs[i][0] === k) { return this._pairs[i][1]; }
           }
           return null;
         };
+        URLSearchParams.prototype.getAll = function(k) {
+          var out = [];
+          for (var i = 0; i < this._pairs.length; i++) {
+            if (this._pairs[i][0] === k) { out.push(this._pairs[i][1]); }
+          }
+          return out;
+        };
+        URLSearchParams.prototype.delete = function(k) {
+          var kept = [];
+          for (var i = 0; i < this._pairs.length; i++) {
+            if (this._pairs[i][0] !== k) { kept.push(this._pairs[i]); }
+          }
+          this._pairs = kept;
+        };
+        URLSearchParams.prototype.forEach = function(cb) {
+          for (var i = 0; i < this._pairs.length; i++) {
+            cb(this._pairs[i][1], this._pairs[i][0], this);
+          }
+        };
+        URLSearchParams.prototype.entries = function() {
+          var pairs = this._pairs, index = 0;
+          return { next: function() {
+            if (index < pairs.length) {
+              return { value: pairs[index++], done: false };
+            }
+            return { value: undefined, done: true };
+          } };
+        };
+        URLSearchParams.prototype.keys = function() {
+          var entries = this.entries();
+          return { next: function() {
+            var r = entries.next();
+            return r.done ? r : { value: r.value[0], done: false };
+          } };
+        };
+        URLSearchParams.prototype.values = function() {
+          var entries = this.entries();
+          return { next: function() {
+            var r = entries.next();
+            return r.done ? r : { value: r.value[1], done: false };
+          } };
+        };
+        URLSearchParams.prototype[Symbol.iterator] = URLSearchParams.prototype.entries;
         URLSearchParams.prototype.toString = function() {
           var out = [];
           for (var i = 0; i < this._pairs.length; i++) {
@@ -687,6 +744,7 @@ class NuvioPluginRuntime(
             parts.search.indexOf("?") === 0 ? parts.search.slice(1) : "");
         }
         URL.prototype.toString = function() { return this.href; };
+        URL.prototype.toJSON = function() { return this.href; };
         Object.defineProperty(URL.prototype, "href", { get: function() {
           var u = this._u;
           var auth = u.hasAuthority ? "//" + u.host + (u.port ? ":" + u.port : "") : "";

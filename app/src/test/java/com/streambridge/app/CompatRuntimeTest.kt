@@ -197,13 +197,16 @@ class CompatRuntimeTest {
         val title = firstTitle(
             """
             var crypto = require("crypto");
-            var md5 = crypto.createHash("md5").update("hello").digest("hex");
-            var sha256 = crypto.createHash("sha256").update("hello").digest("hex");
-            var hmac = crypto.createHmac("sha256", "key")
-              .update("hello").digest("hex").slice(0, 8);
-            var bytes = Buffer.from("hello", "utf8").toString("base64");
-            return [{ name: "T", title: md5 + "|" + sha256.slice(0, 8) + "|" + hmac + "|" + bytes,
-                      url: "https://cdn.example.com/v.mp4", quality: "test" }];
+            function getStreams() {
+              var md5 = crypto.createHash("md5").update("hello").digest("hex");
+              var sha256 = crypto.createHash("sha256").update("hello").digest("hex");
+              var hmac = crypto.createHmac("sha256", "key")
+                .update("hello").digest("hex").slice(0, 8);
+              var bytes = Buffer.from("hello", "utf8").toString("base64");
+              return [{ name: "T", title: md5 + "|" + sha256.slice(0, 8) + "|" + hmac + "|" + bytes,
+                        url: "https://cdn.example.com/v.mp4", quality: "test" }];
+            }
+            module.exports = { getStreams: getStreams };
             """.trimIndent()
         )
         // md5("hello") and sha256("hello") are public test vectors.
@@ -474,6 +477,68 @@ class CompatRuntimeTest {
         assertEquals("AbortError", title)
         // The aborted request never reached the network.
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `URLSearchParams has the full method surface forge depends on`() {
+        val title = firstTitle(
+            """
+            function getStreams() {
+              var qs = new URLSearchParams("a=1&b=2&a=3");
+              var checks = [
+                qs.has("b"),                 // forge's debug path needs has()
+                qs.getAll("a").join(","),
+                (function() { qs.delete("b"); return qs.has("b"); })(),
+                (function() {
+                  var seen = [];
+                  qs.forEach(function(v, k) { seen.push(k + "=" + v); });
+                  return seen.join(";");
+                })(),
+                (function() {
+                  var entries = [];
+                  var it = qs.entries();
+                  for (var r = it.next(); !r.done; r = it.next()) {
+                    entries.push(r.value[0] + ":" + r.value[1]);
+                  }
+                  return entries.join("&");
+                })(),
+                new URL("https://x/y?a=1").searchParams.has("a"),
+                new URL("https://x/y").toJSON()
+              ];
+              return [{ name: "T", title: checks.join("|"),
+                        url: "https://cdn.example.com/v.mp4", quality: "test" }];
+            }
+            module.exports = { getStreams: getStreams };
+            """.trimIndent()
+        )
+        assertEquals(
+            "true|1,3|false|a=1;a=3|a:1&a:3|true|https://x/y",
+            title
+        )
+    }
+
+    @Test
+    fun `getRandomValues accepts every integer typed array`() {
+        val title = firstTitle(
+            """
+            function getStreams() {
+              var u8 = new Uint8Array(8);
+              var u32 = new Uint32Array(4);   // what node-forge seeds with
+              var i16 = new Int16Array(4);
+              crypto.getRandomValues(u8);
+              crypto.getRandomValues(u32);
+              crypto.getRandomValues(i16);
+              var floatRejected = "";
+              try { crypto.getRandomValues(new Float64Array(2)); }
+              catch (e) { floatRejected = "rejected"; }
+              return [{ name: "T",
+                        title: (u8.length + u32.length + i16.length) + "|" + floatRejected,
+                        url: "https://cdn.example.com/v.mp4", quality: "test" }];
+            }
+            module.exports = { getStreams: getStreams };
+            """.trimIndent()
+        )
+        assertEquals("16|rejected", title)
     }
 
     @Test
