@@ -1,6 +1,7 @@
 package com.streambridge.app.addon.plugin.compat
 
 import com.streambridge.app.addon.plugin.NuvioPluginException
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
