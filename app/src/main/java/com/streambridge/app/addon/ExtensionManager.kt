@@ -3,6 +3,7 @@ package com.streambridge.app.addon
 import com.streambridge.app.addon.adapter.AddonAdapterRegistry
 import com.streambridge.app.addon.model.AddonCatalog
 import com.streambridge.app.addon.model.AddonManifest
+import com.streambridge.app.addon.plugin.NuvioManifest
 import com.streambridge.app.addon.model.CatalogRef
 import com.streambridge.app.data.db.ExtensionDao
 import com.streambridge.app.data.db.ExtensionEntity
@@ -131,13 +132,19 @@ class ExtensionManager(
             )
         }
         return when (val verdict = ManifestValidator.validate(manifest)) {
-            is ManifestValidator.Result.Invalid ->
-                CheckResult.InvalidManifest(
-                    issues = verdict.issues,
-                    isNuvioPlugin = com.streambridge.app.addon.plugin.NuvioManifest
-                        .parse(manifest) is
-                        com.streambridge.app.addon.plugin.NuvioManifest.ParseResult.Valid
-                )
+            is ManifestValidator.Result.Invalid -> {
+                // Only on the failure path: re-read the raw text and check
+                // whether this is actually a Nuvio plugin repository, so
+                // the user can be pointed to the Plugin screen.
+                val isNuvioPlugin = try {
+                    val raw = api.fetchManifestText(baseUrl)
+                    raw.isNotBlank() &&
+                        NuvioManifest.parse(raw) is NuvioManifest.ParseResult.Valid
+                } catch (_: Exception) {
+                    false
+                }
+                CheckResult.InvalidManifest(verdict.issues, isNuvioPlugin)
+            }
 
             ManifestValidator.Result.Valid -> {
                 val ecosystem = AddonAdapterRegistry.forUrl(baseUrl).ecosystem

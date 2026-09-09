@@ -16,6 +16,13 @@ import java.net.URLEncoder
  */
 interface AddonApi {
     suspend fun fetchManifest(baseUrl: String): AddonManifest
+
+    /**
+     * The raw (unparsed) manifest text, for diagnostics such as
+     * recognizing non-Stremio manifests. Empty by default so fakes
+     * and tests are unaffected.
+     */
+    suspend fun fetchManifestText(baseUrl: String): String = ""
     suspend fun fetchCatalog(
         baseUrl: String,
         type: String,
@@ -57,6 +64,9 @@ class HttpAddonApi(
         val body = http.get(manifestUrl(baseUrl), timeoutMs = 12000L)
         return json.decodeFromString(AddonManifest.serializer(), body)
     }
+
+    override suspend fun fetchManifestText(baseUrl: String): String =
+        http.get(manifestUrl(baseUrl), timeoutMs = 12000L)
 
     override suspend fun fetchCatalog(
         baseUrl: String,
