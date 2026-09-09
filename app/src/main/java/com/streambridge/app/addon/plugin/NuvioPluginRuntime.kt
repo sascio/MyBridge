@@ -255,7 +255,7 @@ class NuvioPluginRuntime(
      * modules under their absolute URLs, and the provider itself under
      * its real code URL.
      */
-    private fun registerEsmModules(
+    private suspend fun registerEsmModules(
         quickJs: QuickJs,
         esmModules: HashMap<String, String>,
         profile: ProviderProfile,
