@@ -378,6 +378,6 @@ class RealWorldAddonFixturesTest {
             "https://mediastinger.com/the-shawshank-redemption-1994-extras-during-the-credits/",
             option.externalUrl
         )
-        assertEquals("After Credits", option.addonName)
+        assertEquals("AfterCredits", option.addonName)
     }
 }

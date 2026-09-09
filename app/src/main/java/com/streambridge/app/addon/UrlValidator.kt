@@ -93,8 +93,11 @@ object UrlValidator {
         val normalized = buildString {
             append(scheme)
             append("://")
-            if (host.contains(':')) {
-                // IPv6 literals keep their brackets.
+            if (host.startsWith("[")) {
+                // IPv6 literal that already carries its brackets.
+                append(host.lowercase(java.util.Locale.US))
+            } else if (host.contains(':')) {
+                // Bare IPv6 literal: (re-)add the brackets.
                 append('[')
                 append(host.lowercase(java.util.Locale.US))
                 append(']')
@@ -128,8 +131,9 @@ object UrlValidator {
         if (lower == "localhost" || lower.endsWith(".local") || lower.endsWith(".internal")) {
             return true
         }
-        // IPv6 (possibly with a zone index, e.g. "fe80::1%wlan0").
-        val bare = lower.substringBefore('%')
+        // IPv6 (java.net.URI keeps the brackets; possibly with a zone
+        // index, e.g. "[fe80::1%wlan0]").
+        val bare = lower.removePrefix("[").removeSuffix("]").substringBefore('%')
         if (bare.contains(':')) {
             if (bare == "::1" || bare == "::") return true
             val mapped = bare.removePrefix("::ffff:")

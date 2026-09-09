@@ -186,12 +186,16 @@ data class AddonTrailerStream(
 @Serializable
 data class AddonVideo(
     val id: String = "",
+    // Real-world episodes (Cinemeta) name the title field "name".
+    @JsonNames("name")
     @Serializable(with = LenientStringSerializer::class) val title: String = "",
     @Serializable(with = LenientStringSerializer::class) val released: String = "",
     @Serializable(with = LenientStringSerializer::class) val thumbnail: String = "",
     @Serializable(with = LenientIntSerializer::class) val season: Int = 0,
     @Serializable(with = LenientIntSerializer::class) val episode: Int = 0,
     @Serializable(with = LenientIntSerializer::class) val number: Int = 0,
+    // Some addons only send "description" on episodes.
+    @JsonNames("description")
     @Serializable(with = LenientStringSerializer::class) val overview: String = "",
     val available: Boolean? = null
 ) {
