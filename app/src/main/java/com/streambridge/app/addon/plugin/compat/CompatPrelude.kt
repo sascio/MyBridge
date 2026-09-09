@@ -717,8 +717,13 @@ var process = {
   // The host's real environment is none of the provider's business;
   // env starts empty and is writable within the call.
   env: Object.create(null),
-  version: "v18.20.0",
-  versions: { node: "18.20.0" },
+  // Deliberately NOT claiming to be Node (no versions.node): the
+  // sandbox is a browser-like environment with Node API adapters, and
+  // third-party feature detection must take the pure-JS/browser paths —
+  // claiming Node steers libraries into fs/worker paths that cannot
+  // exist here.
+  version: "",
+  versions: {},
   platform: "linux",
   arch: "arm64",
   pid: 0,

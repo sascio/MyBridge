@@ -45,6 +45,7 @@ class NuvioPluginManager(
     private val http: OkHttpClient
 ) {
 
+    private val appContext = context.applicationContext
     private val store = NuvioPluginStore(context, scope)
     private val runtime = NuvioPluginRuntime()
 
@@ -172,7 +173,7 @@ class NuvioPluginManager(
                             val code = providerCode(codeUrl)
                             val raw = runtime.execute(
                                 http, codeUrl, code, request,
-                                extraModules = providerModules(codeUrl, code)
+                                extraModules = compatBundles + providerModules(codeUrl, code)
                             )
                             raw.map { stream -> stream.toStreamOption(provider, repo) }
                         } ?: emptyList()
@@ -210,6 +211,34 @@ class NuvioPluginManager(
             !metaId.isNullOrBlank() -> metaId
             else -> ""
         }
+
+    /**
+     * The standard compatibility bundles (real cheerio and node-forge,
+     * browser builds) shipped as app assets. Loaded once, lazily; a
+     * missing bundle is logged and skipped — providers that need it
+     * then fail with a clear MODULE_NOT_FOUND instead of a crash.
+     */
+    private val compatBundles: Map<String, String> by lazy {
+        val bundles = HashMap<String, String>()
+        val bundleFiles = listOf(
+            "compat/cheerio.bundle.js" to
+                listOf("cheerio", "cheerio-without-node-native"),
+            "compat/forge.bundle.js" to listOf("node-forge")
+        )
+        for ((file, names) in bundleFiles) {
+            val source = try {
+                appContext.assets.open(file).use { input ->
+                    input.readBytes().toString(Charsets.UTF_8)
+                }
+            } catch (e: Exception) {
+                logPlugin("compat", "bundle " + file + " unavailable: " +
+                    (e.message?.take(60) ?: ""))
+                continue
+            }
+            for (name in names) { bundles[name] = source }
+        }
+        bundles
+    }
 
     /**
      * Pre-fetches the relative modules a provider requires (bounded:

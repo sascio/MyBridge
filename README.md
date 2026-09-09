@@ -167,18 +167,40 @@ management) · Integrations · Network/LAN bridge · About & credits
 
 ## Roadmap
 
-**Universal provider compatibility — in active development, not yet
-shipped.** The plugin sandbox is being upgraded into a full compatibility
-runtime so that JavaScript providers written for *other* runtimes work
-unmodified inside the same hardened sandbox: CommonJS and ES modules, a
-controlled module resolver (`cheerio`, `cheerio-without-node-native`,
-`node-forge`, pure-JS Node adapters for `path`/`url`/`buffer`/`events`/
-`crypto`/…), browser globals (`window`, `navigator`, `document` where
-safe) with real behavior — and a structured compatibility report
-(Status / Detected / Missing / Action) whenever a provider genuinely
-needs something unavailable. Capability-based access only: HTTP, HTML
-parsing, crypto and storage adapters — never files, shells, process
-execution or arbitrary native libraries.
+**Universal provider compatibility — in active development.** The
+plugin sandbox is being upgraded into a full compatibility runtime so
+that JavaScript providers written for *other* runtimes work unmodified
+inside the same hardened sandbox.
+
+Shipped so far:
+
+- A dedicated provider HTTP engine: all standard methods, cookies
+  scoped to the call, redirects, transparent gzip/deflate/brotli
+  decoding, binary bodies both ways, per-request timeouts
+- A compatibility layer in every provider execution: real CommonJS
+  `require()` with built-in Node adapters (buffer, path, url,
+  querystring, util, events, assert, stream, crypto, process, timers),
+  `Buffer`, real-delay timers, `EventEmitter`, WebCrypto-shaped
+  `crypto.subtle`, and a `crypto` module backed by the platform's
+  javax.crypto (hashing, HMAC, AES-CBC/CTR/ECB/GCM, PBKDF2)
+- Browser globals with real behavior: `window`/`self`, `navigator`,
+  `location` derived from the provider's code URL, `document.cookie`
+  backed by the HTTP engine's cookie jar, `<a>` URL parsing,
+  `localStorage`/`sessionStorage` (per call, quota-enforced),
+  `TextEncoder`, `AbortController` — and precise controlled errors for
+  what genuinely cannot exist (DOM rendering, navigation, DOM events)
+- **Real cheerio and node-forge**, bundled from the actual npm
+  packages (browser builds) and shipped as app assets:
+  `require('cheerio')`, `require('cheerio-without-node-native')` and
+  `require('node-forge')` run the genuine libraries inside the sandbox
+- Structured compatibility diagnostics (Status / Detected / Missing /
+  Action) whenever a provider needs something unavailable, plus
+  per-call static analysis logging and pre-fetching of relative modules
+
+Remaining: ES module loading for providers, and live integration
+testing against real provider repositories. Capability-based access
+only — HTTP, HTML parsing, crypto and storage adapters; never files,
+shells, process execution or arbitrary native libraries.
 
 ---
 
