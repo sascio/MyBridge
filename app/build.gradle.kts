@@ -63,6 +63,10 @@ android {
                     org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED
                 )
                 exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                // The live real-provider integration test reports its
+                // outcome classification (streams vs upstream) via
+                // stdout; keep it visible in CI logs.
+                showStandardStreams = true
             }
         }
     }
