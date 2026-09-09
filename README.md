@@ -38,6 +38,9 @@ install and enable.
 ### Details
 - Full detail pages: backdrop, poster, year, runtime, rating, genres,
   overview, cast, related titles
+- **Adaptive detail pages**: the dominant color of each title's artwork
+  tints the page background — a Spotify-style gradient, cached per title,
+  with readability-preserving color math (unit tested)
 - **Series support**: seasons, episodes with thumbnails, overviews and
   per-episode watch progress
 - Library actions: **favorites** and **watchlist** (persisted with Room)
@@ -105,7 +108,8 @@ The core speaks the open Stremio addon protocol:
 `subtitles/{type}/{videoId}.json` and
 `addon_catalog/{type}/{id}.json` — for movies, series and episodes, with
 lenient parsing for real-world addon responses (camelCase and snake_case
-fields, string/object cast lists, numeric ratings, …).
+fields, string/object cast lists, numeric ratings, episode
+`name`/`description` title aliases, …).
 
 Aggregation across many addons handles:
 
@@ -136,7 +140,9 @@ inside the sandboxed engine described above.
 
 ### LAN bridge server & QR
 - Optional local HTTP server exposes all your installed addons as one
-  aggregated Stremio-compatible addon on your Wi-Fi
+  aggregated Stremio-compatible addon on your Wi-Fi: catalogs, details,
+  streams **and subtitles**, merged across every enabled addon with
+  URL-based deduplication
 - Automatic LAN IPv4 detection (nothing hard-coded), automatic or custom
   port, network-change aware
 - **QR code** of the addon URL plus copy/share actions, so a TV or desktop
@@ -156,6 +162,23 @@ bundled or committed, and the app works fully without them.
 Appearance (accent colors, pure-black OLED mode) · Playback (autoplay,
 watched threshold) · **Content & Discovery** (separate Plugin and Addon
 management) · Integrations · Network/LAN bridge · About & credits
+
+---
+
+## Roadmap
+
+**Universal provider compatibility — in active development, not yet
+shipped.** The plugin sandbox is being upgraded into a full compatibility
+runtime so that JavaScript providers written for *other* runtimes work
+unmodified inside the same hardened sandbox: CommonJS and ES modules, a
+controlled module resolver (`cheerio`, `cheerio-without-node-native`,
+`node-forge`, pure-JS Node adapters for `path`/`url`/`buffer`/`events`/
+`crypto`/…), browser globals (`window`, `navigator`, `document` where
+safe) with real behavior — and a structured compatibility report
+(Status / Detected / Missing / Action) whenever a provider genuinely
+needs something unavailable. Capability-based access only: HTTP, HTML
+parsing, crypto and storage adapters — never files, shells, process
+execution or arbitrary native libraries.
 
 ---
 
