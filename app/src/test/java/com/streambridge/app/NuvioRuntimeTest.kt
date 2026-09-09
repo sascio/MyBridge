@@ -291,6 +291,11 @@ class NuvioRuntimeTest {
 
     @Test
     fun `deep recursion hits the stack limit and fails in a controlled way`() = runBlocking {
+        // A small JS stack (128KB) trips the ENGINE's own check far below
+        // the test thread's native stack — a larger limit would risk a
+        // native SIGSEGV before the catchable InternalError. (The
+        // production default is quickjs-kt's 256KB for the same reason.)
+        val tight = NuvioPluginRuntime(stackLimitBytes = 128L * 1024)
         val code = """
             function recurse(n) { return recurse(n + 1); }
             function getStreams(tmdbId, mediaType, season, episode) {
@@ -300,7 +305,7 @@ class NuvioRuntimeTest {
             module.exports = { getStreams: getStreams };
         """.trimIndent()
         try {
-            runtime.execute(http, "https://unused/code.js", code, request)
+            tight.execute(http, "https://unused/code.js", code, request)
             fail("Expected a stack overflow")
         } catch (e: NuvioPluginException) {
             assertTrue(e.message!!.isNotBlank())
@@ -314,7 +319,10 @@ class NuvioRuntimeTest {
         val code = """
             function getStreams(tmdbId, mediaType, season, episode) {
               var chunks = [];
-              while (true) { chunks.push(new Array(65536).fill("x")); }
+              // Bounded: enough to trip an 8MB cap, never unbounded even
+              // if the limit somehow failed.
+              while (chunks.length < 400) { chunks.push(new Array(65536).fill("x")); }
+              return [];
             }
             module.exports = { getStreams: getStreams };
         """.trimIndent()

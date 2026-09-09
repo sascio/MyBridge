@@ -70,7 +70,11 @@ class NuvioPluginRuntime(
      * cap) quickly instead of waiting for the real ceilings.
      */
     private val memoryLimitBytes: Long = 128L * 1024 * 1024,
-    private val stackLimitBytes: Long = 1024L * 1024,
+    // quickjs-kt's own default (256KB): a bigger JS stack can overrun
+    // the host thread's native stack before the engine's internal check
+    // trips — which would crash the process instead of raising a catchable
+    // stack-overflow error.
+    private val stackLimitBytes: Long = 256L * 1024,
     private val busyTimeoutMs: Long = 30_000L,
     private val fetchTimeoutMs: Long = 15_000L,
     private val maxFetchesPerCall: Int = 80,
@@ -142,6 +146,11 @@ class NuvioPluginRuntime(
                 // Syntax errors, synchronous throws, timeouts, conversion
                 // failures: a uniform controlled failure carrying the
                 // engine's line info.
+                throw NuvioPluginException(e.message?.take(200) ?: "Provider failed to execute")
+            } catch (e: Exception) {
+                // Interruption/limit exceptions that are not derived from
+                // QuickJsException in every engine version: still a
+                // controlled failure, never a raw escape into the caller.
                 throw NuvioPluginException(e.message?.take(200) ?: "Provider failed to execute")
             }
             mapStreams(result)

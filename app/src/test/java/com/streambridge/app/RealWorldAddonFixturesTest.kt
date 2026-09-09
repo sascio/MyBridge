@@ -335,9 +335,10 @@ class RealWorldAddonFixturesTest {
 
         val kitsu = response.addons[0]
         assertEquals("https://anime-kitsu.strem.fun/manifest.json", kitsu.transportUrl)
-        assertNotNull(kitsu.manifest)
-        assertEquals("community.anime.kitsu", kitsu.manifest!!.id)
-        assertTrue(ManifestValidator.validate(kitsu.manifest!!) is ManifestValidator.Result.Valid)
+        val kitsuManifest = kitsu.manifest
+        assertNotNull(kitsuManifest)
+        assertEquals("community.anime.kitsu", kitsuManifest!!.id)
+        assertTrue(ManifestValidator.validate(kitsuManifest) is ManifestValidator.Result.Valid)
 
         // Resource OBJECTS (idPrefixes/name/types) collapse to names.
         val deepDive = response.addons[2].manifest!!
