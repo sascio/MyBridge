@@ -37,6 +37,13 @@ class BridgeServerTest {
             if (id == "tt1") """{"meta":{"id":"tt1"}}""" else null
 
         override fun stream(type: String, id: String): String = """{"streams":[]}"""
+
+        override fun subtitles(type: String, id: String): String =
+            if (id == "tt1") {
+                """{"subtitles":[{"url":"https://subs.example.com/tt1.en.vtt","lang":"eng","label":"English"}]}"""
+            } else {
+                """{"subtitles":[]}"""
+            }
     }
 
     private val server = BridgeServer(
@@ -117,6 +124,34 @@ class BridgeServerTest {
         response.use {
             assertEquals(200, it.code)
             assertEquals("""{"meta":null}""", it.body!!.string())
+        }
+    }
+
+    @Test
+    fun `subtitles route serves the provider response`() {
+        server.start()
+        awaitRunning()
+
+        val response = client.newCall(
+            Request.Builder().url("${baseUrl()}/subtitles/movie/tt1.json").build()
+        ).execute()
+        response.use {
+            assertEquals(200, it.code)
+            assertTrue(it.body!!.string().contains("tt1.en.vtt"))
+        }
+    }
+
+    @Test
+    fun `subtitles without results serve an empty list`() {
+        server.start()
+        awaitRunning()
+
+        val response = client.newCall(
+            Request.Builder().url("${baseUrl()}/subtitles/movie/tt404.json").build()
+        ).execute()
+        response.use {
+            assertEquals(200, it.code)
+            assertEquals("""{"subtitles":[]}""", it.body!!.string())
         }
     }
 

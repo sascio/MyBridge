@@ -59,6 +59,9 @@ interface BridgeContentProvider {
 
     /** Merged stream list for the id. */
     fun stream(type: String, id: String): String
+
+    /** Merged subtitle list for the id (may be empty). */
+    fun subtitles(type: String, id: String): String
 }
 
 /**
@@ -266,6 +269,13 @@ class BridgeServer(
                     val id = segments.drop(2).joinToString("/")
                     val body = runServerCall { provider.stream(type, id) }
                     Triple(200, "OK", body ?: """{"streams":[]}""")
+                }
+
+                segments.size >= 3 && segments.first() == "subtitles" -> {
+                    val type = segments[1]
+                    val id = segments.drop(2).joinToString("/")
+                    val body = runServerCall { provider.subtitles(type, id) }
+                    Triple(200, "OK", body ?: """{"subtitles":[]}""")
                 }
 
                 else -> Triple(404, "Not Found", """{"error":"not_found"}""")

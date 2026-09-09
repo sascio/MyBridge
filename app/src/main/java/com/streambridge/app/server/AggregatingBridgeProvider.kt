@@ -5,6 +5,7 @@ import com.streambridge.app.addon.ExtensionManager
 import com.streambridge.app.addon.HttpAddonApi
 import com.streambridge.app.addon.model.MetaResponse
 import com.streambridge.app.addon.model.StreamResponse
+import com.streambridge.app.addon.model.SubtitleResponse
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -50,6 +51,7 @@ class AggregatingBridgeProvider(
                 add("catalog")
                 add("meta")
                 add("stream")
+                add("subtitles")
             })
             put("types", buildJsonArray { types.forEach { add(it) } })
             put("catalogs", buildJsonArray {
@@ -93,6 +95,7 @@ class AggregatingBridgeProvider(
                 add("/catalog/{type}/{id}.json")
                 add("/meta/{type}/{id}.json")
                 add("/stream/{type}/{id}.json")
+                add("/subtitles/{type}/{id}.json")
             })
         }.toString()
     }
@@ -180,6 +183,37 @@ class AggregatingBridgeProvider(
         }.filterNotNull().flatMap { it.streams }
 
         return json.encodeToString(StreamResponse.serializer(), StreamResponse(streams))
+    }
+
+    /**
+     * Merged subtitle list: fans out across every enabled extension that
+     * declares the "subtitles" resource (mirroring [stream]), deduplicating
+     * by URL. Addons that answer 404 contribute nothing; failures are
+     * contained per addon.
+     */
+    override fun subtitles(type: String, id: String): String {
+        guardSegment(id)
+        guardSegment(type)
+        val extensions = extensionManager.enabledExtensions.value.filter { it.supportsSubtitles }
+
+        val subtitles = runBlocking {
+            coroutineScope {
+                extensions.map { extension ->
+                    async {
+                        try {
+                            withTimeoutOrNull(UPSTREAM_TIMEOUT_MS) {
+                                api.fetchSubtitles(extension.baseUrl, type, id)
+                            }
+                        } catch (_: Exception) {
+                            null
+                        }
+                    }
+                }.awaitAll()
+            }
+        }.filterNotNull().flatten()
+
+        val merged = subtitles.distinctBy { it.url }
+        return json.encodeToString(SubtitleResponse.serializer(), SubtitleResponse(merged))
     }
 
     /** Rejects path segments that could escape the intended route. */
