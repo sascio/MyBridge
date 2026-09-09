@@ -154,6 +154,9 @@ class SourceAggregatorTest {
     @Test
     fun `one failing source never breaks the others`() = runTest {
         val events = mutableListOf<SourceResult>()
+        // These fakes deliberately THROW (violating the StreamSource
+        // contract) — the aggregator must still isolate them: a source
+        // that crashes must never crash the resolution or the screen.
         val results = StreamSourceAggregator().aggregate(
             listOf(
                 FakeSource("good") { playable("https://good/v.mp4") },
@@ -170,6 +173,8 @@ class SourceAggregatorTest {
         assertEquals("bad provider code", (broken.status as SourceStatus.Failed).reason)
         val good = results.first { it.sourceId == "good" }
         assertTrue(good.usable)
+        // The good source's result was still delivered progressively.
+        assertTrue(events.any { it.sourceId == "good" && it.usable })
     }
 
     @Test

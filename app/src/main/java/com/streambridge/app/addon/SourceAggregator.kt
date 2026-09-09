@@ -69,7 +69,8 @@ data class SourceResult(
  * An independently executable stream source — a Stremio-style addon or
  * a Nuvio plugin provider. [resolve] never throws: every failure is
  * expressed as the returned status, so one broken source can never
- * break the resolution of the others.
+ * break the resolution of the others. (The aggregator additionally
+ * defends itself against sources that violate this contract.)
  */
 interface StreamSource {
     val id: String
@@ -159,7 +160,16 @@ class StreamSourceAggregator {
         }
         sources.map { source ->
             async {
-                val result = source.resolve()
+                val result = try {
+                    source.resolve()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (e: Exception) {
+                    // A source that violates its contract (throws instead
+                    // of reporting a status) must never take down the
+                    // others or the screen: classify it as failed.
+                    SourceResult(source.id, source.name, source.origin, SourceStatus.fromException(e))
+                }
                 onEvent(result)
                 result
             }
