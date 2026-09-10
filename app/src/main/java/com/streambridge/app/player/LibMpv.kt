@@ -135,7 +135,7 @@ data class LibMpvMediaInfo(
  *  - release() is idempotent and joins the dispatcher after destroy.
  */
 class LibMpvEngine(
-    appContext: Context,
+    private val appContext: Context,
     private val onEvent: (PlayerHolder.PlaybackEvent) -> Unit,
     private val onMediaInfo: (LibMpvMediaInfo) -> Unit = {}
 ) {

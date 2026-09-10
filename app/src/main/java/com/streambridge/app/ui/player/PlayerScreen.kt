@@ -1328,16 +1328,17 @@ private fun Context.findActivity(): Activity? {
  * controls/overlays of the player screen are drawn on top as usual.
  */
 @Composable
-private fun LibMpvVideoSurface(holder: PlayerHolder, modifier: Modifier = Modifier) {
+private fun LibMpvVideoSurface(playerHolder: PlayerHolder, modifier: Modifier = Modifier) {
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             android.view.SurfaceView(ctx).apply {
                 keepScreenOn = true
                 var attached = false
-                surfaceHolder.addCallback(object : android.view.SurfaceHolder.Callback {
+                // `holder` here is the SurfaceView's own SurfaceHolder.
+                holder.addCallback(object : android.view.SurfaceHolder.Callback {
                     override fun surfaceCreated(h: android.view.SurfaceHolder) {
-                        holder.attachMpvSurface(h.surface)
+                        playerHolder.attachMpvSurface(h.surface)
                         attached = true
                     }
 
@@ -1347,18 +1348,18 @@ private fun LibMpvVideoSurface(holder: PlayerHolder, modifier: Modifier = Modifi
                         width: Int,
                         height: Int
                     ) {
-                        holder.updateMpvSurfaceSize(width, height)
+                        playerHolder.updateMpvSurfaceSize(width, height)
                     }
 
                     override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
                         if (attached) {
-                            holder.detachMpvSurface()
+                            playerHolder.detachMpvSurface()
                             attached = false
                         }
                     }
                 })
             }
         },
-        onRelease = { holder.detachMpvSurface() }
+        onRelease = { playerHolder.detachMpvSurface() }
     )
 }
