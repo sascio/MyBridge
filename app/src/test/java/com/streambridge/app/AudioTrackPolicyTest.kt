@@ -32,7 +32,7 @@ class AudioTrackPolicyTest {
         .setSampleMimeType(mime)
         .setCodecs(codecs)
         .setChannelCount(channels)
-        .setBitrate(bitrate)
+        .setAverageBitrate(bitrate)
         .setLanguage(language)
         .setLabel(label)
         .build()

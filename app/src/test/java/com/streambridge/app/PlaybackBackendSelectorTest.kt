@@ -23,7 +23,7 @@ import org.junit.Test
  */
 class PlaybackBackendSelectorTest {
 
-    private val media3 = Media3PlaybackBackend(FakeRegistry(emptyMap()))
+    private val media3 = Media3PlaybackBackend(FakeRegistry(emptySet()))
 
     private class FakeRegistry(private val supported: Set<String>) : DecoderRegistry {
         override fun query(mimeType: String): DecoderQuery =

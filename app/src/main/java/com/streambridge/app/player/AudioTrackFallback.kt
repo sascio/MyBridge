@@ -100,7 +100,7 @@ object AudioTrackPolicy {
                 compareByDescending<AudioTrackCandidate> { it.support == DecoderSupport.SUPPORTED }
                     .thenByDescending { language != null && it.format.language?.lowercase() == language }
                     .thenByDescending { it.channels }
-                    .thenByDescending { it.format.bitrate }
+                    .thenByDescending { it.format.averageBitrate }
                     .thenBy { it.groupIndex }
                     .thenBy { it.trackIndex }
             )
