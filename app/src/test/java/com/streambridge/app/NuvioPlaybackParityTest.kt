@@ -50,7 +50,7 @@ class NuvioPlaybackParityTest {
     @Test
     fun `D DASH is recognized from mpd evidence`() {
         assertEquals(StreamMimeTypes.APPLICATION_MPD, StreamMimeTypes.fromUrl("https://cdn.example.com/a.mpd"))
-        assertEquals(StreamMimeTypes.APPLICATION_MPD, StreamMimeTypes.fromUrl("https://cdn.example.com/dash/token"))
+        assertEquals(StreamMimeTypes.APPLICATION_MPD, StreamMimeTypes.fromUrl("https://cdn.example.com/mpd/token"))
     }
 
     // E/F/G header survival is PlaybackHttpTest.
