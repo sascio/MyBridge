@@ -69,8 +69,10 @@ Local command:
 GitHub Actions: `.github/workflows/build.yml` runs
 `:androidApp:assembleFullDebug` and `:androidApp:assembleFullRelease`.
 
-**CI result at the time this file was written: PENDING** (must be the
-Nuvio APK, not the old `:app`).
+**CI:** run `34533186538` failed at `:composeApp:generateRuntimeConfigs`
+because Gradle 9 requires a specified `@InputFile` to exist and Nuvio
+always points at `local.properties`. Adapted: only wire that input when
+the file is present. A later run must still produce the Nuvio APK.
 
 ## APK
 
