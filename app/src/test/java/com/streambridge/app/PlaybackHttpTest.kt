@@ -74,7 +74,9 @@ class PlaybackHttpTest {
         val v4 = InetAddress.getByName("192.0.2.1")
         assertTrue(v6 is Inet6Address)
         assertTrue(v4 is Inet4Address)
-        val dns = Ipv4FirstDns(delegate = Dns { listOf(v6, v4) })
+        val dns = Ipv4FirstDns(delegate = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> = listOf(v6, v4)
+        })
         val result = dns.lookup("cdn.example.com")
         assertEquals(listOf(v4, v6), result)
     }
@@ -82,7 +84,9 @@ class PlaybackHttpTest {
     @Test
     fun `IPv6-only hosts still resolve`() {
         val v6 = InetAddress.getByName("2001:db8::2")
-        val dns = Ipv4FirstDns(delegate = Dns { listOf(v6) })
+        val dns = Ipv4FirstDns(delegate = object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> = listOf(v6)
+        })
         assertEquals(listOf(v6), dns.lookup("ipv6-only.example"))
     }
 }
