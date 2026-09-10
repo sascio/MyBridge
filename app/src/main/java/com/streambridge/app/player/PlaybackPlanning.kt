@@ -1,6 +1,7 @@
 package com.streambridge.app.player
 
 import com.streambridge.app.addon.StreamHeaders
+import com.streambridge.app.addon.StreamMimeTypes
 import com.streambridge.app.addon.model.StreamOption
 
 /**
@@ -44,7 +45,7 @@ data class PlaybackPreparation(
  */
 object PlaybackPlanning {
 
-    fun planPlayback(
+    suspend fun planPlayback(
         option: StreamOption,
         probe: suspend (url: String, headers: Map<String, String>) -> String? = { _, _ -> null }
     ): PlaybackPreparation {

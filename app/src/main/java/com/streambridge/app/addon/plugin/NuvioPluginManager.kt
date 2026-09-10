@@ -5,6 +5,7 @@ import com.streambridge.app.addon.SourceResult
 import com.streambridge.app.addon.SourceStatus
 import com.streambridge.app.addon.StreamEnrichment
 import com.streambridge.app.addon.StreamHeaders
+import com.streambridge.app.addon.StreamMimeTypes
 import com.streambridge.app.addon.StreamSource
 import com.streambridge.app.addon.UrlValidator
 import com.streambridge.app.addon.model.StreamClassification

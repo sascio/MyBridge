@@ -1,6 +1,8 @@
 package com.streambridge.app.player
 
+import androidx.annotation.OptIn
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.util.UnstableApi
 
 /**
  * Normalized playback failure categories. Every player failure maps to
@@ -62,6 +64,7 @@ object PlaybackFailureClassifier {
     )
 
     /** Classifies a real Media3 error by first extracting the plain facts. */
+    @OptIn(UnstableApi::class)
     fun classify(error: PlaybackException): Result {
         var cause: Throwable? = error
         var httpStatus: Int? = null
@@ -78,12 +81,16 @@ object PlaybackFailureClassifier {
             ) {
                 if (decoderMime == null) decoderMime = "audio"
             }
-            val decoderInit = c as? androidx.media3.exoplayer.DecoderInitializationException
+            // Decoder init failures carry the exact codec MIME.
+            val decoderInit =
+                c as? androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException
             if (decoderInit != null && decoderMime == null) {
                 decoderMime = decoderInit.mimeType
                     ?: decoderInit.format?.sampleMimeType
             }
-            if (c is androidx.media3.extractor.UnrecognizedInputFormatException) {
+            // "None of the available extractors could read the stream" —
+            // the classic extension-less manifest routed to progressive.
+            if (c is androidx.media3.exoplayer.source.UnrecognizedInputFormatException) {
                 unrecognizedContainer = true
             }
             cause = c.cause
