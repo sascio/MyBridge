@@ -92,6 +92,26 @@ class PlayerViewModel(
         pluginManager?.lastProviderErrors
             ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList())
 
+    /** Device decoder capabilities for the playback backend stack. */
+    private val decoderRegistry: DecoderRegistry = MediaCodecDecoderRegistry()
+
+    /**
+     * Registered playback backends, in preference order. Media3 is the
+     * primary engine; a software-decoding backend for codecs without
+     * MediaCodec decoders (the reference app's second tier) plugs in
+     * here later with the same capability contract.
+     */
+    private val playbackBackends: List<PlaybackBackend> =
+        listOf(Media3PlaybackBackend(decoderRegistry))
+
+    /**
+     * Redacted structured facts about the active/last playback — the
+     * real cause of any failure, retained for support (never cookies,
+     * tokens or signed URLs).
+     */
+    private val _lastDiagnostics = MutableStateFlow<PlaybackDiagnostics?>(null)
+    val lastDiagnostics: StateFlow<PlaybackDiagnostics?> = _lastDiagnostics.asStateFlow()
+
     private val request = PlaybackRequest(
         type = savedStateHandle.get<String>("type") ?: "movie",
         metaId = savedStateHandle.get<String>("metaId") ?: "",
@@ -142,7 +162,7 @@ class PlayerViewModel(
     private val _sourceLabel = MutableStateFlow("")
     val sourceLabel: StateFlow<String> = _sourceLabel.asStateFlow()
 
-    val holder: PlayerHolder = PlayerHolder(context, okHttpClient) { event ->
+    val holder: PlayerHolder = PlayerHolder(context, okHttpClient, onPlaybackEvent = { event ->
         when (event) {
             is PlayerHolder.PlaybackEvent.StateChanged -> _playback.value = PlaybackUiState(
                 isPlaying = event.isPlaying,
@@ -152,11 +172,20 @@ class PlayerViewModel(
                 durationMs = event.durationMs
             )
 
+            is PlayerHolder.PlaybackEvent.Info -> {
+                // Playback continues (e.g. audio switched to a decodable
+                // track); the note reaches the user, the facts stay in
+                // diagnostics.
+                _lastDiagnostics.value = event.diagnostics ?: _lastDiagnostics.value
+                _events.tryEmit(PlayerEvent.Message(event.text))
+            }
+
             is PlayerHolder.PlaybackEvent.Error -> {
+                _lastDiagnostics.value = event.diagnostics
                 handlePlaybackFailure(event)
             }
         }
-    }
+    }, decoderRegistry = decoderRegistry)
 
     private var progressTicker: Job? = null
     private var activeStream: StreamOption? = null
@@ -171,7 +200,6 @@ class PlayerViewModel(
      */
     private val fallbackStreams = mutableListOf<StreamOption>()
     private val attemptedStreamIds = HashSet<String>()
-    private var audioDegradationAttempted = false
 
     init {
         restoreQueue()
@@ -208,27 +236,15 @@ class PlayerViewModel(
     )
 
     /**
-     * Handles a classified playback failure. Order of recourse:
-     *  1. undecodable AUDIO: degrade gracefully (other audio track or
-     *     muted video) and keep the source — video is the point.
-     *  2. source-fatal failure: automatically try the next untried
-     *     alternate from the session, once per source.
-     *  3. otherwise (or when nothing is left): surface the clean error.
+     * Handles a classified playback failure that the player could not
+     * recover from in place. Audio failures are recovered inside the
+     * player (compatible track switch, or muted video only when no
+     * decodable track exists), so what arrives here is source-fatal:
+     * automatically try the next untried alternate from the session,
+     * once per source — otherwise surface the clean error. The real,
+     * structured cause is always retained in [lastDiagnostics].
      */
     private fun handlePlaybackFailure(event: PlayerHolder.PlaybackEvent.Error) {
-        val active = activeStream
-        if (event.category == PlaybackFailureCategory.AUDIO_DECODER_UNSUPPORTED &&
-            !audioDegradationAttempted
-        ) {
-            audioDegradationAttempted = true
-            val note = holder.degradeAudioAfterDecoderFailure(event.decoderMimeType)
-            holder.retry()
-            if (note != null) {
-                _events.tryEmit(PlayerEvent.Message(note))
-            }
-            _phase.value = PlayerPhase.Playing(active ?: return)
-            return
-        }
         val nextAlternate = if (event.category in sourceFatalCategories) {
             PlaybackPlanning.nextAlternate(attemptedStreamIds, fallbackStreams)
                 ?.also { alternate -> attemptedStreamIds.add(alternate.id) }
@@ -361,12 +377,18 @@ class PlayerViewModel(
             val preparation = PlaybackPlanning.planPlayback(option) { probeUrl, probeHeaders ->
                 StreamMimeProbe.probe(okHttpClient, probeUrl, probeHeaders)
             }
+            // Capability-based backend choice (media3 today; a software
+            // backend for undecodable codecs plugs in here later). The
+            // decision is recorded in the playback diagnostics.
+            val backendDecision = PlaybackBackendSelector.select(preparation, playbackBackends)
             holder.play(
                 url = url,
                 startPositionMs = resumePosition,
                 speed = settings.defaultPlaybackSpeed,
                 headers = preparation.headers,
-                mimeType = preparation.mimeType
+                mimeType = preparation.mimeType,
+                sourceName = option.addonName,
+                backendId = backendDecision.backend.id
             )
             startProgressTicker()
             loadExternalSubtitles()

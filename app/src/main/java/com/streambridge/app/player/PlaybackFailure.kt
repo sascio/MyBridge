@@ -200,8 +200,8 @@ object PlaybackFailureClassifier {
     private fun friendlyCodec(mime: String?): String = when (mime?.lowercase()) {
         "audio/eac3" -> " (E-AC-3 audio)"
         "audio/ac3" -> " (AC-3 audio)"
-        "audio/truehd" -> " (Dolby TrueHD audio)"
-        "audio/dts" -> " (DTS audio)"
+        "audio/true-hd" -> " (Dolby TrueHD audio)"
+        "audio/vnd.dts", "audio/vnd.dts.hd" -> " (DTS audio)"
         "audio/eac3-joc" -> " (Dolby Atmos audio)"
         "video/hevc" -> " (HEVC video)"
         "video/dolby-vision" -> " (Dolby Vision video)"
