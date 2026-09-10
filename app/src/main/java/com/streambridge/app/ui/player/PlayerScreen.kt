@@ -534,7 +534,7 @@ private fun PlayerControls(
                 )
             }
     ) {
-        if (playback.buffering) {
+        if (playback.showLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -662,7 +662,7 @@ private fun PlayerControls(
         }
 
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = controlsVisible && !playback.showLoading,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.Center)

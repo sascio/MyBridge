@@ -62,7 +62,25 @@ class StreamHeadersTest {
     @Test
     fun `header flooding is capped`() {
         val many = (1..40).associate { "X-H$it" to "v$it" }
-        assertEquals(12, StreamHeaders.sanitize(many).size)
+        assertEquals(32, StreamHeaders.sanitize(many).size)
+    }
+
+    @Test
+    fun `Range is stripped so it cannot ride on every segment request`() {
+        val headers = StreamHeaders.sanitize(
+            mapOf(
+                "Referer" to "https://provider.example.com/",
+                "Range" to "bytes=0-1",
+                "Cookie" to "session=abc"
+            )
+        )
+        assertEquals(
+            mapOf(
+                "Referer" to "https://provider.example.com/",
+                "Cookie" to "session=abc"
+            ),
+            headers
+        )
     }
 
     @Test

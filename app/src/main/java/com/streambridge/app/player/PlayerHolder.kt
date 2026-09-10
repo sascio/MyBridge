@@ -2,6 +2,8 @@ package com.streambridge.app.player
 
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.C
@@ -112,7 +114,8 @@ class PlayerHolder(
             val buffering: Boolean,
             val ended: Boolean,
             val positionMs: Long,
-            val durationMs: Long
+            val durationMs: Long,
+            val switchingBackend: Boolean = false
         ) : PlaybackEvent
 
         data class Error(
@@ -183,6 +186,14 @@ class PlayerHolder(
     /** One libmpv attempt per stream — never repeatedly switch engines. */
     private var engineEscalationAttempted = false
     private var mpvFailed = false
+    /** Nuvio: probe MIME at most once per stream on source/container errors. */
+    private var mimeProbeAttempted = false
+    private var extensionPreferRetried = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val ioExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SBPlaybackIo").apply { isDaemon = true }
+    }
 
     /** The failure category that made us escalate (kept for reporting). */
     private var escalationReasonCategory: PlaybackFailureCategory? = null
@@ -286,6 +297,16 @@ class PlayerHolder(
         )
         Log.i(TAG, "Escalating playback engine: media3 -> libmpv ($reason) at ${resumeAtMs}ms")
         _activeEngine.value = PlaybackEngine.LIBMPV
+        onPlaybackEvent(
+            PlaybackEvent.StateChanged(
+                isPlaying = false,
+                buffering = true,
+                ended = false,
+                positionMs = resumeAtMs,
+                durationMs = runCatching { player.duration }.getOrDefault(0L).coerceAtLeast(0L),
+                switchingBackend = true
+            )
+        )
         runCatching { player.stop() }
             .onFailure { Log.w(TAG, "Stopping Media3 before engine switch failed", it) }
         runCatching { player.clearMediaItems() }
@@ -317,21 +338,29 @@ class PlayerHolder(
         }
     }
 
-    // A stream can legitimately be silent for long stretches (slow CDN,
-    // paused buffering of live edges); 30 s without a byte is a generous
-    // inactivity ceiling. Shares the app's pool/dispatcher via newBuilder().
+    // Nuvio playback client: 15s timeouts, IPv4-first DNS, redirects on.
     private val streamHttpClient = okHttpClient.newBuilder()
-        .readTimeout(30, TimeUnit.SECONDS)
+        .dns(Ipv4FirstDns())
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
         .build()
+
+    private val httpFactory: OkHttpDataSource.Factory =
+        OkHttpDataSource.Factory(streamHttpClient)
+            .setUserAgent(PlaybackUserAgent.DEFAULT)
 
     val player: ExoPlayer = buildPlayer(context.applicationContext)
 
+    private fun applySessionToHttpFactory(headers: Map<String, String>) {
+        httpFactory.setDefaultRequestProperties(PlaybackHttp.forDefaultRequestProperties(headers))
+        httpFactory.setUserAgent(PlaybackHttp.effectiveUserAgent(headers))
+    }
+
     private fun buildPlayer(appContext: Context): ExoPlayer {
-        // Playback requests identify as a browser by default (UA-checking
-        // CDNs otherwise answer 403); a provider-supplied User-Agent for
-        // the active source overrides this per request.
-        val httpFactory = OkHttpDataSource.Factory(streamHttpClient)
-            .setUserAgent(PlaybackUserAgent.DEFAULT)
 
         // Request-context resolution: every HTTP request of the active
         // playback carries that source's OWN headers — manifest, segments,
@@ -356,14 +385,12 @@ class PlayerHolder(
         // decoder instead of failing playback — the reference configuration.
         // Software-decoder extension renderers (ffmpeg/av1/…), when added to
         // the build, participate as fallback decoders automatically.
+        // Nuvio default decoderPriority = EXTENSION_RENDERER_MODE_ON
+        // (prefer device, extensions as fallback). Harmless when no
+        // ffmpeg/av1 AARs are on the classpath.
         val renderersFactory = DefaultRenderersFactory(appContext)
             .setEnableDecoderFallback(true)
-            .apply {
-                val extensions = SoftwareDecoderExtensions.present()
-                if (extensions.isNotEmpty()) {
-                    setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-                }
-            }
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 
         // Track selection reacts to renderer capability changes (needed for
         // the capability-aware audio recovery path), mirroring the reference.
@@ -432,6 +459,10 @@ class PlayerHolder(
                                 classification.decoderMimeType?.let { "decoderMime=$it" }
                             )
                         )
+                        // Nuvio: probe MIME and retry ExoPlayer before
+                        // abandoning the Media3 path for container/source
+                        // recognition failures.
+                        if (tryMimeProbeRetry(error, classification)) return
                         // Audio failures are handled IN PLACE when possible:
                         // another compatible audio track. An audio problem
                         // must never become a video failure.
@@ -508,15 +539,117 @@ class PlayerHolder(
 
     /** Resolves the headers for one HTTP request of the active playback. */
     private fun resolveRequestHeaders(dataSpec: DataSpec): DataSpec {
-        val headers = resolveRequestHeadersFor(
+        val session = resolveRequestHeadersFor(
             url = dataSpec.uri.toString(),
             sessionHeaders = sessionHeaders.toMap(),
             urlOverrides = headersByUrl.toMap()
         )
-        if (headers.isEmpty()) return dataSpec
+        val merged = PlaybackHttp.mergeRequestHeaders(session, dataSpec.httpRequestHeaders)
+        if (merged.isEmpty()) return dataSpec
         return dataSpec.buildUpon()
-            .setHttpRequestHeaders(headers + dataSpec.httpRequestHeaders)
+            .setHttpRequestHeaders(merged)
             .build()
+    }
+
+    /**
+     * Nuvio: on UnrecognizedInputFormat / IO_UNSPECIFIED, probe the real
+     * Content-Type and retry the same URL on Media3 instead of jumping
+     * to libmpv.
+     */
+    private fun tryMimeProbeRetry(
+        error: PlaybackException,
+        classification: PlaybackFailureClassifier.Result
+    ): Boolean {
+        val unrecognized = classification.category == PlaybackFailureCategory.CONTAINER_UNSUPPORTED
+        if (!Media3RecoveryPolicy.shouldProbeMimeAndRetry(
+                errorCode = error.errorCode,
+                unrecognizedContainer = unrecognized,
+                alreadyProbed = mimeProbeAttempted
+            )
+        ) {
+            return false
+        }
+        val url = activeUrl ?: return false
+        mimeProbeAttempted = true
+        val headers = activeHeaders
+        val resumeAtMs = runCatching { player.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
+        onPlaybackEvent(
+            PlaybackEvent.StateChanged(
+                isPlaying = false,
+                buffering = true,
+                ended = false,
+                positionMs = resumeAtMs,
+                durationMs = runCatching { player.duration }.getOrDefault(0L).coerceAtLeast(0L)
+            )
+        )
+        ioExecutor.execute {
+            val probed = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    StreamMimeProbe.probe(streamHttpClient, url, headers)
+                }
+            }.getOrNull()
+            mainHandler.post {
+                if (_activeEngine.value != PlaybackEngine.MEDIA3) return@post
+                if (probed != null && Media3RecoveryPolicy.shouldUseProbedMime(activeMimeType, probed)) {
+                    Log.i(TAG, "MIME probe retry container=$probed")
+                    diagnostics = diagnostics.copy(
+                        containerMime = probed,
+                        notes = diagnostics.notes + "mime-probe-retry=$probed"
+                    )
+                    activeMimeType = probed
+                    replayCurrentItem(probed, resumeAtMs)
+                } else {
+                    handleUnrecoverableMedia3Error(classification)
+                }
+            }
+        }
+        return true
+    }
+
+    private fun replayCurrentItem(mimeType: String, startPositionMs: Long) {
+        val url = activeUrl ?: return
+        try {
+            val mediaItem = MediaItem.Builder()
+                .setUri(Uri.parse(url))
+                .setMimeType(mimeType)
+                .build()
+            player.setMediaItem(mediaItem)
+            if (startPositionMs > 0L) player.seekTo(startPositionMs)
+            player.prepare()
+            player.play()
+            publish()
+        } catch (e: Exception) {
+            diagnostics = diagnostics.copy(
+                errorCategory = PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+                errorCause = causeChainOf(e)
+            )
+            handleUnrecoverableMedia3Error(
+                PlaybackFailureClassifier.Result(
+                    category = PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+                    message = PlayerErrorMessages.forException(e)
+                )
+            )
+        }
+    }
+
+    private fun handleUnrecoverableMedia3Error(classification: PlaybackFailureClassifier.Result) {
+        when (EngineEscalationPolicy.decide(escalationState(), audioNoPath = false)) {
+            EngineEscalationPolicy.Decision.ESCALATE_TO_LIBMPV -> {
+                escalateToLibMpv(classification.category)
+                return
+            }
+            else -> Unit
+        }
+        Log.w(TAG, diagnostics.toLogString())
+        onPlaybackEvent(
+            PlaybackEvent.Error(
+                message = classification.message,
+                category = classification.category,
+                httpStatus = classification.httpStatus,
+                decoderMimeType = classification.decoderMimeType,
+                diagnostics = diagnostics
+            )
+        )
     }
 
     private fun publish() {
@@ -587,6 +720,7 @@ class PlayerHolder(
                 headersByUrl.clear()
                 sessionHeaders.clear()
                 sessionHeaders.putAll(safeHeaders)
+                applySessionToHttpFactory(safeHeaders)
                 activeHeaders = safeHeaders
                 activeMimeType = mimeType
                 activeSourceName = sourceName
@@ -656,6 +790,8 @@ class PlayerHolder(
         audioFallbackAttempts = 0
         userSelectedAudio = false
         autoAudioOverrideKey = null
+        mimeProbeAttempted = false
+        extensionPreferRetried = false
         diagnostics = PlaybackDiagnostics(
             backendId = backendId,
             sourceName = sourceName,
@@ -765,14 +901,14 @@ class PlayerHolder(
 
     fun textTracks(): List<TrackOption> =
         if (_activeEngine.value == PlaybackEngine.LIBMPV) {
-            emptyList()
+            mpvEngine?.textTracks().orEmpty()
         } else {
             collectTracks(C.TRACK_TYPE_TEXT, "Subtitle")
         }
 
     fun audioTracks(): List<TrackOption> =
         if (_activeEngine.value == PlaybackEngine.LIBMPV) {
-            emptyList()
+            mpvEngine?.audioTracks().orEmpty()
         } else {
             collectTracks(C.TRACK_TYPE_AUDIO, "Audio")
         }
@@ -799,7 +935,10 @@ class PlayerHolder(
 
     /** Selects a text track, or disables text tracks entirely when null. */
     fun selectTextTrack(option: TrackOption?) {
-        if (_activeEngine.value == PlaybackEngine.LIBMPV) return
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.selectTextTrack(option)
+            return
+        }
         val builder = player.trackSelectionParameters.buildUpon()
         if (option == null) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -1037,7 +1176,10 @@ class PlayerHolder(
     }
 
     fun selectAudioTrack(option: TrackOption) {
-        if (_activeEngine.value == PlaybackEngine.LIBMPV) return
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.selectAudioTrack(option)
+            return
+        }
         val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
         userSelectedAudio = true
         player.trackSelectionParameters = player.trackSelectionParameters
@@ -1095,6 +1237,7 @@ class PlayerHolder(
         teardownMpvEngine()
         headersByUrl.clear()
         sessionHeaders.clear()
+        ioExecutor.shutdownNow()
         try {
             player.release()
         } catch (e: Exception) {

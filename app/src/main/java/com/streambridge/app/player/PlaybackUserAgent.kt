@@ -12,7 +12,12 @@ package com.streambridge.app.player
  * and catalog traffic keep the app identity.
  */
 internal object PlaybackUserAgent {
+    /**
+     * Nuvio `PlayerPlaybackNetworking.DEFAULT_USER_AGENT`. Playback
+     * requests identify as this browser when the source does not supply
+     * its own User-Agent.
+     */
     const val DEFAULT =
         "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 " +
-            "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 }

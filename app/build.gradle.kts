@@ -101,25 +101,18 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
 
     // Playback (Media3 / ExoPlayer)
-    implementation("androidx.media3:media3-exoplayer:1.5.1")
-    implementation("androidx.media3:media3-common:1.5.1")
-    implementation("androidx.media3:media3-ui:1.5.1")
-    // Imported directly for extractor configuration (TS flags, timestamp
-    // search depth); the version always matches the other media3 modules.
-    implementation("androidx.media3:media3-extractor:1.5.1")
-    // Container support. Without these modules Media3's
-    // DefaultMediaSourceFactory throws IllegalStateException (via
-    // ClassNotFoundException) synchronously out of setMediaItem() when it
-    // meets an .m3u8/.mpd/.ism/rtsp URL — which crashed the app on stream
-    // selection. All four are required for crash-free playback of every
-    // scheme Media3 knows.
-    implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
-    implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
-    implementation("androidx.media3:media3-exoplayer-smoothstreaming:1.5.1")
-    implementation("androidx.media3:media3-exoplayer-rtsp:1.5.1")
-    // Player HTTP traffic over the app's shared OkHttp stack: connection
-    // reuse, app user-agent, cross-protocol redirects, per-stream headers.
-    implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
+    // Media3 1.8.0 — same major line Nuvio's player builds against.
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-common:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
+    implementation("androidx.media3:media3-extractor:1.8.0")
+    implementation("androidx.media3:media3-container:1.8.0")
+    implementation("androidx.media3:media3-decoder:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-hls:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-dash:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-smoothstreaming:1.8.0")
+    implementation("androidx.media3:media3-exoplayer-rtsp:1.8.0")
+    implementation("androidx.media3:media3-datasource-okhttp:1.8.0")
 
     // libmpv fallback backend (the software-decoding tier): real libmpv +
     // FFmpeg (LGPL-3.0 build: --disable-gpl --enable-version3, with dav1d

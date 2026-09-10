@@ -21,7 +21,12 @@ object StreamHeaders {
      * Still bounded against header flooding.
      */
     private const val MAX_VALUE_LENGTH = 8192
-    private const val MAX_HEADERS = 12
+    /**
+     * Nuvio does not cap header count. 12 was dropping legitimate extra
+     * CDN headers (Accept, Origin, custom tokens). 32 is a flood cap
+     * only.
+     */
+    private const val MAX_HEADERS = 32
 
     fun sanitize(raw: Map<String, String>?): Map<String, String> {
         if (raw.isNullOrEmpty()) return emptyMap()
@@ -34,6 +39,10 @@ object StreamHeaders {
             if (cleanValue.isEmpty() || cleanValue.length > MAX_VALUE_LENGTH) continue
             // Reject any control characters, including CR/LF injection.
             if (cleanValue.any { it.code < 0x20 || it.code == 0x7F }) continue
+            // Nuvio never puts Range on the session-wide playback client:
+            // Media3/mpv issue Range per request. A leftover Range on
+            // every segment request breaks HLS/DASH.
+            if (cleanName.equals("Range", ignoreCase = true)) continue
             safe[cleanName] = cleanValue
         }
         return safe

@@ -7,7 +7,7 @@ whenever the device's decoders allow it.
 
 Method: Nuvio's player source (`NuvioMedia/NuvioMobile`, branch
 `cmp-rewrite`, `composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/`)
-was read directly; Media3 behavior was verified against the 1.5.1 sources
+was read directly; Media3 behavior was verified against the 1.8.0 sources
 StreamBridge builds with. Nothing below is guessed.
 
 ---
@@ -52,7 +52,21 @@ Facts read from the source:
   factory (manifest, segments, keys, redirects).
 - libmpv surface exposes `hardwareDecodingEnabled` — software decoding is
   a per-tier choice, not a global constant.
-- Nuvio builds against **media3 1.8.0**; StreamBridge against **1.5.1**.
+- Nuvio builds against **media3 1.8.0**; StreamBridge now matches **1.8.0**.
+- Nuvio vendors forked `lib-exoplayer` + `lib-decoder-ffmpeg/av1/mpegh` AARs
+  (GPL-3.0 app). StreamBridge is MIT and does **not** vendor those GPL AARs;
+  software decode of E-AC-3/DTS/TrueHD on devices without MediaCodec for
+  those formats is the libmpv fallback tier (LGPL FFmpeg), not a silent
+  Media3 mute.
+- Nuvio applies source headers as OkHttpDataSource **default request
+  properties** (Range stripped) and retries ExoPlayer once with a probed
+  MIME on UnrecognizedInputFormat / IO_UNSPECIFIED before falling back to
+  libmpv. StreamBridge now does the same.
+- Nuvio's audio/subtitle UI reads the **active** engine (ExoPlayer or
+  libmpv `track-list`). StreamBridge previously returned empty Media3
+  lists after an engine switch; it now maps libmpv tracks the same way.
+- A libmpv `end-file` before first frame is a **failure**, not a fake
+  EOF (the black-screen + Play-button state).
 
 ## 2. Compatibility matrix
 

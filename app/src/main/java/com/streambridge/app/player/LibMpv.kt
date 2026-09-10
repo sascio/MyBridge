@@ -273,6 +273,8 @@ class LibMpvEngine(
     @Volatile private var audioStarted = false
     @Volatile private var stage: String = STAGE_IDLE
     @Volatile private var fileLoaded = false
+    @Volatile private var audioTrackCache: List<TrackOption> = emptyList()
+    @Volatile private var subtitleTrackCache: List<TrackOption> = emptyList()
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {}
@@ -288,7 +290,13 @@ class LibMpvEngine(
                 "pause" -> paused = value
                 "paused-for-cache" -> pausedForCache = value
                 "seeking" -> seeking = value
-                "eof-reached" -> ended = value
+                "eof-reached" -> {
+                    if (value && (firstFrame || fileLoaded)) {
+                        ended = true
+                    } else if (!value) {
+                        ended = false
+                    }
+                }
                 "core-idle" -> coreIdle = value
                 "vo-configured" -> {
                     if (value && !firstFrame) {
@@ -320,7 +328,12 @@ class LibMpvEngine(
             }
         }
 
-        override fun eventProperty(property: String, value: MPVNode) {}
+        override fun eventProperty(property: String, value: MPVNode) {
+            if (property == "track-list") {
+                ingestTrackList(value)
+                publishState()
+            }
+        }
 
         override fun event(eventId: Int, data: MPVNode) {
             when (eventId) {
@@ -329,19 +342,25 @@ class LibMpvEngine(
                     coreIdle = false
                     markStage(STAGE_FILE_LOADED)
                     readMediaInfo()
+                    refreshTracksFromMpv()
                     markStage(STAGE_MEDIA_IDENTIFIED)
                     publishState()
                 }
                 MPVLib.MpvEvent.MPV_EVENT_END_FILE -> handleEndFile(data)
                 else -> {
-                    // Numeric mpv event ids (stable across binding versions):
-                    // 13 VIDEO_RECONFIG, 14 AUDIO_RECONFIG, 21 PLAYBACK_RESTART.
-                    if ((eventId == 13 || eventId == 21) && !firstFrame) {
+                    // Binding constants (mpv client.h): VIDEO_RECONFIG=17,
+                    // AUDIO_RECONFIG=18, PLAYBACK_RESTART=21. Older numeric
+                    // ids 13/14 were UNPAUSE/TICK and produced a fake
+                    // first-frame on black.
+                    if ((eventId == MPVLib.MpvEvent.MPV_EVENT_VIDEO_RECONFIG ||
+                            eventId == MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART) &&
+                        !firstFrame
+                    ) {
                         firstFrame = true
                         markStage(STAGE_FIRST_FRAME)
                         publishState()
                     }
-                    if (eventId == 14 && !audioStarted) {
+                    if (eventId == MPVLib.MpvEvent.MPV_EVENT_AUDIO_RECONFIG && !audioStarted) {
                         audioStarted = true
                         markStage(STAGE_AUDIO_STARTED)
                         publishState()
@@ -374,6 +393,8 @@ class LibMpvEngine(
         firstFrame = false
         audioStarted = false
         fileLoaded = false
+        audioTrackCache = emptyList()
+        subtitleTrackCache = emptyList()
         gate.setPending(MpvPendingLoad(url, headers, startPositionMs))
         markStage(STAGE_LOADING)
         onDispatcher {
@@ -588,6 +609,7 @@ class LibMpvEngine(
         MPVLib.setOptionString("demuxer-max-back-bytes", DEMUXER_CACHE_BYTES.toString())
         MPVLib.setOptionString("keep-open", "yes")
         MPVLib.setOptionString("audio-fallback-to-null", "yes")
+        runCatching { MPVLib.setOptionString("profile", "fast") }
         // Best-effort Android extras. Unknown options must not fail init.
         runCatching { MPVLib.setOptionString("gpu-context", "android") }
         runCatching { MPVLib.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1") }
@@ -705,20 +727,77 @@ class LibMpvEngine(
     private fun handleEndFile(data: MPVNode) {
         val map = runCatching { data.asMap() }.getOrNull()
         val reason = map?.get("reason")?.asInt()
-        if (reason == MPV_END_FILE_REASON_ERROR) {
-            val rawError = map["error"]?.asString()
-            // Never let an error string carry a URL into diagnostics.
-            val safeError = rawError
-                ?.take(120)
-                ?.substringBefore("://")
-                ?.takeIf { it.isNotBlank() }
-                ?: "end-file"
-            publishNativeError(classification = "END_FILE_ERROR", detail = safeError)
-        } else if (reason == MPV_END_FILE_REASON_EOF || reason == null) {
-            ended = true
-            publishState()
+        when (MpvEndFilePolicy.decide(reason, firstFrame = firstFrame, fileLoaded = fileLoaded)) {
+            MpvEndFilePolicy.Decision.FAILED -> {
+                val rawError = map?.get("error")?.asString()
+                val safeError = rawError
+                    ?.take(120)
+                    ?.substringBefore("://")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "end-file-before-playback"
+                publishNativeError(classification = "END_FILE_ERROR", detail = safeError)
+            }
+            MpvEndFilePolicy.Decision.ENDED -> {
+                ended = true
+                publishState()
+            }
+            MpvEndFilePolicy.Decision.IGNORE -> Unit
         }
     }
+
+    fun audioTracks(): List<TrackOption> = audioTrackCache
+    fun textTracks(): List<TrackOption> = subtitleTrackCache
+
+    fun selectAudioTrack(option: TrackOption) {
+        onDispatcher { MPVLib.setPropertyInt("aid", option.trackIndex) }
+    }
+
+    fun selectTextTrack(option: TrackOption?) {
+        onDispatcher {
+            if (option == null) {
+                MPVLib.setPropertyString("sid", "no")
+            } else {
+                MPVLib.setPropertyInt("sid", option.trackIndex)
+            }
+        }
+    }
+
+    private fun ingestTrackList(node: MPVNode) {
+        val parsed = parseTrackNodes(node)
+        audioTrackCache = MpvTrackInventory.audioOptions(parsed)
+        subtitleTrackCache = MpvTrackInventory.subtitleOptions(parsed)
+        val audioSummaries = MpvTrackInventory.summaries(parsed, "audio")
+        if (audioSummaries.isNotEmpty()) {
+            onMediaInfo(
+                LibMpvMediaInfo(
+                    audioTracks = audioSummaries,
+                    audioCodec = parsed.firstOrNull { it.type == "audio" && it.selected }?.codec,
+                    videoCodec = parsed.firstOrNull { it.type == "video" && it.selected }?.codec
+                )
+            )
+        }
+    }
+
+    private fun refreshTracksFromMpv() {
+        val node = runCatching { MPVLib.getPropertyNode("track-list") }.getOrNull() ?: return
+        ingestTrackList(node)
+    }
+
+    private fun parseTrackNodes(node: MPVNode): List<MpvTrackNode> =
+        runCatching {
+            node.asArray()?.mapNotNull { child ->
+                val map = child.asMap() ?: return@mapNotNull null
+                MpvTrackNode(
+                    type = map["type"]?.asString(),
+                    id = map["id"]?.asInt()?.toInt(),
+                    title = map["title"]?.asString(),
+                    language = map["lang"]?.asString(),
+                    codec = map["codec"]?.asString(),
+                    selected = map["selected"]?.asBoolean() == true,
+                    forced = map["forced"]?.asBoolean() == true
+                )
+            } ?: emptyList()
+        }.getOrDefault(emptyList())
 
     private fun publishState() {
         if (firstFrame && !paused && !ended && stage != STAGE_PLAYING) {
@@ -799,7 +878,8 @@ class LibMpvEngine(
             "cache-buffering-state" to MPVLib.MpvFormat.MPV_FORMAT_INT64,
             "duration" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,
             "time-pos" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,
-            "demuxer-cache-time" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE
+            "demuxer-cache-time" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,
+            "track-list" to MPVLib.MpvFormat.MPV_FORMAT_NODE
         )
     }
 }

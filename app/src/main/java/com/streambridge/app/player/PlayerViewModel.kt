@@ -61,9 +61,21 @@ data class PlaybackUiState(
     val buffering: Boolean = true,
     val ended: Boolean = false,
     val positionMs: Long = 0,
-    val durationMs: Long = 0
+    val durationMs: Long = 0,
+    val switchingBackend: Boolean = false,
+    val error: Boolean = false
 ) {
     val progress: Float get() = TimeFormat.progressFraction(positionMs, durationMs)
+    val runtimePhase: PlaybackRuntimePhase
+        get() = PlaybackRuntime.phase(
+            isPlaying = isPlaying,
+            buffering = buffering,
+            ended = ended,
+            switchingBackend = switchingBackend,
+            error = error
+        )
+    val showLoading: Boolean
+        get() = PlaybackRuntime.showLoadingSpinner(runtimePhase)
 }
 
 sealed interface PlayerEvent {
@@ -169,7 +181,8 @@ class PlayerViewModel(
                 buffering = event.buffering,
                 ended = event.ended,
                 positionMs = event.positionMs,
-                durationMs = event.durationMs
+                durationMs = event.durationMs,
+                switchingBackend = event.switchingBackend
             )
 
             is PlayerHolder.PlaybackEvent.Info -> {
@@ -182,6 +195,12 @@ class PlayerViewModel(
 
             is PlayerHolder.PlaybackEvent.Error -> {
                 _lastDiagnostics.value = event.diagnostics
+                _playback.value = _playback.value.copy(
+                    isPlaying = false,
+                    buffering = false,
+                    switchingBackend = false,
+                    error = true
+                )
                 handlePlaybackFailure(event)
             }
         }
@@ -483,7 +502,11 @@ class PlayerViewModel(
         when (val phaseValue = _phase.value) {
             is PlayerPhase.Playing -> {
                 holder.retry()
-                _playback.value = _playback.value.copy(buffering = false)
+                _playback.value = _playback.value.copy(
+                    buffering = true,
+                    switchingBackend = false,
+                    error = false
+                )
             }
 
             is PlayerPhase.Error -> {
