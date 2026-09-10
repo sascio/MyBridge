@@ -86,7 +86,6 @@ object PlaybackFailureClassifier {
                 c as? androidx.media3.exoplayer.mediacodec.MediaCodecRenderer.DecoderInitializationException
             if (decoderInit != null && decoderMime == null) {
                 decoderMime = decoderInit.mimeType
-                    ?: decoderInit.format?.sampleMimeType
             }
             // "None of the available extractors could read the stream" —
             // the classic extension-less manifest routed to progressive.

@@ -1,5 +1,6 @@
 package com.streambridge.app.player
 
+import com.streambridge.app.addon.StreamMimeTypes
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
