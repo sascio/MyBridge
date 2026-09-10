@@ -41,6 +41,46 @@ class NuvioStreamMappingTest {
     )
 
     @Test
+    fun `cookies origin and referer survive into the playback request`() {
+        val option = NuvioRawStream(
+            name = "VixSrc",
+            title = "1080p",
+            url = "https://cdn.example.com/video.mp4?token=abc",
+            quality = "1080p",
+            format = "mp4",
+            headers = mapOf(
+                "Referer" to "https://provider.example.com/watch/123",
+                "Origin" to "https://provider.example.com",
+                "Cookie" to "session=abc; cf_clearance=xyz",
+                "User-Agent" to "Mozilla/5.0 (Linux; Android 13) ProviderUA"
+            )
+        ).toStreamOption(provider, repo)!!
+
+        // The full legitimate request context of THIS source is kept
+        // — it is what the playback requests will carry.
+        assertEquals("https://provider.example.com/watch/123", option.headers["Referer"])
+        assertEquals("https://provider.example.com", option.headers["Origin"])
+        assertEquals("session=abc; cf_clearance=xyz", option.headers["Cookie"])
+        assertEquals("Mozilla/5.0 (Linux; Android 13) ProviderUA", option.headers["User-Agent"])
+    }
+
+    @Test
+    fun `provider format becomes an honest mime hint`() {
+        val hls = NuvioRawStream("n", "t", "https://cdn.example.com/d/abc", "", "m3u8", emptyMap())
+            .toStreamOption(provider, repo)!!
+        assertEquals("application/x-mpegurl", hls.mimeType)
+
+        val mp4 = NuvioRawStream("n", "t", "https://cdn.example.com/v", "", "mp4", emptyMap())
+            .toStreamOption(provider, repo)!!
+        assertEquals("video/mp4", mp4.mimeType)
+
+        // Unknown formats stay honestly empty — never guessed.
+        val exotic = NuvioRawStream("n", "t", "https://cdn.example.com/v", "", "bin", emptyMap())
+            .toStreamOption(provider, repo)!!
+        assertEquals("", exotic.mimeType)
+    }
+
+    @Test
     fun `a full stream object maps with headers and quality`() {
         val option = NuvioRawStream(
             name = "VixSrc",

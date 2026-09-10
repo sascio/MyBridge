@@ -25,4 +25,20 @@ object PlaybackCache {
 
     @Volatile
     var preselectedStream: StreamOption? = null
+
+    /**
+     * The OTHER playable streams of the same source-selection session,
+     * in the order they were shown. Handed to the player together with
+     * the preselected stream so a failed source can fall back to the
+     * next one (bounded — each source at most once) instead of dead-
+     * ending the user.
+     */
+    @Volatile
+    var alternateStreams: List<StreamOption> = emptyList()
+
+    /** Clears the stream handoff (after the player consumed it). */
+    fun clearStreamHandoff() {
+        preselectedStream = null
+        alternateStreams = emptyList()
+    }
 }

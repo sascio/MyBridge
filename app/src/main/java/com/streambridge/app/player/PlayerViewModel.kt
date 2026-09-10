@@ -74,7 +74,7 @@ sealed interface PlayerEvent {
 class PlayerViewModel(
     savedStateHandle: SavedStateHandle,
     context: Context,
-    okHttpClient: okhttp3.OkHttpClient,
+    private val okHttpClient: okhttp3.OkHttpClient,
     private val streamResolver: StreamResolver,
     private val subtitleResolver: SubtitleResolver,
     private val libraryRepository: LibraryRepository,
@@ -153,7 +153,7 @@ class PlayerViewModel(
             )
 
             is PlayerHolder.PlaybackEvent.Error -> {
-                _phase.value = PlayerPhase.Error(event.message)
+                handlePlaybackFailure(event)
             }
         }
     }
@@ -163,20 +163,87 @@ class PlayerViewModel(
     private var currentStreams: List<StreamOption> = emptyList()
     private var autoplayNext: Boolean = true
 
+    /**
+     * Bounded source fallback (one attempt per source, per session):
+     * when the active source fails terminally, the next never-tried
+     * alternate from the same source-selection session is tried once.
+     * The server is never hammered and the user always keeps control.
+     */
+    private val fallbackStreams = mutableListOf<StreamOption>()
+    private val attemptedStreamIds = HashSet<String>()
+    private var audioDegradationAttempted = false
+
     init {
         restoreQueue()
         viewModelScope.launch {
             autoplayNext = settingsRepository.state.first().autoplayNext
         }
-        // Start immediately with the stream chosen on the detail screen
+        // Start immediately with the stream chosen on the source screen
         // (avoids a second identical addon fan-out); otherwise resolve.
         val preselected = PlaybackCache.preselectedStream
-        PlaybackCache.preselectedStream = null
+        val alternates = PlaybackCache.alternateStreams
+        PlaybackCache.clearStreamHandoff()
         if (preselected != null && preselected.isPlayable) {
-            currentStreams = listOf(preselected)
+            // The session's other playable streams back up the picker
+            // and the bounded failure fallback.
+            currentStreams = (listOf(preselected) + alternates).distinctBy { it.id }
+            fallbackStreams.addAll(alternates.filter { it.isPlayable })
+            attemptedStreamIds.add(preselected.id)
             selectStream(preselected)
         } else {
             resolveStreams(autoStart = true)
+        }
+    }
+
+    /** Failure categories that mean THIS source cannot work — worth trying another. */
+    private val sourceFatalCategories = setOf(
+        PlaybackFailureCategory.HTTP_403,
+        PlaybackFailureCategory.HTTP_OTHER,
+        PlaybackFailureCategory.SOURCE_EXPIRED,
+        PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+        PlaybackFailureCategory.VIDEO_DECODER_UNSUPPORTED,
+        PlaybackFailureCategory.AUDIO_DECODER_UNSUPPORTED,
+        PlaybackFailureCategory.CODEC_CONFIGURATION_FAILED,
+        PlaybackFailureCategory.MALFORMED_MEDIA
+    )
+
+    /**
+     * Handles a classified playback failure. Order of recourse:
+     *  1. undecodable AUDIO: degrade gracefully (other audio track or
+     *     muted video) and keep the source — video is the point.
+     *  2. source-fatal failure: automatically try the next untried
+     *     alternate from the session, once per source.
+     *  3. otherwise (or when nothing is left): surface the clean error.
+     */
+    private fun handlePlaybackFailure(event: PlayerHolder.PlaybackEvent.Error) {
+        val active = activeStream
+        if (event.category == PlaybackFailureCategory.AUDIO_DECODER_UNSUPPORTED &&
+            !audioDegradationAttempted
+        ) {
+            audioDegradationAttempted = true
+            val note = holder.degradeAudioAfterDecoderFailure(event.decoderMimeType)
+            holder.retry()
+            if (note != null) {
+                _events.tryEmit(PlayerEvent.Message(note))
+            }
+            _phase.value = PlayerPhase.Playing(active ?: return)
+            return
+        }
+        val nextAlternate = if (event.category in sourceFatalCategories) {
+            PlaybackPlanning.nextAlternate(attemptedStreamIds, fallbackStreams)
+                ?.also { alternate -> attemptedStreamIds.add(alternate.id) }
+        } else {
+            null
+        }
+        if (nextAlternate != null) {
+            _events.tryEmit(
+                PlayerEvent.Message(
+                    "This source failed — trying ${nextAlternate.addonName}…"
+                )
+            )
+            startPlayback(nextAlternate)
+        } else {
+            _phase.value = PlayerPhase.Error(event.message)
         }
     }
 
@@ -195,6 +262,8 @@ class PlayerViewModel(
                 return@launch
             }
             currentStreams = streams
+            fallbackStreams.clear()
+            fallbackStreams.addAll(streams.filter { it.isPlayable })
             val playable = streams.filter { it.isPlayable }
 
             when {
@@ -271,6 +340,7 @@ class PlayerViewModel(
 
     private fun startPlayback(option: StreamOption) {
         val url = option.url ?: return
+        attemptedStreamIds.add(option.id)
         activeStream = option
         _sourceLabel.value = option.addonName
         _phase.value = PlayerPhase.Playing(option)
@@ -285,11 +355,18 @@ class PlayerViewModel(
                 else -> saved.positionMs
             }
             _playbackSpeed.value = settings.defaultPlaybackSpeed
+            // Resolve the full request context (this source's own
+            // headers) and the container MIME (provider hint → URL →
+            // server Content-Type) BEFORE the player sees the stream.
+            val preparation = PlaybackPlanning.planPlayback(option) { probeUrl, probeHeaders ->
+                StreamMimeProbe.probe(okHttpClient, probeUrl, probeHeaders)
+            }
             holder.play(
                 url = url,
                 startPositionMs = resumePosition,
                 speed = settings.defaultPlaybackSpeed,
-                headers = option.headers
+                headers = preparation.headers,
+                mimeType = preparation.mimeType
             )
             startProgressTicker()
             loadExternalSubtitles()

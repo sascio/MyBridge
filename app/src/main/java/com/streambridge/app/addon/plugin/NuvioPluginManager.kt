@@ -464,6 +464,9 @@ fun NuvioRawStream.toStreamOption(
         isExternal = false,
         bingeGroup = "nuvio:${provider.id}",
         classification = StreamClassification.DIRECT,
-        headers = StreamHeaders.sanitize(headers)
+        headers = StreamHeaders.sanitize(headers),
+        // The provider's declared format is real metadata it supplied —
+        // map only clean known values, never a guess.
+        mimeType = StreamMimeTypes.fromProviderHint(format) ?: ""
     )
 }

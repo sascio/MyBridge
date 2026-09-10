@@ -103,7 +103,13 @@ data class StreamOption(
     val sizeBytes: Long = 0L,
     val seeders: Int = 0,
     /** HTTP headers the addon says this stream needs (already sanitized). */
-    val headers: Map<String, String> = emptyMap()
+    val headers: Map<String, String> = emptyMap(),
+    /**
+     * Container/manifest MIME hint when the provider actually supplied
+     * one (e.g. a Nuvio stream's "format"). Only real, known values —
+     * never inferred or invented here; empty means unknown.
+     */
+    val mimeType: String = ""
 ) {
     val isPlayable: Boolean get() = url != null
     val shortLabel: String get() = if (label.isBlank()) addonName else label

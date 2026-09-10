@@ -131,11 +131,19 @@ class SourceSelectionViewModel(
         _state.update { current -> current.withSelectedTab(tabId) }
     }
 
-    /** Hands the chosen stream to the existing player, without re-resolving. */
+    /**
+     * Hands the chosen stream to the existing player, without
+     * re-resolving. The session's OTHER playable streams travel along
+     * as bounded fallbacks: if this source fails in the player, the
+     * next one is tried once — without ever leaving the session.
+     */
     fun play(stream: StreamOption) {
         when {
             stream.isPlayable -> {
                 PlaybackCache.preselectedStream = stream
+                PlaybackCache.alternateStreams = state.value.groups
+                    .flatMap { group -> group.streams }
+                    .filter { it.isPlayable && it.id != stream.id }
                 _pendingRequest.value = request
             }
             stream.isTorrent -> _events.tryEmit(

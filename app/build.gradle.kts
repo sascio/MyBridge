@@ -104,6 +104,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-common:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+    // Imported directly for extractor configuration (TS flags, timestamp
+    // search depth); the version always matches the other media3 modules.
+    implementation("androidx.media3:media3-extractor:1.5.1")
     // Container support. Without these modules Media3's
     // DefaultMediaSourceFactory throws IllegalStateException (via
     // ClassNotFoundException) synchronously out of setMediaItem() when it
