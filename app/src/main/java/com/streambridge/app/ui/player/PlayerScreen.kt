@@ -196,7 +196,7 @@ fun PlayerScreen(
         val activeEngine by vm.holder.activeEngine.collectAsStateWithLifecycle()
         if (phase is PlayerPhase.Playing || phase is PlayerPhase.Picking) {
             if (activeEngine == PlayerHolder.PlaybackEngine.LIBMPV) {
-                LibMpvVideoSurface(holder = vm.holder, modifier = Modifier.fillMaxSize())
+                LibMpvVideoSurface(playerHolder = vm.holder, modifier = Modifier.fillMaxSize())
             } else {
                 AndroidView(
                     factory = { ctx ->
