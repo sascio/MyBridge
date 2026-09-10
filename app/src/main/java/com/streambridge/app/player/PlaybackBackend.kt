@@ -52,7 +52,7 @@ class Media3PlaybackBackend(private val registry: DecoderRegistry) : PlaybackBac
         private val PROGRESSIVE_CONTAINER_MIMES = setOf(
             MimeTypes.APPLICATION_MP4,
             MimeTypes.VIDEO_MP4,
-            MimeTypes.VIDEO_MP2TS,
+            MimeTypes.VIDEO_MP2T,
             MimeTypes.APPLICATION_MATROSKA,
             MimeTypes.VIDEO_MATROSKA,
             MimeTypes.VIDEO_WEBM,

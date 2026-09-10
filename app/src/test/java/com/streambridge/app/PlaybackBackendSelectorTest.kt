@@ -65,7 +65,7 @@ class PlaybackBackendSelectorTest {
         listOf(
             MimeTypes.APPLICATION_MP4,
             MimeTypes.VIDEO_MP4,
-            MimeTypes.VIDEO_MP2TS,
+            MimeTypes.VIDEO_MP2T,
             MimeTypes.APPLICATION_MATROSKA,
             MimeTypes.VIDEO_WEBM,
             MimeTypes.AUDIO_MPEG,
