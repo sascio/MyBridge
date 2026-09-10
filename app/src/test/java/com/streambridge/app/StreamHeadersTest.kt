@@ -49,7 +49,14 @@ class StreamHeadersTest {
 
     @Test
     fun `oversized values are rejected`() {
-        assertTrue(StreamHeaders.sanitize(mapOf("X-Long" to "a".repeat(600))).isEmpty())
+        assertTrue(StreamHeaders.sanitize(mapOf("X-Long" to "a".repeat(9000))).isEmpty())
+    }
+
+    @Test
+    fun `real-world cookie lengths survive`() {
+        val cookie = "session=" + "x".repeat(600)
+        val headers = StreamHeaders.sanitize(mapOf("Cookie" to cookie))
+        assertEquals(cookie, headers["Cookie"])
     }
 
     @Test

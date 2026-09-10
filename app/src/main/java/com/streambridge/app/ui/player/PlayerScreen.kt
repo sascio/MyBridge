@@ -1334,10 +1334,21 @@ private fun LibMpvVideoSurface(playerHolder: PlayerHolder, modifier: Modifier = 
         factory = { ctx ->
             android.view.SurfaceView(ctx).apply {
                 keepScreenOn = true
+                val constructedAt = android.os.SystemClock.elapsedRealtime()
                 var attached = false
+                android.util.Log.i(
+                    "SBLibmpv",
+                    "SurfaceView constructed thread=${Thread.currentThread().name}"
+                )
                 // `holder` here is the SurfaceView's own SurfaceHolder.
                 holder.addCallback(object : android.view.SurfaceHolder.Callback {
                     override fun surfaceCreated(h: android.view.SurfaceHolder) {
+                        val elapsed = android.os.SystemClock.elapsedRealtime() - constructedAt
+                        android.util.Log.i(
+                            "SBLibmpv",
+                            "surfaceCreated elapsedMs=$elapsed thread=${Thread.currentThread().name} valid=${h.surface.isValid}"
+                        )
+                        if (!h.surface.isValid) return
                         playerHolder.attachMpvSurface(h.surface)
                         attached = true
                     }
@@ -1348,10 +1359,20 @@ private fun LibMpvVideoSurface(playerHolder: PlayerHolder, modifier: Modifier = 
                         width: Int,
                         height: Int
                     ) {
+                        val elapsed = android.os.SystemClock.elapsedRealtime() - constructedAt
+                        android.util.Log.i(
+                            "SBLibmpv",
+                            "surfaceChanged ${width}x$height elapsedMs=$elapsed thread=${Thread.currentThread().name}"
+                        )
                         playerHolder.updateMpvSurfaceSize(width, height)
                     }
 
                     override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
+                        val elapsed = android.os.SystemClock.elapsedRealtime() - constructedAt
+                        android.util.Log.i(
+                            "SBLibmpv",
+                            "surfaceDestroyed elapsedMs=$elapsed thread=${Thread.currentThread().name} attached=$attached"
+                        )
                         if (attached) {
                             playerHolder.detachMpvSurface()
                             attached = false

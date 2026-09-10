@@ -111,6 +111,22 @@ class PlaybackDiagnosticsTest {
     }
 
     @Test
+    fun `mpv stage is logged without carrying a url`() {
+        val diagnostics = PlaybackDiagnostics(
+            backendId = "libmpv",
+            streamHost = "cdn.example.com",
+            mpvStage = "SURFACE_WAIT_TIMEOUT",
+            errorCause = "SURFACE_WAIT_TIMEOUT: no Surface arrived",
+            notes = listOf("lastSuccessfulStage=WAITING_FOR_SURFACE")
+        )
+        val log = diagnostics.toLogString()
+        assertTrue(log.contains("mpvStage=SURFACE_WAIT_TIMEOUT"))
+        assertTrue(log.contains("WAITING_FOR_SURFACE"))
+        assertFalse(log.contains("http"))
+        assertFalse(log.contains("token"))
+    }
+
+    @Test
     fun `copy preserves unmodified fields across updates`() {
         val base = PlaybackDiagnostics(
             backendId = "media3",

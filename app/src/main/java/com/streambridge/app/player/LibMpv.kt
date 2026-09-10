@@ -7,8 +7,10 @@ import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.MPVNode
 import `is`.xyz.mpv.Utils
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -32,6 +34,15 @@ object MpvRequestOptions {
             ?.value?.takeIf { it.isNotBlank() }
 
     /**
+     * User-Agent actually sent to libmpv. Media3 always identifies as a
+     * browser ([PlaybackUserAgent.DEFAULT]) when the source does not
+     * supply one; libmpv must do the same. mpv's built-in UA is
+     * typically "libmpv"/"mpv", which CDNs that accept Media3 then 403.
+     */
+    fun effectiveUserAgent(headers: Map<String, String>): String =
+        userAgentFrom(headers) ?: PlaybackUserAgent.DEFAULT
+
+    /**
      * All headers except User-Agent, serialized for mpv's
      * `http-header-fields` list option. Commas are escaped because mpv
      * separates list items with commas (cookies contain commas).
@@ -53,6 +64,99 @@ object MpvRequestOptions {
         } else {
             null
         }
+
+    /**
+     * argv for `loadfile`. Position 0 uses the 3-arg form. A resume
+     * offset is passed as a per-file option (4th argv), matching the
+     * existing binding call shape.
+     */
+    fun loadfileArgs(url: String, startPositionMs: Long): List<String> {
+        val start = startPositionOption(startPositionMs)
+        return if (start != null) {
+            listOf("loadfile", url, "replace", start)
+        } else {
+            listOf("loadfile", url, "replace")
+        }
+    }
+}
+
+/**
+ * Pure gate that decides WHEN libmpv may invoke loadfile.
+ *
+ * Nuvio / mpv-android [BaseMPVView] contract:
+ *   playFile() only stashes the path
+ *   surfaceCreated → attachSurface → THEN loadfile
+ *
+ * StreamBridge 1a2d077 called loadfile from start() as soon as MPV
+ * was created, while the Compose SurfaceView only appeared after the
+ * engine switch. That is the first proven Media3→libmpv divergence.
+ *
+ * loadfile is allowed only when the native player exists AND a valid
+ * Surface has been attached. Unit-testable without JNI.
+ */
+internal enum class MpvLoadGateState {
+    IDLE,
+    WAITING_FOR_ENGINE,
+    WAITING_FOR_SURFACE,
+    READY_TO_LOAD,
+    LOADED
+}
+
+internal data class MpvPendingLoad(
+    val url: String,
+    val headers: Map<String, String>,
+    val startPositionMs: Long
+)
+
+internal class MpvLoadGate {
+    var engineCreated: Boolean = false
+        private set
+    var surfaceAttached: Boolean = false
+        private set
+    var pending: MpvPendingLoad? = null
+        private set
+
+    fun onEngineCreated() {
+        engineCreated = true
+    }
+
+    fun onEngineDestroyed() {
+        engineCreated = false
+        surfaceAttached = false
+        pending = null
+    }
+
+    fun onSurfaceAttached() {
+        surfaceAttached = true
+    }
+
+    fun onSurfaceDetached() {
+        surfaceAttached = false
+    }
+
+    fun setPending(load: MpvPendingLoad) {
+        pending = load
+    }
+
+    /** Returns the pending load and clears it iff both engine and surface are ready. */
+    fun consumeIfReady(): MpvPendingLoad? {
+        val load = pending ?: return null
+        if (!engineCreated || !surfaceAttached) return null
+        pending = null
+        return load
+    }
+
+    val state: MpvLoadGateState
+        get() = when {
+            pending != null && !engineCreated -> MpvLoadGateState.WAITING_FOR_ENGINE
+            pending != null && engineCreated && !surfaceAttached -> MpvLoadGateState.WAITING_FOR_SURFACE
+            pending != null && engineCreated && surfaceAttached -> MpvLoadGateState.READY_TO_LOAD
+            pending == null && engineCreated && surfaceAttached -> MpvLoadGateState.LOADED
+            else -> MpvLoadGateState.IDLE
+        }
+
+    val canLoadfile: Boolean
+        get() = engineCreated && surfaceAttached && pending != null
 }
 
 /**
@@ -132,12 +236,15 @@ data class LibMpvMediaInfo(
  *    publish events — they never call back into mpv;
  *  - every native call is guarded so a dead player degrades to a
  *    clean error event, never a native crash;
- *  - release() is idempotent and joins the dispatcher after destroy.
+ *  - release() is idempotent and joins the dispatcher after destroy;
+ *  - loadfile is SURFACE-GATED (see [MpvLoadGate]): never issued
+ *    before a valid Android Surface is attached.
  */
 class LibMpvEngine(
     private val appContext: Context,
     private val onEvent: (PlayerHolder.PlaybackEvent) -> Unit,
-    private val onMediaInfo: (LibMpvMediaInfo) -> Unit = {}
+    private val onMediaInfo: (LibMpvMediaInfo) -> Unit = {},
+    private val onStage: (String) -> Unit = {}
 ) {
 
     private val mpvDispatcher = Executors.newSingleThreadExecutor { runnable ->
@@ -147,6 +254,11 @@ class LibMpvEngine(
     private val released = AtomicBoolean(false)
     private var created = false
     private var currentUrl: String? = null
+    private var lastHeaders: Map<String, String> = emptyMap()
+
+    private val gate = MpvLoadGate()
+    @Volatile private var pendingSurface: Surface? = null
+    private var surfaceWaitJob: Job? = null
 
     // Observed state (written from the mpv event thread only).
     @Volatile private var paused = true
@@ -157,6 +269,10 @@ class LibMpvEngine(
     @Volatile private var cacheBufferingState: Int? = null
     @Volatile private var positionMs = 0L
     @Volatile private var durationMs = 0L
+    @Volatile private var firstFrame = false
+    @Volatile private var audioStarted = false
+    @Volatile private var stage: String = STAGE_IDLE
+    @Volatile private var fileLoaded = false
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {}
@@ -174,6 +290,12 @@ class LibMpvEngine(
                 "seeking" -> seeking = value
                 "eof-reached" -> ended = value
                 "core-idle" -> coreIdle = value
+                "vo-configured" -> {
+                    if (value && !firstFrame) {
+                        firstFrame = true
+                        markStage(STAGE_FIRST_FRAME)
+                    }
+                }
                 else -> return
             }
             publishState()
@@ -186,18 +308,45 @@ class LibMpvEngine(
             }
         }
 
-        override fun eventProperty(property: String, value: String) {}
+        override fun eventProperty(property: String, value: String) {
+            when (property) {
+                "audio-codec-name" -> {
+                    if (value.isNotBlank() && !audioStarted) {
+                        audioStarted = true
+                        markStage(STAGE_AUDIO_STARTED)
+                        publishState()
+                    }
+                }
+            }
+        }
 
         override fun eventProperty(property: String, value: MPVNode) {}
 
         override fun event(eventId: Int, data: MPVNode) {
             when (eventId) {
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
+                    fileLoaded = true
                     coreIdle = false
+                    markStage(STAGE_FILE_LOADED)
                     readMediaInfo()
+                    markStage(STAGE_MEDIA_IDENTIFIED)
                     publishState()
                 }
                 MPVLib.MpvEvent.MPV_EVENT_END_FILE -> handleEndFile(data)
+                else -> {
+                    // Numeric mpv event ids (stable across binding versions):
+                    // 13 VIDEO_RECONFIG, 14 AUDIO_RECONFIG, 21 PLAYBACK_RESTART.
+                    if ((eventId == 13 || eventId == 21) && !firstFrame) {
+                        firstFrame = true
+                        markStage(STAGE_FIRST_FRAME)
+                        publishState()
+                    }
+                    if (eventId == 14 && !audioStarted) {
+                        audioStarted = true
+                        markStage(STAGE_AUDIO_STARTED)
+                        publishState()
+                    }
+                }
             }
         }
     }
@@ -211,24 +360,26 @@ class LibMpvEngine(
      * Starts (or restarts) playback of [url] with the source's own
      * headers, optionally resuming at [startPositionMs]. Asynchronous:
      * failures surface as Error events through [onEvent].
+     *
+     * Does NOT call loadfile until a valid Surface is attached.
      */
     fun start(url: String, headers: Map<String, String>, startPositionMs: Long) {
         currentUrl = url
+        lastHeaders = headers
         positionMs = startPositionMs.coerceAtLeast(0L)
         durationMs = 0L
         ended = false
         paused = false
         coreIdle = true
+        firstFrame = false
+        audioStarted = false
+        fileLoaded = false
+        gate.setPending(MpvPendingLoad(url, headers, startPositionMs))
+        markStage(STAGE_LOADING)
         onDispatcher {
             if (!ensureCreated()) return@onDispatcher
-            applyRequestHeaders(headers)
-            MPVLib.setPropertyString("aid", "auto")
-            val start = MpvRequestOptions.startPositionOption(startPositionMs)
-            if (start != null) {
-                MPVLib.command("loadfile", url, "replace", start)
-            } else {
-                MPVLib.command("loadfile", url, "replace")
-            }
+            tryLoadIfReady()
+            scheduleSurfaceWait()
             publishState()
         }
     }
@@ -237,14 +388,14 @@ class LibMpvEngine(
     fun reload() {
         val url = currentUrl ?: return
         val resumeMs = positionMs
+        firstFrame = false
+        audioStarted = false
+        fileLoaded = false
+        gate.setPending(MpvPendingLoad(url, lastHeaders, resumeMs))
         onDispatcher {
             if (released.get() || !created) return@onDispatcher
-            val start = MpvRequestOptions.startPositionOption(resumeMs)
-            if (start != null) {
-                MPVLib.command("loadfile", url, "replace", start)
-            } else {
-                MPVLib.command("loadfile", url, "replace")
-            }
+            tryLoadIfReady()
+            scheduleSurfaceWait()
         }
     }
 
@@ -275,22 +426,45 @@ class LibMpvEngine(
     /** Current position/duration — served from observed state, no native call. */
     fun snapshotPosition(): Pair<Long, Long> = positionMs.coerceAtLeast(0L) to durationMs
 
-    fun isPlaying(): Boolean = !paused && !isBuffering() && !coreIdle && !ended
+    /**
+     * Playing means an actual first video frame (or equivalent VO
+     * configure) has been observed — never merely "loadfile invoked"
+     * or "file-loaded".
+     */
+    fun isPlaying(): Boolean = firstFrame && !paused && !isBuffering() && !ended
 
-    fun isBuffering(): Boolean = pausedForCache ||
-        (!paused && !ended &&
-            (seeking || cacheBufferingState?.let { it in 0 until 100 } == true))
+    fun isBuffering(): Boolean {
+        if (ended) return false
+        if (!firstFrame) return true
+        return pausedForCache ||
+            seeking ||
+            cacheBufferingState?.let { it in 0 until 100 } == true
+    }
 
     // -------------------------------------------------------------
     // Surface binding (called from the UI layer)
     // -------------------------------------------------------------
 
     fun attachSurface(surface: Surface) {
+        pendingSurface = surface
         onDispatcher {
-            if (!created || released.get()) return@onDispatcher
-            MPVLib.attachSurface(surface)
-            MPVLib.setOptionString("force-window", "yes")
-            MPVLib.setPropertyString("vo", "gpu")
+            if (released.get()) return@onDispatcher
+            pendingSurface = surface
+            if (!surface.isValid) {
+                publishNativeError(
+                    classification = "SURFACE_ATTACH_FAILED",
+                    detail = "surface invalid"
+                )
+                return@onDispatcher
+            }
+            if (!created) {
+                // Surface arrived before MPV init — stash; start() attaches.
+                markStage(STAGE_SURFACE_CREATED)
+                Log.i(TAG, "SURFACE_CREATED (engine not ready; pending)")
+                return@onDispatcher
+            }
+            doAttach(surface)
+            tryLoadIfReady()
         }
     }
 
@@ -302,7 +476,12 @@ class LibMpvEngine(
                 MPVLib.setPropertyString("vo", "null")
                 MPVLib.setPropertyString("force-window", "no")
                 MPVLib.detachSurface()
+            }.onFailure { error ->
+                Log.w(TAG, "SURFACE_DETACH failed: ${error.javaClass.simpleName}")
             }
+            gate.onSurfaceDetached()
+            pendingSurface = null
+            Log.i(TAG, "SURFACE_DESTROYED stage=$stage")
         }
     }
 
@@ -319,11 +498,15 @@ class LibMpvEngine(
      */
     fun release() {
         if (!released.compareAndSet(false, true)) return
+        surfaceWaitJob?.cancel()
         scope.launch {
             runCatching {
                 if (created) MPVLib.removeObserver(observer)
             }
             runCatching { if (created) MPVLib.destroy() }
+            gate.onEngineDestroyed()
+            created = false
+            pendingSurface = null
             mpvDispatcher.close()
         }
     }
@@ -338,6 +521,10 @@ class LibMpvEngine(
             if (released.get()) return@launch
             runCatching(block).onFailure { error ->
                 Log.w(TAG, "libmpv operation failed", error)
+                publishNativeError(
+                    classification = "MPV_OP_FAILED",
+                    detail = error.javaClass.simpleName
+                )
             }
         }
     }
@@ -345,14 +532,53 @@ class LibMpvEngine(
     private fun ensureCreated(): Boolean {
         if (created) return true
         if (!isAvailable()) {
-            publishError("The libmpv fallback engine is not available in this build.")
+            publishNativeError(
+                classification = "MPV_INIT_FAILED",
+                detail = "libmpv not in this build"
+            )
             return false
         }
         // TLS root store + subtitle font ship inside the library AAR.
         runCatching { Utils.copyAssets(appContext) }
             .onFailure { Log.w(TAG, "libmpv asset copy failed", it) }
-        MPVLib.create(appContext)
-        // Reference configuration (Nuvio's production option set).
+        return try {
+            MPVLib.create(appContext)
+            applyInitOptions()
+            MPVLib.init()
+            // Hardcoded post-init options (BaseMPVView reference behavior):
+            // never create a window on our own; stay idle until loadfile.
+            MPVLib.setOptionString("force-window", "no")
+            MPVLib.setOptionString("idle", "yes")
+            MPVLib.addObserver(observer)
+            OBSERVED_PROPERTIES.forEach { (name, format) ->
+                runCatching { MPVLib.observeProperty(name, format) }
+            }
+            created = true
+            gate.onEngineCreated()
+            markStage(STAGE_MPV_INIT)
+            val version = runCatching { MPVLib.getPropertyString("mpv-version") }.getOrNull()
+            Log.i(TAG, "MPV_INIT version=${version ?: "unknown"}")
+            pendingSurface?.takeIf { it.isValid }?.let { doAttach(it) }
+            true
+        } catch (error: Throwable) {
+            Log.w(TAG, "MPV_INIT_FAILED", error)
+            publishNativeError(
+                classification = "MPV_INIT_FAILED",
+                detail = error.javaClass.simpleName
+            )
+            false
+        }
+    }
+
+    /**
+     * Nuvio-equivalent production option set (from NuvioMobile player
+     * + mpv-android BaseMPVView). Only options with a documented
+     * playback role: gpu VO into the SurfaceView, hwdec auto (hw first,
+     * software fallback), TLS with the bundled CA store, demuxer cache,
+     * keep-open so a brief stall is not treated as EOF.
+     */
+    private fun applyInitOptions() {
+        // Documented Nuvio / mpv-android production set — required.
         MPVLib.setOptionString("vo", "gpu")
         MPVLib.setOptionString("hwdec", "auto")
         MPVLib.setOptionString("msg-level", "all=warn")
@@ -362,46 +588,110 @@ class LibMpvEngine(
         MPVLib.setOptionString("demuxer-max-back-bytes", DEMUXER_CACHE_BYTES.toString())
         MPVLib.setOptionString("keep-open", "yes")
         MPVLib.setOptionString("audio-fallback-to-null", "yes")
-        MPVLib.init()
-        // Hardcoded post-init options (BaseMPVView reference behavior):
-        // never create a window on our own; stay idle until loadfile.
-        MPVLib.setOptionString("force-window", "no")
-        MPVLib.setOptionString("idle", "once")
-        MPVLib.addObserver(observer)
-        OBSERVED_PROPERTIES.forEach { (name, format) ->
-            MPVLib.observeProperty(name, format)
+        // Best-effort Android extras. Unknown options must not fail init.
+        runCatching { MPVLib.setOptionString("gpu-context", "android") }
+        runCatching { MPVLib.setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1") }
+        runCatching { MPVLib.setOptionString("ao", "audiotrack") }
+        runCatching { MPVLib.setOptionString("cache", "yes") }
+        runCatching { MPVLib.setOptionString("ytdl", "no") }
+        markStage(STAGE_OPTIONS_APPLIED)
+    }
+
+    private fun doAttach(surface: Surface) {
+        try {
+            MPVLib.attachSurface(surface)
+            MPVLib.setOptionString("force-window", "yes")
+            MPVLib.setPropertyString("vo", "gpu")
+            gate.onSurfaceAttached()
+            markStage(STAGE_SURFACE_ATTACHED)
+            Log.i(TAG, "SURFACE_ATTACHED thread=${Thread.currentThread().name}")
+        } catch (error: Throwable) {
+            Log.w(TAG, "SURFACE_ATTACH_FAILED", error)
+            publishNativeError(
+                classification = "SURFACE_ATTACH_FAILED",
+                detail = error.javaClass.simpleName
+            )
         }
-        created = true
-        return true
+    }
+
+    private fun tryLoadIfReady() {
+        val load = gate.consumeIfReady() ?: return
+        surfaceWaitJob?.cancel()
+        applyRequestHeaders(load.headers)
+        markStage(STAGE_HEADERS_APPLIED)
+        runCatching { MPVLib.setPropertyString("aid", "auto") }
+        val args = MpvRequestOptions.loadfileArgs(load.url, load.startPositionMs)
+        val result = runCatching {
+            when (args.size) {
+                4 -> MPVLib.command(args[0], args[1], args[2], args[3])
+                else -> MPVLib.command(args[0], args[1], args[2])
+            }
+        }
+        if (result.isFailure) {
+            val kind = result.exceptionOrNull()?.javaClass?.simpleName ?: "unknown"
+            publishNativeError(classification = "LOADFILE_FAILED", detail = kind)
+            return
+        }
+        markStage(STAGE_LOADFILE)
+        Log.i(TAG, "LOADFILE issued (surface attached, startMs=${load.startPositionMs})")
+        publishState()
+    }
+
+    private fun scheduleSurfaceWait() {
+        if (gate.state != MpvLoadGateState.WAITING_FOR_SURFACE) return
+        markStage(STAGE_WAITING_FOR_SURFACE)
+        surfaceWaitJob?.cancel()
+        surfaceWaitJob = scope.launch {
+            delay(SURFACE_WAIT_TIMEOUT_MS)
+            if (released.get()) return@launch
+            if (gate.state == MpvLoadGateState.WAITING_FOR_SURFACE) {
+                publishNativeError(
+                    classification = "SURFACE_WAIT_TIMEOUT",
+                    detail = "no Surface arrived"
+                )
+            }
+        }
     }
 
     private fun applyRequestHeaders(headers: Map<String, String>) {
-        MpvRequestOptions.userAgentFrom(headers)?.let { userAgent ->
-            MPVLib.setPropertyString("user-agent", userAgent)
-        }
+        val userAgent = MpvRequestOptions.effectiveUserAgent(headers)
+        MPVLib.setPropertyString("user-agent", userAgent)
         val fields = MpvRequestOptions.headerFieldsFrom(headers)
-        if (fields.isNotBlank()) {
-            MPVLib.setPropertyString("http-header-fields", fields)
-        }
+        MPVLib.setPropertyString("http-header-fields", fields)
+        Log.i(
+            TAG,
+            "HEADERS_APPLIED uaDefault=${MpvRequestOptions.userAgentFrom(headers) == null} " +
+                "headerNames=${headers.keys.sorted().joinToString("/")}"
+        )
     }
 
     private fun readMediaInfo() {
-        val container = MPVLib.getPropertyString("file-format")
-        val video = MPVLib.getPropertyString("video-format")
-        val audio = MPVLib.getPropertyString("audio-codec-name")
-        val tracks = MPVLib.getPropertyNode("track-list")?.asArray()
-            ?.mapNotNull { node ->
-                val map = node.asMap() ?: return@mapNotNull null
-                if (map["type"]?.asString() != "audio") return@mapNotNull null
-                val codec = map["codec"]?.asString()
-                val lang = map["lang"]?.asString()
-                val selected = map["selected"]?.asBoolean() == true
-                listOfNotNull(codec, lang?.uppercase()).joinToString(" ") +
-                    if (selected) " (selected)" else ""
-            }
-            ?.filter { it.isNotBlank() }
-            ?.ifEmpty { null }
-            ?: emptyList()
+        val container = runCatching { MPVLib.getPropertyString("file-format") }.getOrNull()
+        val video = runCatching { MPVLib.getPropertyString("video-format") }.getOrNull()
+        val audio = runCatching { MPVLib.getPropertyString("audio-codec-name") }.getOrNull()
+        val tracks = runCatching {
+            MPVLib.getPropertyNode("track-list")?.asArray()
+                ?.mapNotNull { node ->
+                    val map = node.asMap() ?: return@mapNotNull null
+                    if (map["type"]?.asString() != "audio") return@mapNotNull null
+                    val codec = map["codec"]?.asString()
+                    val lang = map["lang"]?.asString()
+                    val selected = map["selected"]?.asBoolean() == true
+                    listOfNotNull(codec, lang?.uppercase()).joinToString(" ") +
+                        if (selected) " (selected)" else ""
+                }
+                ?.filter { it.isNotBlank() }
+                ?.ifEmpty { null }
+                ?: emptyList()
+        }.getOrDefault(emptyList())
+        if (!audio.isNullOrBlank() && !audioStarted) {
+            audioStarted = true
+            markStage(STAGE_AUDIO_STARTED)
+        }
+        Log.i(
+            TAG,
+            "MEDIA_IDENTIFIED container=${container ?: "-"} video=${video ?: "-"} audio=${audio ?: "-"}"
+        )
         onMediaInfo(
             LibMpvMediaInfo(
                 containerFormat = container,
@@ -422,12 +712,18 @@ class LibMpvEngine(
                 ?.take(120)
                 ?.substringBefore("://")
                 ?.takeIf { it.isNotBlank() }
-                ?: "libmpv end-file error"
-            publishError("The fallback engine could not play this source ($safeError).")
+                ?: "end-file"
+            publishNativeError(classification = "END_FILE_ERROR", detail = safeError)
+        } else if (reason == MPV_END_FILE_REASON_EOF || reason == null) {
+            ended = true
+            publishState()
         }
     }
 
     private fun publishState() {
+        if (firstFrame && !paused && !ended && stage != STAGE_PLAYING) {
+            markStage(STAGE_PLAYING)
+        }
         onEvent(
             PlayerHolder.PlaybackEvent.StateChanged(
                 isPlaying = isPlaying(),
@@ -439,17 +735,28 @@ class LibMpvEngine(
         )
     }
 
-    private fun publishError(message: String) {
+    private fun publishNativeError(classification: String, detail: String) {
+        val lastSuccessful = stage
+        markStage(STAGE_ERROR)
+        val safeDetail = detail.substringBefore("://").take(120)
         onEvent(
             PlayerHolder.PlaybackEvent.Error(
-                message = message,
+                message = "The fallback engine could not play this source.",
                 category = PlaybackFailureCategory.UNKNOWN_PLAYBACK_ERROR,
                 diagnostics = PlaybackDiagnostics(
                     backendId = BACKEND_ID,
-                    errorCause = "libmpv"
+                    errorCause = "$classification: $safeDetail",
+                    mpvStage = classification,
+                    notes = listOf("lastSuccessfulStage=$lastSuccessful")
                 )
             )
         )
+    }
+
+    private fun markStage(next: String) {
+        stage = next
+        Log.i(TAG, next)
+        onStage(next)
     }
 
     private fun Double?.toMillis(): Long =
@@ -459,10 +766,28 @@ class LibMpvEngine(
         const val TAG = "SBLibmpv"
         const val BACKEND_ID = "libmpv"
 
-        /** mpv end-file "error" reason code. */
+        /** mpv end-file reason codes. */
+        const val MPV_END_FILE_REASON_EOF = 0L
         const val MPV_END_FILE_REASON_ERROR = 4L
 
         const val DEMUXER_CACHE_BYTES = 64 * 1024 * 1024
+        const val SURFACE_WAIT_TIMEOUT_MS = 8_000L
+
+        const val STAGE_IDLE = "IDLE"
+        const val STAGE_MPV_INIT = "MPV_INIT"
+        const val STAGE_WAITING_FOR_SURFACE = "WAITING_FOR_SURFACE"
+        const val STAGE_SURFACE_CREATED = "SURFACE_CREATED"
+        const val STAGE_SURFACE_ATTACHED = "SURFACE_ATTACHED"
+        const val STAGE_OPTIONS_APPLIED = "OPTIONS_APPLIED"
+        const val STAGE_HEADERS_APPLIED = "HEADERS_APPLIED"
+        const val STAGE_LOADING = "LOADING"
+        const val STAGE_LOADFILE = "LOADFILE"
+        const val STAGE_FILE_LOADED = "FILE_LOADED"
+        const val STAGE_MEDIA_IDENTIFIED = "MEDIA_IDENTIFIED"
+        const val STAGE_FIRST_FRAME = "FIRST_FRAME"
+        const val STAGE_AUDIO_STARTED = "AUDIO_STARTED"
+        const val STAGE_PLAYING = "PLAYING"
+        const val STAGE_ERROR = "ERROR"
 
         val OBSERVED_PROPERTIES = mapOf(
             "pause" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
@@ -470,6 +795,7 @@ class LibMpvEngine(
             "core-idle" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
             "eof-reached" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
             "seeking" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
+            "vo-configured" to MPVLib.MpvFormat.MPV_FORMAT_FLAG,
             "cache-buffering-state" to MPVLib.MpvFormat.MPV_FORMAT_INT64,
             "duration" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,
             "time-pos" to MPVLib.MpvFormat.MPV_FORMAT_DOUBLE,

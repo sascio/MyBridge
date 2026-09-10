@@ -190,11 +190,28 @@ class PlayerHolder(
     /** Live libmpv engine while the LIBMPV backend is (being) active. */
     private var mpvEngine: LibMpvEngine? = null
 
+    /**
+     * Surface handed over by the Compose SurfaceView, possibly before
+     * the engine exists (direct-MPV path) or after (fallback path).
+     * Stashed here so it is never dropped on a null engine.
+     */
+    private var pendingMpvSurface: android.view.Surface? = null
+
     private fun mpvEngine(): LibMpvEngine = mpvEngine ?: LibMpvEngine(
         appContext,
         onEvent = { event -> onMpvEvent(event) },
-        onMediaInfo = { info -> onMpvMediaInfo(info) }
-    ).also { mpvEngine = it }
+        onMediaInfo = { info -> onMpvMediaInfo(info) },
+        onStage = { stage ->
+            diagnostics = diagnostics.copy(
+                backendId = "libmpv",
+                mpvStage = stage,
+                notes = (diagnostics.notes + stage).distinct().takeLast(16)
+            )
+        }
+    ).also { engine ->
+        mpvEngine = engine
+        pendingMpvSurface?.takeIf { it.isValid }?.let { engine.attachSurface(it) }
+    }
 
     /** Events from the libmpv engine surface here (media3 events bypass). */
     private fun onMpvEvent(event: PlaybackEvent) {
@@ -206,7 +223,9 @@ class PlayerHolder(
                 diagnostics = diagnostics.copy(
                     backendId = "libmpv",
                     errorCategory = category,
-                    errorCause = cause
+                    errorCause = cause,
+                    mpvStage = event.diagnostics?.mpvStage ?: diagnostics.mpvStage,
+                    notes = (diagnostics.notes + (event.diagnostics?.notes ?: emptyList())).distinct()
                 )
                 Log.w(TAG, "libmpv failed: ${diagnostics.toLogString()}")
                 onPlaybackEvent(
@@ -236,6 +255,14 @@ class PlayerHolder(
      * Switches the active engine from Media3 to libmpv, preserving the
      * playback position. Media3 is stopped (its codecs and buffers are
      * released) but kept alive for later streams.
+     *
+     * Order is load-bearing:
+     *  1. Flip [activeEngine] FIRST so leftover Media3 listener events
+     *     (stop / idle / a decoder error from teardown) cannot clobber
+     *     libmpv state or re-enter the escalation ladder.
+     *  2. Then stop Media3.
+     *  3. Then start libmpv, which queues loadfile until a Surface is
+     *     attached (Compose swaps PlayerView → SurfaceView after this).
      */
     private fun escalateToLibMpv(reason: PlaybackFailureCategory) {
         val url = activeUrl ?: run {
@@ -249,17 +276,21 @@ class PlayerHolder(
         }
         val resumeAtMs = runCatching { player.currentPosition.coerceAtLeast(0L) }
             .getOrDefault(0L)
-        runCatching { player.stop() }
-            .onFailure { Log.w(TAG, "Stopping Media3 before engine switch failed", it) }
         engineEscalationAttempted = true
         escalationReasonCategory = reason
         diagnostics = diagnostics.copy(
             backendId = "libmpv",
             fallbackAttempts = diagnostics.fallbackAttempts +
-                "engine media3 -> libmpv ($reason, resumeMs=$resumeAtMs)"
+                "engine media3 -> libmpv ($reason, resumeMs=$resumeAtMs)",
+            mpvStage = "FALLBACK_DECISION=LIBMPV"
         )
         Log.i(TAG, "Escalating playback engine: media3 -> libmpv ($reason) at ${resumeAtMs}ms")
         _activeEngine.value = PlaybackEngine.LIBMPV
+        runCatching { player.stop() }
+            .onFailure { Log.w(TAG, "Stopping Media3 before engine switch failed", it) }
+        runCatching { player.clearMediaItems() }
+            .onFailure { Log.w(TAG, "Clearing Media3 items before engine switch failed", it) }
+        Log.i(TAG, "MEDIA3_RELEASED (stopped; player kept for later streams)")
         mpvEngine().start(url, activeHeaders, resumeAtMs)
         onPlaybackEvent(PlaybackEvent.Info("Switching playback engine…", diagnostics))
     }
@@ -363,14 +394,17 @@ class PlayerHolder(
                 playWhenReady = true
                 addListener(object : Player.Listener {
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
                         publish()
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
                         publish()
                     }
 
                     override fun onTracksChanged(tracks: Tracks) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
                         // Preserve the full track inventory (all audio tracks
                         // with codec/language/channels, selected video) in
                         // diagnostics, and steer away from known-undecodable
@@ -380,12 +414,23 @@ class PlayerHolder(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) {
+                            Log.w(
+                                TAG,
+                                "Ignoring Media3 error after engine switch: ${error.errorCodeName}"
+                            )
+                            return
+                        }
                         Log.w(TAG, "Playback error ${error.errorCodeName}: ${error.message}")
                         val classification = PlaybackFailureClassifier.classify(error)
                         diagnostics = diagnostics.copy(
                             httpStatus = classification.httpStatus ?: diagnostics.httpStatus,
                             errorCategory = classification.category,
-                            errorCause = causeChainOf(error)
+                            errorCause = "${error.errorCodeName} -> ${causeChainOf(error)}",
+                            notes = diagnostics.notes + listOfNotNull(
+                                "media3Code=${error.errorCodeName}",
+                                classification.decoderMimeType?.let { "decoderMime=$it" }
+                            )
                         )
                         // Audio failures are handled IN PLACE when possible:
                         // another compatible audio track. An audio problem
@@ -475,6 +520,7 @@ class PlayerHolder(
     }
 
     private fun publish() {
+        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
         val state = player.playbackState
         onPlaybackEvent(
             PlaybackEvent.StateChanged(
@@ -501,7 +547,9 @@ class PlayerHolder(
         headers: Map<String, String> = emptyMap(),
         mimeType: String? = null,
         sourceName: String? = null,
-        backendId: String = Media3PlaybackBackend.ID
+        backendId: String = Media3PlaybackBackend.ID,
+        /** Diagnostic path: skip Media3 and load this source on libmpv. */
+        forceLibMpv: Boolean = false
     ) {
         when (val verdict = StreamValidator.validate(url)) {
             is StreamValidator.Result.Invalid -> {
@@ -527,7 +575,7 @@ class PlayerHolder(
                     // New source: destroy the previous source's libmpv engine
                     // and reset the escalation ladder (Media3 first again).
                     teardownMpvEngine()
-                } else if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+                } else if (_activeEngine.value == PlaybackEngine.LIBMPV && !forceLibMpv) {
                     // Same-source restart while the libmpv engine is active
                     // (e.g. subtitle re-apply): reload there, Media3 stays idle.
                     mpvEngine?.start(verdict.url, safeHeaders, startPositionMs)
@@ -544,6 +592,10 @@ class PlayerHolder(
                 activeSourceName = sourceName
                 activeBackendId = backendId
                 resetPerStreamState(url, safeHeaders, mimeType, sourceName, backendId)
+                if (forceLibMpv) {
+                    playDirectLibMpv(verdict.url, startPositionMs, safeHeaders)
+                    return
+                }
                 try {
                     val mediaItem = MediaItem.Builder()
                         .setUri(Uri.parse(verdict.url))
@@ -1001,12 +1053,37 @@ class PlayerHolder(
 
     /** Binds an Android Surface to the libmpv engine (engine switch or recreation). */
     fun attachMpvSurface(surface: android.view.Surface) {
+        pendingMpvSurface = surface
         mpvEngine?.attachSurface(surface)
     }
 
     /** Hands the Surface back before it is destroyed (rotation/background). */
     fun detachMpvSurface() {
+        pendingMpvSurface = null
         mpvEngine?.detachSurface()
+    }
+
+    /**
+     * Diagnostic path: the exact same source + headers, loaded on
+     * libmpv without going through Media3. Surface-gated like fallback.
+     */
+    fun playDirectLibMpv(
+        url: String,
+        startPositionMs: Long,
+        headers: Map<String, String>
+    ) {
+        engineEscalationAttempted = true
+        mpvFailed = false
+        diagnostics = diagnostics.copy(
+            backendId = "libmpv",
+            fallbackAttempts = diagnostics.fallbackAttempts + "direct libmpv (Media3 bypassed)",
+            mpvStage = "DIRECT_LIBMPV"
+        )
+        Log.i(TAG, "DIRECT_LIBMPV host=${PlaybackDiagnostics.hostOf(url)}")
+        _activeEngine.value = PlaybackEngine.LIBMPV
+        runCatching { player.stop() }
+        runCatching { player.clearMediaItems() }
+        mpvEngine().start(url, headers, startPositionMs)
     }
 
     /** Notifies libmpv of surface size changes. */

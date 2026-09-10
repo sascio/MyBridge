@@ -15,7 +15,12 @@ package com.streambridge.app.addon
 object StreamHeaders {
 
     private val HEADER_NAME = Regex("^[A-Za-z0-9-]{1,64}$")
-    private const val MAX_VALUE_LENGTH = 512
+    /**
+     * Cookie / Referer values on real CDNs regularly exceed 512 bytes.
+     * Dropping them silently made StreamBridge omit headers Nuvio sends.
+     * Still bounded against header flooding.
+     */
+    private const val MAX_VALUE_LENGTH = 8192
     private const val MAX_HEADERS = 12
 
     fun sanitize(raw: Map<String, String>?): Map<String, String> {

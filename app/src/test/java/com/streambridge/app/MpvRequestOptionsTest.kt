@@ -34,6 +34,34 @@ class MpvRequestOptionsTest {
     }
 
     @Test
+    fun `effective user agent falls back to the Media3 browser default`() {
+        assertEquals(
+            com.streambridge.app.player.PlaybackUserAgent.DEFAULT,
+            MpvRequestOptions.effectiveUserAgent(emptyMap())
+        )
+        assertEquals(
+            "Source/1.0",
+            MpvRequestOptions.effectiveUserAgent(mapOf("User-Agent" to "Source/1.0"))
+        )
+    }
+
+    @Test
+    fun `loadfile args omit start option at position zero`() {
+        assertEquals(
+            listOf("loadfile", "https://cdn.example.com/a.mkv", "replace"),
+            MpvRequestOptions.loadfileArgs("https://cdn.example.com/a.mkv", 0L)
+        )
+    }
+
+    @Test
+    fun `loadfile args include start option when resuming`() {
+        assertEquals(
+            listOf("loadfile", "https://cdn.example.com/a.mkv", "replace", "start=12.500"),
+            MpvRequestOptions.loadfileArgs("https://cdn.example.com/a.mkv", 12_500L)
+        )
+    }
+
+    @Test
     fun `referer origin and cookies survive the translation`() {
         val headers = mapOf(
             "Referer" to "https://provider.example.com/",

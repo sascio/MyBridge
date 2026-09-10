@@ -31,7 +31,9 @@ data class PlaybackDiagnostics(
     val errorCategory: PlaybackFailureCategory? = null,
     val errorCause: String? = null,
     val fallbackAttempts: List<String> = emptyList(),
-    val notes: List<String> = emptyList()
+    val notes: List<String> = emptyList(),
+    /** Last libmpv pipeline stage (MPV_INIT, SURFACE_ATTACHED, LOADFILE, FIRST_FRAME…). */
+    val mpvStage: String? = null
 ) {
 
     /** One redacted line for the log — safe to print as-is. */
@@ -57,6 +59,7 @@ data class PlaybackDiagnostics(
             append(", fallbacks=").append(fallbackAttempts.joinToString(" -> "))
         }
         if (notes.isNotEmpty()) append(", notes=").append(notes.joinToString("; "))
+        mpvStage?.let { append(", mpvStage=").append(it) }
         append(")")
     }
 
