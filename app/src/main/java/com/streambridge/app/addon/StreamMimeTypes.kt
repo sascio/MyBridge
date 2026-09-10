@@ -109,11 +109,21 @@ object StreamMimeTypes {
      */
     fun fromContentDisposition(value: String?): String? {
         val raw = value?.takeIf { it.isNotBlank() } ?: return null
-        // RFC 5987 ext-value first, then the plain filename parameter.
-        val filename = raw
+        // RFC 5987 ext-value first (percent-encoded), then the plain
+        // filename parameter.
+        val extValue = raw
             .substringAfter("filename*=", missingDelimiterValue = "")
             .substringAfterLast("''", missingDelimiterValue = "")
-            .ifBlank { raw.substringAfter("filename=", missingDelimiterValue = "") }
+        val filename = (
+            if (extValue.isNotBlank()) {
+                runCatching { java.net.URLDecoder.decode(extValue, "UTF-8") }
+                    .getOrDefault(extValue)
+            } else {
+                ""
+            }
+            ).ifBlank {
+                raw.substringAfter("filename=", missingDelimiterValue = "")
+            }
             .trim()
             .trim('"', '\'')
             .takeIf { it.isNotBlank() }

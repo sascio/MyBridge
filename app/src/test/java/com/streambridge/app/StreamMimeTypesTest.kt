@@ -81,7 +81,7 @@ class StreamMimeTypesTest {
         )
         assertEquals(
             StreamMimeTypes.APPLICATION_MPD,
-            StreamMimeTypes.fromUrl("https://cdn.example.com/dash/abc123/token")
+            StreamMimeTypes.fromUrl("https://cdn.example.com/mpd/abc123/token")
         )
     }
 

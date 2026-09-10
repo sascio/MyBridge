@@ -187,7 +187,8 @@ class PlaybackPlanningTest {
         var seenHeaders: Map<String, String>? = null
         val preparation = PlaybackPlanning.planPlayback(
             option("https://cdn.example.com/d/9f8e7d6c5b4a?token=x", headers)
-        ) { _, probeHeaders ->
+        ) { probeUrl, probeHeaders ->
+            probed.add(probeUrl)
             seenHeaders = probeHeaders
             StreamMimeTypes.APPLICATION_M3U8
         }
