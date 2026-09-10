@@ -71,10 +71,18 @@ Local command:
 GitHub Actions: `.github/workflows/build.yml` runs
 `:androidApp:assembleFullDebug` and `:androidApp:assembleFullRelease`.
 
-**CI:** run `34533186538` failed at `:composeApp:generateRuntimeConfigs`
-because Gradle 9 requires a specified `@InputFile` to exist and Nuvio
-always points at `local.properties`. Adapted: only wire that input when
-the file is present. A later run must still produce the Nuvio APK.
+**CI:** GitHub Actions **34533942633** (`30106e8`) **success** (~10m39s).
+Job name: `Nuvio-core full Android APK`. Tasks:
+`:androidApp:assembleFullDebug` and `:androidApp:assembleFullRelease`.
+
+Earlier failures (not success):
+
+- `34533186538` — `generateRuntimeConfigs` required missing
+  `local.properties` (Gradle 9 `@InputFile`).
+- `34533519444` — `rootProject.name = StreamBridge` broke
+  `nuvio.composeapp.generated.resources`.
+
+Do **not** treat this green assemble as device playback.
 
 ## APK
 
@@ -82,6 +90,15 @@ Expected outputs after a green CI run:
 
 - `androidApp/build/outputs/apk/full/debug/*.apk`
 - `androidApp/build/outputs/apk/full/release/*.apk` (debug-signed in CI)
+
+Uploaded artifacts from **34533942633**:
+
+- `Stream-Bridge-full-debug-APK` (~147 MB zip)
+- `Stream-Bridge-full-release-APK` (~108 MB zip)
+
+These are Nuvio-module APKs (`androidApp/…/full/…`), not
+`app/build/outputs/apk/…`. Size is consistent with vendored decoder AARs;
+the old custom `:app` APKs were much smaller.
 
 ## Runtime
 
