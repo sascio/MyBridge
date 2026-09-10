@@ -32,11 +32,17 @@ class Media3PlaybackBackend(private val registry: DecoderRegistry) : PlaybackBac
 
     override val id: String = ID
 
-    override fun supportsContainer(mimeType: String?): DecoderSupport = when {
-        mimeType == null -> DecoderSupport.UNKNOWN // progressive: sniffing decides
-        mimeType in StreamMimeTypes.MANIFEST_MIMES -> DecoderSupport.SUPPORTED
-        mimeType in PROGRESSIVE_CONTAINER_MIMES -> DecoderSupport.SUPPORTED
-        else -> DecoderSupport.UNKNOWN // never claim unsupported from a hint alone
+    override fun supportsContainer(mimeType: String?): DecoderSupport {
+        if (mimeType == null) return DecoderSupport.UNKNOWN // progressive: sniffing decides
+        // MIME comparison is case-insensitive by spec (RFC 6838) and in
+        // practice: our own cascade emits lowercase, media3's constants
+        // are mixed case ("application/x-mpegURL"), servers send anything.
+        val normalized = mimeType.trim().lowercase()
+        return when {
+            normalized in MANIFEST_CONTAINER_MIMES -> DecoderSupport.SUPPORTED
+            normalized in PROGRESSIVE_CONTAINER_MIMES -> DecoderSupport.SUPPORTED
+            else -> DecoderSupport.UNKNOWN // never claim unsupported from a hint alone
+        }
     }
 
     override fun supportsCodec(mimeType: String?): DecoderSupport =
@@ -44,6 +50,9 @@ class Media3PlaybackBackend(private val registry: DecoderRegistry) : PlaybackBac
 
     companion object {
         const val ID = "media3"
+
+        private val MANIFEST_CONTAINER_MIMES =
+            StreamMimeTypes.MANIFEST_MIMES.map { it.lowercase() }.toSet()
 
         /**
          * Progressive containers media3's bundled extractors read with
@@ -62,7 +71,7 @@ class Media3PlaybackBackend(private val registry: DecoderRegistry) : PlaybackBac
             MimeTypes.AUDIO_OPUS,
             MimeTypes.AUDIO_VORBIS,
             MimeTypes.AUDIO_RAW
-        )
+        ).map { it.lowercase() }.toSet()
     }
 }
 

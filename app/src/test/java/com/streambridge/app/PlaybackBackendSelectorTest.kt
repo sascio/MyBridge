@@ -82,6 +82,17 @@ class PlaybackBackendSelectorTest {
     }
 
     @Test
+    fun `container comparison is case-insensitive`() {
+        // Servers, providers and media3's own constants use mixed case
+        // ("application/x-mpegURL"); our cascade emits lowercase. MIME
+        // comparison must not depend on the sender's casing.
+        assertEquals(DecoderSupport.SUPPORTED, media3.supportsContainer("application/X-mpegURL"))
+        assertEquals(DecoderSupport.SUPPORTED, media3.supportsContainer(" Application/DASH+XML "))
+        assertEquals(DecoderSupport.SUPPORTED, media3.supportsContainer("VIDEO/MP2T"))
+        assertEquals(DecoderSupport.SUPPORTED, media3.supportsContainer("video/x-Matroska"))
+    }
+
+    @Test
     fun `codec support mirrors the device decoder registry`() {
         val capable = Media3PlaybackBackend(FakeRegistry(setOf(MimeTypes.AUDIO_E_AC3)))
         assertEquals(DecoderSupport.SUPPORTED, capable.supportsCodec(MimeTypes.AUDIO_E_AC3))

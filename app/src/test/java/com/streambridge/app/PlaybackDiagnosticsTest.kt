@@ -99,7 +99,7 @@ class PlaybackDiagnosticsTest {
             "video=video/hevc",
             "vcodec=hvc1.2.4.L153.B0",
             "selectedVideo=HEVC 1920x1080",
-            "audio=audio/mp4-latm",
+            "audio=audio/mp4a-latm",
             "selectedAudio=English (AAC 2ch)",
             "http=403",
             "category=HTTP_403",
