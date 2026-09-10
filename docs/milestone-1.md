@@ -37,7 +37,9 @@ Kotlin packages remain `com.nuvio.app` / `com.nuvio.android`.
 
 ## Adapted (identity / CI only)
 
-- `rootProject.name = StreamBridge`
+- Gradle `rootProject.name` stays `Nuvio` so Compose Multiplatform
+  generates `nuvio.composeapp.generated.resources` (185 imports). Visible
+  identity is still StreamBridge via applicationId / `app_name`.
 - `applicationId` / debug applicationId (was `com.nuvio.app` /
   `com.nuviodebug.com`)
 - `app_name` strings
