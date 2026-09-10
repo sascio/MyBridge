@@ -1,6 +1,8 @@
 # Milestone 0 — Nuvio core source audit
 
-**Status: AUDIT COMPLETE. Nuvio core is NOT IMPLEMENTED in StreamBridge.**
+**Status: AUDIT COMPLETE (historical). Milestone 1 imported this mapping
+into the tree — see [milestone-1.md](milestone-1.md). This document
+records what was read before the import; it is not the live layout.**
 
 This document is the source mapping required before any large-scale
 Nuvio integration. Nothing below is guessed: it was read from the
