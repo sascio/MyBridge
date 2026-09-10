@@ -270,6 +270,17 @@ Apache-2.0, QuickJS itself MIT). Stream Bridge implements the open Stremio
 addon *protocol* and runs Nuvio-compatible plugins locally in a sandbox;
 it is an independent project with original code, branding and artwork.
 
+## Nuvio core (not integrated yet)
+
+The intended product foundation is official **NuvioMobile** (GPL-3.0),
+not a custom player that imitates it. That work has **not** started in
+this tree. See [docs/nuvio-core-audit.md](docs/nuvio-core-audit.md) and
+[docs/UPSTREAM.md](docs/UPSTREAM.md). Until Nuvio sources are vendored
+and this repository is relicensed to GPL-3.0, StreamBridge remains the
+independent MIT app described above.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). This will change to GPL-3.0 when Nuvio
+core is actually integrated. Do not copy Nuvio sources into this tree
+while the license is still MIT.
