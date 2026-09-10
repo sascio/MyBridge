@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import com.streambridge.app.addon.StreamHeaders
+import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -95,6 +96,16 @@ class PlayerHolder(
     private val decoderRegistry: DecoderRegistry = MediaCodecDecoderRegistry()
 ) {
 
+    /** Which playback engine is currently rendering the active stream. */
+    enum class PlaybackEngine { MEDIA3, LIBMPV }
+
+    private val appContext: Context = context.applicationContext
+
+    private val _activeEngine =
+        kotlinx.coroutines.flow.MutableStateFlow(PlaybackEngine.MEDIA3)
+    val activeEngine: kotlinx.coroutines.flow.StateFlow<PlaybackEngine> =
+        _activeEngine.asStateFlow()
+
     sealed interface PlaybackEvent {
         data class StateChanged(
             val isPlaying: Boolean,
@@ -161,6 +172,107 @@ class PlayerHolder(
     private var audioFallbackAttempts = 0
     private var userSelectedAudio = false
     private var autoAudioOverrideKey: String? = null
+
+    // -----------------------------------------------------------------
+    // Engine escalation (Media3 → libmpv, the software-decoding tier)
+    // -----------------------------------------------------------------
+
+    /** URL of the stream the engines are currently working on. */
+    private var activeUrl: String? = null
+
+    /** One libmpv attempt per stream — never repeatedly switch engines. */
+    private var engineEscalationAttempted = false
+    private var mpvFailed = false
+
+    /** The failure category that made us escalate (kept for reporting). */
+    private var escalationReasonCategory: PlaybackFailureCategory? = null
+
+    /** Live libmpv engine while the LIBMPV backend is (being) active. */
+    private var mpvEngine: LibMpvEngine? = null
+
+    private fun mpvEngine(): LibMpvEngine = mpvEngine ?: LibMpvEngine(
+        appContext,
+        onEvent = { event -> onMpvEvent(event) },
+        onMediaInfo = { info -> onMpvMediaInfo(info) }
+    ).also { mpvEngine = it }
+
+    /** Events from the libmpv engine surface here (media3 events bypass). */
+    private fun onMpvEvent(event: PlaybackEvent) {
+        when (event) {
+            is PlaybackEvent.Error -> {
+                mpvFailed = true
+                val category = escalationReasonCategory ?: event.category
+                val cause = event.diagnostics?.errorCause ?: "libmpv"
+                diagnostics = diagnostics.copy(
+                    backendId = "libmpv",
+                    errorCategory = category,
+                    errorCause = cause
+                )
+                Log.w(TAG, "libmpv failed: ${diagnostics.toLogString()}")
+                onPlaybackEvent(
+                    event.copy(
+                        message = "This source could not be played by either playback engine. " +
+                            "Pick another source.",
+                        category = category,
+                        diagnostics = diagnostics
+                    )
+                )
+            }
+
+            else -> onPlaybackEvent(event)
+        }
+    }
+
+    private fun onMpvMediaInfo(info: LibMpvMediaInfo) {
+        diagnostics = diagnostics.copy(
+            containerMime = info.containerFormat ?: diagnostics.containerMime,
+            videoCodec = info.videoCodec ?: diagnostics.videoCodec,
+            audioCodec = info.audioCodec ?: diagnostics.audioCodec,
+            availableAudioTracks = info.audioTracks.ifEmpty { diagnostics.availableAudioTracks }
+        )
+    }
+
+    /**
+     * Switches the active engine from Media3 to libmpv, preserving the
+     * playback position. Media3 is stopped (its codecs and buffers are
+     * released) but kept alive for later streams.
+     */
+    private fun escalateToLibMpv(reason: PlaybackFailureCategory) {
+        val url = activeUrl ?: run {
+            onPlaybackEvent(
+                PlaybackEvent.Error(
+                    "This stream could not be played. Pick another source.",
+                    reason
+                )
+            )
+            return
+        }
+        val resumeAtMs = runCatching { player.currentPosition.coerceAtLeast(0L) }
+            .getOrDefault(0L)
+        runCatching { player.stop() }
+            .onFailure { Log.w(TAG, "Stopping Media3 before engine switch failed", it) }
+        engineEscalationAttempted = true
+        escalationReasonCategory = reason
+        diagnostics = diagnostics.copy(
+            backendId = "libmpv",
+            fallbackAttempts = diagnostics.fallbackAttempts +
+                "engine media3 -> libmpv ($reason, resumeMs=$resumeAtMs)"
+        )
+        Log.i(TAG, "Escalating playback engine: media3 -> libmpv ($reason) at ${resumeAtMs}ms")
+        _activeEngine.value = PlaybackEngine.LIBMPV
+        mpvEngine().start(url, activeHeaders, resumeAtMs)
+        onPlaybackEvent(PlaybackEvent.Info("Switching playback engine…", diagnostics))
+    }
+
+    /** Destroys the libmpv engine (if any) and resets escalation state. */
+    private fun teardownMpvEngine() {
+        mpvEngine?.release()
+        mpvEngine = null
+        engineEscalationAttempted = false
+        mpvFailed = false
+        escalationReasonCategory = null
+        _activeEngine.value = PlaybackEngine.MEDIA3
+    }
 
     /**
      * Registers headers for an auxiliary URL (e.g. a side-loaded
@@ -276,9 +388,8 @@ class PlayerHolder(
                             errorCause = causeChainOf(error)
                         )
                         // Audio failures are handled IN PLACE when possible:
-                        // another compatible audio track, or — only as the
-                        // final fallback — muted video. An audio problem must
-                        // never become a video failure.
+                        // another compatible audio track. An audio problem
+                        // must never become a video failure.
                         val audioFailed =
                             classification.category == PlaybackFailureCategory.AUDIO_DECODER_UNSUPPORTED ||
                                 (
@@ -286,12 +397,54 @@ class PlayerHolder(
                                         classification.decoderMimeType?.startsWith("audio/") == true
                                     )
                         if (audioFailed) {
-                            val note = tryAudioTrackFallback(classification.decoderMimeType)
-                            if (note != null) {
-                                Log.w(TAG, diagnostics.toLogString())
-                                onPlaybackEvent(PlaybackEvent.Info(note, diagnostics))
+                            when (val recovery = tryAudioTrackFallback(classification.decoderMimeType)) {
+                                is AudioRecovery.Switched -> {
+                                    Log.w(TAG, diagnostics.toLogString())
+                                    onPlaybackEvent(PlaybackEvent.Info(recovery.note, diagnostics))
+                                    return
+                                }
+
+                                AudioRecovery.NoAudioPath -> {
+                                    // No decodable audio track in Media3. Before
+                                    // ever muting: let the software-decoding
+                                    // engine try (it decodes E-AC-3/DTS/TrueHD
+                                    // with working audio).
+                                    when (
+                                        EngineEscalationPolicy.decide(
+                                            escalationState(),
+                                            audioNoPath = true
+                                        )
+                                    ) {
+                                        EngineEscalationPolicy.Decision.ESCALATE_TO_LIBMPV -> {
+                                            escalateToLibMpv(classification.category)
+                                            return
+                                        }
+
+                                        EngineEscalationPolicy.Decision.MUTE_AUDIO -> {
+                                            val note = muteAudioAsFinalFallback(classification.decoderMimeType)
+                                            Log.w(TAG, diagnostics.toLogString())
+                                            onPlaybackEvent(PlaybackEvent.Info(note, diagnostics))
+                                            return
+                                        }
+
+                                        EngineEscalationPolicy.Decision.FAIL_SOURCE -> Unit
+                                    }
+                                }
+
+                                AudioRecovery.NotHandled -> Unit
+                            }
+                        }
+                        // Any other failure: one libmpv attempt (software
+                        // decoding) before this source is abandoned.
+                        when (
+                            EngineEscalationPolicy.decide(escalationState(), audioNoPath = false)
+                        ) {
+                            EngineEscalationPolicy.Decision.ESCALATE_TO_LIBMPV -> {
+                                escalateToLibMpv(classification.category)
                                 return
                             }
+
+                            else -> Unit
                         }
                         Log.w(TAG, diagnostics.toLogString())
                         onPlaybackEvent(
@@ -369,6 +522,18 @@ class PlayerHolder(
                     "Playing ${verdict.contentType} stream from ${verdict.url.toUriHost()}" +
                         " (${safeHeaders.size} headers, mime=${mimeType ?: "unresolved"})"
                 )
+                val isNewStream = activeUrl != verdict.url
+                if (isNewStream) {
+                    // New source: destroy the previous source's libmpv engine
+                    // and reset the escalation ladder (Media3 first again).
+                    teardownMpvEngine()
+                } else if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+                    // Same-source restart while the libmpv engine is active
+                    // (e.g. subtitle re-apply): reload there, Media3 stays idle.
+                    mpvEngine?.start(verdict.url, safeHeaders, startPositionMs)
+                    return
+                }
+                activeUrl = verdict.url
                 // New source, new context: nothing of the previous source's
                 // headers may survive into this playback.
                 headersByUrl.clear()
@@ -468,11 +633,20 @@ class PlayerHolder(
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.setSpeed(speed)
+            return
+        }
         player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
         publish()
     }
 
     fun retry() {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.reload()
+            mpvEngine?.play()
+            return
+        }
         val position = player.currentPosition.coerceAtLeast(0L)
         try {
             player.prepare()
@@ -486,6 +660,10 @@ class PlayerHolder(
     }
 
     fun togglePlayPause() {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.togglePlayPause()
+            return
+        }
         if (player.isPlaying) {
             player.pause()
         } else {
@@ -495,25 +673,57 @@ class PlayerHolder(
     }
 
     fun seekTo(positionMs: Long) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.seekTo(positionMs)
+            return
+        }
         player.seekTo(
             positionMs.coerceIn(0L, if (player.duration > 0) player.duration else Long.MAX_VALUE)
         )
         publish()
     }
 
+    /** Relative seek (double-tap / skip gestures) on the active engine. */
+    fun seekBy(deltaMs: Long) {
+        val (current, duration) = snapshotPosition()
+        val durationCap = if (duration > 0) duration else Long.MAX_VALUE
+        seekTo((current + deltaMs).coerceIn(0L, durationCap))
+    }
+
     fun snapshotPosition(): Pair<Long, Long> {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            return mpvEngine?.snapshotPosition() ?: (0L to 0L)
+        }
         val position = player.currentPosition.coerceAtLeast(0L)
         val duration = if (player.duration > 0) player.duration else 0L
         return position to duration
     }
 
+    /** Live position of the active engine (never negative). */
+    fun currentPositionOrZero(): Long =
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.snapshotPosition()?.first?.coerceAtLeast(0L) ?: 0L
+        } else {
+            runCatching { player.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
+        }
+
     // -----------------------------------------------------------------
     // Track selection (subtitles / audio)
     // -----------------------------------------------------------------
 
-    fun textTracks(): List<TrackOption> = collectTracks(C.TRACK_TYPE_TEXT, "Subtitle")
+    fun textTracks(): List<TrackOption> =
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            emptyList()
+        } else {
+            collectTracks(C.TRACK_TYPE_TEXT, "Subtitle")
+        }
 
-    fun audioTracks(): List<TrackOption> = collectTracks(C.TRACK_TYPE_AUDIO, "Audio")
+    fun audioTracks(): List<TrackOption> =
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            emptyList()
+        } else {
+            collectTracks(C.TRACK_TYPE_AUDIO, "Audio")
+        }
 
     private fun collectTracks(
         @androidx.annotation.IntRange(from = 0) type: Int,
@@ -537,6 +747,7 @@ class PlayerHolder(
 
     /** Selects a text track, or disables text tracks entirely when null. */
     fun selectTextTrack(option: TrackOption?) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) return
         val builder = player.trackSelectionParameters.buildUpon()
         if (option == null) {
             builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -550,26 +761,30 @@ class PlayerHolder(
         player.trackSelectionParameters = builder.build()
     }
 
+    /** Outcome of the in-place audio recovery attempt. */
+    private sealed interface AudioRecovery {
+        /** Another decodable audio track was selected; playback continues. */
+        data class Switched(val note: String) : AudioRecovery
+
+        /** No decodable audio track exists in this stream for Media3. */
+        data object NoAudioPath : AudioRecovery
+
+        /** Recovery not applicable (no tracks yet / budget exhausted). */
+        data object NotHandled : AudioRecovery
+    }
+
     /**
-     * Capability-aware audio recovery after a decoder failure.
-     *
-     * Order of recourse (audio failures stay AUDIO failures — the video
-     * keeps playing whenever it can):
-     *  1. another audio track that is decodable on this device
-     *     (preferred: the failed track's language, then channels, then
-     *     bitrate) — each track is tried at most once, the whole chain
-     *     is capped, so nothing hammers the server;
-     *  2. if and only if NO decodable audio track exists: muted video
-     *     as the final fallback, with the real reason stated.
-     *
-     * Returns the user-visible note when playback continues, or null
-     * when this failure was not handled here (the caller surfaces it
-     * through the normal error path).
+     * Capability-aware audio recovery after a decoder failure: switch to
+     * the best decodable audio track (preferred: the failed track's
+     * language, then channels, then bitrate) — each track at most once,
+     * the chain capped. Muting is NOT decided here; the caller decides
+     * via [EngineEscalationPolicy] (engine first, mute only as the final
+     * legitimate fallback).
      */
-    private fun tryAudioTrackFallback(failedMimeType: String?): String? {
+    private fun tryAudioTrackFallback(failedMimeType: String?): AudioRecovery {
         val candidates = audioCandidates()
-        if (candidates.isEmpty()) return null
-        if (audioFallbackAttempts >= MAX_AUDIO_FALLBACK_ATTEMPTS) return null
+        if (candidates.isEmpty()) return AudioRecovery.NotHandled
+        if (audioFallbackAttempts >= MAX_AUDIO_FALLBACK_ATTEMPTS) return AudioRecovery.NotHandled
 
         val failedMime = failedMimeType?.lowercase()
         if (failedMime != null) {
@@ -589,26 +804,13 @@ class PlayerHolder(
         audioFallbackAttempts++
 
         if (next == null) {
-            // Final fallback: video-only playback. Muting is only ever
-            // reached when no decodable audio track exists at all.
-            player.trackSelectionParameters = player.trackSelectionParameters
-                .buildUpon()
-                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
-                .build()
-            val missing = friendlyCodecName(failedMime) ?: "audio track"
-            diagnostics = diagnostics.copy(
-                audioMimeType = failedMime ?: diagnostics.audioMimeType,
-                fallbackAttempts = diagnostics.fallbackAttempts +
-                    "audio disabled — no decodable audio track (missing decoder: $failedMime)"
-            )
-            resumePlaybackAtCurrentPosition()
-            return "Playing the video without audio — this device has no decoder for that $missing track, " +
-                "and the stream offers no alternative audio."
+            return AudioRecovery.NoAudioPath
         }
 
         attemptedAudioTrackKeys.add(next.key)
         autoAudioOverrideKey = next.key
-        val group = player.currentTracks.groups.getOrNull(next.groupIndex) ?: return null
+        val group = player.currentTracks.groups.getOrNull(next.groupIndex)
+            ?: return AudioRecovery.NotHandled
         player.trackSelectionParameters = player.trackSelectionParameters
             .buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
@@ -622,8 +824,39 @@ class PlayerHolder(
         )
         resumePlaybackAtCurrentPosition()
         val fromName = friendlyCodecName(failedMime) ?: "the failed"
-        return "Audio switched to ${next.summary} — this device can't decode $fromName audio."
+        return AudioRecovery.Switched(
+            "Audio switched to ${next.summary} — this device can't decode $fromName audio."
+        )
     }
+
+    /**
+     * The FINAL audio fallback: muted video. Reached only when no
+     * decodable audio track exists in Media3 AND the libmpv engine is
+     * unavailable or has already failed — never as a shortcut.
+     */
+    private fun muteAudioAsFinalFallback(failedMimeType: String?): String {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build()
+        val missing = friendlyCodecName(failedMimeType?.lowercase()) ?: "audio track"
+        diagnostics = diagnostics.copy(
+            audioMimeType = failedMimeType?.lowercase() ?: diagnostics.audioMimeType,
+            fallbackAttempts = diagnostics.fallbackAttempts +
+                "audio disabled — no decodable audio track on any engine (missing decoder: $failedMimeType)"
+        )
+        resumePlaybackAtCurrentPosition()
+        return "Playing the video without audio — this device has no decoder for that $missing track, " +
+            "and the stream offers no alternative audio."
+    }
+
+    /** Current engine-escalation facts for the ladder decision. */
+    private fun escalationState(): EngineEscalationPolicy.State =
+        EngineEscalationPolicy.State(
+            mpvAvailable = mpvEngine().isAvailable(),
+            mpvAttempted = engineEscalationAttempted,
+            mpvFailed = mpvFailed
+        )
 
     /** Re-prepares the current media from where it failed (never from 0). */
     private fun resumePlaybackAtCurrentPosition() {
@@ -752,6 +985,7 @@ class PlayerHolder(
     }
 
     fun selectAudioTrack(option: TrackOption) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) return
         val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
         userSelectedAudio = true
         player.trackSelectionParameters = player.trackSelectionParameters
@@ -761,7 +995,27 @@ class PlayerHolder(
             .build()
     }
 
+    // -------------------------------------------------------------
+    // libmpv surface binding (called by the player UI)
+    // -------------------------------------------------------------
+
+    /** Binds an Android Surface to the libmpv engine (engine switch or recreation). */
+    fun attachMpvSurface(surface: android.view.Surface) {
+        mpvEngine?.attachSurface(surface)
+    }
+
+    /** Hands the Surface back before it is destroyed (rotation/background). */
+    fun detachMpvSurface() {
+        mpvEngine?.detachSurface()
+    }
+
+    /** Notifies libmpv of surface size changes. */
+    fun updateMpvSurfaceSize(width: Int, height: Int) {
+        mpvEngine?.updateSurfaceSize(width, height)
+    }
+
     fun release() {
+        teardownMpvEngine()
         headersByUrl.clear()
         sessionHeaders.clear()
         try {

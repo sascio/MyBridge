@@ -121,6 +121,15 @@ dependencies {
     // reuse, app user-agent, cross-protocol redirects, per-stream headers.
     implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
 
+    // libmpv fallback backend (the software-decoding tier): real libmpv +
+    // FFmpeg (LGPL-3.0 build: --disable-gpl --enable-version3, with dav1d
+    // AV1 decode, MediaCodec and mbedtls TLS) with the MIT-licensed
+    // is.xyz.mpv JNI bindings — the same binding family the reference
+    // app uses. Published on Maven Central; no NDK build required.
+    // Handles the codecs device MediaCodec cannot decode (E-AC-3, DTS
+    // family, TrueHD, HEVC/AV1 on capable-less devices).
+    implementation("io.github.wohal:mpv-android-lib:0.2.4")
+
     // Persistence
     implementation("androidx.room:room-runtime:2.8.4")
     implementation("androidx.room:room-ktx:2.8.4")

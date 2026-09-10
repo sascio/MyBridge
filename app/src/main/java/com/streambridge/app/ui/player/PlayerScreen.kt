@@ -83,6 +83,7 @@ import com.streambridge.app.addon.model.StreamOption
 import com.streambridge.app.core.TimeFormat
 import com.streambridge.app.di.AppContainer
 import com.streambridge.app.player.PlayerEvent
+import com.streambridge.app.player.PlayerHolder
 import com.streambridge.app.player.PlayerPhase
 import com.streambridge.app.player.PlayerViewModel
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -189,24 +190,32 @@ fun PlayerScreen(
             .background(Color.Black)
     ) {
         // Video surface is present whenever we are playing or picking.
+        // The surface follows the ACTIVE playback engine: media3 renders
+        // through PlayerView; after an engine switch libmpv renders into
+        // its own SurfaceView. Controls and overlays are shared.
+        val activeEngine by vm.holder.activeEngine.collectAsStateWithLifecycle()
         if (phase is PlayerPhase.Playing || phase is PlayerPhase.Picking) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        setUseController(false)
-                        this.player = vm.holder.player
-                    }
-                },
-                update = { playerView ->
-                    playerView.player = vm.holder.player
-                    // Subtitle text scale from settings.
-                    val scale = vm.subtitleScale
-                    playerView.subtitleView?.setFractionalTextSize(
-                        androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * scale
-                    )
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            if (activeEngine == PlayerHolder.PlaybackEngine.LIBMPV) {
+                LibMpvVideoSurface(holder = vm.holder, modifier = Modifier.fillMaxSize())
+            } else {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            setUseController(false)
+                            this.player = vm.holder.player
+                        }
+                    },
+                    update = { playerView ->
+                        playerView.player = vm.holder.player
+                        // Subtitle text scale from settings.
+                        val scale = vm.subtitleScale
+                        playerView.subtitleView?.setFractionalTextSize(
+                            androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * scale
+                        )
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
         when (val p = phase) {
@@ -457,7 +466,7 @@ private fun PlayerControls(
                         totalX = 0f
                         totalY = 0f
                         startX = offset.x
-                        seekFrom = vm.holder.player.currentPosition.coerceAtLeast(0L)
+                        seekFrom = vm.holder.currentPositionOrZero()
                         startBrightness = activityWindow()?.attributes?.screenBrightness
                             ?.takeIf { it >= 0f } ?: 0.5f
                         startVolume = audioManager?.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) ?: 0
@@ -1309,4 +1318,47 @@ private fun Context.findActivity(): Activity? {
         context = context.baseContext
     }
     return null
+}
+
+/**
+ * libmpv video surface: a plain SurfaceView whose surface is handed to
+ * the active libmpv engine. Surface recreation (rotation, background/
+ * foreground, recomposition) re-attaches cleanly; the engine itself
+ * lives in the PlayerHolder and survives view changes. The shared
+ * controls/overlays of the player screen are drawn on top as usual.
+ */
+@Composable
+private fun LibMpvVideoSurface(holder: PlayerHolder, modifier: Modifier = Modifier) {
+    AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            android.view.SurfaceView(ctx).apply {
+                keepScreenOn = true
+                var attached = false
+                surfaceHolder.addCallback(object : android.view.SurfaceHolder.Callback {
+                    override fun surfaceCreated(h: android.view.SurfaceHolder) {
+                        holder.attachMpvSurface(h.surface)
+                        attached = true
+                    }
+
+                    override fun surfaceChanged(
+                        h: android.view.SurfaceHolder,
+                        format: Int,
+                        width: Int,
+                        height: Int
+                    ) {
+                        holder.updateMpvSurfaceSize(width, height)
+                    }
+
+                    override fun surfaceDestroyed(h: android.view.SurfaceHolder) {
+                        if (attached) {
+                            holder.detachMpvSurface()
+                            attached = false
+                        }
+                    }
+                })
+            }
+        },
+        onRelease = { holder.detachMpvSurface() }
+    )
 }

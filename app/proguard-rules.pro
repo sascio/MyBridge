@@ -18,3 +18,8 @@
 }
 
 # OkHttp, Coil, Media3, Room and Compose ship their own consumer rules.
+
+# libmpv JNI bindings: native code calls these Java methods by exact
+# name (eventProperty/event callbacks, external methods); they must
+# survive shrinking and obfuscation.
+-keep class is.xyz.mpv.** { *; }

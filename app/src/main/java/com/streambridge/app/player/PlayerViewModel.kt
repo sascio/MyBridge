@@ -438,7 +438,7 @@ class PlayerViewModel(
             return
         }
         _selectedExternalSubtitle.value = subtitle.subtitle.url
-        val position = holder.player.currentPosition.coerceAtLeast(0L)
+        val position = holder.currentPositionOrZero()
         holder.applyExternalSubtitles(
             url = url,
             positionMs = position,
@@ -457,7 +457,7 @@ class PlayerViewModel(
         val stream = activeStream ?: return
         val url = stream.url ?: return
         _selectedExternalSubtitle.value = null
-        val position = holder.player.currentPosition.coerceAtLeast(0L)
+        val position = holder.currentPositionOrZero()
         holder.applyExternalSubtitles(url, position, emptyList(), _playbackSpeed.value)
     }
 
@@ -527,9 +527,7 @@ class PlayerViewModel(
 
     /** Relative seek used by double-tap and skip-intro gestures. */
     fun seekBy(deltaMs: Long) {
-        val current = holder.player.currentPosition.coerceAtLeast(0L)
-        val duration = holder.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-        holder.seekTo((current + deltaMs).coerceIn(0L, duration))
+        holder.seekBy(deltaMs)
     }
 
     // -----------------------------------------------------------------

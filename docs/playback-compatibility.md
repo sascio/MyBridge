@@ -89,21 +89,22 @@ software decoding, then a second backend, no blind dependencies):
    cascade and full-request-context headers are implemented and unit-
    tested (see §3). This tier is what makes "device CAN decode it" and
    "StreamBridge fails" stop happening.
-2. **Software decoding (tier 2) — architecture in place, artifacts not
-   bundled.** Media3 extension decoders are not published on Maven; the
-   reference app vendors NDK-built AARs. Building/hosting those binaries
-   requires NDK infrastructure and real-device validation, which this
-   sandbox does not have (see §5) — adding them blind would violate the
-   task's own constraints. StreamBridge already wires the slot:
-   `SoftwareDecoderExtensions` detects bundled extension renderers and
-   `DefaultRenderersFactory` enables them automatically the day they are
-   added to the build (no code change needed).
-3. **libmpv (tier 3) — same conclusion.** A heavy native dependency with
-   licensing and device-validation requirements; not added blind. The
-   `PlaybackBackend`/`PlaybackBackendSelector` contract is the plug-in
-   point: a libmpv backend registers itself and wins exactly when media3
-   reports the format unsupported — capability-based, never
-   provider-based.
+2. **Software decoding (tier 2) — NOT bundled.** Media3 extension
+   decoders are not published on Maven; the reference app vendors
+   NDK-built AARs. The only published prebuilt (Jellyfin's
+   `org.jellyfin.media3:media3-ffmpeg-decoder`) is **GPL-3.0** — rejected
+   for this MIT-licensed project. The wiring slot stays
+   (`SoftwareDecoderExtensions` + `EXTENSION_RENDERER_MODE_ON`) for a
+   future LGPL build.
+3. **libmpv (tier 3) — BUNDLED AND INTEGRATED.** Real libmpv fallback
+   engine shipped as `io.github.wohal:mpv-android-lib:0.2.4` (Maven
+   Central; the mpvKt lineage of the same `is.xyz.mpv` binding family the
+   reference app uses). libmpv + FFmpeg n8.0 built **LGPL-3.0**
+   (`--disable-gpl --enable-version3`) with dav1d (AV1), MediaCodec
+   access and mbedtls TLS — license-compatible with the MIT app via
+   dynamic .so linking (attribution + source offer obligations apply to
+   the LGPL binaries). ABIs: armeabi-v7a, arm64-v8a, x86, x86_64.
+   See §3a for the integration details and §5 for validation status.
 
 ## 3. StreamBridge playback architecture (as implemented)
 
@@ -111,14 +112,57 @@ software decoding, then a second backend, no blind dependencies):
 PlayerViewModel (PlaybackController role)
   ├─ PlaybackPlanning      → URL + per-source headers + container MIME
   ├─ PlaybackBackendSelector ──► Media3PlaybackBackend (primary)
-  │                            └► [future software/libmpv backend]
-  └─ PlayerHolder (media3 backend)
-       ├─ PlaybackCapabilities ← MediaCodecDecoderRegistry (device query)
-       ├─ AudioTrackPolicy     → capability-aware audio selection/recovery
-       ├─ PlaybackFailureClassifier → 10 clean categories
+  └─ PlayerHolder (engine controller)
+       ├─ MEDIA3: ExoPlayer
+       │    ├─ PlaybackCapabilities ← MediaCodecDecoderRegistry (device query)
+       │    ├─ AudioTrackPolicy     → capability-aware audio selection/recovery
+       │    └─ PlaybackFailureClassifier → 10 clean categories
+       ↓ on failure with no in-place recovery (EngineEscalationPolicy)
+       LIBMPV: LibMpvEngine (software decoding; one attempt per stream)
+       ↓ if libmpv also fails
+       bounded alternate source (once per source, per session)
        └─ PlaybackDiagnostics  → redacted structured facts (host only,
-                                header names only, class-name causes)
+                                header names only, class-name causes,
+                                engine transitions recorded)
 ```
+
+### 3a. libmpv fallback engine (the real tier)
+
+- **Artifact**: `io.github.wohal:mpv-android-lib:0.2.4` — AAR with the
+  `is.xyz.mpv` JNI bindings (MIT) and libmpv+FFmpeg `.so` for
+  armeabi-v7a/arm64-v8a/x86/x86_64 (LGPL-3.0 FFmpeg build with dav1d,
+  mediacodec, mbedtls; MIT bindings). Selected over alternatives
+  (`dev.jdtech.mpv:libmpv`, `io.github.abdallahmehiz:mpv-android-lib`,
+  self-building with the NDK) because it is on Maven Central, actively
+  maintained (mpvKt, 2026), license-clean for an MIT app, and uses the
+  exact binding API the reference app (Nuvio) uses.
+- **Invocation**: `PlayerHolder` escalates on a Media3 failure the
+  in-place recovery cannot fix — `EngineEscalationPolicy` decides
+  (ESCALATE_TO_LIBMPV / MUTE_AUDIO / FAIL_SOURCE), one engine switch per
+  stream, never provider-based. Media3 is stopped (codecs released), the
+  position is preserved via mpv's per-file `start` option.
+- **Request context**: User-Agent → mpv `user-agent`; Referer/Origin/
+  Cookie/custom headers → `http-header-fields` with mpv list escaping —
+  applies to the media request, HLS/DASH manifests and segments, and
+  redirects (mpv applies options to every request of the file).
+- **Configuration**: `vo=gpu` into the player's SurfaceView,
+  `hwdec=auto` (hardware first, software fallback — the point of the
+  tier), `tls-verify=yes` with the bundled CA store, 64 MB demuxer cache,
+  `keep-open`, `msg-level=all=warn`, `audio-fallback-to-null`.
+- **Surface**: shared player UI renders `LibMpvVideoSurface` (SurfaceView)
+  instead of media3's PlayerView when the engine is LIBMPV; rotation and
+  background/foreground re-attach the surface cleanly; the engine lives
+  in PlayerHolder, not the view.
+- **Native safety**: one dedicated dispatcher thread per engine; event
+  observers never call back into mpv; every native call guarded; engine
+  destroyed (and recreated fresh) per escalation and per stream; release
+  is idempotent.
+- **Subtitles**: unchanged (out of scope). Embedded subtitle tracks play
+  through mpv natively; external side-loaded subtitles are not wired to
+  mpv yet (known limitation).
+- **Security**: providers never reach MPVLib — only the validated URL
+  and sanitized headers from the playback pipeline do; no shell, no
+  filesystem, no arbitrary native execution surface is exposed.
 
 Key behaviors:
 
@@ -198,8 +242,12 @@ software-decoding tier.
 | Claim | Verified by |
 |---|---|
 | Capability layers (registry, audio policy, diagnostics, backend selector) compile and behave per contract | CI unit tests (this branch) |
+| Engine ladder decisions (escalate / mute / fail, one switch per stream) | CI unit tests (EngineEscalationPolicyTest) |
+| libmpv request-context translation (UA, headers, comma escaping, start position) | CI unit tests (MpvRequestOptionsTest) |
+| libmpv binary is inside the built APK and the build is not broken | CI assembles debug + release APK with the dependency |
 | No codec blacklist / no provider-specific rule exists | Code + tests |
 | Redaction (no cookies/tokens/signed URLs in diagnostics) | CI unit tests |
-| Player wiring (track recovery, per-stream reset, buffering profile) | Code review + CI build; **needs device run (§5)** |
+| Player wiring (engine escalation, mpv surface, routing) | Code review + CI build; **needs device run (§5)** |
 | Nuvio comparison facts | Read from NuvioMobile `cmp-rewrite` source directly |
+| libmpv actually PLAYS a real media URL end-to-end | **NOT yet verified — no device in CI; run §5** |
 | "Plays what Nuvio plays" on a real device | **NOT yet verified — no device in CI** |
