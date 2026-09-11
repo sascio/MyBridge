@@ -32,8 +32,9 @@ repositories yourself. Optional TMDB, MDBList, Trakt, and Simkl stay
 
 Output: `androidApp/build/outputs/apk/full/debug/`
 
-Release APKs from CI are **debug-signed** when no upload keystore is
-configured. That is not production signing. See
+Branch CI APKs are **debug-signed compile artifacts**, not production.
+A production GitHub Release is a **manual draft** and **fails** unless
+upload-keystore GitHub Secrets are set. See
 [docs/SIGNING.md](docs/SIGNING.md).
 
 ```bash

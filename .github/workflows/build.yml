@@ -39,18 +39,37 @@ jobs:
           set -o pipefail
           ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee gradle-build.log
 
+      - name: Record that CI release APKs are not production
+        run: |
+          set -euo pipefail
+          mkdir -p signing-status
+          cat > signing-status/CI-NOT-PRODUCTION.txt <<'EOF'
+          These GitHub Actions artifacts are compile-validation APKs.
+
+          This workflow does not inject production keystore secrets.
+          assembleFullRelease therefore uses the debug signing config.
+
+          Do not publish these APKs as GitHub Releases and do not install
+          them as in-app updates over a production-signed build.
+
+          Production drafts: .github/workflows/release-draft.yml
+          See docs/SIGNING.md
+          EOF
+
       - name: Upload full debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: Stream-Bridge-full-debug-APK
+          name: Stream-Bridge-CI-full-debug-APK
           path: androidApp/build/outputs/apk/full/debug/*.apk
           if-no-files-found: error
 
-      - name: Upload full release APK
+      - name: Upload full release APK (debug-signed, not production)
         uses: actions/upload-artifact@v4
         with:
-          name: Stream-Bridge-full-release-APK
-          path: androidApp/build/outputs/apk/full/release/*.apk
+          name: Stream-Bridge-CI-full-release-APK-not-production
+          path: |
+            androidApp/build/outputs/apk/full/release/*.apk
+            signing-status/CI-NOT-PRODUCTION.txt
           if-no-files-found: error
 
       - name: Close resolved CI-failure issues

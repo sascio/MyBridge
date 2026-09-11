@@ -23,14 +23,41 @@ val localProps = Properties().apply {
     val propsFile = rootProject.file("local.properties")
     if (propsFile.exists()) propsFile.inputStream().use { load(it) }
 }
-val releaseStoreFile = localProps.getProperty("NUVIO_RELEASE_STORE_FILE")?.takeIf { it.isNotBlank() }
-val releaseStorePassword = localProps.getProperty("NUVIO_RELEASE_STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseKeyAlias = localProps.getProperty("NUVIO_RELEASE_KEY_ALIAS")?.takeIf { it.isNotBlank() }
-val releaseKeyPassword = localProps.getProperty("NUVIO_RELEASE_KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseKeystore = releaseStoreFile?.let(rootProject::file)
 fun envOrLocalProperty(key: String): String? =
     providers.environmentVariable(key).orNull?.trim()?.takeIf { it.isNotBlank() }
         ?: localProps.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
+
+fun isTruthyEnvOrLocal(key: String): Boolean =
+    when (envOrLocalProperty(key)?.lowercase()) {
+        "1", "true", "yes", "y", "on" -> true
+        else -> false
+    }
+
+fun resolveKeystoreFile(path: String): File? {
+    val asFile = File(path)
+    val resolved = if (asFile.isAbsolute) asFile else rootProject.file(path)
+    return resolved.takeIf { it.isFile }
+}
+
+val releaseStoreFilePath = envOrLocalProperty("NUVIO_RELEASE_STORE_FILE")
+val releaseStorePassword = envOrLocalProperty("NUVIO_RELEASE_STORE_PASSWORD")
+val releaseKeyAlias = envOrLocalProperty("NUVIO_RELEASE_KEY_ALIAS")
+val releaseKeyPassword = envOrLocalProperty("NUVIO_RELEASE_KEY_PASSWORD")
+val releaseKeystore = releaseStoreFilePath?.let(::resolveKeystoreFile)
+val hasCompleteReleaseSigning =
+    releaseKeystore != null &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+val requireProductionSigning = isTruthyEnvOrLocal("STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING")
+if (requireProductionSigning && !hasCompleteReleaseSigning) {
+    error(
+        "Production release requires NUVIO_RELEASE_STORE_FILE (existing keystore), " +
+            "NUVIO_RELEASE_STORE_PASSWORD, NUVIO_RELEASE_KEY_ALIAS, and " +
+            "NUVIO_RELEASE_KEY_PASSWORD via environment or local.properties. " +
+            "Debug-signed APKs are not production artifacts. See docs/SIGNING.md.",
+    )
+}
 
 val sentryAuthToken = envOrLocalProperty("SENTRY_AUTH_TOKEN")
 val sentryOrg = envOrLocalProperty("SENTRY_ORG")
@@ -58,12 +85,15 @@ android {
     compileSdkMinor = libs.versions.android.compileSdkMinor.get().toInt()
 
     signingConfigs {
-        create("release") {
-            if (releaseKeystore != null && releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null) {
+        if (hasCompleteReleaseSigning) {
+            create("release") {
                 storeFile = releaseKeystore
                 storePassword = releaseStorePassword
                 keyAlias = releaseKeyAlias
                 keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -116,7 +146,7 @@ android {
         abi {
             // Per-ABI split only when a real release keystore is present.
             // CI (debug-signed) ships one universal APK.
-            isEnable = buildsReleaseApks && releaseKeystore != null
+            isEnable = buildsReleaseApks && hasCompleteReleaseSigning
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             isUniversalApk = false
@@ -134,7 +164,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "../composeApp/proguard-rules.pro",
             )
-            signingConfig = if (releaseKeystore != null) {
+            signingConfig = if (hasCompleteReleaseSigning) {
                 signingConfigs.getByName("release")
             } else {
                 signingConfigs.getByName("debug")

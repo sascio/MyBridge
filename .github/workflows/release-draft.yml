@@ -1,22 +1,23 @@
-name: Draft GitHub Release APK
+name: Draft production GitHub Release
 
-# Manual only. Publishes a *draft* GitHub Release with the Nuvio-full APK so
-# the in-app updater (GitHub Releases, not Actions artifacts) has a source.
-# Never auto-publishes. Signing: see docs/SIGNING.md.
+# Manual only. Never runs on branch push. Never publishes (draft only).
+# Fails closed unless production upload-keystore GitHub Secrets are set.
+# See docs/SIGNING.md. Do not use CI debug-signed APKs as updates.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching StreamBridge versionName (e.g. 0.5.0)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.01)
         required: true
         type: string
+        default: "0.1.01"
 
 permissions:
   contents: write
 
 jobs:
   draft:
-    name: Build full release APK and open a draft
+    name: Production-signed full APK draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +32,83 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Assemble full release
+      - name: Require production signing secrets
+        env:
+          NUVIO_RELEASE_STORE_BASE64: ${{ secrets.NUVIO_RELEASE_STORE_BASE64 }}
+          NUVIO_RELEASE_STORE_PASSWORD: ${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
+          NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
+          NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in NUVIO_RELEASE_STORE_BASE64 NUVIO_RELEASE_STORE_PASSWORD NUVIO_RELEASE_KEY_ALIAS NUVIO_RELEASE_KEY_PASSWORD; do
+            if [ -z "${!var}" ]; then
+              echo "::error::$var GitHub secret is not set. Production release cannot proceed. See docs/SIGNING.md."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Verify tag matches StreamBridge version
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version_name="$(grep '^STREAMBRIDGE_VERSION_NAME=' streambridge.version.properties | cut -d= -f2 | tr -d '\r')"
+          tag="${TAG#v}"
+          if [ "$tag" != "$version_name" ]; then
+            echo "::error::Release tag must match STREAMBRIDGE_VERSION_NAME ($version_name). Got $TAG."
+            exit 1
+          fi
+
+      - name: Decode upload keystore
+        env:
+          NUVIO_RELEASE_STORE_BASE64: ${{ secrets.NUVIO_RELEASE_STORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$NUVIO_RELEASE_STORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/upload.jks"
+          test -s "$RUNNER_TEMP/signing/upload.jks"
+
+      - name: Assemble production full release
+        env:
+          NUVIO_RELEASE_STORE_FILE: ${{ runner.temp }}/signing/upload.jks
+          NUVIO_RELEASE_STORE_PASSWORD: ${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
+          NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
+          NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
+          STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING: "true"
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
+
+      - name: Reject debug certificates and record public cert identity
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(androidApp/build/outputs/apk/full/release/*.apk)
+          if [ "${#apks[@]}" -eq 0 ]; then
+            echo "::error::No full/release APKs were produced."
+            exit 1
+          fi
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          apksigner=""
+          if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
+            apksigner="$(find "$sdk/build-tools" -name apksigner -type f | sort | tail -n 1)"
+          fi
+          if [ -z "$apksigner" ]; then
+            echo "::error::apksigner not found under $sdk/build-tools. Cannot verify production signature."
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            echo "Verifying $apk"
+            certs="$("$apksigner" verify --print-certs "$apk")"
+            printf '%s\n' "$certs"
+            if printf '%s\n' "$certs" | grep -Ei 'CN=Android Debug|Android Debug'; then
+              echo "::error::$apk is signed with the Android Debug certificate. Refusing to attach it to a release."
+              exit 1
+            fi
+          done
+          sha256sum "${apks[@]}" | tee checksums.sha256
 
       - name: Create draft GitHub Release
         env:
@@ -40,17 +116,18 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          apk="$(ls androidApp/build/outputs/apk/full/release/*.apk | head -n 1)"
-          test -n "$apk"
+          shopt -s nullglob
+          apks=(androidApp/build/outputs/apk/full/release/*.apk)
+          test "${#apks[@]}" -gt 0
           notes="$(mktemp)"
           cat > "$notes" <<EOF
           StreamBridge ${TAG}
 
-          Based on NuvioMobile $(grep NUVIO_UPSTREAM_RELEASE= streambridge.version.properties | cut -d= -f2) ($(grep NUVIO_UPSTREAM_COMMIT= streambridge.version.properties | cut -d= -f2)).
+          Based on NuvioMobile $(grep '^NUVIO_UPSTREAM_RELEASE=' streambridge.version.properties | cut -d= -f2) ($(grep '^NUVIO_UPSTREAM_COMMIT=' streambridge.version.properties | cut -d= -f2)).
 
-          Draft only — publish after device validation. In-app updates require a stable signing certificate (docs/SIGNING.md).
+          Draft only — publish after device validation. In-app updates require this production certificate (docs/SIGNING.md). CI debug-signed APKs are not updates.
           EOF
-          gh release create "$TAG" "$apk" \
+          gh release create "$TAG" "${apks[@]}" checksums.sha256 \
             --draft \
             --title "StreamBridge ${TAG}" \
             --notes-file "$notes"

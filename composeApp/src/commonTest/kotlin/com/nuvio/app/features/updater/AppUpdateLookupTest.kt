@@ -60,6 +60,20 @@ class AppUpdateLookupTest {
     }
 
     @Test
+    fun rejects_http_apk_assets() {
+        val selected = AppUpdateReleaseSelector.chooseBestApkAsset(
+            assets = listOf(
+                AppUpdateAssetCandidate(
+                    name = "StreamBridge-arm64-v8a.apk",
+                    browserDownloadUrl = "http://evil.example/StreamBridge.apk",
+                ),
+            ),
+            supportedAbis = arm64Abis,
+        )
+        assertEquals(null, selected)
+    }
+
+    @Test
     fun prefers_matching_abi_apk_over_universal() {
         val selected = AppUpdateReleaseSelector.chooseBestApkAsset(
             assets = listOf(

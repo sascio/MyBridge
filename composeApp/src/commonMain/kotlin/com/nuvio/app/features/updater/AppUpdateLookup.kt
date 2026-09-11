@@ -77,8 +77,9 @@ internal object AppUpdateReleaseSelector {
         supportedAbis: List<String>,
     ): AppUpdateAssetCandidate? {
         val apkAssets = assets.filter { asset ->
-            asset.name.endsWith(".apk", ignoreCase = true) ||
+            val isApk = asset.name.endsWith(".apk", ignoreCase = true) ||
                 asset.contentType == "application/vnd.android.package-archive"
+            isApk && asset.browserDownloadUrl.startsWith("https://", ignoreCase = true)
         }
         if (apkAssets.isEmpty()) return null
         if (apkAssets.size == 1) return apkAssets.first()

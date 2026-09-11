@@ -61,6 +61,9 @@ object AndroidAppUpdaterPlatform {
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
+            require(assetUrl.startsWith("https://", ignoreCase = true)) {
+                "Update APK URL must use HTTPS"
+            }
             val context = requireContext()
             val safeName = assetName.replace(Regex("[^a-zA-Z0-9._-]"), "_")
             val destination = File(File(context.cacheDir, "updates"), safeName)
