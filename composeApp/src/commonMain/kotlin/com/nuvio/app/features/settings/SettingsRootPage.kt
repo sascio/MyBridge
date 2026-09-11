@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
@@ -26,9 +27,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
+import com.nuvio.app.StreamBridgeBrandLockup
 import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_about_version_format
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_advanced
@@ -268,19 +269,21 @@ internal fun LazyListScope.settingsRootContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = if (isTablet) 16.dp else 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             val creditStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
             val creditColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
-            Text(
-                text = stringResource(Res.string.app_brand_name),
-                modifier = Modifier.fillMaxWidth(),
-                style = creditStyle,
-                color = creditColor,
-                textAlign = TextAlign.Center,
+            StreamBridgeBrandLockup(
+                markSize = 22.dp,
+                nameFontSize = 15.sp,
+                nameFontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                nameColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                showTagline = false,
             )
             Text(
                 text = stringResource(Res.string.streambridge_credits_based_on),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 style = creditStyle,
                 color = creditColor,
                 textAlign = TextAlign.Center,

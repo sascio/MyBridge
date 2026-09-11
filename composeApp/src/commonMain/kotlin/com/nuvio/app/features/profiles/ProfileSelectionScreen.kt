@@ -60,7 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioAsyncImage
 import com.nuvio.app.features.membership.CosmeticEntitlement
-import com.nuvio.app.features.settings.AppBrandWordmark
+import com.nuvio.app.StreamBridgeBrandLockup
 import com.nuvio.app.features.settings.SupporterBadgeIfPresent
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -154,16 +154,17 @@ fun ProfileSelectionScreen(
                 // wordmark and the Supporter badge next to it both stay fully visible through the
                 // tap→center transition, while everything underneath fades away.
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AppBrandWordmark(
-                        modifier = Modifier
-                            .height(if (isTabletLayout) 42.dp else 34.dp)
-                            .graphicsLayer {
-                                alpha = titleAlpha.value
-                                translationY = titleOffset.value
-                            },
+                    StreamBridgeBrandLockup(
+                        modifier = Modifier.graphicsLayer {
+                            alpha = titleAlpha.value
+                            translationY = titleOffset.value
+                        },
+                        markSize = if (isTabletLayout) 36.dp else 28.dp,
+                        nameFontSize = if (isTabletLayout) 22.sp else 18.sp,
+                        showTagline = false,
                     )
                     SupporterBadgeIfPresent(
-                        height = if (isTabletLayout) 42.dp else 34.dp,
+                        height = if (isTabletLayout) 36.dp else 28.dp,
                         modifier = Modifier.graphicsLayer {
                             alpha = titleAlpha.value
                             translationY = titleOffset.value

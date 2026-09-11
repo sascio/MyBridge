@@ -87,7 +87,7 @@ import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.DeviceLinkAuthRepository
 import com.nuvio.app.core.auth.DeviceLinkAuthState
 import com.nuvio.app.core.build.AppFeaturePolicy
-import com.nuvio.app.features.settings.AppBrandWordmark
+import com.nuvio.app.StreamBridgeBrandLockup
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.PI
@@ -106,8 +106,8 @@ import nuvio.composeapp.generated.resources.compose_auth_sign_in_subtitle
 import nuvio.composeapp.generated.resources.compose_auth_sign_up
 import nuvio.composeapp.generated.resources.compose_auth_sign_up_subtitle
 import nuvio.composeapp.generated.resources.compose_auth_store_locally
-import nuvio.composeapp.generated.resources.compose_auth_tagline
 import nuvio.composeapp.generated.resources.compose_auth_terms_link
+import nuvio.composeapp.generated.resources.streambridge_tagline
 import nuvio.composeapp.generated.resources.compose_auth_terms_prefix
 import nuvio.composeapp.generated.resources.compose_auth_welcome_back
 import org.jetbrains.compose.resources.stringResource
@@ -536,13 +536,17 @@ private fun AuthLargeLayout(
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.Start,
         ) {
-            AppBrandWordmark(
+            StreamBridgeBrandLockup(
+                markSize = 52.dp * scale,
+                nameFontSize = (28f * scale).sp,
+                nameColor = AuthTextPrimary,
+                showTagline = false,
+                horizontalAlignment = Alignment.Start,
                 contentDescription = null,
-                modifier = Modifier.height(60.dp * scale),
             )
             Spacer(modifier = Modifier.height(32.dp * scale))
             Text(
-                text = stringResource(Res.string.compose_auth_tagline),
+                text = stringResource(Res.string.streambridge_tagline),
                 modifier = Modifier.widthIn(max = 440.dp * scale),
                 style = MaterialTheme.typography.displayLarge.copy(
                     color = AuthTextPrimary,
@@ -633,24 +637,15 @@ private fun AuthLargeLayout(
 private fun AuthBrandLockup(
     logoHeight: Dp,
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        AppBrandWordmark(
-            contentDescription = null,
-            modifier = Modifier.height(logoHeight),
-        )
-        Spacer(modifier = Modifier.height(14.dp))
-        Text(
-            text = stringResource(Res.string.compose_auth_tagline),
-            style = MaterialTheme.typography.bodyMedium.copy(
-                color = AuthTextSecondary,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Normal,
-            ),
-        )
-    }
+    StreamBridgeBrandLockup(
+        markSize = logoHeight,
+        nameFontSize = 22.sp,
+        nameColor = AuthTextPrimary,
+        showTagline = true,
+        taglineFontSize = 14.sp,
+        taglineColor = AuthTextSecondary,
+        contentDescription = null,
+    )
 }
 
 @Composable
