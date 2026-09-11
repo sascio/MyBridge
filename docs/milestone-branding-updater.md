@@ -88,5 +88,9 @@ See [UPSTREAM-SYNC.md](UPSTREAM-SYNC.md).
 
 ## Build / device
 
-Recorded after CI. Device install, launch, playback, addons, and updater
-download/install are **UNVERIFIED** here.
+GitHub Actions `Build Stream Bridge` run **34648085532**
+(`:androidApp:assembleFullDebug` + `assembleFullRelease`) **SUCCESS**
+in about 8 minutes.
+
+Device install, launch, playback, addons, and updater download/install
+are **UNVERIFIED** here.
