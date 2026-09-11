@@ -40,6 +40,12 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val sentryEnvironment: Property<String>
 
+    @get:Input
+    abstract val nuvioUpstreamRelease: Property<String>
+
+    @get:Input
+    abstract val nuvioUpstreamCommit: Property<String>
+
     @TaskAction
     fun generate() {
         val props = Properties()
@@ -156,6 +162,8 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |object AppVersionConfig {
                 |    const val VERSION_NAME = "${appVersionName.get()}"
                 |    const val VERSION_CODE = ${appVersionCode.get()}
+                |    const val NUVIO_UPSTREAM_RELEASE = "${nuvioUpstreamRelease.get()}"
+                |    const val NUVIO_UPSTREAM_COMMIT = "${nuvioUpstreamCommit.get()}"
                 |}
                 """.trimMargin()
             )
@@ -206,11 +214,18 @@ val supabaseProps = Properties().apply {
     if (propsFile.exists()) propsFile.inputStream().use { load(it) }
 }
 val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconfig")
-val releaseAppVersionName = readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
+val streamBridgeVersionFile = rootProject.file("streambridge.version.properties")
+val streamBridgeProps = Properties().apply {
+    if (streamBridgeVersionFile.exists()) streamBridgeVersionFile.inputStream().use(::load)
+}
+val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+    ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
-val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
-    ?.toIntOrNull()
+val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
+    ?: readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+val nuvioUpstreamReleaseValue = streamBridgeProps.getProperty("NUVIO_UPSTREAM_RELEASE")?.trim().orEmpty()
+val nuvioUpstreamCommitValue = streamBridgeProps.getProperty("NUVIO_UPSTREAM_COMMIT")?.trim().orEmpty()
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull
         ?: System.getenv("NUVIO_IOS_DISTRIBUTION")
@@ -287,13 +302,13 @@ fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
 val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generateRuntimeConfigs") {
     outputDir.set(generatedRuntimeConfigDir)
     val localPropsFile = rootProject.file("local.properties")
-    // Gradle 9 treats a set @Optional @InputFile as required-if-specified.
-    // Nuvio CI always has local.properties; StreamBridge CI does not.
     if (localPropsFile.isFile) {
         localPropertiesFile.set(localPropsFile)
     }
     appVersionName.set(releaseAppVersionName)
     appVersionCode.set(releaseAppVersionCode)
+    nuvioUpstreamRelease.set(nuvioUpstreamReleaseValue)
+    nuvioUpstreamCommit.set(nuvioUpstreamCommitValue)
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
@@ -438,6 +453,8 @@ kotlin {
         val androidHostTest by getting {
             dependencies {
                 implementation("org.robolectric:robolectric:4.16")
+                implementation("androidx.compose.ui:ui-test-junit4:${libs.versions.composeMultiplatform.get()}")
+                implementation("androidx.compose.ui:ui-test-manifest:${libs.versions.composeMultiplatform.get()}")
                 implementation("androidx.work:work-testing:${libs.versions.androidx.work.get()}")
                 implementation("com.squareup.okhttp3:mockwebserver:5.3.2")
             }
@@ -467,7 +484,6 @@ kotlin {
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
-            implementation(libs.compottie)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation(libs.androidx.savedstate)

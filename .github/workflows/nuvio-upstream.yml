@@ -1,0 +1,84 @@
+name: Nuvio upstream watch
+
+# Detect new NuvioMobile cmp-rewrite commits. Never auto-merge into production.
+on:
+  schedule:
+    - cron: "17 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    name: Compare NuvioMobile pin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout StreamBridge
+        uses: actions/checkout@v4
+
+      - name: Read pinned Nuvio commit
+        id: pin
+        run: |
+          set -euo pipefail
+          pin="$(grep -E '^NUVIO_UPSTREAM_COMMIT=' streambridge.version.properties | cut -d= -f2- | tr -d '[:space:]')"
+          rel="$(grep -E '^NUVIO_UPSTREAM_RELEASE=' streambridge.version.properties | cut -d= -f2- | tr -d '[:space:]')"
+          echo "commit=$pin" >> "$GITHUB_OUTPUT"
+          echo "release=$rel" >> "$GITHUB_OUTPUT"
+          echo "Pinned $rel @ $pin"
+
+      - name: Fetch latest NuvioMobile cmp-rewrite
+        id: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          json="$(gh api repos/NuvioMedia/NuvioMobile/commits/cmp-rewrite)"
+          sha="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')"
+          msg="$(printf '%s' "$json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"]["message"].splitlines()[0])')"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "message=$msg" >> "$GITHUB_OUTPUT"
+          echo "Latest cmp-rewrite $sha — $msg"
+
+      - name: Open tracking issue when upstream moved
+        if: steps.pin.outputs.commit != steps.upstream.outputs.sha
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pin = '${{ steps.pin.outputs.commit }}';
+            const rel = '${{ steps.pin.outputs.release }}';
+            const sha = '${{ steps.upstream.outputs.sha }}';
+            const msg = `${{ steps.upstream.outputs.message }}`.replace(/`/g, "'");
+            const title = 'Nuvio upstream available: ' + sha.slice(0, 12);
+            const marker = 'nuvio-upstream-' + sha;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            if (issues.some(i => (i.body || '').includes(marker))) {
+              core.info('Issue already open for ' + sha);
+              return;
+            }
+            const body = [
+              '<!-- ' + marker + ' -->',
+              'NuvioMobile `cmp-rewrite` has commits StreamBridge has not integrated.',
+              '',
+              '| | |',
+              '|---|---|',
+              '| StreamBridge pin | `' + pin + '` (' + rel + ') |',
+              '| Latest upstream | `' + sha + '` |',
+              '| Upstream subject | ' + msg + ' |',
+              '',
+              'Do **not** merge this automatically. Integrate on a review branch, keep StreamBridge branding/updater/applicationId, build `:androidApp:assembleFullDebug`, then merge only if playback-critical paths are unchanged or verified.',
+              '',
+              'Upstream: https://github.com/NuvioMedia/NuvioMobile/commit/' + sha,
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+            });

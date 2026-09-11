@@ -30,6 +30,8 @@ import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_about_made_with
 import nuvio.composeapp.generated.resources.compose_about_version_format
+import nuvio.composeapp.generated.resources.streambridge_based_on_nuvio
+import nuvio.composeapp.generated.resources.streambridge_tagline
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_advanced
 import nuvio.composeapp.generated.resources.compose_settings_page_appearance
@@ -275,7 +277,7 @@ internal fun LazyListScope.settingsRootContent(
                 )
             }
             Text(
-                text = stringResource(Res.string.compose_about_made_with),
+                text = stringResource(Res.string.streambridge_tagline),
                 modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -288,6 +290,23 @@ internal fun LazyListScope.settingsRootContent(
                     AppVersionConfig.VERSION_CODE,
                 ),
                 modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(
+                    Res.string.streambridge_based_on_nuvio,
+                    AppVersionConfig.NUVIO_UPSTREAM_RELEASE,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(Res.string.compose_about_made_with),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

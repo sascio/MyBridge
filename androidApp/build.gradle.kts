@@ -37,10 +37,15 @@ val sentryOrg = envOrLocalProperty("SENTRY_ORG")
 val sentryProject = envOrLocalProperty("SENTRY_PROJECT")
 val sentryMappingUploadEnabled = sentryAuthToken != null && sentryOrg != null && sentryProject != null
 val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconfig")
-val releaseAppVersionName = readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
+val streamBridgeProps = Properties().apply {
+    val f = rootProject.file("streambridge.version.properties")
+    if (f.exists()) f.inputStream().use(::load)
+}
+val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+    ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
-val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
-    ?.toIntOrNull()
+val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
+    ?: readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
 val buildsReleaseApks = requestedTaskNames.any {
@@ -103,6 +108,10 @@ android {
         }
     }
 
+    androidResources {
+        noCompress += "cvr"
+    }
+
     splits {
         abi {
             // Per-ABI split only when a real release keystore is present.
@@ -116,8 +125,11 @@ android {
 
     buildTypes {
         getByName("release") {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            val minifyRelease = providers.gradleProperty("releaseMinifyEnabled")
+                .map(String::toBooleanStrict)
+                .getOrElse(true)
+            isMinifyEnabled = minifyRelease
+            isShrinkResources = minifyRelease
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "../composeApp/proguard-rules.pro",

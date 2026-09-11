@@ -1,0 +1,56 @@
+name: Draft GitHub Release APK
+
+# Manual only. Publishes a *draft* GitHub Release with the Nuvio-full APK so
+# the in-app updater (GitHub Releases, not Actions artifacts) has a source.
+# Never auto-publishes. Signing: see docs/SIGNING.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag matching StreamBridge versionName (e.g. 0.5.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    name: Build full release APK and open a draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: Assemble full release
+        run: ./gradlew :androidApp:assembleFullRelease --stacktrace
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          apk="$(ls androidApp/build/outputs/apk/full/release/*.apk | head -n 1)"
+          test -n "$apk"
+          notes="$(mktemp)"
+          cat > "$notes" <<EOF
+          StreamBridge ${TAG}
+
+          Based on NuvioMobile $(grep NUVIO_UPSTREAM_RELEASE= streambridge.version.properties | cut -d= -f2) ($(grep NUVIO_UPSTREAM_COMMIT= streambridge.version.properties | cut -d= -f2)).
+
+          Draft only — publish after device validation. In-app updates require a stable signing certificate (docs/SIGNING.md).
+          EOF
+          gh release create "$TAG" "$apk" \
+            --draft \
+            --title "StreamBridge ${TAG}" \
+            --notes-file "$notes"

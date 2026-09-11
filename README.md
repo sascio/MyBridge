@@ -1,13 +1,18 @@
 # StreamBridge
 
+**Your Media, Your Way**
+
 A cinematic, addon- and plugin-driven media discovery and streaming
 client for Android.
 
-**StreamBridge is NuvioMobile core with StreamBridge branding.** The
-runnable app is official [NuvioMobile](https://github.com/NuvioMedia/NuvioMobile)
-(`cmp-rewrite` `e377942`, 0.4.15), GPL-3.0, plus identity overlays
-(name, applicationId, launcher mark). Kotlin packages stay
-`com.nuvio.app`.
+**StreamBridge is NuvioMobile core with StreamBridge branding and a
+Nuvio-style in-app updater.** The runnable app is official
+[NuvioMobile](https://github.com/NuvioMedia/NuvioMobile)
+(`cmp-rewrite` `465266d`, **0.4.16**), GPL-3.0. Kotlin packages stay
+`com.nuvio.app`. `applicationId` is `com.streambridge.app`.
+
+StreamBridge app version is **0.5.0** (see
+`streambridge.version.properties`). That is not Nuvio’s 0.4.16 tag.
 
 The app ships **completely empty** — no catalogs, no metadata, no
 streams, no providers. You add Stremio-compatible addons and
@@ -24,46 +29,35 @@ Trakt, and Simkl stay **unconfigured / off** unless you supply keys.
 ./gradlew :androidApp:assembleFullDebug
 ```
 
-That is the Nuvio **full** phone APK (plugins + P2P wiring + vendored
-decoder AARs). Output:
+Output: `androidApp/build/outputs/apk/full/debug/`
 
-```
-androidApp/build/outputs/apk/full/debug/
-```
-
-Release (debug-signed when no Nuvio release keystore is present):
+Release (debug-signed when no upload keystore is present — see
+[docs/SIGNING.md](docs/SIGNING.md)):
 
 ```bash
 ./gradlew :androidApp:assembleFullRelease
 ```
 
-Requirements: JDK 17+, Android SDK. Gradle wrapper 9.4.1.
+## Updates
 
-The old single-module `:app` client is quarantined under
-`legacy/streambridge-app/` and is **not** on the runtime or CI path.
-
-## Getting the APK
-
-1. Open the **Actions** tab
-2. Open the latest successful **Build Stream Bridge** run
-3. Download **`Stream-Bridge-full-debug-APK`** (or the release artifact)
-4. Install on Android 8.0+ (enable “install unknown apps” if asked)
-
-CI compiling an APK is **not** device playback proof.
-**REAL DEVICE VALIDATION REQUIRED.**
+In-app updates use **Nuvio’s updater UI**, pointed at
+**GitHub Releases of `sascio/MyBridge`**, never NuvioMedia releases.
+Settings → Check for updates. Production in-place updates need a stable
+signing certificate.
 
 ## Layout
 
 ```
 androidApp/     Nuvio Android host (applicationId com.streambridge.app)
-composeApp/     Nuvio KMP app, including PlayerEngine.android.kt and libs/*.aar
-iosApp/         Nuvio iOS project (version config is required by Gradle)
+composeApp/     Nuvio KMP app, including PlayerEngine.android.kt
+iosApp/         Nuvio iOS project (version config required by Gradle)
+branding/       StreamBridge logo sources
 legacy/         Pre-M1 StreamBridge client (disconnected)
-docs/           Audit, upstream pins, Milestone 1 report
+docs/           Pins, signing, upstream sync
 ```
 
 ## License
 
 **GPL-3.0** — see [LICENSE](LICENSE), [COPYING](COPYING), and
-[NOTICE](NOTICE). This is a GPL derivative of NuvioMobile, not an MIT
-reimplementation.
+[NOTICE](NOTICE). Based on NuvioMobile by NuvioMedia. StreamBridge
+includes modifications and additional functionality.
