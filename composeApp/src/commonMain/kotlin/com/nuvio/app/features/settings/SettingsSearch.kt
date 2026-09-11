@@ -114,6 +114,7 @@ internal fun settingsSearchEntries(
     val collectionsPage = stringResource(Res.string.collections_header)
     val tmdbPage = stringResource(Res.string.compose_settings_page_tmdb_enrichment)
     val mdbListPage = stringResource(Res.string.compose_settings_page_mdblist_ratings)
+    val omdbPage = stringResource(Res.string.compose_settings_page_omdb)
 
     val entries = mutableListOf<SettingsSearchEntry>()
 
@@ -237,6 +238,15 @@ internal fun settingsSearchEntries(
         category = generalCategory,
         icon = Icons.Rounded.CloudDownload,
         target = SettingsSearchTarget.Downloads,
+    )
+    addRow(
+        page = SettingsPage.Downloads,
+        key = "download-location",
+        title = stringResource(Res.string.settings_downloads_location_title),
+        description = stringResource(Res.string.compose_settings_root_downloads_description),
+        pageLabel = downloadsPage,
+        section = downloadsPage,
+        icon = Icons.Rounded.CloudDownload,
     )
     addPage(
         page = SettingsPage.Playback,
@@ -380,12 +390,21 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_appearance_section_display),
         icon = Icons.Rounded.Palette,
     )
+    addRow(
+        page = SettingsPage.Appearance,
+        key = "dynamic-artwork-background",
+        title = stringResource(Res.string.settings_appearance_dynamic_artwork_background),
+        description = stringResource(Res.string.settings_appearance_dynamic_artwork_background_description),
+        pageLabel = layoutPage,
+        section = stringResource(Res.string.settings_appearance_section_display),
+        icon = Icons.Rounded.Palette,
+    )
     if (liquidGlassNativeTabBarSupported) {
         addRow(
             page = SettingsPage.Appearance,
             key = "liquid-glass",
-            title = stringResource(Res.string.settings_appearance_liquid_glass),
-            description = stringResource(Res.string.settings_appearance_liquid_glass_description),
+            title = stringResource(Res.string.settings_appearance_tab_bar_behavior),
+            description = stringResource(NuvioTabBarBehavior.Default.descriptionRes),
             pageLabel = layoutPage,
             section = stringResource(Res.string.settings_appearance_section_display),
             icon = Icons.Rounded.Palette,
@@ -566,6 +585,11 @@ internal fun settingsSearchEntries(
                 "touch-gestures",
                 stringResource(Res.string.settings_playback_touch_gestures),
                 stringResource(Res.string.settings_playback_touch_gestures_description),
+            ),
+            PlaybackSearchRow(
+                "swipe-to-seek",
+                stringResource(Res.string.settings_playback_swipe_to_seek),
+                stringResource(Res.string.settings_playback_swipe_to_seek_description),
             ),
             PlaybackSearchRow("hold-speed", stringResource(Res.string.settings_playback_hold_speed)),
         ),
@@ -815,6 +839,13 @@ internal fun settingsSearchEntries(
         description = stringResource(Res.string.settings_integrations_mdblist_description),
         icon = Icons.Rounded.Link,
     )
+    addPage(
+        page = SettingsPage.Omdb,
+        key = "omdb",
+        title = omdbPage,
+        description = stringResource(Res.string.settings_integrations_omdb_description),
+        icon = Icons.Rounded.Link,
+    )
     val tmdbModulesSection = stringResource(Res.string.settings_tmdb_section_modules)
     listOf(
         PlaybackSearchRow("tmdb-enable", stringResource(Res.string.settings_tmdb_enable_enrichment), stringResource(Res.string.settings_tmdb_enable_enrichment_description), stringResource(Res.string.settings_tmdb_section_title)),
@@ -861,6 +892,20 @@ internal fun settingsSearchEntries(
             description = row.description,
             pageLabel = mdbListPage,
             section = row.sectionOverride ?: stringResource(Res.string.settings_mdb_section_title),
+            icon = Icons.Rounded.Link,
+        )
+    }
+
+    listOf(
+        PlaybackSearchRow("omdb-api-key", stringResource(Res.string.settings_omdb_personal_api_key), stringResource(Res.string.settings_omdb_enter_api_key), stringResource(Res.string.settings_omdb_section_title)),
+    ).forEach { row ->
+        addRow(
+            page = SettingsPage.Omdb,
+            key = row.key,
+            title = row.title,
+            description = row.description,
+            pageLabel = omdbPage,
+            section = row.sectionOverride ?: stringResource(Res.string.settings_omdb_section_title),
             icon = Icons.Rounded.Link,
         )
     }

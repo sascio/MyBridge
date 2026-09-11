@@ -38,6 +38,8 @@ data class DetailRoute(
     val type: String,
     val id: String,
     override val title: String? = null,
+    val initialSeasonNumber: Int? = null,
+    val initialEpisodeNumber: Int? = null,
 ) : AppRoute
 
 @Serializable
@@ -104,6 +106,9 @@ data class SupportersContributorsSettingsRoute(override val title: String = "") 
 data class LicensesAttributionsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable
+data class ProfileEditRoute(override val title: String = "") : SettingsDestinationRoute
+
+@Serializable
 data class CollectionsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable
@@ -130,7 +135,10 @@ data class FolderDetailRoute(
 data class StreamRoute(
     val launchId: Long,
     override val title: String = "",
-) : AppRoute
+) : AppRoute {
+    override val hidesNavigationBar: Boolean
+        get() = true
+}
 
 @Serializable
 data class CatalogRoute(

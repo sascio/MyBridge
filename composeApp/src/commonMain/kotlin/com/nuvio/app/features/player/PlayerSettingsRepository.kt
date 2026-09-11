@@ -38,6 +38,9 @@ data class PlayerSettingsUiState(
     val holdToSpeedEnabled: Boolean = true,
     val holdToSpeedValue: Float = 2f,
     val touchGesturesEnabled: Boolean = true,
+    val swipeToSeekEnabled: Boolean = true,
+    val autoShowSubtitlesOnRewindEnabled: Boolean = true,
+    val autoShowSubtitlesOnMuteEnabled: Boolean = true,
     val externalPlayerEnabled: Boolean = false,
     val externalPlayerForwardSubtitles: Boolean = false,
     val externalPlayerSendSkipSegments: Boolean = false,
@@ -68,6 +71,7 @@ data class PlayerSettingsUiState(
     val introDbApiKey: String = "",
     val introSubmitEnabled: Boolean = false,
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
+    val randomEpisodesIncludeWatched: Boolean = false,
     val streamAutoPlayNextEpisodeFallbackEnabled: Boolean = true,
     val streamAutoPlayPreferBingeGroup: Boolean = true,
     val streamAutoPlayReuseBingeGroup: Boolean = false,
@@ -104,6 +108,9 @@ object PlayerSettingsRepository {
     private var holdToSpeedEnabled = true
     private var holdToSpeedValue = 2f
     private var touchGesturesEnabled = true
+    private var swipeToSeekEnabled = true
+    private var autoShowSubtitlesOnRewindEnabled = true
+    private var autoShowSubtitlesOnMuteEnabled = true
     private var externalPlayerEnabled = false
     private var externalPlayerForwardSubtitles = false
     private var externalPlayerSendSkipSegments = false
@@ -134,6 +141,7 @@ object PlayerSettingsRepository {
     private var introDbApiKey = ""
     private var introSubmitEnabled = false
     private var streamAutoPlayNextEpisodeEnabled = false
+    private var randomEpisodesIncludeWatched = false
     private var streamAutoPlayNextEpisodeFallbackEnabled = true
     private var streamAutoPlayPreferBingeGroup = true
     private var streamAutoPlayReuseBingeGroup = false
@@ -175,6 +183,9 @@ object PlayerSettingsRepository {
         holdToSpeedEnabled = true
         holdToSpeedValue = 2f
         touchGesturesEnabled = true
+        swipeToSeekEnabled = true
+        autoShowSubtitlesOnRewindEnabled = true
+        autoShowSubtitlesOnMuteEnabled = true
         externalPlayerEnabled = false
         externalPlayerForwardSubtitles = false
         externalPlayerSendSkipSegments = false
@@ -241,6 +252,9 @@ object PlayerSettingsRepository {
         holdToSpeedEnabled = PlayerSettingsStorage.loadHoldToSpeedEnabled() ?: true
         holdToSpeedValue = PlayerSettingsStorage.loadHoldToSpeedValue() ?: 2f
         touchGesturesEnabled = PlayerSettingsStorage.loadTouchGesturesEnabled() ?: true
+        swipeToSeekEnabled = PlayerSettingsStorage.loadSwipeToSeekEnabled() ?: true
+        autoShowSubtitlesOnRewindEnabled = PlayerSettingsStorage.loadAutoShowSubtitlesOnRewindEnabled() ?: true
+        autoShowSubtitlesOnMuteEnabled = PlayerSettingsStorage.loadAutoShowSubtitlesOnMuteEnabled() ?: true
         externalPlayerEnabled = PlayerSettingsStorage.loadExternalPlayerEnabled() ?: false
         externalPlayerForwardSubtitles = PlayerSettingsStorage.loadExternalPlayerForwardSubtitles() ?: false
         externalPlayerSendSkipSegments = PlayerSettingsStorage.loadExternalPlayerSendSkipSegments() ?: false
@@ -413,6 +427,30 @@ object PlayerSettingsRepository {
         touchGesturesEnabled = enabled
         publish()
         PlayerSettingsStorage.saveTouchGesturesEnabled(enabled)
+    }
+
+    fun setSwipeToSeekEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (swipeToSeekEnabled == enabled) return
+        swipeToSeekEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveSwipeToSeekEnabled(enabled)
+    }
+
+    fun setAutoShowSubtitlesOnRewindEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (autoShowSubtitlesOnRewindEnabled == enabled) return
+        autoShowSubtitlesOnRewindEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAutoShowSubtitlesOnRewindEnabled(enabled)
+    }
+
+    fun setAutoShowSubtitlesOnMuteEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (autoShowSubtitlesOnMuteEnabled == enabled) return
+        autoShowSubtitlesOnMuteEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAutoShowSubtitlesOnMuteEnabled(enabled)
     }
 
     fun setExternalPlayerEnabled(enabled: Boolean) {
@@ -681,6 +719,13 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.saveStreamAutoPlayNextEpisodeEnabled(enabled)
     }
 
+    fun setRandomEpisodesIncludeWatched(enabled: Boolean) {
+        ensureLoaded()
+        if (randomEpisodesIncludeWatched == enabled) return
+        randomEpisodesIncludeWatched = enabled
+        publish()
+    }
+
     fun setStreamAutoPlayNextEpisodeFallbackEnabled(enabled: Boolean) {
         ensureLoaded()
         if (streamAutoPlayNextEpisodeFallbackEnabled == enabled) return
@@ -918,6 +963,9 @@ object PlayerSettingsRepository {
             holdToSpeedEnabled = holdToSpeedEnabled,
             holdToSpeedValue = holdToSpeedValue,
             touchGesturesEnabled = touchGesturesEnabled,
+            swipeToSeekEnabled = swipeToSeekEnabled,
+            autoShowSubtitlesOnRewindEnabled = autoShowSubtitlesOnRewindEnabled,
+            autoShowSubtitlesOnMuteEnabled = autoShowSubtitlesOnMuteEnabled,
             externalPlayerEnabled = externalPlayerEnabled,
             externalPlayerForwardSubtitles = externalPlayerForwardSubtitles,
             externalPlayerSendSkipSegments = externalPlayerSendSkipSegments,
@@ -948,6 +996,7 @@ object PlayerSettingsRepository {
             introDbApiKey = introDbApiKey,
             introSubmitEnabled = introSubmitEnabled,
             streamAutoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabled,
+            randomEpisodesIncludeWatched = randomEpisodesIncludeWatched,
             streamAutoPlayNextEpisodeFallbackEnabled = streamAutoPlayNextEpisodeFallbackEnabled,
             streamAutoPlayPreferBingeGroup = streamAutoPlayPreferBingeGroup,
             streamAutoPlayReuseBingeGroup = streamAutoPlayReuseBingeGroup,

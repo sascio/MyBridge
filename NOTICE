@@ -32,6 +32,21 @@ config), and `gradle/` with StreamBridge identity overlays only
 (applicationId, visible app name, launcher mark). Kotlin packages
 remain `com.nuvio.app` / `com.nuvio.android`.
 
+NuvioMobile-Enhanced (feature overlay)
+======================================
+Unique fork features (Live TV, OMDB episode ratings, hero trailer extras,
+volume boost, HLS quality chooser, library calendar, profile insights,
+download location / Wi-Fi-only, etc.) were overlaid from:
+
+  https://github.com/luqmanfadlli/NuvioMobile-Enhanced
+  branch: enhanced
+  commit: d4a3b23
+  license: GNU General Public License v3.0
+
+Official NuvioMobile 0.4.17 plugin/sync/player fixes were re-applied on
+top of that overlay. StreamBridge identity, empty default addons, and
+updater source `sascio/MyBridge` are preserved.
+
 Vendored Android binaries shipped by that pin (GPL application):
 
   composeApp/libs/lib-exoplayer-release.aar

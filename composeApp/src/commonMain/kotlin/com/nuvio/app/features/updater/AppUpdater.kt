@@ -6,6 +6,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.i18n.localizedByteUnit
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -18,7 +19,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
-import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
@@ -74,104 +74,58 @@ private val appUpdaterJson = Json {
     isLenient = true
 }
 
-private class NoChannelReleaseException : IllegalStateException(
-    runBlocking { getString(Res.string.updates_no_channel_release) },
-)
-
-private object VersionUtils {
-    fun normalize(raw: String?): String {
-        if (raw.isNullOrBlank()) return ""
-        return raw.trim().removePrefix("v").removePrefix("V")
-    }
-
-    fun parseVersionParts(raw: String?): List<Int>? {
-        val normalized = normalize(raw)
-        if (normalized.isBlank()) return null
-
-        val parts = normalized.split('.', '-', '_')
-            .filter { it.isNotBlank() }
-            .mapNotNull { token -> token.takeWhile { it.isDigit() }.toIntOrNull() }
-
-        return parts.takeIf { it.isNotEmpty() }
-    }
-
-    fun isRemoteNewer(remote: String?, local: String?): Boolean {
-        val remoteParts = parseVersionParts(remote)
-        val localParts = parseVersionParts(local)
-
-        if (remoteParts == null || localParts == null) {
-            val remoteValue = normalize(remote)
-            val localValue = normalize(local)
-            return remoteValue.isNotBlank() && localValue.isNotBlank() && remoteValue != localValue
-        }
-
-        val maxSize = maxOf(remoteParts.size, localParts.size)
-        for (index in 0 until maxSize) {
-            val remoteValue = remoteParts.getOrElse(index) { 0 }
-            val localValue = localParts.getOrElse(index) { 0 }
-            if (remoteValue != localValue) return remoteValue > localValue
-        }
-        return false
-    }
-}
-
 private object AppUpdaterRepository {
-    suspend fun getLatestChannelUpdate(): Result<AppUpdate> = runCatching {
-        val response = httpRequestRaw(
-            method = "GET",
-            url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
-            headers = mapOf(
-                "Accept" to "application/vnd.github+json",
-                "User-Agent" to "StreamBridge",
-            ),
-            body = "",
+    suspend fun lookupLatestUpdate(): AppUpdateLookup {
+        val response = try {
+            httpRequestRaw(
+                method = "GET",
+                url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
+                headers = mapOf(
+                    "Accept" to "application/vnd.github+json",
+                    "User-Agent" to "StreamBridge",
+                ),
+                body = "",
+            )
+        } catch (error: Throwable) {
+            return AppUpdateLookup.RequestFailed(
+                error.message?.takeIf { it.isNotBlank() } ?: getString(Res.string.updates_check_failed),
+            )
+        }
+
+        AppUpdateReleaseSelector.classifyHttpStatus(
+            status = response.status,
+            errorMessage = getString(Res.string.updates_github_api_error, response.status),
+        )?.let { return it }
+
+        val releases = try {
+            appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
+        } catch (error: Throwable) {
+            return AppUpdateLookup.RequestFailed(
+                error.message?.takeIf { it.isNotBlank() } ?: getString(Res.string.updates_check_failed),
+            )
+        }
+
+        return AppUpdateReleaseSelector.classifyDecodedReleases(
+            releases = releases.map { release ->
+                AppUpdateReleaseCandidate(
+                    tagName = release.tagName,
+                    name = release.name,
+                    body = release.body,
+                    draft = release.draft,
+                    prerelease = release.prerelease,
+                    htmlUrl = release.htmlUrl,
+                    assets = release.assets.map { asset ->
+                        AppUpdateAssetCandidate(
+                            name = asset.name,
+                            browserDownloadUrl = asset.browserDownloadUrl,
+                            size = asset.size,
+                            contentType = asset.contentType,
+                        )
+                    },
+                )
+            },
+            supportedAbis = AppUpdaterPlatform.getSupportedAbis(),
         )
-        if (response.status !in 200..299) {
-            error(getString(Res.string.updates_github_api_error, response.status))
-        }
-
-        val releases = appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
-        val release = releases.firstOrNull { !it.draft && !it.prerelease }
-            ?: throw NoChannelReleaseException()
-
-        val tag = release.tagName?.takeIf { it.isNotBlank() }
-            ?: release.name?.takeIf { it.isNotBlank() }
-            ?: error(getString(Res.string.updates_release_missing_title))
-
-        val asset = chooseBestApkAsset(release.assets)
-            ?: error(getString(Res.string.updates_apk_asset_missing))
-
-        AppUpdate(
-            tag = tag,
-            title = release.name?.takeIf { it.isNotBlank() } ?: tag,
-            notes = release.body.orEmpty(),
-            releaseUrl = release.htmlUrl,
-            assetName = asset.name,
-            assetUrl = asset.browserDownloadUrl,
-            assetSizeBytes = asset.size,
-        )
-    }
-
-    private fun chooseBestApkAsset(assets: List<GitHubAssetDto>): GitHubAssetDto? {
-        val apkAssets = assets.filter { asset ->
-            asset.name.endsWith(".apk", ignoreCase = true) ||
-                asset.contentType == "application/vnd.android.package-archive"
-        }
-        if (apkAssets.isEmpty()) return null
-        if (apkAssets.size == 1) return apkAssets.first()
-
-        val supportedAbis = AppUpdaterPlatform.getSupportedAbis()
-        for (abi in supportedAbis) {
-            val candidate = apkAssets.firstOrNull { asset ->
-                asset.name.contains(abi, ignoreCase = true)
-            }
-            if (candidate != null) return candidate
-        }
-
-        return apkAssets.firstOrNull { asset ->
-            val name = asset.name.lowercase()
-            name.contains("universal") || name.contains("all")
-        } ?: apkAssets.first()
     }
 }
 
@@ -191,9 +145,13 @@ class AppUpdaterController internal constructor(
         checkForUpdates(force = false, showNoUpdateFeedback = false)
     }
 
-    @Suppress("UNUSED_PARAMETER")
     fun checkForUpdates(force: Boolean, showNoUpdateFeedback: Boolean) {
         if (!AppFeaturePolicy.inAppUpdaterEnabled || !AppUpdaterPlatform.isSupported) {
+            if (showNoUpdateFeedback) {
+                scope.launch {
+                    NuvioToastController.show(getString(Res.string.updates_not_available))
+                }
+            }
             return
         }
 
@@ -208,39 +166,79 @@ class AppUpdaterController internal constructor(
             }
 
             val ignoredTag = AppUpdaterPlatform.getIgnoredTag()
-            val result = AppUpdaterRepository.getLatestChannelUpdate()
+            val lookup = AppUpdaterRepository.lookupLatestUpdate()
+            val feedback = appUpdateFeedback(
+                lookup = lookup,
+                localVersion = AppVersionConfig.VERSION_NAME,
+                manual = showNoUpdateFeedback,
+            )
 
-            result.onSuccess { update ->
-                val remoteNewer = VersionUtils.isRemoteNewer(update.tag, AppVersionConfig.VERSION_NAME)
-                val ignored = ignoredTag != null && ignoredTag == update.tag
-                val shouldShowDialog = remoteNewer && (force || !ignored)
-
-                _uiState.update { state ->
-                    state.copy(
-                        isChecking = false,
-                        update = update.takeIf { remoteNewer },
-                        isUpdateAvailable = remoteNewer,
-                        isDownloading = false,
-                        downloadProgress = null,
-                        downloadedApkPath = state.downloadedApkPath.takeIf { remoteNewer },
-                        showDialog = shouldShowDialog,
-                        showUnknownSourcesDialog = false,
-                        errorMessage = null,
-                    )
+            when (feedback) {
+                AppUpdateUserFeedback.ShowUpdate -> {
+                    val update = (lookup as AppUpdateLookup.Available).update
+                    val ignored = ignoredTag != null && ignoredTag == update.tag
+                    _uiState.update { state ->
+                        state.copy(
+                            isChecking = false,
+                            update = update,
+                            isUpdateAvailable = true,
+                            isDownloading = false,
+                            downloadProgress = null,
+                            downloadedApkPath = state.downloadedApkPath,
+                            showDialog = force || !ignored,
+                            showUnknownSourcesDialog = false,
+                            errorMessage = null,
+                        )
+                    }
                 }
-            }.onFailure {
-                _uiState.update { state ->
-                    state.copy(
-                        isChecking = false,
-                        isDownloading = false,
-                        downloadProgress = null,
-                        downloadedApkPath = null,
-                        update = null,
-                        isUpdateAvailable = false,
-                        showDialog = false,
-                        showUnknownSourcesDialog = false,
-                        errorMessage = null,
-                    )
+                AppUpdateUserFeedback.UpToDate -> {
+                    _uiState.update { state ->
+                        state.copy(
+                            isChecking = false,
+                            update = null,
+                            isUpdateAvailable = false,
+                            isDownloading = false,
+                            downloadProgress = null,
+                            downloadedApkPath = null,
+                            showDialog = false,
+                            showUnknownSourcesDialog = false,
+                            errorMessage = null,
+                        )
+                    }
+                    NuvioToastController.show(getString(Res.string.updates_latest_version))
+                }
+                AppUpdateUserFeedback.CheckFailed -> {
+                    val message = (lookup as? AppUpdateLookup.RequestFailed)?.message
+                        ?: getString(Res.string.updates_check_failed)
+                    _uiState.update { state ->
+                        state.copy(
+                            isChecking = false,
+                            isDownloading = false,
+                            downloadProgress = null,
+                            downloadedApkPath = null,
+                            update = null,
+                            isUpdateAvailable = false,
+                            showDialog = false,
+                            showUnknownSourcesDialog = false,
+                            errorMessage = null,
+                        )
+                    }
+                    NuvioToastController.show(message)
+                }
+                AppUpdateUserFeedback.Silent -> {
+                    _uiState.update { state ->
+                        state.copy(
+                            isChecking = false,
+                            isDownloading = false,
+                            downloadProgress = null,
+                            downloadedApkPath = null,
+                            update = null,
+                            isUpdateAvailable = false,
+                            showDialog = false,
+                            showUnknownSourcesDialog = false,
+                            errorMessage = null,
+                        )
+                    }
                 }
             }
         }

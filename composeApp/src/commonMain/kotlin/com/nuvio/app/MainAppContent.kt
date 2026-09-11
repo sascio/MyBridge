@@ -55,6 +55,7 @@ import com.nuvio.app.core.auth.DeviceSessionRegistration
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.deeplink.AppDeepLink
 import com.nuvio.app.core.deeplink.AppDeepLinkRepository
+import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
@@ -104,6 +105,7 @@ import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.features.home.buildAddonCatalogRefreshSignature
+import com.nuvio.app.features.home.components.HomeHeroTrailerPlaybackController
 import com.nuvio.app.features.home.components.shouldBlurContinueWatchingArtwork
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryRepository
@@ -117,6 +119,8 @@ import com.nuvio.app.features.library.librarySectionItemKey
 import com.nuvio.app.features.library.showTrackingMembershipRewriteFeedback
 import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.library.toMetaPreview
+import com.nuvio.app.features.livetv.LiveTvChannel
+import com.nuvio.app.features.livetv.LiveTvRepository
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
@@ -129,6 +133,7 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.features.player.prepareExternalPlayerLaunch
 import com.nuvio.app.features.player.rememberExternalPlayerLauncher
+import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.settings.AccountSettingsScreen
 import com.nuvio.app.features.settings.AddonsSettingsScreen
@@ -244,6 +249,7 @@ internal fun MainAppContent(
         val searchScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val searchListState = rememberLazyListState()
         val libraryScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+        val liveTvScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val settingsRootActionRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val currentRoute = navBackStack.lastOrNull() as? AppRoute
         LaunchedEffect(currentRoute, posterNavigationEnabled) {
@@ -288,6 +294,11 @@ internal fun MainAppContent(
             LibraryRepository.ensureLoaded()
             LibraryRepository.uiState
         }.collectAsStateWithLifecycle()
+        val liveTvUiState by remember {
+            LiveTvRepository.ensureLoaded()
+            LiveTvRepository.uiState
+        }.collectAsStateWithLifecycle()
+        val showLiveTvInNavigation = liveTvUiState.showInNavigation
         val authState by AuthRepository.state.collectAsStateWithLifecycle()
         val openPosterActions: (PosterActionTarget) -> Unit = { target ->
             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -344,6 +355,8 @@ internal fun MainAppContent(
     val addonsSettingsTitle = stringResource(Res.string.compose_settings_page_addons)
     val pluginsSettingsTitle = stringResource(Res.string.compose_settings_page_plugins)
     val accountSettingsTitle = stringResource(Res.string.compose_settings_page_account)
+    val editProfileTitle = stringResource(Res.string.profile_edit_edit_title)
+    val pushEditProfile: () -> Unit = { navController.navigate(ProfileEditRoute(editProfileTitle)) }
     val supportersSettingsTitle = stringResource(Res.string.compose_settings_page_supporters_contributors)
     val licensesSettingsTitle = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val collectionsTitle = stringResource(Res.string.collections_header)
@@ -376,10 +389,23 @@ internal fun MainAppContent(
     }
 
     fun activateTab(tab: AppScreenTab) {
-        if (useNativeNavigation && onActivate != null) {
-            onActivate(tab)
+        val destination = if (tab == AppScreenTab.LiveTv && !showLiveTvInNavigation) {
+            AppScreenTab.Home
         } else {
-            selectedTab = tab
+            tab
+        }
+        if (useNativeNavigation && onActivate != null) {
+            onActivate(destination)
+        } else {
+            selectedTab = destination
+        }
+    }
+
+    val isSettingsPageRequestOwner = !useNativeNavigation || initialTab == AppScreenTab.Settings
+    LaunchedEffect(appGateController, isSettingsPageRequestOwner) {
+        if (!isSettingsPageRequestOwner) return@LaunchedEffect
+        appGateController?.settingsPageRequests?.collect { pageName ->
+            requestedSettingsPageName = pageName
         }
     }
 
@@ -396,7 +422,14 @@ internal fun MainAppContent(
                 searchScrollToTopRequests.tryEmit(Unit)
             }
             AppScreenTab.Library -> libraryScrollToTopRequests.tryEmit(Unit)
+            AppScreenTab.LiveTv -> liveTvScrollToTopRequests.tryEmit(Unit)
             AppScreenTab.Settings -> settingsRootActionRequests.tryEmit(Unit)
+        }
+    }
+
+    LaunchedEffect(showLiveTvInNavigation, selectedTab) {
+        if (!showLiveTvInNavigation && selectedTab == AppScreenTab.LiveTv) {
+            activateTab(AppScreenTab.Home)
         }
     }
 
@@ -406,9 +439,13 @@ internal fun MainAppContent(
         useNativeNavigation,
         currentRoute,
         selectedTab,
+        showLiveTvInNavigation,
     ) {
         NativeTabBridge.requestedTabs.collectLatest { requestedTab ->
             val requestedAppTab = requestedTab.toAppScreenTab()
+            if (requestedAppTab == AppScreenTab.LiveTv && !showLiveTvInNavigation) {
+                return@collectLatest
+            }
             if (
                 useNativeNavigation &&
                 currentRoute is TabsRoute &&
@@ -457,6 +494,16 @@ internal fun MainAppContent(
         }
     }
 
+    // Home can stay composed underneath other screens/tabs for state preservation, so it isn't a
+    // reliable place to detect "the user navigated away" — it may not even be recomposing while
+    // hidden. This effect lives at the app-shell root, which is always active, and stops the hero
+    // trailer the instant Home is no longer the visible tab/route, regardless of Home's own state.
+    LaunchedEffect(selectedTab, currentRoute) {
+        if (selectedTab != AppScreenTab.Home || currentRoute !is TabsRoute) {
+            HomeHeroTrailerPlaybackController.forceStop()
+        }
+    }
+
     var profileSwitchLoading by remember { mutableStateOf(false) }
 
     val rootContentReady = !ownsAppRuntime || (initialHomeReady && !profileSwitchLoading)
@@ -485,9 +532,11 @@ internal fun MainAppContent(
         initialHomeReady,
         profileSwitchLoading,
         useNativeNavigation,
+        ownsAppRuntime,
     ) {
-        val visible = !useNativeNavigation &&
-            liquidGlassNativeTabBarSupported &&
+        if (useNativeNavigation && !ownsAppRuntime) return@LaunchedEffect
+
+        val visible = liquidGlassNativeTabBarSupported &&
             liquidGlassNativeTabBarEnabled &&
             initialHomeReady &&
             !profileSwitchLoading &&
@@ -495,28 +544,33 @@ internal fun MainAppContent(
         NativeTabBridge.publishTabBarVisible(visible)
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(useNativeNavigation) {
         onDispose {
-            NativeTabBridge.publishTabBarVisible(false)
+            if (!useNativeNavigation) {
+                NativeTabBridge.publishTabBarVisible(false)
+            }
         }
     }
 
     LaunchedEffect(appContentGeneration) {
         if (!ownsAppRuntime) return@LaunchedEffect
+        InAppLogger.info("App/Runtime", "Starting main app runtime services")
         NetworkStatusRepository.ensureStarted()
         EpisodeReleaseNotificationsRepository.refreshAsync()
+        // Safety-net timeout only: the real signal is onInitialHomeContentRendered below, which
+        // flips initialHomeReady as soon as the first catalog section renders (often well under
+        // 5s) so it always wins the race on its own. This just bounds how long a user can get
+        // stuck on the loading screen if catalogs never resolve (e.g. every addon manifest fails).
         kotlinx.coroutines.delay(5_000)
-        initialHomeReady = true
+        if (!initialHomeReady) {
+            initialHomeReady = true
+            InAppLogger.info("App/Runtime", "Initial home ready (fallback timeout, catalogs still loading)")
+        }
     }
 
-    LaunchedEffect(networkStatusUiState.condition, initialHomeReady) {
+    LaunchedEffect(networkStatusUiState.condition) {
         if (!ownsAppRuntime) return@LaunchedEffect
         val condition = networkStatusUiState.condition
-        if (!initialHomeReady) {
-            lastNetworkToastCondition = condition.name
-            networkToastBaselineReady = false
-            return@LaunchedEffect
-        }
         if (!networkToastBaselineReady) {
             networkToastBaselineReady = true
             lastNetworkToastCondition = condition.name
@@ -525,6 +579,7 @@ internal fun MainAppContent(
 
         val previousConditionName = lastNetworkToastCondition
         if (previousConditionName == condition.name) return@LaunchedEffect
+        InAppLogger.info("Network/Status", "condition changed $previousConditionName -> ${condition.name}")
 
         when (condition) {
             NetworkCondition.NoInternet -> {
@@ -562,7 +617,12 @@ internal fun MainAppContent(
         when (networkStatusUiState.condition) {
             NetworkCondition.NoInternet,
             NetworkCondition.ServersUnreachable,
-            -> watchSourceReconnectPending = true
+            -> {
+                if (!watchSourceReconnectPending) {
+                    InAppLogger.warn("Network/Status", "watch source reconnect pending condition=${networkStatusUiState.condition.name}")
+                }
+                watchSourceReconnectPending = true
+            }
 
             NetworkCondition.Online -> {
                 if (!watchSourceReconnectPending) return@LaunchedEffect
@@ -571,15 +631,20 @@ internal fun MainAppContent(
                     ?: ProfileRepository.activeProfileId
                 val authenticatedState = authState as? AuthState.Authenticated
                 if (authenticatedState != null && !authenticatedState.isAnonymous) {
+                    InAppLogger.info("Sync/Foreground", "network restored: requesting foreground pull profile=$profileId")
                     SyncManager.requestForegroundPull(profileId = profileId)
                     watchSourceReconnectPending = false
                 } else {
+                    InAppLogger.info("Sync/WatchProgress", "network restored: refreshing active watch source profile=$profileId")
                     val result = WatchProgressSourceCoordinator.refreshActiveSource(
                         profileId = profileId,
                         force = true,
                     )
                     if (result.succeeded) {
+                        InAppLogger.info("Sync/WatchProgress", "active watch source refreshed profile=$profileId")
                         watchSourceReconnectPending = false
+                    } else {
+                        InAppLogger.warn("Sync/WatchProgress", "active watch source refresh failed profile=$profileId")
                     }
                 }
             }
@@ -632,16 +697,21 @@ internal fun MainAppContent(
         val syncProfileId = activeProfileId?.takeIf {
             authenticatedState != null && !authenticatedState.isAnonymous
         }
-        syncProfileId?.let(SyncManager::pullAllForProfile)
+        syncProfileId?.let { profileId ->
+            InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
+            SyncManager.pullAllForProfile(profileId)
+        }
         try {
             AppForegroundMonitor.events().collect { visibility ->
                 when (visibility) {
                     AppVisibility.Foreground -> {
+                        InAppLogger.debug("App/Foreground", "foreground event: refreshing network status")
                         NetworkStatusRepository.requestForegroundRefresh()
                         DeviceSessionRegistration.registerIfAuthenticated()
                         MemberAccessRepository.refreshIfStale()
                         if (syncProfileId != null) {
                             SyncManager.startPeriodicNuvioSyncPull(syncProfileId)
+                            InAppLogger.debug("Sync/Foreground", "foreground pull requested profile=$syncProfileId")
                             SyncManager.requestForegroundPull(syncProfileId)
                         } else {
                             SyncManager.stopPeriodicNuvioSyncPull()
@@ -759,6 +829,7 @@ internal fun MainAppContent(
             AppDeepLinkRepository.pendingDeepLink.collectLatest { deepLink ->
                 when (deepLink) {
                     is AppDeepLink.Meta -> {
+                        InAppLogger.info("App/DeepLink", "meta type=${deepLink.type} id=${deepLink.id}")
                         activateTab(AppScreenTab.Home)
                         val routeTitle = runCatching {
                             MetaDetailsRepository.fetch(deepLink.type, deepLink.id)?.name
@@ -772,10 +843,12 @@ internal fun MainAppContent(
                         ) {
                             launchSingleTop = true
                         }
+                        InAppLogger.info("App/DeepLink", "meta consumed type=${deepLink.type} id=${deepLink.id} title=$routeTitle")
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
                     is AppDeepLink.AddonInstall -> {
+                        InAppLogger.info("App/DeepLink", "addon install url=${InAppLogger.redactUrl(deepLink.manifestUrl)}")
                         activateTab(AppScreenTab.Settings)
                         navController.navigate(AddonsSettingsRoute(addonsSettingsTitle)) {
                             launchSingleTop = true
@@ -784,23 +857,28 @@ internal fun MainAppContent(
                         AddonRepository.initialize()
                         when (val result = AddonRepository.addAddon(deepLink.manifestUrl)) {
                             is AddAddonResult.Success -> {
+                                InAppLogger.info("App/DeepLink", "addon install success name=${result.manifest.name}")
                                 NuvioToastController.show(
                                     getString(Res.string.addons_modal_success_message, result.manifest.name),
                                 )
                             }
 
                             is AddAddonResult.Error -> {
+                                InAppLogger.warn("App/DeepLink", "addon install failed message=${result.message}")
                                 NuvioToastController.show(result.message)
                             }
                         }
+                        InAppLogger.info("App/DeepLink", "addon install consumed")
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
                     AppDeepLink.Downloads -> {
+                        InAppLogger.info("App/DeepLink", "downloads")
                         activateTab(AppScreenTab.Settings)
                         navController.navigate(DownloadsSettingsRoute(downloadsSettingsTitle)) {
                             launchSingleTop = true
                         }
+                        InAppLogger.info("App/DeepLink", "downloads consumed")
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
@@ -1128,6 +1206,24 @@ internal fun MainAppContent(
             LibrarySourceMode.SIMKL -> stringResource(Res.string.compose_catalog_subtitle_simkl_library)
         }
 
+        val openLibraryItem: (LibraryItem) -> Unit = { item ->
+            navController.navigate(
+                DetailRoute(type = item.type, id = item.id, title = item.name),
+            )
+        }
+
+        val openLibraryCalendarEpisode: (LibraryItem, Int?, Int?) -> Unit = { item, season, episode ->
+            navController.navigate(
+                DetailRoute(
+                    type = item.type,
+                    id = item.id,
+                    title = item.name,
+                    initialSeasonNumber = season,
+                    initialEpisodeNumber = episode,
+                ),
+            )
+        }
+
         val onLibrarySectionViewAllClick: (LibrarySection, LibrarySortOption) -> Unit = { section, sortOption ->
             val launchId = CatalogLaunchStore.put(
                 CatalogLaunch(
@@ -1261,6 +1357,33 @@ internal fun MainAppContent(
             selectedContinueWatchingForActions = item
         }
 
+        val onLiveTvChannelClick: (LiveTvChannel) -> Unit = { channel ->
+            coroutineScope.launch {
+                val playableChannel = runCatching {
+                    LiveTvRepository.prepareForPlayback(channel)
+                }.getOrDefault(channel)
+                val launchId = PlayerLaunchStore.put(
+                    PlayerLaunch(
+                        profileId = activePlaybackProfileId,
+                        title = playableChannel.name,
+                        sourceUrl = playableChannel.streamUrl,
+                        sourceHeaders = playableChannel.headers,
+                        streamType = playableChannel.streamType,
+                        logo = playableChannel.logoUrl,
+                        streamTitle = playableChannel.name,
+                        streamSubtitle = playableChannel.group,
+                        providerName = "Live TV",
+                        providerAddonId = "live-tv",
+                        contentType = "live",
+                        videoId = playableChannel.id,
+                        parentMetaId = playableChannel.id,
+                        parentMetaType = "live",
+                    ),
+                )
+                navController.navigate(PlayerRoute(launchId = launchId))
+            }
+        }
+
         AppUpdaterHost(
             controller = appUpdaterController,
             modifier = Modifier.fillMaxSize(),
@@ -1308,10 +1431,12 @@ internal fun MainAppContent(
                         useNativeTabBar = useNativeTabBar,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         liquidGlassNativeTabBarEnabled = liquidGlassNativeTabBarEnabled,
+                        showLiveTvInNavigation = showLiveTvInNavigation,
                         requests = AppTabRequests(
                             homeScrollToTopRequests = homeScrollToTopRequests,
                             searchScrollToTopRequests = searchScrollToTopRequests,
                             libraryScrollToTopRequests = libraryScrollToTopRequests,
+                            liveTvScrollToTopRequests = liveTvScrollToTopRequests,
                             settingsRootActionRequests = settingsRootActionRequests,
                         ),
                         state = AppTabState(
@@ -1335,11 +1460,8 @@ internal fun MainAppContent(
                                 onPosterLongClick = { meta ->
                                     openPosterActions(PosterActionTarget(preview = meta))
                                 },
-                                onLibraryPosterClick = { item ->
-                                    navController.navigate(
-                                        DetailRoute(type = item.type, id = item.id, title = item.name),
-                                    )
-                                },
+                                onLibraryPosterClick = openLibraryItem,
+                                onLibraryCalendarEpisodeClick = openLibraryCalendarEpisode,
                                 onLibraryPosterLongClick = { item, section ->
                                     openPosterActions(
                                         PosterActionTarget(
@@ -1387,7 +1509,9 @@ internal fun MainAppContent(
                                 },
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingLongPress = onContinueWatchingLongPress,
+                                onLiveTvChannelClick = onLiveTvChannelClick,
                                 onSwitchProfile = onSwitchProfile,
+                                onEditProfile = pushEditProfile,
                                 onSettingsPageClick = if (useNativeNavigation && !isTabletLayout) {
                                     { pageName, title ->
                                         navController.navigate(SettingsPageRoute(pageName, title))
@@ -1560,7 +1684,18 @@ internal fun MainAppContent(
                         onTestUpdateBanner = if (
                             AppFeaturePolicy.inAppUpdaterEnabled && AppUpdaterPlatform.isDebugBuild
                         ) appUpdaterController::showDebugTestUpdate else null,
+                        onSwitchProfile = onSwitchProfile,
+                        onEditProfile = pushEditProfile,
                     )
+                }
+                entry<ProfileEditRoute> { route ->
+                    SettingsDestination(route, navController) { onBack ->
+                        ProfileEditScreen(
+                            profile = ProfileRepository.state.value.activeProfile,
+                            onBack = onBack,
+                            onSaved = onBack,
+                        )
+                    }
                 }
                 entry<DownloadsSettingsRoute> { route ->
                     DownloadsDestination(

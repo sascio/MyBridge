@@ -25,12 +25,11 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.Alignment
 import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_about_version_format
-import nuvio.composeapp.generated.resources.streambridge_credits_based_on
-import nuvio.composeapp.generated.resources.streambridge_credits_nuvio_media
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_advanced
 import nuvio.composeapp.generated.resources.compose_settings_page_appearance
@@ -50,6 +49,8 @@ import nuvio.composeapp.generated.resources.compose_settings_root_downloads_titl
 import nuvio.composeapp.generated.resources.compose_settings_root_general_section
 import nuvio.composeapp.generated.resources.compose_settings_root_integrations_description
 import nuvio.composeapp.generated.resources.compose_settings_root_notifications_description
+import nuvio.composeapp.generated.resources.compose_settings_root_profile_description
+import nuvio.composeapp.generated.resources.compose_settings_root_profile_title
 import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_title
@@ -65,6 +66,8 @@ import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
 import nuvio.composeapp.generated.resources.about_supporters_contributors_subtitle
 import nuvio.composeapp.generated.resources.about_licenses_attributions_subtitle
+import nuvio.composeapp.generated.resources.streambridge_credits_based_on
+import nuvio.composeapp.generated.resources.streambridge_credits_nuvio_media
 import org.jetbrains.compose.resources.stringResource
 
 private const val PRIVACY_POLICY_URL = "https://nuvio.tv/privacy-policy"
@@ -100,8 +103,8 @@ internal fun LazyListScope.settingsRootContent(
                 SettingsGroup(isTablet = isTablet) {
                     if (onSwitchProfileClick != null) {
                         SettingsNavigationRow(
-                            title = stringResource(Res.string.compose_settings_root_switch_profile_title),
-                            description = stringResource(Res.string.compose_settings_root_switch_profile_description),
+                            title = stringResource(Res.string.compose_settings_root_profile_title),
+                            description = stringResource(Res.string.compose_settings_root_profile_description),
                             icon = Icons.Rounded.People,
                             isTablet = isTablet,
                             onClick = onSwitchProfileClick,
