@@ -1,7 +1,8 @@
 # Nuvio 0.4.16 sync + StreamBridge branding + updater
 
-**Status: SOURCES SYNCED AND OVERLAID. CI APK PENDING AT TIME OF WRITE.
-PLAYBACK / INSTALL / LAUNCH = REAL DEVICE VALIDATION REQUIRED.**
+**Status: Nuvio 0.4.16 synced, branded, updater retargeted.
+CI assemble SUCCESS (34633658397). PLAYBACK / INSTALL / LAUNCH =
+REAL DEVICE VALIDATION REQUIRED.**
 
 Compilation is not playback. Do not treat a green assemble as movies,
 series, subtitles, or tracks working on a phone.
