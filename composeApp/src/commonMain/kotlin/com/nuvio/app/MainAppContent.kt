@@ -509,9 +509,14 @@ internal fun MainAppContent(
         initialHomeReady = true
     }
 
-    LaunchedEffect(networkStatusUiState.condition) {
+    LaunchedEffect(networkStatusUiState.condition, initialHomeReady) {
         if (!ownsAppRuntime) return@LaunchedEffect
         val condition = networkStatusUiState.condition
+        if (!initialHomeReady) {
+            lastNetworkToastCondition = condition.name
+            networkToastBaselineReady = false
+            return@LaunchedEffect
+        }
         if (!networkToastBaselineReady) {
             networkToastBaselineReady = true
             lastNetworkToastCondition = condition.name

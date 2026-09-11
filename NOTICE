@@ -20,9 +20,9 @@ imported from:
 
   https://github.com/NuvioMedia/NuvioMobile
   branch: cmp-rewrite
-  commit: 465266d7059b3f226b378988393497e8c64a768d
-  tag context: 0.4.16 (chore(store): publish 0.4.16)
-  previous pin: e377942 (0.4.15)
+  commit: d177eb57dfc8989e56de577bda8f4c2714b2bd64
+  tag context: 0.4.17 (bump version; latest cmp-rewrite)
+  previous pin: 465266d (0.4.16)
   license: GNU General Public License v3.0
 
 Copyright (c) NuvioMedia and NuvioMobile contributors.

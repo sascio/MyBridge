@@ -37,9 +37,11 @@ Keep these; they are not Nuvio bugs:
 - `generateRuntimeConfigs` skips missing `local.properties`
 - StreamBridge version properties (do not ship Nuvio’s version as ours)
 - Updater GitHub owner/repo = `sascio/MyBridge` (never NuvioMedia)
+- Updater is silent unless a real newer StreamBridge APK exists (no “no update” / “cannot reach servers” popups)
 - Empty addons/plugins; empty Trakt/Simkl/TMDB/Supabase keys
 - Release signing fallback for CI
 - Branding assets under `branding/` and launcher/splash overlays
+- User-facing StreamBridge version in `streambridge.version.properties` (currently `0.1.01`)
 
 Prefer upstream for player, addons, networking, metadata, settings.
 

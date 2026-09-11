@@ -8,11 +8,11 @@ client for Android.
 **StreamBridge is NuvioMobile core with StreamBridge branding and a
 Nuvio-style in-app updater.** The runnable app is official
 [NuvioMobile](https://github.com/NuvioMedia/NuvioMobile)
-(`cmp-rewrite` `465266d`, **0.4.16**), GPL-3.0. Kotlin packages stay
+(`cmp-rewrite` `d177eb57`, **0.4.17**), GPL-3.0. Kotlin packages stay
 `com.nuvio.app`. `applicationId` is `com.streambridge.app`.
 
-StreamBridge app version is **0.5.0** (see
-`streambridge.version.properties`). That is not Nuvio’s 0.4.16 tag.
+StreamBridge app version is **0.1.01** (see
+`streambridge.version.properties`). That is not Nuvio’s 0.4.17 tag.
 
 The app ships **completely empty** — no catalogs, no metadata, no
 streams, no providers. You add Stremio-compatible addons and
@@ -42,8 +42,10 @@ Release (debug-signed when no upload keystore is present — see
 
 In-app updates use **Nuvio’s updater UI**, pointed at
 **GitHub Releases of `sascio/MyBridge`**, never NuvioMedia releases.
-Settings → Check for updates. Production in-place updates need a stable
-signing certificate.
+The checker is silent unless a real newer APK exists (no “no update”
+or “cannot reach servers” popups). Settings → Check for updates uses
+the same rule. Production in-place updates need a stable signing
+certificate.
 
 ## Layout
 

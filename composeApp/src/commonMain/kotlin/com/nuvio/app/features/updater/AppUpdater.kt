@@ -6,7 +6,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.i18n.localizedByteUnit
-import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -192,13 +191,9 @@ class AppUpdaterController internal constructor(
         checkForUpdates(force = false, showNoUpdateFeedback = false)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun checkForUpdates(force: Boolean, showNoUpdateFeedback: Boolean) {
         if (!AppFeaturePolicy.inAppUpdaterEnabled || !AppUpdaterPlatform.isSupported) {
-            if (showNoUpdateFeedback) {
-                scope.launch {
-                    NuvioToastController.show(getString(Res.string.updates_not_available))
-                }
-            }
             return
         }
 
@@ -218,7 +213,7 @@ class AppUpdaterController internal constructor(
             result.onSuccess { update ->
                 val remoteNewer = VersionUtils.isRemoteNewer(update.tag, AppVersionConfig.VERSION_NAME)
                 val ignored = ignoredTag != null && ignoredTag == update.tag
-                val shouldShowDialog = force || (remoteNewer && !ignored)
+                val shouldShowDialog = remoteNewer && (force || !ignored)
 
                 _uiState.update { state ->
                     state.copy(
@@ -233,11 +228,7 @@ class AppUpdaterController internal constructor(
                         errorMessage = null,
                     )
                 }
-
-                if (showNoUpdateFeedback && !remoteNewer) {
-                    NuvioToastController.show(getString(Res.string.updates_latest_version))
-                }
-            }.onFailure { error ->
+            }.onFailure {
                 _uiState.update { state ->
                     state.copy(
                         isChecking = false,
@@ -246,18 +237,10 @@ class AppUpdaterController internal constructor(
                         downloadedApkPath = null,
                         update = null,
                         isUpdateAvailable = false,
-                        showDialog = force && error !is NoChannelReleaseException,
+                        showDialog = false,
                         showUnknownSourcesDialog = false,
-                        errorMessage = if (force && error !is NoChannelReleaseException) {
-                            error.message ?: getString(Res.string.updates_check_failed)
-                        } else {
-                            null
-                        },
+                        errorMessage = null,
                     )
-                }
-
-                if (showNoUpdateFeedback || error is NoChannelReleaseException) {
-                    NuvioToastController.show(error.message ?: getString(Res.string.updates_check_failed))
                 }
             }
         }

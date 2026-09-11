@@ -1646,6 +1646,8 @@
     <string name="addon_load_manifest_failed">Unable to load manifest</string>
     <string name="app_brand_name">StreamBridge</string>
     <string name="streambridge_tagline">Your Media, Your Way</string>
+    <string name="streambridge_credits_based_on">Based on NuvioMobile</string>
+    <string name="streambridge_credits_nuvio_media">NuvioMedia</string>
     <string name="streambridge_based_on_nuvio">StreamBridge is based on the NuvioMobile project by NuvioMedia (%1$s), with StreamBridge modifications and additional functionality. Licensed under GPL-3.0.</string>
     <string name="auth_account_deletion_failed">Account deletion failed</string>
     <string name="auth_sign_in_failed">Sign-in failed</string>

@@ -1,7 +1,6 @@
 package com.nuvio.app.features.settings
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
@@ -25,13 +24,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.compose_about_made_with
+import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_about_version_format
-import nuvio.composeapp.generated.resources.streambridge_based_on_nuvio
-import nuvio.composeapp.generated.resources.streambridge_tagline
+import nuvio.composeapp.generated.resources.streambridge_credits_based_on
+import nuvio.composeapp.generated.resources.streambridge_credits_nuvio_media
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_advanced
 import nuvio.composeapp.generated.resources.compose_settings_page_appearance
@@ -265,22 +264,29 @@ internal fun LazyListScope.settingsRootContent(
         androidx.compose.foundation.layout.Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = if (isTablet) 20.dp else 16.dp),
+                .padding(horizontal = 20.dp, vertical = if (isTablet) 16.dp else 12.dp),
         ) {
-            if (showAboutSection) {
-                MemberBrandWordmark(
-                    height = if (isTablet) 30.dp else 26.dp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-                androidx.compose.foundation.layout.Spacer(
-                    modifier = Modifier.height(if (isTablet) 10.dp else 8.dp),
-                )
-            }
+            val creditStyle = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
+            val creditColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f)
             Text(
-                text = stringResource(Res.string.streambridge_tagline),
+                text = stringResource(Res.string.app_brand_name),
                 modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = creditStyle,
+                color = creditColor,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(Res.string.streambridge_credits_based_on),
+                modifier = Modifier.fillMaxWidth(),
+                style = creditStyle,
+                color = creditColor,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(Res.string.streambridge_credits_nuvio_media),
+                modifier = Modifier.fillMaxWidth(),
+                style = creditStyle,
+                color = creditColor,
                 textAlign = TextAlign.Center,
             )
             Text(
@@ -289,26 +295,9 @@ internal fun LazyListScope.settingsRootContent(
                     AppVersionConfig.VERSION_NAME,
                     AppVersionConfig.VERSION_CODE,
                 ),
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = stringResource(
-                    Res.string.streambridge_based_on_nuvio,
-                    AppVersionConfig.NUVIO_UPSTREAM_RELEASE,
-                ),
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = stringResource(Res.string.compose_about_made_with),
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                style = creditStyle,
+                color = creditColor,
                 textAlign = TextAlign.Center,
             )
         }
