@@ -34,6 +34,10 @@ jobs:
           cache-read-only: false
 
       - name: Assemble Nuvio full debug and release APKs
+        env:
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
         run: |
           echo "::add-matcher::.github/problem-matchers.json"
           set -o pipefail

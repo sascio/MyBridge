@@ -310,7 +310,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     appVersionCode.set(releaseAppVersionCode)
     nuvioUpstreamRelease.set(nuvioUpstreamReleaseValue)
     nuvioUpstreamCommit.set(nuvioUpstreamCommitValue)
-    supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
+    supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL", "https://api.nuvio.tv"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))

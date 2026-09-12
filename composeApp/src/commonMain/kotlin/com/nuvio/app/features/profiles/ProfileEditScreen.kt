@@ -1,5 +1,6 @@
 package com.nuvio.app.features.profiles
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,7 +46,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
 import com.nuvio.app.core.ui.NuvioInputField
+import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
@@ -98,7 +102,9 @@ fun ProfileEditScreen(
     val backgroundCatalog by ProfileBackgroundRepository.catalog.collectAsStateWithLifecycle()
     val canChooseBackground = !isNew && memberAccess.entitlements.includes(CosmeticEntitlement.PROFILE_BACKGROUNDS)
 
-    val avatars by AvatarRepository.avatars.collectAsStateWithLifecycle()
+    val catalogState by AvatarRepository.catalogState.collectAsStateWithLifecycle()
+    val avatars = catalogState.items
+    val pickerStatus = catalogState.pickerStatus
     LaunchedEffect(Unit) {
         AvatarRepository.refreshAvatars()
     }
@@ -149,7 +155,7 @@ fun ProfileEditScreen(
                 selectedAvatar = visibleAvatarItem,
                 customAvatarUrl = customAvatarUrl,
                 accentColor = previewAccent,
-                hasAvatarChoices = avatars.isNotEmpty(),
+                pickerStatus = pickerStatus,
             )
         }
 
@@ -269,40 +275,60 @@ fun ProfileEditScreen(
                     )
                     Text(
                         text = selectedAvatarItem?.displayName
-                            ?: if (avatars.isEmpty()) {
-                                stringResource(Res.string.profile_loading_avatars)
-                            } else {
-                                stringResource(Res.string.profile_select_avatar)
+                            ?: when (pickerStatus) {
+                                AvatarPickerStatus.Loading -> stringResource(Res.string.profile_loading_avatars)
+                                AvatarPickerStatus.Failed -> stringResource(Res.string.profile_avatars_unavailable)
+                                AvatarPickerStatus.Empty -> stringResource(Res.string.profile_avatars_empty)
+                                AvatarPickerStatus.Ready -> stringResource(Res.string.profile_select_avatar)
                             },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    if (avatars.isNotEmpty()) {
-                        val avatarSpacing = 10.dp
-                        val minAvatarSize = 58.dp
-                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                            val columns = (((maxWidth + avatarSpacing) / (minAvatarSize + avatarSpacing)).toInt())
-                                .coerceAtLeast(1)
-                            val avatarSize = (maxWidth - avatarSpacing * (columns - 1)) / columns
+                    when (pickerStatus) {
+                        AvatarPickerStatus.Ready -> {
+                            val avatarSpacing = 10.dp
+                            val minAvatarSize = 58.dp
+                            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                val columns = (((maxWidth + avatarSpacing) / (minAvatarSize + avatarSpacing)).toInt())
+                                    .coerceAtLeast(1)
+                                val avatarSize = (maxWidth - avatarSpacing * (columns - 1)) / columns
 
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(avatarSpacing),
-                                verticalArrangement = Arrangement.spacedBy(avatarSpacing),
-                                maxItemsInEachRow = columns,
-                            ) {
-                                avatars.forEach { avatar ->
-                                    AvatarChoiceItem(
-                                        avatar = avatar,
-                                        size = avatarSize,
-                                        isSelected = customAvatarUrl == null && avatar.id == selectedAvatarId,
-                                        onClick = {
-                                            avatarUrl = ""
-                                            selectedAvatarId = avatar.id
-                                        },
-                                    )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(avatarSpacing),
+                                    verticalArrangement = Arrangement.spacedBy(avatarSpacing),
+                                    maxItemsInEachRow = columns,
+                                ) {
+                                    avatars.forEach { avatar ->
+                                        AvatarChoiceItem(
+                                            avatar = avatar,
+                                            size = avatarSize,
+                                            isSelected = customAvatarUrl == null && avatar.id == selectedAvatarId,
+                                            onClick = {
+                                                avatarUrl = ""
+                                                selectedAvatarId = avatar.id
+                                            },
+                                        )
+                                    }
                                 }
                             }
+                        }
+                        AvatarPickerStatus.Loading -> {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().height(72.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                NuvioLoadingIndicator()
+                            }
+                        }
+                        AvatarPickerStatus.Failed, AvatarPickerStatus.Empty -> {
+                            NuvioPrimaryButton(
+                                text = stringResource(Res.string.action_retry),
+                                enabled = !catalogState.isLoading,
+                                onClick = {
+                                    scope.launch { AvatarRepository.refreshAvatars(force = true) }
+                                },
+                            )
                         }
                     }
                 }
@@ -467,7 +493,7 @@ private fun ProfileIdentityCard(
     selectedAvatar: AvatarCatalogItem?,
     customAvatarUrl: String?,
     accentColor: Color,
-    hasAvatarChoices: Boolean,
+    pickerStatus: AvatarPickerStatus,
 ) {
     NuvioSurfaceCard {
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -571,7 +597,12 @@ private fun ProfileIdentityCard(
                                 Res.string.profile_avatar_selected,
                                 selectedAvatar.displayName,
                             )
-                            hasAvatarChoices -> stringResource(Res.string.profile_choose_avatar_below)
+                            pickerStatus == AvatarPickerStatus.Ready ->
+                                stringResource(Res.string.profile_choose_avatar_below)
+                            pickerStatus == AvatarPickerStatus.Failed ->
+                                stringResource(Res.string.profile_avatars_unavailable)
+                            pickerStatus == AvatarPickerStatus.Empty ->
+                                stringResource(Res.string.profile_avatars_empty)
                             else -> stringResource(Res.string.profile_avatar_options_pending)
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -622,13 +653,25 @@ private fun AvatarChoiceItem(
     ) {
         val avatarImageUrl = avatarImageUrl(avatar)
         if (avatarImageUrl != null) {
-            NuvioAsyncImage(
-                imageUrl = avatarImageUrl,
-                contentDescription = avatar.displayName,
-                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                contentScale = ContentScale.Crop,
-                animateIfPossible = true,
-            )
+            val painter = rememberAsyncImagePainter(avatarImageUrl)
+            when (painter.state) {
+                is AsyncImagePainter.State.Error -> {
+                    Icon(
+                        imageVector = Icons.Rounded.Person,
+                        contentDescription = avatar.displayName,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(size / 2),
+                    )
+                }
+                else -> {
+                    Image(
+                        painter = painter,
+                        contentDescription = avatar.displayName,
+                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                        contentScale = ContentScale.Crop,
+                    )
+                }
+            }
         }
 
         if (isSelected) {
