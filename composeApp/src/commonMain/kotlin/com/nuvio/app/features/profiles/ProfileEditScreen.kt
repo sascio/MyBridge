@@ -1,6 +1,5 @@
 package com.nuvio.app.features.profiles
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -653,25 +652,13 @@ private fun AvatarChoiceItem(
     ) {
         val avatarImageUrl = avatarImageUrl(avatar)
         if (avatarImageUrl != null) {
-            val painter = rememberAsyncImagePainter(avatarImageUrl)
-            when (painter.state) {
-                is AsyncImagePainter.State.Error -> {
-                    Icon(
-                        imageVector = Icons.Rounded.Person,
-                        contentDescription = avatar.displayName,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(size / 2),
-                    )
-                }
-                else -> {
-                    Image(
-                        painter = painter,
-                        contentDescription = avatar.displayName,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                        contentScale = ContentScale.Crop,
-                    )
-                }
-            }
+            NuvioAsyncImage(
+                imageUrl = avatarImageUrl,
+                contentDescription = avatar.displayName,
+                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                animateIfPossible = true,
+            )
         }
 
         if (isSelected) {
