@@ -124,6 +124,18 @@ jobs:
           done
           sha256sum "${apks[@]}" | tee checksums.sha256
 
+      - name: Upload production-signed APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: StreamBridge-production-full-release-apk
+          path: |
+            androidApp/build/outputs/apk/full/release/androidApp-full-arm64-v8a-release.apk
+            androidApp/build/outputs/apk/full/release/androidApp-full-armeabi-v7a-release.apk
+            androidApp/build/outputs/apk/full/release/androidApp-full-x86-release.apk
+            androidApp/build/outputs/apk/full/release/androidApp-full-x86_64-release.apk
+            checksums.sha256
+          if-no-files-found: error
+
       - name: Create draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -141,7 +153,11 @@ jobs:
 
           Draft only — publish after device validation. In-app updates require this production certificate (docs/SIGNING.md). CI debug-signed APKs are not updates.
           EOF
-          gh release create "$TAG" "${apks[@]}" checksums.sha256 \
-            --draft \
-            --title "StreamBridge ${TAG}" \
-            --notes-file "$notes"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${apks[@]}" checksums.sha256 --clobber
+          else
+            gh release create "$TAG" "${apks[@]}" checksums.sha256 \
+              --draft \
+              --title "StreamBridge ${TAG}" \
+              --notes-file "$notes"
+          fi
