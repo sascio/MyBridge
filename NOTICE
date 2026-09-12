@@ -1,0 +1,74 @@
+StreamBridge
+Copyright (c) 2026 Stream Bridge contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+The combined work is licensed under GPL-3.0. See LICENSE and COPYING.
+
+
+NuvioMobile (core)
+==================
+StreamBridge’s runnable Android foundation is official NuvioMobile,
+imported from:
+
+  https://github.com/NuvioMedia/NuvioMobile
+  branch: cmp-rewrite
+  commit: d177eb57dfc8989e56de577bda8f4c2714b2bd64
+  tag context: 0.4.17 (bump version; latest cmp-rewrite)
+  previous pin: 465266d (0.4.16)
+  license: GNU General Public License v3.0
+
+Copyright (c) NuvioMedia and NuvioMobile contributors.
+
+Imported as-is into `composeApp/`, `androidApp/`, `iosApp/` (version
+config), and `gradle/` with StreamBridge identity overlays only
+(applicationId, visible app name, launcher mark). Kotlin packages
+remain `com.nuvio.app` / `com.nuvio.android`.
+
+NuvioMobile-Enhanced (feature overlay)
+======================================
+Unique fork features (Live TV, OMDB episode ratings, hero trailer extras,
+volume boost, HLS quality chooser, library calendar, profile insights,
+download location / Wi-Fi-only, etc.) were overlaid from:
+
+  https://github.com/luqmanfadlli/NuvioMobile-Enhanced
+  branch: enhanced
+  commit: d4a3b23
+  license: GNU General Public License v3.0
+
+Official NuvioMobile 0.4.17 plugin/sync/player fixes were re-applied on
+top of that overlay. StreamBridge identity, empty default addons, and
+updater source `sascio/MyBridge` are preserved.
+
+Vendored Android binaries shipped by that pin (GPL application):
+
+  composeApp/libs/lib-exoplayer-release.aar
+  composeApp/libs/lib-decoder-ffmpeg-release.aar
+  composeApp/libs/lib-decoder-av1-release.aar
+  composeApp/libs/lib-decoder-mpegh-release.aar
+  composeApp/libs/lib-ui-release.aar
+  composeApp/libs/lib-nuvio-engine-android-0.1.1.aar
+  composeApp/libs/quickjs-kt-android-1.0.5-nuvio.aar
+
+Related upstream (not copied as source trees in Milestone 1):
+
+  NuvioTV        https://github.com/NuvioMedia/NuvioTV        e7a335e
+  nuvio-engine   https://github.com/NuvioMedia/nuvio-engine   772f8c0
+                 (GPL-3.0-or-later; Android consumes the AAR above)
+
+
+Historical StreamBridge client (quarantined)
+============================================
+`legacy/streambridge-app/` is the previous independent Android client
+(custom Media3 player, original Compose UI). Those files were
+originally published under the MIT License (see
+`legacy/LICENSE-MIT.txt`). They are **not** on the runtime or CI path.
+
+The combined StreamBridge distribution is GPL-3.0.

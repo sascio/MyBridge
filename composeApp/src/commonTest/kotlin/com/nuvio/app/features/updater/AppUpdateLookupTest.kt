@@ -92,46 +92,6 @@ class AppUpdateLookupTest {
     }
 
     @Test
-    fun prefers_nuvio_style_arm64_filename_over_x86() {
-        val selected = AppUpdateReleaseSelector.chooseBestApkAsset(
-            assets = listOf(
-                AppUpdateAssetCandidate(
-                    name = "androidApp-full-x86_64-release.apk",
-                    browserDownloadUrl = "https://example.test/x86_64.apk",
-                ),
-                AppUpdateAssetCandidate(
-                    name = "androidApp-full-armeabi-v7a-release.apk",
-                    browserDownloadUrl = "https://example.test/v7a.apk",
-                ),
-                AppUpdateAssetCandidate(
-                    name = "androidApp-full-arm64-v8a-release.apk",
-                    browserDownloadUrl = "https://example.test/arm64.apk",
-                ),
-            ),
-            supportedAbis = arm64Abis,
-        )
-        assertEquals("androidApp-full-arm64-v8a-release.apk", selected?.name)
-    }
-
-    @Test
-    fun x86_abi_does_not_select_x86_64_apk() {
-        val selected = AppUpdateReleaseSelector.chooseBestApkAsset(
-            assets = listOf(
-                AppUpdateAssetCandidate(
-                    name = "androidApp-full-x86_64-release.apk",
-                    browserDownloadUrl = "https://example.test/x86_64.apk",
-                ),
-                AppUpdateAssetCandidate(
-                    name = "androidApp-full-x86-release.apk",
-                    browserDownloadUrl = "https://example.test/x86.apk",
-                ),
-            ),
-            supportedAbis = listOf("x86"),
-        )
-        assertEquals("androidApp-full-x86-release.apk", selected?.name)
-    }
-
-    @Test
     fun skips_prerelease_then_picks_first_stable() {
         val lookup = AppUpdateReleaseSelector.classifyDecodedReleases(
             listOf(

@@ -1,0 +1,1281 @@
+package com.streambridge.app.player
+
+import android.content.Context
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import androidx.annotation.OptIn
+import androidx.media3.common.C
+import androidx.media3.common.Format
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.extractor.ts.TsExtractor
+import com.streambridge.app.addon.StreamHeaders
+import kotlinx.coroutines.flow.asStateFlow
+import okhttp3.OkHttpClient
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+
+/** A selectable subtitle or audio track exposed by the current stream. */
+data class TrackOption(
+    val groupIndex: Int,
+    val trackIndex: Int,
+    val label: String,
+    val selected: Boolean
+)
+
+/**
+ * Wrapper around Media3 ExoPlayer.
+ *
+ * Playback parity with the reference behavior (sources that play in
+ * Nuvio must play here whenever the device's decoders allow it):
+ *  - REQUEST CONTEXT: the active stream's OWN headers (Referer,
+ *    User-Agent, Cookie, Origin — whatever the provider supplied,
+ *    sanitized) apply to EVERY request of that playback: the manifest,
+ *    every segment, every key request and every redirect. They are
+ *    session-scoped: a new stream replaces them, so no context ever
+ *    leaks between sources.
+ *  - CONTAINER/MANIFEST: the MIME type resolved by [PlaybackPlanning]
+ *    (provider hint → URL evidence → server Content-Type) is set on
+ *    the MediaItem, so extension-less HLS/DASH/TS links get the right
+ *    media source instead of failing container recognition.
+ *  - DECODERS: decoder fallback is enabled (a failing primary decoder
+ *    no longer ends playback when a working alternative exists), and
+ *    TS extraction accepts HDMV/DTS streams with deeper timestamp
+ *    search — matching the reference configuration. Software-decoder
+ *    extension renderers participate automatically when added to the
+ *    build ([SoftwareDecoderExtensions]).
+ *  - AUDIO AS A FIRST-CLASS requirement: every audio track the stream
+ *    offers is preserved and inspected (codec, language, channels,
+ *    bitrate) against the device's real decoder capabilities
+ *    ([PlaybackCapabilities]). A KNOWN-undecodable preferred track is
+ *    switched before playback; after a decoder failure the next
+ *    compatible track is tried (bounded). Audio is only muted as the
+ *    FINAL fallback when no decodable track exists — never as a
+ *    shortcut, and a supported track is never downgraded.
+ *  - BUFFERING: the reference load-control profile (deep buffers for
+ *    slow provider CDNs).
+ *  - DIAGNOSTICS: every failure is classified AND recorded as
+ *    redacted structured [PlaybackDiagnostics] — the real cause
+ *    survives, cookies/tokens/signed URLs never do.
+ *
+ * Playback hardening (unchanged):
+ *  - Every URL is validated ([StreamValidator]) before the player sees it;
+ *    bad links become error events, never crashes.
+ *  - The HTTP stack is the app's shared OkHttpClient (connection reuse,
+ *    OkHttp redirect handling incl. cross-protocol).
+ *  - setMediaItem()/prepare() build media sources synchronously on the main
+ *    thread; Media3 can throw there (e.g. a scheme no module supports).
+ *    Those exceptions are converted to error events at this boundary —
+ *    the actual cause (missing modules) is fixed in the build, this is the
+ *    last line of defense for exotic inputs.
+ *  - PlaybackException failures are classified ([PlaybackFailureClassifier])
+ *    into clean categories + messages; users never see stack traces.
+ */
+@OptIn(UnstableApi::class)
+class PlayerHolder(
+    context: Context,
+    okHttpClient: OkHttpClient,
+    private val onPlaybackEvent: (PlaybackEvent) -> Unit,
+    /** Device decoder capabilities; injectable for tests. */
+    private val decoderRegistry: DecoderRegistry = MediaCodecDecoderRegistry()
+) {
+
+    /** Which playback engine is currently rendering the active stream. */
+    enum class PlaybackEngine { MEDIA3, LIBMPV }
+
+    private val appContext: Context = context.applicationContext
+
+    private val _activeEngine =
+        kotlinx.coroutines.flow.MutableStateFlow(PlaybackEngine.MEDIA3)
+    val activeEngine: kotlinx.coroutines.flow.StateFlow<PlaybackEngine> =
+        _activeEngine.asStateFlow()
+
+    sealed interface PlaybackEvent {
+        data class StateChanged(
+            val isPlaying: Boolean,
+            val buffering: Boolean,
+            val ended: Boolean,
+            val positionMs: Long,
+            val durationMs: Long,
+            val switchingBackend: Boolean = false
+        ) : PlaybackEvent
+
+        data class Error(
+            val message: String,
+            val category: PlaybackFailureCategory = PlaybackFailureCategory.UNKNOWN_PLAYBACK_ERROR,
+            val httpStatus: Int? = null,
+            val decoderMimeType: String? = null,
+            /** Redacted structured facts behind this failure. */
+            val diagnostics: PlaybackDiagnostics? = null
+        ) : PlaybackEvent
+
+        /**
+         * Playback CONTINUES but something worth telling the user
+         * happened (e.g. "audio switched to AAC — E-AC-3 is not
+         * decodable on this device"). Not an error.
+         */
+        data class Info(
+            val text: String,
+            val diagnostics: PlaybackDiagnostics? = null
+        ) : PlaybackEvent
+    }
+
+    /**
+     * Per-URL header overrides (e.g. a side-loaded subtitle download
+     * that needs its own User-Agent/Authorization). An entry here fully
+     * replaces the session headers for that URL — no mixing of one
+     * URL's context with another's. Cleared whenever a new stream starts.
+     */
+    private val headersByUrl = ConcurrentHashMap<String, Map<String, String>>()
+
+    /**
+     * The ACTIVE stream's own request context, applied to every HTTP
+     * request of this playback: the manifest/initialization URL, every
+     * HLS/DASH segment and key, and every redirect in between. This is
+     * what keeps token/Referer-protected CDNs serving segments instead
+     * of 403s. Replaced wholesale on every new stream — never merged
+     * across sources.
+     */
+    private val sessionHeaders = ConcurrentHashMap<String, String>()
+
+    /** Sanitized headers + MIME of the stream currently loaded (for restarts). */
+    private var activeHeaders: Map<String, String> = emptyMap()
+    private var activeMimeType: String? = null
+    private var activeSourceName: String? = null
+    private var activeBackendId: String = Media3PlaybackBackend.ID
+
+    /** Redacted structured facts about the active playback. */
+    private var diagnostics: PlaybackDiagnostics = PlaybackDiagnostics(backendId = Media3PlaybackBackend.ID)
+
+    /**
+     * Bounded audio recovery state (per stream): each track is tried at
+     * most once, each failed codec excludes all its tracks, and the
+     * whole chain is capped — no infinite retries, no hammering.
+     */
+    private val attemptedAudioTrackKeys = mutableSetOf<String>()
+    private val failedAudioMimeTypes = mutableSetOf<String>()
+    private var audioFallbackAttempts = 0
+    private var userSelectedAudio = false
+    private var autoAudioOverrideKey: String? = null
+
+    // -----------------------------------------------------------------
+    // Engine escalation (Media3 → libmpv, the software-decoding tier)
+    // -----------------------------------------------------------------
+
+    /** URL of the stream the engines are currently working on. */
+    private var activeUrl: String? = null
+
+    /** One libmpv attempt per stream — never repeatedly switch engines. */
+    private var engineEscalationAttempted = false
+    private var mpvFailed = false
+    /** Nuvio: probe MIME at most once per stream on source/container errors. */
+    private var mimeProbeAttempted = false
+    private var extensionPreferRetried = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val ioExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "SBPlaybackIo").apply { isDaemon = true }
+    }
+
+    /** The failure category that made us escalate (kept for reporting). */
+    private var escalationReasonCategory: PlaybackFailureCategory? = null
+
+    /** Live libmpv engine while the LIBMPV backend is (being) active. */
+    private var mpvEngine: LibMpvEngine? = null
+
+    /**
+     * Surface handed over by the Compose SurfaceView, possibly before
+     * the engine exists (direct-MPV path) or after (fallback path).
+     * Stashed here so it is never dropped on a null engine.
+     */
+    private var pendingMpvSurface: android.view.Surface? = null
+
+    private fun mpvEngine(): LibMpvEngine = mpvEngine ?: LibMpvEngine(
+        appContext,
+        onEvent = { event -> onMpvEvent(event) },
+        onMediaInfo = { info -> onMpvMediaInfo(info) },
+        onStage = { stage ->
+            diagnostics = diagnostics.copy(
+                backendId = "libmpv",
+                mpvStage = stage,
+                notes = (diagnostics.notes + stage).distinct().takeLast(16)
+            )
+        }
+    ).also { engine ->
+        mpvEngine = engine
+        pendingMpvSurface?.takeIf { it.isValid }?.let { engine.attachSurface(it) }
+    }
+
+    /** Events from the libmpv engine surface here (media3 events bypass). */
+    private fun onMpvEvent(event: PlaybackEvent) {
+        when (event) {
+            is PlaybackEvent.Error -> {
+                mpvFailed = true
+                val category = escalationReasonCategory ?: event.category
+                val cause = event.diagnostics?.errorCause ?: "libmpv"
+                diagnostics = diagnostics.copy(
+                    backendId = "libmpv",
+                    errorCategory = category,
+                    errorCause = cause,
+                    mpvStage = event.diagnostics?.mpvStage ?: diagnostics.mpvStage,
+                    notes = (diagnostics.notes + (event.diagnostics?.notes ?: emptyList())).distinct()
+                )
+                Log.w(TAG, "libmpv failed: ${diagnostics.toLogString()}")
+                onPlaybackEvent(
+                    event.copy(
+                        message = "This source could not be played by either playback engine. " +
+                            "Pick another source.",
+                        category = category,
+                        diagnostics = diagnostics
+                    )
+                )
+            }
+
+            else -> onPlaybackEvent(event)
+        }
+    }
+
+    private fun onMpvMediaInfo(info: LibMpvMediaInfo) {
+        diagnostics = diagnostics.copy(
+            containerMime = info.containerFormat ?: diagnostics.containerMime,
+            videoCodec = info.videoCodec ?: diagnostics.videoCodec,
+            audioCodec = info.audioCodec ?: diagnostics.audioCodec,
+            availableAudioTracks = info.audioTracks.ifEmpty { diagnostics.availableAudioTracks }
+        )
+    }
+
+    /**
+     * Switches the active engine from Media3 to libmpv, preserving the
+     * playback position. Media3 is stopped (its codecs and buffers are
+     * released) but kept alive for later streams.
+     *
+     * Order is load-bearing:
+     *  1. Flip [activeEngine] FIRST so leftover Media3 listener events
+     *     (stop / idle / a decoder error from teardown) cannot clobber
+     *     libmpv state or re-enter the escalation ladder.
+     *  2. Then stop Media3.
+     *  3. Then start libmpv, which queues loadfile until a Surface is
+     *     attached (Compose swaps PlayerView → SurfaceView after this).
+     */
+    private fun escalateToLibMpv(reason: PlaybackFailureCategory) {
+        val url = activeUrl ?: run {
+            onPlaybackEvent(
+                PlaybackEvent.Error(
+                    "This stream could not be played. Pick another source.",
+                    reason
+                )
+            )
+            return
+        }
+        val resumeAtMs = runCatching { player.currentPosition.coerceAtLeast(0L) }
+            .getOrDefault(0L)
+        engineEscalationAttempted = true
+        escalationReasonCategory = reason
+        diagnostics = diagnostics.copy(
+            backendId = "libmpv",
+            fallbackAttempts = diagnostics.fallbackAttempts +
+                "engine media3 -> libmpv ($reason, resumeMs=$resumeAtMs)",
+            mpvStage = "FALLBACK_DECISION=LIBMPV"
+        )
+        Log.i(TAG, "Escalating playback engine: media3 -> libmpv ($reason) at ${resumeAtMs}ms")
+        _activeEngine.value = PlaybackEngine.LIBMPV
+        onPlaybackEvent(
+            PlaybackEvent.StateChanged(
+                isPlaying = false,
+                buffering = true,
+                ended = false,
+                positionMs = resumeAtMs,
+                durationMs = runCatching { player.duration }.getOrDefault(0L).coerceAtLeast(0L),
+                switchingBackend = true
+            )
+        )
+        runCatching { player.stop() }
+            .onFailure { Log.w(TAG, "Stopping Media3 before engine switch failed", it) }
+        runCatching { player.clearMediaItems() }
+            .onFailure { Log.w(TAG, "Clearing Media3 items before engine switch failed", it) }
+        Log.i(TAG, "MEDIA3_RELEASED (stopped; player kept for later streams)")
+        mpvEngine().start(url, activeHeaders, resumeAtMs)
+        onPlaybackEvent(PlaybackEvent.Info("Switching playback engine…", diagnostics))
+    }
+
+    /** Destroys the libmpv engine (if any) and resets escalation state. */
+    private fun teardownMpvEngine() {
+        mpvEngine?.release()
+        mpvEngine = null
+        engineEscalationAttempted = false
+        mpvFailed = false
+        escalationReasonCategory = null
+        _activeEngine.value = PlaybackEngine.MEDIA3
+    }
+
+    /**
+     * Registers headers for an auxiliary URL (e.g. a side-loaded
+     * subtitle download that needs its own User-Agent/Authorization).
+     * Cleared whenever a new stream starts.
+     */
+    fun associateHeaders(url: String, headers: Map<String, String>) {
+        val safe = StreamHeaders.sanitize(headers)
+        if (safe.isNotEmpty()) {
+            headersByUrl[url] = safe
+        }
+    }
+
+    // Nuvio playback client: 15s timeouts, IPv4-first DNS, redirects on.
+    private val streamHttpClient = okHttpClient.newBuilder()
+        .dns(Ipv4FirstDns())
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    private val httpFactory: OkHttpDataSource.Factory =
+        OkHttpDataSource.Factory(streamHttpClient)
+            .setUserAgent(PlaybackUserAgent.DEFAULT)
+
+    val player: ExoPlayer = buildPlayer(context.applicationContext)
+
+    private fun applySessionToHttpFactory(headers: Map<String, String>) {
+        httpFactory.setDefaultRequestProperties(PlaybackHttp.forDefaultRequestProperties(headers))
+        httpFactory.setUserAgent(PlaybackHttp.effectiveUserAgent(headers))
+    }
+
+    private fun buildPlayer(appContext: Context): ExoPlayer {
+
+        // Request-context resolution: every HTTP request of the active
+        // playback carries that source's OWN headers — manifest, segments,
+        // keys and redirects alike. A per-URL override (subtitles) fully
+        // replaces the session context for its URL, so contexts never mix.
+        val resolvingFactory = ResolvingDataSource.Factory(httpFactory) { dataSpec ->
+            resolveRequestHeaders(dataSpec)
+        }
+        val dataSourceFactory = DefaultDataSource.Factory(appContext, resolvingFactory)
+
+        // Progressive container extraction: enable DTS-HD/HDMV audio
+        // streams inside TS and search deeper for the first timestamp —
+        // both required by real-world provider streams.
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
+            .setTsExtractorTimestampSearchBytes(TS_TIMESTAMP_SEARCH_BYTES * TsExtractor.TS_PACKET_SIZE)
+
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+
+        // Decoder fallback: when the preferred decoder fails to initialize
+        // (codec/profile mismatch), Media3 falls back to the next capable
+        // decoder instead of failing playback — the reference configuration.
+        // Software-decoder extension renderers (ffmpeg/av1/…), when added to
+        // the build, participate as fallback decoders automatically.
+        // Nuvio default decoderPriority = EXTENSION_RENDERER_MODE_ON
+        // (prefer device, extensions as fallback). Harmless when no
+        // ffmpeg/av1 AARs are on the classpath.
+        val renderersFactory = DefaultRenderersFactory(appContext)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+
+        // Track selection reacts to renderer capability changes (needed for
+        // the capability-aware audio recovery path), mirroring the reference.
+        val trackSelector = DefaultTrackSelector(appContext)
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters()
+                .setAllowInvalidateSelectionsOnRendererCapabilitiesChange(true)
+        )
+
+        // Reference buffering profile: deep buffers absorb slow provider
+        // CDNs instead of stuttering into a failure.
+        val loadControl = DefaultLoadControl.Builder()
+            .setTargetBufferBytes(REFERENCE_TARGET_BUFFER_BYTES)
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 70_000,
+                /* bufferForPlaybackMs = */ DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000
+            )
+            .build()
+
+        return ExoPlayer.Builder(appContext, renderersFactory)
+            .setTrackSelector(trackSelector)
+            .setLoadControl(loadControl)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
+                playWhenReady = true
+                addListener(object : Player.Listener {
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
+                        publish()
+                    }
+
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
+                        publish()
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
+                        // Preserve the full track inventory (all audio tracks
+                        // with codec/language/channels, selected video) in
+                        // diagnostics, and steer away from known-undecodable
+                        // audio before it can fail.
+                        refreshTrackDiagnostics(tracks)
+                        preemptivelyAvoidUndecodableAudio()
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (_activeEngine.value != PlaybackEngine.MEDIA3) {
+                            Log.w(
+                                TAG,
+                                "Ignoring Media3 error after engine switch: ${error.errorCodeName}"
+                            )
+                            return
+                        }
+                        Log.w(TAG, "Playback error ${error.errorCodeName}: ${error.message}")
+                        val classification = PlaybackFailureClassifier.classify(error)
+                        diagnostics = diagnostics.copy(
+                            httpStatus = classification.httpStatus ?: diagnostics.httpStatus,
+                            errorCategory = classification.category,
+                            errorCause = "${error.errorCodeName} -> ${causeChainOf(error)}",
+                            notes = diagnostics.notes + listOfNotNull(
+                                "media3Code=${error.errorCodeName}",
+                                classification.decoderMimeType?.let { "decoderMime=$it" }
+                            )
+                        )
+                        // Nuvio: probe MIME and retry ExoPlayer before
+                        // abandoning the Media3 path for container/source
+                        // recognition failures.
+                        if (tryMimeProbeRetry(error, classification)) return
+                        // Audio failures are handled IN PLACE when possible:
+                        // another compatible audio track. An audio problem
+                        // must never become a video failure.
+                        val audioFailed =
+                            classification.category == PlaybackFailureCategory.AUDIO_DECODER_UNSUPPORTED ||
+                                (
+                                    classification.category == PlaybackFailureCategory.CODEC_CONFIGURATION_FAILED &&
+                                        classification.decoderMimeType?.startsWith("audio/") == true
+                                    )
+                        if (audioFailed) {
+                            when (val recovery = tryAudioTrackFallback(classification.decoderMimeType)) {
+                                is AudioRecovery.Switched -> {
+                                    Log.w(TAG, diagnostics.toLogString())
+                                    onPlaybackEvent(PlaybackEvent.Info(recovery.note, diagnostics))
+                                    return
+                                }
+
+                                AudioRecovery.NoAudioPath -> {
+                                    // No decodable audio track in Media3. Before
+                                    // ever muting: let the software-decoding
+                                    // engine try (it decodes E-AC-3/DTS/TrueHD
+                                    // with working audio).
+                                    when (
+                                        EngineEscalationPolicy.decide(
+                                            escalationState(),
+                                            audioNoPath = true
+                                        )
+                                    ) {
+                                        EngineEscalationPolicy.Decision.ESCALATE_TO_LIBMPV -> {
+                                            escalateToLibMpv(classification.category)
+                                            return
+                                        }
+
+                                        EngineEscalationPolicy.Decision.MUTE_AUDIO -> {
+                                            val note = muteAudioAsFinalFallback(classification.decoderMimeType)
+                                            Log.w(TAG, diagnostics.toLogString())
+                                            onPlaybackEvent(PlaybackEvent.Info(note, diagnostics))
+                                            return
+                                        }
+
+                                        EngineEscalationPolicy.Decision.FAIL_SOURCE -> Unit
+                                    }
+                                }
+
+                                AudioRecovery.NotHandled -> Unit
+                            }
+                        }
+                        // Any other failure: one libmpv attempt (software
+                        // decoding) before this source is abandoned.
+                        when (
+                            EngineEscalationPolicy.decide(escalationState(), audioNoPath = false)
+                        ) {
+                            EngineEscalationPolicy.Decision.ESCALATE_TO_LIBMPV -> {
+                                escalateToLibMpv(classification.category)
+                                return
+                            }
+
+                            else -> Unit
+                        }
+                        Log.w(TAG, diagnostics.toLogString())
+                        onPlaybackEvent(
+                            PlaybackEvent.Error(
+                                message = classification.message,
+                                category = classification.category,
+                                httpStatus = classification.httpStatus,
+                                decoderMimeType = classification.decoderMimeType,
+                                diagnostics = diagnostics
+                            )
+                        )
+                    }
+                })
+            }
+    }
+
+    /** Resolves the headers for one HTTP request of the active playback. */
+    private fun resolveRequestHeaders(dataSpec: DataSpec): DataSpec {
+        val session = resolveRequestHeadersFor(
+            url = dataSpec.uri.toString(),
+            sessionHeaders = sessionHeaders.toMap(),
+            urlOverrides = headersByUrl.toMap()
+        )
+        val merged = PlaybackHttp.mergeRequestHeaders(session, dataSpec.httpRequestHeaders)
+        if (merged.isEmpty()) return dataSpec
+        return dataSpec.buildUpon()
+            .setHttpRequestHeaders(merged)
+            .build()
+    }
+
+    /**
+     * Nuvio: on UnrecognizedInputFormat / IO_UNSPECIFIED, probe the real
+     * Content-Type and retry the same URL on Media3 instead of jumping
+     * to libmpv.
+     */
+    private fun tryMimeProbeRetry(
+        error: PlaybackException,
+        classification: PlaybackFailureClassifier.Result
+    ): Boolean {
+        val unrecognized = classification.category == PlaybackFailureCategory.CONTAINER_UNSUPPORTED
+        if (!Media3RecoveryPolicy.shouldProbeMimeAndRetry(
+                errorCode = error.errorCode,
+                unrecognizedContainer = unrecognized,
+                alreadyProbed = mimeProbeAttempted
+            )
+        ) {
+            return false
+        }
+        val url = activeUrl ?: return false
+        mimeProbeAttempted = true
+        val headers = activeHeaders
+        val resumeAtMs = runCatching { player.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
+        onPlaybackEvent(
+            PlaybackEvent.StateChanged(
+                isPlaying = false,
+                buffering = true,
+                ended = false,
+                positionMs = resumeAtMs,
+                durationMs = runCatching { player.duration }.getOrDefault(0L).coerceAtLeast(0L)
+            )
+        )
+        ioExecutor.execute {
+            val probed = runCatching {
+                kotlinx.coroutines.runBlocking {
+                    StreamMimeProbe.probe(streamHttpClient, url, headers)
+                }
+            }.getOrNull()
+            mainHandler.post {
+                if (_activeEngine.value != PlaybackEngine.MEDIA3) return@post
+                if (probed != null && Media3RecoveryPolicy.shouldUseProbedMime(activeMimeType, probed)) {
+                    Log.i(TAG, "MIME probe retry container=$probed")
+                    diagnostics = diagnostics.copy(
+                        containerMime = probed,
+                        notes = diagnostics.notes + "mime-probe-retry=$probed"
+                    )
+                    activeMimeType = probed
+                    replayCurrentItem(probed, resumeAtMs)
+                } else {
+                    handleUnrecoverableMedia3Error(classification)
+                }
+            }
+        }
+        return true
+    }
+
+    private fun replayCurrentItem(mimeType: String, startPositionMs: Long) {
+        val url = activeUrl ?: return
+        try {
+            val mediaItem = MediaItem.Builder()
+                .setUri(Uri.parse(url))
+                .setMimeType(mimeType)
+                .build()
+            player.setMediaItem(mediaItem)
+            if (startPositionMs > 0L) player.seekTo(startPositionMs)
+            player.prepare()
+            player.play()
+            publish()
+        } catch (e: Exception) {
+            diagnostics = diagnostics.copy(
+                errorCategory = PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+                errorCause = causeChainOf(e)
+            )
+            handleUnrecoverableMedia3Error(
+                PlaybackFailureClassifier.Result(
+                    category = PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+                    message = PlayerErrorMessages.forException(e)
+                )
+            )
+        }
+    }
+
+    private fun handleUnrecoverableMedia3Error(classification: PlaybackFailureClassifier.Result) {
+        when (EngineEscalationPolicy.decide(escalationState(), audioNoPath = false)) {
+            EngineEscalationPolicy.Decision.ESCALATE_TO_LIBMPV -> {
+                escalateToLibMpv(classification.category)
+                return
+            }
+            else -> Unit
+        }
+        Log.w(TAG, diagnostics.toLogString())
+        onPlaybackEvent(
+            PlaybackEvent.Error(
+                message = classification.message,
+                category = classification.category,
+                httpStatus = classification.httpStatus,
+                decoderMimeType = classification.decoderMimeType,
+                diagnostics = diagnostics
+            )
+        )
+    }
+
+    private fun publish() {
+        if (_activeEngine.value != PlaybackEngine.MEDIA3) return
+        val state = player.playbackState
+        onPlaybackEvent(
+            PlaybackEvent.StateChanged(
+                isPlaying = player.isPlaying,
+                buffering = state == Player.STATE_BUFFERING,
+                ended = state == Player.STATE_ENDED,
+                positionMs = player.currentPosition.coerceAtLeast(0L),
+                durationMs = if (player.duration < 0) 0L else player.duration
+            )
+        )
+    }
+
+    /**
+     * Starts (or restarts) playback of a direct stream URL, with optional
+     * side-loaded subtitles, that source's own HTTP headers, and the
+     * resolved container MIME type (from [PlaybackPlanning]; null leaves
+     * progressive byte-sniffing in charge — no fake MIME is ever set).
+     */
+    fun play(
+        url: String,
+        startPositionMs: Long,
+        subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList(),
+        speed: Float = 1f,
+        headers: Map<String, String> = emptyMap(),
+        mimeType: String? = null,
+        sourceName: String? = null,
+        backendId: String = Media3PlaybackBackend.ID,
+        /** Diagnostic path: skip Media3 and load this source on libmpv. */
+        forceLibMpv: Boolean = false
+    ) {
+        when (val verdict = StreamValidator.validate(url)) {
+            is StreamValidator.Result.Invalid -> {
+                Log.w(TAG, "Rejected stream URL: ${verdict.reason}")
+                onPlaybackEvent(
+                    PlaybackEvent.Error(
+                        verdict.reason,
+                        PlaybackFailureCategory.UNKNOWN_PLAYBACK_ERROR
+                    )
+                )
+                return
+            }
+
+            is StreamValidator.Result.Valid -> {
+                val safeHeaders = StreamHeaders.sanitize(headers)
+                Log.d(
+                    TAG,
+                    "Playing ${verdict.contentType} stream from ${verdict.url.toUriHost()}" +
+                        " (${safeHeaders.size} headers, mime=${mimeType ?: "unresolved"})"
+                )
+                val isNewStream = activeUrl != verdict.url
+                if (isNewStream) {
+                    // New source: destroy the previous source's libmpv engine
+                    // and reset the escalation ladder (Media3 first again).
+                    teardownMpvEngine()
+                } else if (_activeEngine.value == PlaybackEngine.LIBMPV && !forceLibMpv) {
+                    // Same-source restart while the libmpv engine is active
+                    // (e.g. subtitle re-apply): reload there, Media3 stays idle.
+                    mpvEngine?.start(verdict.url, safeHeaders, startPositionMs)
+                    return
+                }
+                activeUrl = verdict.url
+                // New source, new context: nothing of the previous source's
+                // headers may survive into this playback.
+                headersByUrl.clear()
+                sessionHeaders.clear()
+                sessionHeaders.putAll(safeHeaders)
+                applySessionToHttpFactory(safeHeaders)
+                activeHeaders = safeHeaders
+                activeMimeType = mimeType
+                activeSourceName = sourceName
+                activeBackendId = backendId
+                resetPerStreamState(url, safeHeaders, mimeType, sourceName, backendId)
+                if (forceLibMpv) {
+                    playDirectLibMpv(verdict.url, startPositionMs, safeHeaders)
+                    return
+                }
+                try {
+                    val mediaItem = MediaItem.Builder()
+                        .setUri(Uri.parse(verdict.url))
+                        .setSubtitleConfigurations(subtitleConfigurations)
+                        .apply { mimeType?.let { setMimeType(it) } }
+                        .build()
+                    // A previous stream's graceful degradation (e.g. audio
+                    // disabled after an undecodable E-AC-3 track) must not
+                    // silence the next source: track selection resets for
+                    // every new stream.
+                    player.trackSelectionParameters = player.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                        .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                        .build()
+                    player.setMediaItem(mediaItem)
+                    if (startPositionMs > 0L) {
+                        player.seekTo(startPositionMs)
+                    }
+                    player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+                    player.prepare()
+                    player.play()
+                    publish()
+                } catch (e: Exception) {
+                    // Media3 builds media sources synchronously inside
+                    // setMediaItem; inputs it cannot classify throw here
+                    // (previously an app crash). Convert to the standard
+                    // error path so the user can pick another stream.
+                    Log.e(TAG, "Player rejected the media item", e)
+                    diagnostics = diagnostics.copy(
+                        errorCategory = PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+                        errorCause = causeChainOf(e)
+                    )
+                    onPlaybackEvent(
+                        PlaybackEvent.Error(
+                            PlayerErrorMessages.forException(e),
+                            PlaybackFailureCategory.CONTAINER_UNSUPPORTED,
+                            diagnostics = diagnostics
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /** Fresh diagnostics + audio-recovery state for a new stream. */
+    private fun resetPerStreamState(
+        url: String,
+        safeHeaders: Map<String, String>,
+        mimeType: String?,
+        sourceName: String?,
+        backendId: String
+    ) {
+        attemptedAudioTrackKeys.clear()
+        failedAudioMimeTypes.clear()
+        audioFallbackAttempts = 0
+        userSelectedAudio = false
+        autoAudioOverrideKey = null
+        mimeProbeAttempted = false
+        extensionPreferRetried = false
+        diagnostics = PlaybackDiagnostics(
+            backendId = backendId,
+            sourceName = sourceName,
+            containerMime = mimeType,
+            streamHost = PlaybackDiagnostics.hostOf(url),
+            headerNames = safeHeaders.keys.toList().sorted()
+        )
+    }
+
+    /** Restarts the current media with side-loaded external subtitles. */
+    fun applyExternalSubtitles(
+        url: String,
+        positionMs: Long,
+        subtitleConfigurations: List<MediaItem.SubtitleConfiguration>,
+        speed: Float
+    ) {
+        play(
+            url,
+            positionMs,
+            subtitleConfigurations,
+            speed,
+            activeHeaders,
+            activeMimeType,
+            activeSourceName,
+            activeBackendId
+        )
+    }
+
+    fun setPlaybackSpeed(speed: Float) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.setSpeed(speed)
+            return
+        }
+        player.setPlaybackSpeed(speed.coerceIn(0.25f, 4f))
+        publish()
+    }
+
+    fun retry() {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.reload()
+            mpvEngine?.play()
+            return
+        }
+        val position = player.currentPosition.coerceAtLeast(0L)
+        try {
+            player.prepare()
+            player.seekTo(position)
+            player.play()
+            publish()
+        } catch (e: Exception) {
+            Log.e(TAG, "Retry failed", e)
+            onPlaybackEvent(PlaybackEvent.Error(PlayerErrorMessages.forException(e)))
+        }
+    }
+
+    fun togglePlayPause() {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.togglePlayPause()
+            return
+        }
+        if (player.isPlaying) {
+            player.pause()
+        } else {
+            player.play()
+        }
+        publish()
+    }
+
+    fun seekTo(positionMs: Long) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.seekTo(positionMs)
+            return
+        }
+        player.seekTo(
+            positionMs.coerceIn(0L, if (player.duration > 0) player.duration else Long.MAX_VALUE)
+        )
+        publish()
+    }
+
+    /** Relative seek (double-tap / skip gestures) on the active engine. */
+    fun seekBy(deltaMs: Long) {
+        val (current, duration) = snapshotPosition()
+        val durationCap = if (duration > 0) duration else Long.MAX_VALUE
+        seekTo((current + deltaMs).coerceIn(0L, durationCap))
+    }
+
+    fun snapshotPosition(): Pair<Long, Long> {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            return mpvEngine?.snapshotPosition() ?: (0L to 0L)
+        }
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val duration = if (player.duration > 0) player.duration else 0L
+        return position to duration
+    }
+
+    /** Live position of the active engine (never negative). */
+    fun currentPositionOrZero(): Long =
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.snapshotPosition()?.first?.coerceAtLeast(0L) ?: 0L
+        } else {
+            runCatching { player.currentPosition.coerceAtLeast(0L) }.getOrDefault(0L)
+        }
+
+    // -----------------------------------------------------------------
+    // Track selection (subtitles / audio)
+    // -----------------------------------------------------------------
+
+    fun textTracks(): List<TrackOption> =
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.textTracks().orEmpty()
+        } else {
+            collectTracks(C.TRACK_TYPE_TEXT, "Subtitle")
+        }
+
+    fun audioTracks(): List<TrackOption> =
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.audioTracks().orEmpty()
+        } else {
+            collectTracks(C.TRACK_TYPE_AUDIO, "Audio")
+        }
+
+    private fun collectTracks(
+        @androidx.annotation.IntRange(from = 0) type: Int,
+        fallbackPrefix: String
+    ): List<TrackOption> {
+        val result = mutableListOf<TrackOption>()
+        val groups = player.currentTracks.groups
+        for (groupIndex in groups.indices) {
+            val group = groups[groupIndex]
+            if (group.getType() != type) continue
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val label = format.label?.takeIf { it.isNotBlank() }
+                    ?: format.language?.uppercase()
+                    ?: "$fallbackPrefix ${result.size + 1}"
+                result += TrackOption(groupIndex, trackIndex, label, group.isTrackSelected(trackIndex))
+            }
+        }
+        return result
+    }
+
+    /** Selects a text track, or disables text tracks entirely when null. */
+    fun selectTextTrack(option: TrackOption?) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.selectTextTrack(option)
+            return
+        }
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (option == null) {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+        } else {
+            builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+            val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
+            builder.setOverrideForType(
+                TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex)
+            )
+        }
+        player.trackSelectionParameters = builder.build()
+    }
+
+    /** Outcome of the in-place audio recovery attempt. */
+    private sealed interface AudioRecovery {
+        /** Another decodable audio track was selected; playback continues. */
+        data class Switched(val note: String) : AudioRecovery
+
+        /** No decodable audio track exists in this stream for Media3. */
+        data object NoAudioPath : AudioRecovery
+
+        /** Recovery not applicable (no tracks yet / budget exhausted). */
+        data object NotHandled : AudioRecovery
+    }
+
+    /**
+     * Capability-aware audio recovery after a decoder failure: switch to
+     * the best decodable audio track (preferred: the failed track's
+     * language, then channels, then bitrate) — each track at most once,
+     * the chain capped. Muting is NOT decided here; the caller decides
+     * via [EngineEscalationPolicy] (engine first, mute only as the final
+     * legitimate fallback).
+     */
+    private fun tryAudioTrackFallback(failedMimeType: String?): AudioRecovery {
+        val candidates = audioCandidates()
+        if (candidates.isEmpty()) return AudioRecovery.NotHandled
+        if (audioFallbackAttempts >= MAX_AUDIO_FALLBACK_ATTEMPTS) return AudioRecovery.NotHandled
+
+        val failedMime = failedMimeType?.lowercase()
+        if (failedMime != null) {
+            failedAudioMimeTypes.add(failedMime)
+            // Every track using the failed codec will fail the same way —
+            // exclude them all from this and later retries.
+            candidates
+                .filter { it.mimeType?.lowercase() == failedMime }
+                .forEach { attemptedAudioTrackKeys.add(it.key) }
+        }
+        val selected = selectedAudioCandidate()
+        val next = AudioTrackPolicy.bestAlternative(
+            candidates = candidates,
+            excludeKeys = attemptedAudioTrackKeys,
+            preferLanguageOf = selected?.format
+        )
+        audioFallbackAttempts++
+
+        if (next == null) {
+            return AudioRecovery.NoAudioPath
+        }
+
+        attemptedAudioTrackKeys.add(next.key)
+        autoAudioOverrideKey = next.key
+        val group = player.currentTracks.groups.getOrNull(next.groupIndex)
+            ?: return AudioRecovery.NotHandled
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, next.trackIndex))
+            .build()
+        diagnostics = diagnostics.copy(
+            audioMimeType = next.mimeType ?: diagnostics.audioMimeType,
+            audioCodec = next.format.codecs ?: diagnostics.audioCodec,
+            selectedAudio = next.summary,
+            fallbackAttempts = diagnostics.fallbackAttempts + "audio switch -> ${next.summary}"
+        )
+        resumePlaybackAtCurrentPosition()
+        val fromName = friendlyCodecName(failedMime) ?: "the failed"
+        return AudioRecovery.Switched(
+            "Audio switched to ${next.summary} — this device can't decode $fromName audio."
+        )
+    }
+
+    /**
+     * The FINAL audio fallback: muted video. Reached only when no
+     * decodable audio track exists in Media3 AND the libmpv engine is
+     * unavailable or has already failed — never as a shortcut.
+     */
+    private fun muteAudioAsFinalFallback(failedMimeType: String?): String {
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+            .build()
+        val missing = friendlyCodecName(failedMimeType?.lowercase()) ?: "audio track"
+        diagnostics = diagnostics.copy(
+            audioMimeType = failedMimeType?.lowercase() ?: diagnostics.audioMimeType,
+            fallbackAttempts = diagnostics.fallbackAttempts +
+                "audio disabled — no decodable audio track on any engine (missing decoder: $failedMimeType)"
+        )
+        resumePlaybackAtCurrentPosition()
+        return "Playing the video without audio — this device has no decoder for that $missing track, " +
+            "and the stream offers no alternative audio."
+    }
+
+    /** Current engine-escalation facts for the ladder decision. */
+    private fun escalationState(): EngineEscalationPolicy.State =
+        EngineEscalationPolicy.State(
+            mpvAvailable = mpvEngine().isAvailable(),
+            mpvAttempted = engineEscalationAttempted,
+            mpvFailed = mpvFailed
+        )
+
+    /** Re-prepares the current media from where it failed (never from 0). */
+    private fun resumePlaybackAtCurrentPosition() {
+        val resumeAtMs = player.currentPosition.coerceAtLeast(0L)
+        player.prepare()
+        if (resumeAtMs > 0L) {
+            player.seekTo(resumeAtMs)
+        }
+        player.play()
+        publish()
+    }
+
+    /** All audio tracks of the current stream with their decode capability. */
+    private fun audioCandidates(): List<AudioTrackCandidate> {
+        val groups = player.currentTracks.groups
+        val result = mutableListOf<AudioTrackCandidate>()
+        for (groupIndex in groups.indices) {
+            val group = groups[groupIndex]
+            if (group.getType() != C.TRACK_TYPE_AUDIO) continue
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                result += AudioTrackCandidate(groupIndex, trackIndex, format, supportForFormat(format))
+            }
+        }
+        return result
+    }
+
+    private fun selectedAudioCandidate(): AudioTrackCandidate? {
+        val groups = player.currentTracks.groups
+        for (groupIndex in groups.indices) {
+            val group = groups[groupIndex]
+            if (group.getType() != C.TRACK_TYPE_AUDIO) continue
+            for (trackIndex in 0 until group.length) {
+                if (group.isTrackSelected(trackIndex)) {
+                    val format = group.getTrackFormat(trackIndex)
+                    return AudioTrackCandidate(groupIndex, trackIndex, format, supportForFormat(format))
+                }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Keeps the FULL track inventory in diagnostics (every audio track
+     * with codec/language/channels, the selected video) and updates the
+     * selected-codec facts as the selector moves between tracks.
+     */
+    private fun refreshTrackDiagnostics(tracks: Tracks) {
+        var selectedAudio: AudioTrackCandidate? = null
+        var selectedVideoFormat: Format? = null
+        val audioSummaries = mutableListOf<String>()
+        val groups = tracks.groups
+        for (groupIndex in groups.indices) {
+            val group = groups[groupIndex]
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                when (group.getType()) {
+                    C.TRACK_TYPE_AUDIO -> {
+                        val candidate = AudioTrackCandidate(
+                            groupIndex, trackIndex, format, supportForFormat(format)
+                        )
+                        audioSummaries += candidate.summary
+                        if (group.isTrackSelected(trackIndex)) selectedAudio = candidate
+                    }
+                    C.TRACK_TYPE_VIDEO -> if (group.isTrackSelected(trackIndex)) {
+                        selectedVideoFormat = format
+                    }
+                }
+            }
+        }
+        diagnostics = diagnostics.copy(
+            audioMimeType = selectedAudio?.mimeType ?: diagnostics.audioMimeType,
+            audioCodec = selectedAudio?.format?.codecs ?: diagnostics.audioCodec,
+            selectedAudio = selectedAudio?.summary ?: diagnostics.selectedAudio,
+            availableAudioTracks = audioSummaries.distinct(),
+            videoMimeType = selectedVideoFormat?.sampleMimeType ?: diagnostics.videoMimeType,
+            videoCodec = selectedVideoFormat?.codecs ?: diagnostics.videoCodec,
+            selectedVideo = selectedVideoFormat?.let { videoSummary(it) } ?: diagnostics.selectedVideo
+        )
+    }
+
+    /**
+     * Defense in depth: if the selector somehow landed on a KNOWN-
+     * undecodable audio track while a decodable one exists, switch
+     * before a decoder failure can happen. A supported or unknown-
+     * capability selection is never touched (no downgrades, no
+     * interference with the player's own capability logic).
+     */
+    private fun preemptivelyAvoidUndecodableAudio() {
+        if (userSelectedAudio || autoAudioOverrideKey != null) return
+        val selected = selectedAudioCandidate() ?: return
+        if (selected.support != DecoderSupport.UNSUPPORTED) return
+        val alternative = AudioTrackPolicy.preemptiveSwitch(selected, audioCandidates()) ?: return
+        val group = player.currentTracks.groups.getOrNull(alternative.groupIndex) ?: return
+        autoAudioOverrideKey = alternative.key
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, alternative.trackIndex))
+            .build()
+        diagnostics = diagnostics.copy(
+            selectedAudio = alternative.summary,
+            fallbackAttempts = diagnostics.fallbackAttempts +
+                "pre-selected ${alternative.summary} (auto-selected track undecodable)"
+        )
+    }
+
+    private fun supportForFormat(format: Format): DecoderSupport {
+        // Same effective MIME the candidate carries: sample MIME, or the
+        // manifest codec string resolved through media3's own mapping.
+        val mime = format.sampleMimeType
+            ?: format.codecs?.let { MimeTypes.getMediaMimeType(it) }
+        return PlaybackCapabilities.supportFor(decoderRegistry, mime)
+    }
+
+    /** Exception class chain only — messages can embed URLs and are dropped. */
+    private fun causeChainOf(error: Throwable): String =
+        generateSequence<Throwable>(error) { it.cause }
+            .take(5)
+            .joinToString(" -> ") { it.javaClass.simpleName }
+
+    private fun videoSummary(format: Format): String {
+        val codec = friendlyCodecName(format.sampleMimeType) ?: format.sampleMimeType ?: "video"
+        val size = if (format.width > 0 && format.height > 0) " ${format.width}x${format.height}" else ""
+        return codec + size
+    }
+
+    fun selectAudioTrack(option: TrackOption) {
+        if (_activeEngine.value == PlaybackEngine.LIBMPV) {
+            mpvEngine?.selectAudioTrack(option)
+            return
+        }
+        val group = player.currentTracks.groups.getOrNull(option.groupIndex) ?: return
+        userSelectedAudio = true
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, option.trackIndex))
+            .build()
+    }
+
+    // -------------------------------------------------------------
+    // libmpv surface binding (called by the player UI)
+    // -------------------------------------------------------------
+
+    /** Binds an Android Surface to the libmpv engine (engine switch or recreation). */
+    fun attachMpvSurface(surface: android.view.Surface) {
+        pendingMpvSurface = surface
+        mpvEngine?.attachSurface(surface)
+    }
+
+    /** Hands the Surface back before it is destroyed (rotation/background). */
+    fun detachMpvSurface() {
+        pendingMpvSurface = null
+        mpvEngine?.detachSurface()
+    }
+
+    /**
+     * Diagnostic path: the exact same source + headers, loaded on
+     * libmpv without going through Media3. Surface-gated like fallback.
+     */
+    fun playDirectLibMpv(
+        url: String,
+        startPositionMs: Long,
+        headers: Map<String, String>
+    ) {
+        engineEscalationAttempted = true
+        mpvFailed = false
+        diagnostics = diagnostics.copy(
+            backendId = "libmpv",
+            fallbackAttempts = diagnostics.fallbackAttempts + "direct libmpv (Media3 bypassed)",
+            mpvStage = "DIRECT_LIBMPV"
+        )
+        Log.i(TAG, "DIRECT_LIBMPV host=${PlaybackDiagnostics.hostOf(url)}")
+        _activeEngine.value = PlaybackEngine.LIBMPV
+        runCatching { player.stop() }
+        runCatching { player.clearMediaItems() }
+        mpvEngine().start(url, headers, startPositionMs)
+    }
+
+    /** Notifies libmpv of surface size changes. */
+    fun updateMpvSurfaceSize(width: Int, height: Int) {
+        mpvEngine?.updateSurfaceSize(width, height)
+    }
+
+    fun release() {
+        teardownMpvEngine()
+        headersByUrl.clear()
+        sessionHeaders.clear()
+        ioExecutor.shutdownNow()
+        try {
+            player.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "Player release failed", e)
+        }
+    }
+
+    private companion object {
+        const val TAG = "SBPlayer"
+        const val TS_TIMESTAMP_SEARCH_BYTES = 1500
+
+        /** Hard cap on automatic audio-track retries per stream. */
+        const val MAX_AUDIO_FALLBACK_ATTEMPTS = 3
+
+        /** Reference buffering profile: 100 MB target buffer. */
+        const val REFERENCE_TARGET_BUFFER_BYTES = 100 * 1024 * 1024
+    }
+}
+
+/**
+ * Pure decision: which headers apply to ONE HTTP request of the active
+ * playback? A per-URL override (e.g. a subtitle's own authorization)
+ * REPLACES the session context for that URL — one source's Referer,
+ * cookies and user-agent are never attached to another URL's request.
+ * Everything else carries the active source's full request context.
+ */
+internal fun resolveRequestHeadersFor(
+    url: String,
+    sessionHeaders: Map<String, String>,
+    urlOverrides: Map<String, Map<String, String>>
+): Map<String, String> {
+    val override = urlOverrides[url]
+    if (override != null) return override
+    // Per-URL overrides registered for a DIFFERENT URL must not partially
+    // match: only an exact URL entry replaces the session context.
+    return sessionHeaders
+}
+
+/** Host name only — never logged with paths or query strings (token safety). */
+private fun String.toUriHost(): String =
+    runCatching { Uri.parse(this).host ?: "unknown-host" }.getOrDefault("unknown-host")

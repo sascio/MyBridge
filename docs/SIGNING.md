@@ -81,16 +81,11 @@ Production cert SHA-256: (not issued — secrets are not configured)
    publishing. Publishing is a human action, not CI.
 6. Keep the same upload keystore for every later tag. In-app updates
    only install over the same signing certificate.
-7. Attach **all** per-ABI APKs from `full/release/` (arm64-v8a,
-   armeabi-v7a, x86, x86_64). Do not ship a universal fat APK. The
-   updater matches `arm64-v8a` (etc.) in the asset name.
 
 ## Updater
 
 The app reads `https://api.github.com/repos/sascio/MyBridge/releases`.
 Drafts and prereleases are ignored. APK assets must be `https://`.
-When several APKs are attached, the client prefers the filename that
-contains the device ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`).
 Debug-signed CI APKs and production-signed Release APKs are **not**
 interchangeable updates.
 
