@@ -26,6 +26,48 @@ class AvatarAccessTest {
     }
 
     @Test
+    fun pickerStaysLoadingUntilCatalogResolves() {
+        assertEquals(
+            AvatarPickerStatus.Loading,
+            avatarPickerStatus(isLoading = false, hasLoaded = false, loadFailed = false, itemCount = 0),
+        )
+        assertEquals(
+            AvatarPickerStatus.Loading,
+            avatarPickerStatus(isLoading = true, hasLoaded = false, loadFailed = false, itemCount = 0),
+        )
+    }
+
+    @Test
+    fun pickerShowsErrorOrEmptyInsteadOfInfiniteLoading() {
+        assertEquals(
+            AvatarPickerStatus.Failed,
+            avatarPickerStatus(isLoading = false, hasLoaded = true, loadFailed = true, itemCount = 0),
+        )
+        assertEquals(
+            AvatarPickerStatus.Empty,
+            avatarPickerStatus(isLoading = false, hasLoaded = true, loadFailed = false, itemCount = 0),
+        )
+        assertEquals(
+            AvatarPickerStatus.Ready,
+            avatarPickerStatus(isLoading = false, hasLoaded = true, loadFailed = true, itemCount = 1),
+        )
+    }
+
+    @Test
+    fun avatarStorageUrlRequiresBackendAndKeepsAbsolutePaths() {
+        assertNull(avatarStorageUrl("character/one.png", backendUrl = ""))
+        assertNull(avatarStorageUrl("   ", backendUrl = "https://api.nuvio.tv"))
+        assertEquals(
+            "https://api.nuvio.tv/storage/v1/object/public/avatars/character/one.png",
+            avatarStorageUrl("character/one.png", backendUrl = "https://api.nuvio.tv/"),
+        )
+        assertEquals(
+            "https://cdn.example/avatar.png",
+            avatarStorageUrl("https://cdn.example/avatar.png", backendUrl = ""),
+        )
+    }
+
+    @Test
     fun supporterAvatarUsesAuthenticatedLocalAsset() {
         val supporter = AvatarCatalogItem(
             id = "supporter-gold",

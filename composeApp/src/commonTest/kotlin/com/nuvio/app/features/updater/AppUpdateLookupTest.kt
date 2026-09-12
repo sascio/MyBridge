@@ -145,6 +145,32 @@ class AppUpdateLookupTest {
     }
 
     @Test
+    fun picks_highest_stable_version_even_when_an_older_release_is_listed_first() {
+        val lookup = AppUpdateReleaseSelector.classifyDecodedReleases(
+            listOf(
+                release(tag = "0.1.01", apk = true),
+                release(tag = "0.1.02", apk = true),
+            ),
+            arm64Abis,
+        )
+        val available = lookup as AppUpdateLookup.Available
+        assertEquals("0.1.02", available.update.tag)
+    }
+
+    @Test
+    fun skips_newer_stable_without_apk_and_picks_next_compatible_stable() {
+        val lookup = AppUpdateReleaseSelector.classifyDecodedReleases(
+            listOf(
+                release(tag = "0.1.03", apk = false),
+                release(tag = "0.1.02", apk = true),
+            ),
+            arm64Abis,
+        )
+        val available = lookup as AppUpdateLookup.Available
+        assertEquals("0.1.02", available.update.tag)
+    }
+
+    @Test
     fun manual_check_shows_update_for_0_1_02_and_up_to_date_for_current_or_empty() {
         val newer = AppUpdateLookup.Available(sampleUpdate("0.1.02"))
         val current = AppUpdateLookup.Available(sampleUpdate("0.1.01"))

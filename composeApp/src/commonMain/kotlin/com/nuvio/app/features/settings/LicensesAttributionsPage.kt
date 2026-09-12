@@ -47,6 +47,7 @@ private const val PremiumizeUrl = "https://www.premiumize.me"
 private const val TorboxUrl = "https://torbox.app"
 private const val MdbListUrl = "https://mdblist.com"
 private const val IntroDbUrl = "https://introdb.app/"
+private const val StreamBridgeRepositoryUrl = "https://github.com/sascio/MyBridge"
 private const val NuvioRepositoryUrl = "https://github.com/NuvioMedia/NuvioMobile"
 private const val MpvKitUrl = "https://github.com/mpvkit/MPVKit"
 private const val ApacheLicenseUrl = "https://www.apache.org/licenses/LICENSE-2.0"
@@ -372,6 +373,14 @@ private fun attributionItems(): List<AttributionItem> = listOf(
 )
 
 private fun appLicenseItem(): LicenseItem =
+    LicenseItem(
+        titleRes = Res.string.settings_licenses_attributions_streambridge_title,
+        bodyRes = Res.string.settings_licenses_attributions_streambridge_body,
+        licenseRes = Res.string.settings_licenses_attributions_streambridge_license,
+        link = StreamBridgeRepositoryUrl,
+    )
+
+private fun upstreamLicenseItem(): LicenseItem =
     LicenseItem(
         titleRes = Res.string.settings_licenses_attributions_nuvio_title,
         bodyRes = Res.string.settings_licenses_attributions_nuvio_body,

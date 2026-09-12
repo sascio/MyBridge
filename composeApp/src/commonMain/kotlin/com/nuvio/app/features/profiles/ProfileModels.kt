@@ -67,6 +67,40 @@ data class AvatarCatalogItem(
     @Transient val memberOnly: Boolean = false,
 )
 
+data class AvatarCatalogState(
+    val items: List<AvatarCatalogItem> = emptyList(),
+    val isLoading: Boolean = false,
+    val hasLoaded: Boolean = false,
+    val loadFailed: Boolean = false,
+) {
+    val pickerStatus: AvatarPickerStatus
+        get() = avatarPickerStatus(
+            isLoading = isLoading,
+            hasLoaded = hasLoaded,
+            loadFailed = loadFailed,
+            itemCount = items.size,
+        )
+}
+
+enum class AvatarPickerStatus {
+    Loading,
+    Ready,
+    Empty,
+    Failed,
+}
+
+fun avatarPickerStatus(
+    isLoading: Boolean,
+    hasLoaded: Boolean,
+    loadFailed: Boolean,
+    itemCount: Int,
+): AvatarPickerStatus = when {
+    itemCount > 0 -> AvatarPickerStatus.Ready
+    isLoading || !hasLoaded -> AvatarPickerStatus.Loading
+    loadFailed -> AvatarPickerStatus.Failed
+    else -> AvatarPickerStatus.Empty
+}
+
 fun parseHexColor(hex: String): Color {
     val cleaned = hex.removePrefix("#")
     return runCatching {
@@ -85,12 +119,17 @@ val PROFILE_COLORS = listOf(
     "#7CB342", "#039BE5", "#FFB300", "#6D4C41",
 )
 
-fun avatarStorageUrl(storagePath: String): String =
-    if (storagePath.startsWith("https://") || storagePath.startsWith("http://")) {
-        storagePath
-    } else {
-        "${com.nuvio.app.core.network.ServerConfigurationRepository.active.value.backendUrl}/storage/v1/object/public/avatars/$storagePath"
-    }
+fun avatarStorageUrl(
+    storagePath: String,
+    backendUrl: String = com.nuvio.app.core.network.ServerConfigurationRepository.active.value.backendUrl,
+): String? {
+    val path = storagePath.trim()
+    if (path.isBlank()) return null
+    if (path.startsWith("https://") || path.startsWith("http://")) return path
+    val base = backendUrl.trim().trimEnd('/')
+    if (base.isBlank()) return null
+    return "$base/storage/v1/object/public/avatars/$path"
+}
 
 fun avatarImageUrl(avatar: AvatarCatalogItem): String? =
     avatar.localImageUrl

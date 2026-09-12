@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.01)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.02)
         required: true
         type: string
-        default: "0.1.01"
+        default: "0.1.02"
 
 permissions:
   contents: write
@@ -83,6 +83,9 @@ jobs:
           NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
           NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
           STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING: "true"
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
       - name: Reject debug certificates and record public cert identity

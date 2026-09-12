@@ -48,8 +48,10 @@ object ServerConfigurationRepository {
     }
 }
 
+internal const val OfficialNuvioBackendUrl = "https://api.nuvio.tv"
+
 internal fun officialConfiguration() = ServerConfiguration(
-    backendUrl = SupabaseConfig.URL.trim().trimEnd('/'),
+    backendUrl = SupabaseConfig.URL.trim().trimEnd('/').ifBlank { OfficialNuvioBackendUrl },
     publishableKey = SupabaseConfig.ANON_KEY.trim(),
     capabilities = ServerCapabilities(
         emailPasswordAuth = true,
