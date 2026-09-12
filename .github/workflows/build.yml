@@ -39,6 +39,9 @@ jobs:
           set -o pipefail
           ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee gradle-build.log
 
+      - name: APK size report
+        run: python3 .github/apk-size-report.py androidApp/build/outputs/apk/full/release
+
       - name: Record that CI release APKs are not production
         run: |
           set -euo pipefail
@@ -49,8 +52,10 @@ jobs:
           This workflow does not inject production keystore secrets.
           assembleFullRelease therefore uses the debug signing config.
 
-          Do not publish these APKs as GitHub Releases and do not install
-          them as in-app updates over a production-signed build.
+          Release outputs are per-ABI (arm64-v8a, armeabi-v7a, x86, x86_64),
+          matching NuvioMobile. Do not publish these APKs as GitHub Releases
+          and do not install them as in-app updates over a production-signed
+          build.
 
           Production drafts: .github/workflows/release-draft.yml
           See docs/SIGNING.md

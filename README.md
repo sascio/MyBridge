@@ -41,6 +41,12 @@ upload-keystore GitHub Secrets are set. See
 ./gradlew :androidApp:assembleFullRelease
 ```
 
+Release output is **one APK per ABI** under
+`androidApp/build/outputs/apk/full/release/` (same as NuvioMobile).
+A fat universal APK is 100+ MB because native playback libraries are
+repeated for arm64, armeabi-v7a, x86, and x86_64. The in-app updater
+picks the asset whose filename contains the device ABI.
+
 ## Updates
 
 In-app updates use Nuvio’s updater UI, pointed at **GitHub Releases of

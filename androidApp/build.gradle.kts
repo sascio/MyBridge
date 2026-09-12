@@ -144,9 +144,12 @@ android {
 
     splits {
         abi {
-            // Per-ABI split only when a real release keystore is present.
-            // CI (debug-signed) ships one universal APK.
-            isEnable = buildsReleaseApks && hasCompleteReleaseSigning
+            // Same as NuvioMobile: assemble*Release emits one APK per ABI.
+            // A universal APK packs libnuvio_engine + Media3 JNI + libmpv +
+            // QuickJS for four ABIs and is ~3–4× the download size. The
+            // in-app updater selects the GitHub asset whose name contains
+            // the device ABI. Signing is independent of this split.
+            isEnable = buildsReleaseApks
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             isUniversalApk = false

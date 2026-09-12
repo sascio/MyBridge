@@ -67,6 +67,15 @@ internal enum class AppUpdateUserFeedback {
     Silent,
 }
 
+internal fun assetNameMatchesAbi(name: String, abi: String): Boolean {
+    val haystack = name.lowercase()
+    val needle = abi.lowercase()
+    if (needle == "x86") {
+        return haystack.contains("x86") && !haystack.contains("x86_64")
+    }
+    return haystack.contains(needle)
+}
+
 internal object AppUpdateReleaseSelector {
     fun firstStableRelease(
         releases: List<AppUpdateReleaseCandidate>,
@@ -86,7 +95,7 @@ internal object AppUpdateReleaseSelector {
 
         for (abi in supportedAbis) {
             val candidate = apkAssets.firstOrNull { asset ->
-                asset.name.contains(abi, ignoreCase = true)
+                assetNameMatchesAbi(asset.name, abi)
             }
             if (candidate != null) return candidate
         }
