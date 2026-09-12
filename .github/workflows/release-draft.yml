@@ -21,6 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # origin/main still has the pre-overlay app/ tree. StreamBridge 0.1.01
+          # (Nuvio 0.4.17 overlay) is this commit on arena/01a08c34-mybridge.
+          ref: 9c3671a5ab1b455701f6921e4d8f99316e56b3d4
 
       - uses: actions/setup-java@v5
         with:
@@ -56,6 +60,10 @@ jobs:
           TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          if [ ! -f streambridge.version.properties ]; then
+            echo "::error::streambridge.version.properties is missing on the checked-out tree. Production 0.1.01 lives on arena/01a08c34-mybridge."
+            exit 1
+          fi
           version_name="$(grep '^STREAMBRIDGE_VERSION_NAME=' streambridge.version.properties | cut -d= -f2 | tr -d '\r')"
           tag="${TAG#v}"
           if [ "$tag" != "$version_name" ]; then
@@ -99,12 +107,18 @@ jobs:
             echo "::error::apksigner not found under $sdk/build-tools. Cannot verify production signature."
             exit 1
           fi
+          expected_sha256="5da621d8e6f5c4ffb7396de3fbf686f3bf61bcec71cccffba9bbbbdef56285fc"
           for apk in "${apks[@]}"; do
             echo "Verifying $apk"
             certs="$("$apksigner" verify --print-certs "$apk")"
             printf '%s\n' "$certs"
             if printf '%s\n' "$certs" | grep -Ei 'CN=Android Debug|Android Debug'; then
               echo "::error::$apk is signed with the Android Debug certificate. Refusing to attach it to a release."
+              exit 1
+            fi
+            got_sha256="$(printf '%s\n' "$certs" | sed -n 's/.*SHA-256 digest:[[:space:]]*//p' | head -n 1 | tr 'A-F' 'a-f' | tr -d ' :')"
+            if [ "$got_sha256" != "$expected_sha256" ]; then
+              echo "::error::$apk certificate SHA-256 does not match the StreamBridge production upload certificate."
               exit 1
             fi
           done
