@@ -1,9 +1,17 @@
-# StreamBridge
+<p align="center">
+  <img src="branding/streambridge-launcher-1024.png" alt="StreamBridge" width="168">
+</p>
 
-**Your App, Your Way**
+<h1 align="center">StreamBridge</h1>
 
-StreamBridge is an Android media client. You bring the catalogs, addons,
-and plugins. The app does not ship any content.
+<p align="center"><strong>Your App, Your Way</strong></p>
+
+<p align="center">
+  Android media client · GPL-3.0 · version <strong>0.1.02</strong> (102)
+</p>
+
+StreamBridge is an Android media client. You bring catalogs, addons, and
+plugins. The app does not ship, host, or recommend any content.
 
 It is **NuvioMobile core with StreamBridge identity** (name, icon, package,
 in-app updater). The runnable app is official
@@ -12,17 +20,69 @@ in-app updater). The runnable app is official
 overlaid from [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced).
 Kotlin packages stay `com.nuvio.app`. `applicationId` is `com.streambridge.app`.
 
-StreamBridge app version is **0.1.01** (versionCode 101). That is not
-Nuvio’s 0.4.17 tag. See `streambridge.version.properties`.
-
 The app ships **empty**: no catalogs, no metadata, no streams, no
 providers. Add Stremio-compatible addons and Nuvio-compatible plugin
 repositories yourself. Optional TMDB, MDBList, Trakt, and Simkl stay
 **off** unless you supply keys.
 
 > StreamBridge provides no content of its own. Use only content you are
-> legally entitled to access. The app does not bundle, host, or recommend
-> any content source.
+> legally entitled to access.
+
+## Features
+
+Implemented in this tree. Live TV providers and metadata services depend
+on configuration you add. Avatar images need a working account backend.
+
+**Home and discovery**
+- Home catalogs from your addons, Continue Watching, and configurable hero styles (full-bleed or card)
+- Search
+- Title details, trailers, and play-random-episode for series
+
+**Playback**
+- Nuvio ExoPlayer pipeline (the only playback path)
+- HLS quality chooser when a stream exposes HLS master variants
+- Timeline tap-to-seek, picture-in-picture, background playback, and an optional external player
+
+**Live TV**
+- Channels, EPG, and Live TV settings when you configure sources
+- Channel layout and navigation options
+- Provider availability is **configuration-dependent** — nothing is bundled
+
+**Library and tracking**
+- Library, calendar, and lists
+- Optional Trakt device-code sign-in and Simkl PIN/device sign-in (off by default)
+
+**Profiles**
+- Multiple profiles
+- Avatar catalog with Ready, Empty, Failed, retry, and configuration-error states (display still needs backend config)
+- Custom profile background URL where the profile entitlement allows it
+
+**Downloads**
+- Download manager and a Wi-Fi-only (no mobile data) setting
+
+**Addons, plugins, and settings**
+- Empty addon and plugin lists until you add them
+- Separate Plugin and Addon entries in Settings
+- Licenses and attributions (StreamBridge as the app; NuvioMobile as upstream)
+
+**Updates**
+- In-app updates from published GitHub Releases of `sascio/MyBridge` only
+- Drafts and prereleases are ignored
+- The client selects the newest compatible stable APK for the device ABI
+
+## Install
+
+Production builds are the **published** GitHub Releases of this repository.
+Each release attaches one APK per ABI:
+
+- `androidApp-full-arm64-v8a-release.apk` (most phones)
+- `androidApp-full-armeabi-v7a-release.apk`
+- `androidApp-full-x86_64-release.apk`
+- `androidApp-full-x86-release.apk`
+
+Plus `checksums.sha256`. Branch CI APKs are **debug-signed compile
+artifacts**, not production. In-place updates need the same production
+certificate. See [docs/SIGNING.md](docs/SIGNING.md).
 
 ## Build
 
@@ -30,52 +90,16 @@ repositories yourself. Optional TMDB, MDBList, Trakt, and Simkl stay
 ./gradlew :androidApp:assembleFullDebug
 ```
 
-Output: `androidApp/build/outputs/apk/full/debug/`
-
-Branch CI APKs are **debug-signed compile artifacts**, not production.
-A production GitHub Release is a **manual draft** and **fails** unless
-upload-keystore GitHub Secrets are set. See
-[docs/SIGNING.md](docs/SIGNING.md).
+Debug output: `androidApp/build/outputs/apk/full/debug/`
 
 ```bash
 ./gradlew :androidApp:assembleFullRelease
 ```
 
 Release output is **one APK per ABI** under
-`androidApp/build/outputs/apk/full/release/` (same as NuvioMobile).
-A fat universal APK is 100+ MB because native playback libraries are
-repeated for arm64, armeabi-v7a, x86, and x86_64. The in-app updater
-picks the asset whose filename contains the device ABI.
-
-## Updates
-
-In-app updates use Nuvio’s updater UI, pointed at **GitHub Releases of
-`sascio/MyBridge` only** (never NuvioMedia). Drafts and prereleases are
-ignored. The checker stays silent unless a real newer compatible APK
-exists. Settings → Check for updates says you are up to date when
-nothing newer is published. In-place installs need a stable signing
-certificate ([docs/SIGNING.md](docs/SIGNING.md)).
-
-## Identity
-
-Splash, intro, auth, profile, and Settings credits use a horizontal
-lockup: transparent StreamBridge mark + **StreamBridge**, with
-**Your App, Your Way** under the splash. Required NuvioMobile / GPL
-attribution stays in Settings credits and the Licenses page.
-
-Launcher / adaptive icons keep the full rounded mark. In-app surfaces
-use the transparent glyph (`branding/streambridge-mark-transparent.png`).
-
-## Layout
-
-```
-androidApp/     Android host (applicationId com.streambridge.app)
-composeApp/     Nuvio KMP app, including PlayerEngine.android.kt
-iosApp/         iOS project (version config required by Gradle)
-branding/       StreamBridge logo sources
-legacy/         Pre-M1 StreamBridge client (disconnected)
-docs/           Pins, signing, upstream sync
-```
+`androidApp/build/outputs/apk/full/release/`. A production GitHub Release
+is a **manual** workflow and **fails** unless upload-keystore GitHub
+Secrets are set.
 
 ## License
 

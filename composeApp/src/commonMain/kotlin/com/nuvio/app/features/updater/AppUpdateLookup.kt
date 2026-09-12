@@ -77,9 +77,32 @@ internal fun assetNameMatchesAbi(name: String, abi: String): Boolean {
 }
 
 internal object AppUpdateReleaseSelector {
-    fun firstStableRelease(
+    fun latestCompatibleStableUpdate(
         releases: List<AppUpdateReleaseCandidate>,
-    ): AppUpdateReleaseCandidate? = releases.firstOrNull { !it.draft && !it.prerelease }
+        supportedAbis: List<String>,
+    ): AppUpdate? {
+        var best: AppUpdate? = null
+        for (release in releases) {
+            if (release.draft || release.prerelease) continue
+            val tag = release.tagName?.takeIf { it.isNotBlank() }
+                ?: release.name?.takeIf { it.isNotBlank() }
+                ?: continue
+            val asset = chooseBestApkAsset(release.assets, supportedAbis) ?: continue
+            val candidate = AppUpdate(
+                tag = tag,
+                title = release.name?.takeIf { it.isNotBlank() } ?: tag,
+                notes = release.body.orEmpty(),
+                releaseUrl = release.htmlUrl,
+                assetName = asset.name,
+                assetUrl = asset.browserDownloadUrl,
+                assetSizeBytes = asset.size,
+            )
+            if (best == null || AppUpdateVersion.isRemoteNewer(candidate.tag, best.tag)) {
+                best = candidate
+            }
+        }
+        return best
+    }
 
     fun chooseBestApkAsset(
         assets: List<AppUpdateAssetCandidate>,
@@ -115,23 +138,9 @@ internal object AppUpdateReleaseSelector {
         releases: List<AppUpdateReleaseCandidate>,
         supportedAbis: List<String>,
     ): AppUpdateLookup {
-        val release = firstStableRelease(releases) ?: return AppUpdateLookup.NoCompatibleUpdate
-        val tag = release.tagName?.takeIf { it.isNotBlank() }
-            ?: release.name?.takeIf { it.isNotBlank() }
+        val update = latestCompatibleStableUpdate(releases, supportedAbis)
             ?: return AppUpdateLookup.NoCompatibleUpdate
-        val asset = chooseBestApkAsset(release.assets, supportedAbis)
-            ?: return AppUpdateLookup.NoCompatibleUpdate
-        return AppUpdateLookup.Available(
-            AppUpdate(
-                tag = tag,
-                title = release.name?.takeIf { it.isNotBlank() } ?: tag,
-                notes = release.body.orEmpty(),
-                releaseUrl = release.htmlUrl,
-                assetName = asset.name,
-                assetUrl = asset.browserDownloadUrl,
-                assetSizeBytes = asset.size,
-            ),
-        )
+        return AppUpdateLookup.Available(update)
     }
 }
 

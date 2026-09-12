@@ -61,11 +61,10 @@ Gradle also accepts the same names (except `STORE_BASE64`) from
 `local.properties` or the environment, plus `NUVIO_RELEASE_STORE_FILE`
 as a filesystem path. `local.properties` is gitignored.
 
-After a real production APK exists, paste the **certificate SHA-256**
-here (never the password):
+Public production upload certificate SHA-256 (never a password):
 
 ```
-Production cert SHA-256: (not issued — secrets are not configured)
+Production cert SHA-256: 5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBDEF56285FC
 ```
 
 ## Operator checklist
