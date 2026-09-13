@@ -140,6 +140,7 @@ fun SettingsScreen(
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
+    onPrivacyPolicyClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
@@ -347,6 +348,11 @@ fun SettingsScreen(
         } else {
             onLicensesAttributionsClick
         }
+        val openPrivacyPolicy = if (onNavigatePage != null) {
+            { openPage(SettingsPage.PrivacyPolicy) }
+        } else {
+            onPrivacyPolicyClick
+        }
 
         LaunchedEffect(page, currentPage) {
             if (page.name != currentPage) {
@@ -455,6 +461,7 @@ fun SettingsScreen(
                 onDownloadsClick = onDownloadsClick,
                 onSupportersContributorsClick = openSupportersContributors,
                 onLicensesAttributionsClick = openLicensesAttributions,
+                onPrivacyPolicyClick = openPrivacyPolicy,
                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                 onCollectionsClick = onCollectionsClick,
@@ -537,6 +544,7 @@ fun SettingsScreen(
                 onAccountClick = openAccount,
                 onSupportersContributorsClick = openSupportersContributors,
                 onLicensesAttributionsClick = openLicensesAttributions,
+                onPrivacyPolicyClick = openPrivacyPolicy,
                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                 onCollectionsClick = onCollectionsClick,
@@ -623,6 +631,7 @@ private fun MobileSettingsScreen(
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
+    onPrivacyPolicyClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
@@ -658,6 +667,7 @@ private fun MobileSettingsScreen(
                         }
                     }
                     SettingsPage.LicensesAttributions -> onLicensesAttributionsClick()
+                    SettingsPage.PrivacyPolicy -> onPrivacyPolicyClick()
                     SettingsPage.ContinueWatching -> onContinueWatchingClick()
                     SettingsPage.Addons -> onAddonsClick()
                     SettingsPage.Plugins -> {
@@ -740,6 +750,7 @@ private fun MobileSettingsScreen(
                             onTrackingClick = { onPageChange(SettingsPage.TraktAuthentication) },
                             onSupportersContributorsClick = onSupportersContributorsClick,
                             onLicensesAttributionsClick = onLicensesAttributionsClick,
+                            onPrivacyPolicyClick = onPrivacyPolicyClick,
                             onCheckForUpdatesClick = onCheckForUpdatesClick,
                             onTestUpdateBannerClick = onTestUpdateBannerClick,
                             onDownloadsClick = onDownloadsClick,
@@ -768,6 +779,9 @@ private fun MobileSettingsScreen(
                     }
                 }
                 SettingsPage.LicensesAttributions -> licensesAttributionsContent(
+                    isTablet = false,
+                )
+                SettingsPage.PrivacyPolicy -> privacyPolicyContent(
                     isTablet = false,
                 )
                 SettingsPage.Playback -> playbackSettingsContent(
@@ -1032,6 +1046,7 @@ private fun TabletSettingsScreen(
     onDownloadsClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
+    onPrivacyPolicyClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
@@ -1205,6 +1220,7 @@ private fun TabletSettingsScreen(
                                 onTrackingClick = { openInlinePage(SettingsPage.TraktAuthentication) },
                                 onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
                                 onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
+                                onPrivacyPolicyClick = { openInlinePage(SettingsPage.PrivacyPolicy) },
                                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                                 onDownloadsClick = onDownloadsClick,
@@ -1237,6 +1253,9 @@ private fun TabletSettingsScreen(
                         }
                     }
                     SettingsPage.LicensesAttributions -> licensesAttributionsContent(
+                        isTablet = true,
+                    )
+                    SettingsPage.PrivacyPolicy -> privacyPolicyContent(
                         isTablet = true,
                     )
                     SettingsPage.Playback -> playbackSettingsContent(

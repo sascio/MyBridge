@@ -79,6 +79,11 @@ internal enum class SettingsPage(
         category = SettingsCategory.About,
         parentPage = Root,
     ),
+    PrivacyPolicy(
+        titleRes = Res.string.compose_settings_page_privacy_policy,
+        category = SettingsCategory.About,
+        parentPage = Root,
+    ),
     Playback(
         titleRes = Res.string.compose_settings_page_playback,
         category = SettingsCategory.General,
