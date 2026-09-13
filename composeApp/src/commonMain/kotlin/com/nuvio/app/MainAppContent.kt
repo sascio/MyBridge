@@ -140,6 +140,7 @@ import com.nuvio.app.features.settings.AddonsSettingsScreen
 import com.nuvio.app.features.settings.ContinueWatchingSettingsScreen
 import com.nuvio.app.features.settings.HomescreenSettingsScreen
 import com.nuvio.app.features.settings.LicensesAttributionsSettingsScreen
+import com.nuvio.app.features.settings.PrivacyPolicySettingsScreen
 import com.nuvio.app.features.settings.MetaScreenSettingsScreen
 import com.nuvio.app.features.settings.PluginsSettingsScreen
 import com.nuvio.app.features.settings.SupportersContributorsSettingsScreen
@@ -359,6 +360,7 @@ internal fun MainAppContent(
     val pushEditProfile: () -> Unit = { navController.navigate(ProfileEditRoute(editProfileTitle)) }
     val supportersSettingsTitle = stringResource(Res.string.compose_settings_page_supporters_contributors)
     val licensesSettingsTitle = stringResource(Res.string.compose_settings_page_licenses_attributions)
+    val privacyPolicySettingsTitle = stringResource(Res.string.compose_settings_page_privacy_policy)
     val collectionsTitle = stringResource(Res.string.collections_header)
     val newCollectionTitle = stringResource(Res.string.collections_new)
     val detailsFallbackTitle = stringResource(Res.string.meta_section_details_title)
@@ -1538,6 +1540,9 @@ internal fun MainAppContent(
                                 onLicensesAttributionsSettingsClick = {
                                     navController.navigate(LicensesAttributionsSettingsRoute(licensesSettingsTitle))
                                 },
+                                onPrivacyPolicySettingsClick = {
+                                    navController.navigate(PrivacyPolicySettingsRoute(privacyPolicySettingsTitle))
+                                },
                                 onCheckForUpdatesClick = if (AppFeaturePolicy.inAppUpdaterEnabled) {
                                     {
                                         appUpdaterController.checkForUpdates(
@@ -1741,6 +1746,11 @@ internal fun MainAppContent(
                 entry<LicensesAttributionsSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->
                         LicensesAttributionsSettingsScreen(onBack = onBack)
+                    }
+                }
+                entry<PrivacyPolicySettingsRoute> { route ->
+                    SettingsDestination(route, navController) { onBack ->
+                        PrivacyPolicySettingsScreen(onBack = onBack)
                     }
                 }
                 entry<CollectionsRoute> { route ->

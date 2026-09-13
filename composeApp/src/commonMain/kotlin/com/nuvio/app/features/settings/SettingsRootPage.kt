@@ -22,7 +22,6 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -52,7 +51,6 @@ import nuvio.composeapp.generated.resources.compose_settings_root_integrations_d
 import nuvio.composeapp.generated.resources.compose_settings_root_notifications_description
 import nuvio.composeapp.generated.resources.compose_settings_root_profile_description
 import nuvio.composeapp.generated.resources.compose_settings_root_profile_title
-import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_description
 import nuvio.composeapp.generated.resources.compose_settings_root_switch_profile_title
 import nuvio.composeapp.generated.resources.compose_settings_root_tracking_description
@@ -67,11 +65,10 @@ import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
 import nuvio.composeapp.generated.resources.about_supporters_contributors_subtitle
 import nuvio.composeapp.generated.resources.about_licenses_attributions_subtitle
+import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description_streambridge
 import nuvio.composeapp.generated.resources.streambridge_credits_based_on
 import nuvio.composeapp.generated.resources.streambridge_credits_nuvio_media
 import org.jetbrains.compose.resources.stringResource
-
-private const val PRIVACY_POLICY_URL = "https://nuvio.tv/privacy-policy"
 
 internal fun LazyListScope.settingsRootContent(
     isTablet: Boolean,
@@ -84,6 +81,7 @@ internal fun LazyListScope.settingsRootContent(
     onTrackingClick: () -> Unit,
     onSupportersContributorsClick: () -> Unit,
     onLicensesAttributionsClick: () -> Unit,
+    onPrivacyPolicyClick: () -> Unit,
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onDownloadsClick: () -> Unit,
@@ -191,7 +189,6 @@ internal fun LazyListScope.settingsRootContent(
     }
     if (showAboutSection) {
         item {
-            val uriHandler = LocalUriHandler.current
             SettingsSection(
                 title = stringResource(Res.string.compose_settings_root_about_section),
                 isTablet = isTablet,
@@ -209,10 +206,10 @@ internal fun LazyListScope.settingsRootContent(
                     }
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_privacy_policy),
-                        description = stringResource(Res.string.compose_settings_root_privacy_policy_description),
+                        description = stringResource(Res.string.compose_settings_root_privacy_policy_description_streambridge),
                         icon = Icons.Rounded.Policy,
                         isTablet = isTablet,
-                        onClick = { uriHandler.openUri(PRIVACY_POLICY_URL) },
+                        onClick = onPrivacyPolicyClick,
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="branding/streambridge-launcher-1024.png" alt="StreamBridge" width="168">
+  <img src="branding/streambridge-mark-transparent.png" alt="StreamBridge" width="168">
 </p>
 
 <h1 align="center">StreamBridge</h1>
@@ -7,7 +7,7 @@
 <p align="center"><strong>Your App, Your Way</strong></p>
 
 <p align="center">
-  Android media client · GPL-3.0 · version <strong>0.1.02</strong> (102)
+  Android media client · GPL-3.0 · version <strong>0.1.03</strong> (103)
 </p>
 
 StreamBridge is an Android media client. You bring catalogs, addons, and
@@ -54,7 +54,7 @@ on configuration you add. Avatar images need a working account backend.
 
 **Profiles**
 - Multiple profiles
-- Avatar catalog with Ready, Empty, Failed, retry, and configuration-error states (display still needs backend config)
+- Avatar catalog loaded from the official Nuvio backend (public client configuration) with Ready, Empty, and Failed states plus retry; supporter avatars require a membership
 - Custom profile background URL where the profile entitlement allows it
 
 **Downloads**
@@ -63,6 +63,7 @@ on configuration you add. Avatar images need a working account backend.
 **Addons, plugins, and settings**
 - Empty addon and plugin lists until you add them
 - Separate Plugin and Addon entries in Settings
+- In-app Privacy & Policy page describing what the app stores and which services it can contact
 - Licenses and attributions (StreamBridge as the app; NuvioMobile as upstream)
 
 **Updates**

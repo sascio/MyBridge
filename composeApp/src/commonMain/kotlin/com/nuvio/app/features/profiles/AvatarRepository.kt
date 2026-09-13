@@ -1,7 +1,6 @@
 package com.nuvio.app.features.profiles
 
 import co.touchlab.kermit.Logger
-import com.nuvio.app.core.network.ServerConfigurationRepository
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.membership.CosmeticEntitlement
 import com.nuvio.app.features.membership.MemberAccessRepository
@@ -160,17 +159,7 @@ object AvatarRepository {
         }
     }
 
-    private fun catalogBackendReady(): Boolean {
-        val configuration = ServerConfigurationRepository.active.value
-        return configuration.backendUrl.isNotBlank() && configuration.publishableKey.isNotBlank()
-    }
-
     private suspend fun fetchStandardCatalogLocked() {
-        if (!catalogBackendReady()) {
-            log.e { "Avatar catalog backend is not configured" }
-            publishCatalog(isLoading = false, hasLoaded = true, loadFailed = true)
-            return
-        }
         if (_avatars.value.isEmpty()) {
             publishCatalog(isLoading = true, loadFailed = false)
         }
@@ -194,7 +183,6 @@ object AvatarRepository {
     }
 
     private suspend fun fetchMemberCatalogLocked() {
-        if (!catalogBackendReady()) return
         try {
             val remote = SupabaseProvider.client.postgrest
                 .rpc("get_member_profile_avatar_catalog")

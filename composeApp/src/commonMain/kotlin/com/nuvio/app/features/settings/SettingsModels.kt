@@ -28,6 +28,7 @@ import nuvio.composeapp.generated.resources.compose_settings_page_omdb
 import nuvio.composeapp.generated.resources.compose_settings_page_playback
 import nuvio.composeapp.generated.resources.compose_settings_page_plugins
 import nuvio.composeapp.generated.resources.compose_settings_page_poster_customization
+import nuvio.composeapp.generated.resources.compose_settings_page_privacy_policy
 import nuvio.composeapp.generated.resources.compose_settings_page_profile
 import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.compose_settings_page_streams
@@ -76,6 +77,11 @@ internal enum class SettingsPage(
     ),
     LicensesAttributions(
         titleRes = Res.string.compose_settings_page_licenses_attributions,
+        category = SettingsCategory.About,
+        parentPage = Root,
+    ),
+    PrivacyPolicy(
+        titleRes = Res.string.compose_settings_page_privacy_policy,
         category = SettingsCategory.About,
         parentPage = Root,
     ),

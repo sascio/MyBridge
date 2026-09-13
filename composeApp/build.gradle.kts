@@ -310,8 +310,13 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     appVersionCode.set(releaseAppVersionCode)
     nuvioUpstreamRelease.set(nuvioUpstreamReleaseValue)
     nuvioUpstreamCommit.set(nuvioUpstreamCommitValue)
+    // Official Nuvio public client configuration. The publishable key is public
+    // client configuration for api.nuvio.tv (same values NuvioMedia publishes in
+    // NuvioMedia/self-host docs/client-configuration.md and .env.example), not a
+    // service-role key or database secret. Overridable via local.properties or
+    // environment for custom/self-hosted backends.
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL", "https://api.nuvio.tv"))
-    supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
+    supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY", "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
     sentryEnvironment.set(

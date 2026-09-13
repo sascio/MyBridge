@@ -39,6 +39,7 @@ internal val navigationSavedStateConfiguration = SavedStateConfiguration {
             subclass(ProfileEditRoute::class, ProfileEditRoute.serializer())
             subclass(SupportersContributorsSettingsRoute::class, SupportersContributorsSettingsRoute.serializer())
             subclass(LicensesAttributionsSettingsRoute::class, LicensesAttributionsSettingsRoute.serializer())
+            subclass(PrivacyPolicySettingsRoute::class, PrivacyPolicySettingsRoute.serializer())
             subclass(CollectionsRoute::class, CollectionsRoute.serializer())
             subclass(CollectionEditorRoute::class, CollectionEditorRoute.serializer())
             subclass(CollectionEditorPageRoute::class, CollectionEditorPageRoute.serializer())
