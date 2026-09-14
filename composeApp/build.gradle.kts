@@ -46,11 +46,53 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val nuvioUpstreamCommit: Property<String>
 
+    @get:Input
+    abstract val traktClientId: Property<String>
+
+    @get:Input
+    abstract val traktClientSecret: Property<String>
+
+    @get:Input
+    abstract val traktRedirectUri: Property<String>
+
+    @get:Input
+    abstract val simklClientId: Property<String>
+
+    @get:Input
+    abstract val simklRedirectUri: Property<String>
+
+    @get:Input
+    abstract val simklAppName: Property<String>
+
+    @get:Input
+    abstract val introDbApiUrl: Property<String>
+
+    @get:Input
+    abstract val imdbRatingsApiBaseUrl: Property<String>
+
+    @get:Input
+    abstract val imdbTapframeApiBaseUrl: Property<String>
+
+    @get:Input
+    abstract val omdbApiKey: Property<String>
+
+    @get:Input
+    abstract val premiumizeClientId: Property<String>
+
+    @get:Input
+    abstract val contributionsUrl: Property<String>
+
+    @get:Input
+    abstract val supportersWallUrl: Property<String>
+
+    @get:Input
+    abstract val donationsBaseUrl: Property<String>
+
+    @get:Input
+    abstract val donationsDonateUrl: Property<String>
+
     @TaskAction
     fun generate() {
-        val props = Properties()
-        localPropertiesFile.asFile.orNull?.takeIf { it.exists() }?.inputStream()?.use { props.load(it) }
-
         val outDir = outputDir.get().asFile
         outDir.resolve("com/nuvio/app/core/network").apply {
             mkdirs()
@@ -90,9 +132,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.trakt
                 |
                 |object TraktConfig {
-                |    const val CLIENT_ID = "${props.getProperty("TRAKT_CLIENT_ID", "")}" 
-                |    const val CLIENT_SECRET = "${props.getProperty("TRAKT_CLIENT_SECRET", "")}" 
-                |    const val REDIRECT_URI = "${props.getProperty("TRAKT_REDIRECT_URI", "nuvio://auth/trakt")}" 
+                |    const val CLIENT_ID = "${traktClientId.get()}"
+                |    const val CLIENT_SECRET = "${traktClientSecret.get()}"
+                |    const val REDIRECT_URI = "${traktRedirectUri.get()}"
                 |}
                 """.trimMargin()
             )
@@ -105,9 +147,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.simkl
                 |
                 |object SimklConfig {
-                |    const val CLIENT_ID = "${props.getProperty("SIMKL_CLIENT_ID", "")}"
-                |    const val REDIRECT_URI = "${props.getProperty("SIMKL_REDIRECT_URI", "nuvio://auth/simkl")}"
-                |    const val APP_NAME = "${props.getProperty("SIMKL_APP_NAME", "StreamBridge")}"
+                |    const val CLIENT_ID = "${simklClientId.get()}"
+                |    const val REDIRECT_URI = "${simklRedirectUri.get()}"
+                |    const val APP_NAME = "${simklAppName.get()}"
                 |}
                 """.trimMargin()
             )
@@ -120,7 +162,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.player.skip
                 |
                 |object IntroDbConfig {
-                |    const val URL = "${props.getProperty("INTRODB_API_URL", "")}" 
+                |    const val URL = "${introDbApiUrl.get()}"
                 |}
                 """.trimMargin()
             )
@@ -133,9 +175,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.details
                 |
                 |object ImdbEpisodeRatingsConfig {
-                |    const val IMDB_RATINGS_API_BASE_URL = "${props.getProperty("IMDB_RATINGS_API_BASE_URL", "")}"
-                |    const val IMDB_TAPFRAME_API_BASE_URL = "${props.getProperty("IMDB_TAPFRAME_API_BASE_URL", "")}"
-                |    const val OMDB_API_KEY = "${props.getProperty("OMDB_API_KEY", "")}"
+                |    const val IMDB_RATINGS_API_BASE_URL = "${imdbRatingsApiBaseUrl.get()}"
+                |    const val IMDB_TAPFRAME_API_BASE_URL = "${imdbTapframeApiBaseUrl.get()}"
+                |    const val OMDB_API_KEY = "${omdbApiKey.get()}"
                 |}
                 """.trimMargin()
             )
@@ -148,7 +190,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.debrid
                 |
                 |object PremiumizeConfig {
-                |    const val CLIENT_ID = "${props.getProperty("PREMIUMIZE_CLIENT_ID", "")}"
+                |    const val CLIENT_ID = "${premiumizeClientId.get()}"
                 |}
                 """.trimMargin()
             )
@@ -177,10 +219,10 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.settings
                 |
                 |object CommunityConfig {
-                |    const val CONTRIBUTIONS_URL = "${props.getProperty("CONTRIBUTIONS_URL", "")}" 
-                |    const val SUPPORTERS_WALL_URL = "${props.getProperty("SUPPORTERS_WALL_URL", "")}"
-                |    const val DONATIONS_BASE_URL = "${props.getProperty("DONATIONS_BASE_URL", "")}" 
-                |    const val DONATIONS_DONATE_URL = "${props.getProperty("DONATIONS_DONATE_URL", "")}" 
+                |    const val CONTRIBUTIONS_URL = "${contributionsUrl.get()}"
+                |    const val SUPPORTERS_WALL_URL = "${supportersWallUrl.get()}"
+                |    const val DONATIONS_BASE_URL = "${donationsBaseUrl.get()}"
+                |    const val DONATIONS_DONATE_URL = "${donationsDonateUrl.get()}"
                 |}
                 """.trimMargin()
             )
@@ -289,8 +331,9 @@ val runtimeLocalProperties = Properties().apply {
 }
 
 fun runtimeConfigValue(key: String, fallback: String = ""): String =
-    runtimeLocalProperties.getProperty(key)?.trim()?.takeIf { it.isNotBlank() }
-        ?: providers.environmentVariable(key).orNull?.trim()?.takeIf { it.isNotBlank() }
+    runtimeLocalProperties.getProperty(key)?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
+        ?: providers.environmentVariable(key).orNull?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
+        ?: providers.gradleProperty(key).orNull?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
         ?: fallback
 
 fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
@@ -326,6 +369,21 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
             else -> "production"
         }
     )
+    traktClientId.set(runtimeConfigValue("TRAKT_CLIENT_ID"))
+    traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
+    traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
+    simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
+    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
+    simklAppName.set(runtimeConfigValue("SIMKL_APP_NAME", "StreamBridge"))
+    introDbApiUrl.set(runtimeConfigValue("INTRODB_API_URL"))
+    imdbRatingsApiBaseUrl.set(runtimeConfigValue("IMDB_RATINGS_API_BASE_URL"))
+    imdbTapframeApiBaseUrl.set(runtimeConfigValue("IMDB_TAPFRAME_API_BASE_URL"))
+    omdbApiKey.set(runtimeConfigValue("OMDB_API_KEY"))
+    premiumizeClientId.set(runtimeConfigValue("PREMIUMIZE_CLIENT_ID"))
+    contributionsUrl.set(runtimeConfigValue("CONTRIBUTIONS_URL"))
+    supportersWallUrl.set(runtimeConfigValue("SUPPORTERS_WALL_URL"))
+    donationsBaseUrl.set(runtimeConfigValue("DONATIONS_BASE_URL"))
+    donationsDonateUrl.set(runtimeConfigValue("DONATIONS_DONATE_URL"))
 }
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
