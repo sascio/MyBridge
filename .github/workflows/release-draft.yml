@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.02)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.04)
         required: true
         type: string
-        default: "0.1.02"
+        default: "0.1.04"
 
 permissions:
   contents: write

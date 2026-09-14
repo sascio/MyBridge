@@ -7,7 +7,7 @@
 <p align="center"><strong>Your App, Your Way</strong></p>
 
 <p align="center">
-  Android media client · GPL-3.0 · version <strong>0.1.03</strong> (103)
+  Android media client · GPL-3.0 · version <strong>0.1.04</strong> (104)
 </p>
 
 StreamBridge is an Android media client. You bring catalogs, addons, and
