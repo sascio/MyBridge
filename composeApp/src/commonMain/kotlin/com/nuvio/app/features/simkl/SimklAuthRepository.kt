@@ -1,6 +1,7 @@
 package com.nuvio.app.features.simkl
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.build.RuntimeCredentials
 import com.nuvio.app.features.tracking.TrackingAuthProvider
 import com.nuvio.app.features.tracking.TrackingCapability
 import com.nuvio.app.features.tracking.TrackingProviderDescriptor
@@ -116,7 +117,12 @@ object SimklAuthRepository : TrackingAuthProvider {
         return uiState.value
     }
 
-    fun hasRequiredCredentials(): Boolean = SimklConfig.CLIENT_ID.isNotBlank()
+    /**
+     * Simkl only requires a client id (its OAuth flow is PKCE-based, no secret).
+     * Sourced from the build-time generated [SimklConfig].
+     */
+    fun hasRequiredCredentials(): Boolean =
+        RuntimeCredentials.isConfigured(SimklConfig.CLIENT_ID)
 
     fun onConnectRequested(): String? {
         ensureLoaded()

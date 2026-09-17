@@ -86,6 +86,13 @@ jobs:
           NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
           NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
           NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          # Trakt/Simkl are resolved by :composeApp generateRuntimeConfigs. Without
+          # these the production APK ships empty TraktConfig/SimklConfig and Settings
+          # reports "Missing TRAKT_CLIENT_ID / SIMKL_CLIENT_ID". Optional: if a secret
+          # is unset the value stays empty and the app keeps the safe unconfigured state.
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
       - name: Reject debug certificates and record public cert identity

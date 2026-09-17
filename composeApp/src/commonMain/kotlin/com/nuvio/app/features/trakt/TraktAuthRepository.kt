@@ -1,6 +1,7 @@
 package com.nuvio.app.features.trakt
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.build.RuntimeCredentials
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.addons.httpPostJsonWithHeaders
 import com.nuvio.app.features.addons.httpRequestRaw
@@ -130,8 +131,13 @@ object TraktAuthRepository : TrackingAuthProvider {
         return _uiState.value
     }
 
+    /**
+     * Trakt OAuth needs both the client id and the client secret. Both come from the
+     * build-time generated [TraktConfig]; they are empty when nothing was configured,
+     * so an unconfigured install correctly reports missing credentials.
+     */
     fun hasRequiredCredentials(): Boolean =
-        TraktConfig.CLIENT_ID.isNotBlank() && TraktConfig.CLIENT_SECRET.isNotBlank()
+        RuntimeCredentials.allConfigured(TraktConfig.CLIENT_ID, TraktConfig.CLIENT_SECRET)
 
     internal fun selectedAuthenticationMethod(profileId: Int = ProfileRepository.activeProfileId): TraktAuthenticationMethod {
         ensureLoaded(profileId)

@@ -2,6 +2,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
@@ -91,6 +92,19 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val donationsDonateUrl: Property<String>
 
+    /**
+     * Escapes a resolved config value for embedding in a Kotlin string literal.
+     * Without this, a value containing a quote, backslash or `$` produces a generated
+     * file that either fails to compile or silently truncates the credential.
+     */
+    private fun Property<String>.asKotlinLiteral(): String =
+        get()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\${'$'}")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+
     @TaskAction
     fun generate() {
         val outDir = outputDir.get().asFile
@@ -132,9 +146,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.trakt
                 |
                 |object TraktConfig {
-                |    const val CLIENT_ID = "${traktClientId.get()}"
-                |    const val CLIENT_SECRET = "${traktClientSecret.get()}"
-                |    const val REDIRECT_URI = "${traktRedirectUri.get()}"
+                |    const val CLIENT_ID = "${traktClientId.asKotlinLiteral()}"
+                |    const val CLIENT_SECRET = "${traktClientSecret.asKotlinLiteral()}"
+                |    const val REDIRECT_URI = "${traktRedirectUri.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -147,9 +161,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.simkl
                 |
                 |object SimklConfig {
-                |    const val CLIENT_ID = "${simklClientId.get()}"
-                |    const val REDIRECT_URI = "${simklRedirectUri.get()}"
-                |    const val APP_NAME = "${simklAppName.get()}"
+                |    const val CLIENT_ID = "${simklClientId.asKotlinLiteral()}"
+                |    const val REDIRECT_URI = "${simklRedirectUri.asKotlinLiteral()}"
+                |    const val APP_NAME = "${simklAppName.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -227,6 +241,15 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 """.trimMargin()
             )
         }
+
+        // Presence-only diagnostics. Never log the values themselves — this output
+        // ends up in CI logs. It lets a build prove whether credentials actually
+        // reached the generated runtime config.
+        logger.lifecycle(
+            "generateRuntimeConfigs: TRAKT_CLIENT_ID present=${traktClientId.get().isNotBlank()} " +
+                "TRAKT_CLIENT_SECRET present=${traktClientSecret.get().isNotBlank()} " +
+                "SIMKL_CLIENT_ID present=${simklClientId.get().isNotBlank()}"
+        )
     }
 }
 
@@ -323,17 +346,40 @@ val androidDistributionSourceDir = if (androidDistribution == "full") {
 } else {
     "src/androidPlaystore/kotlin"
 }
-val runtimeLocalProperties = Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) {
-        file.inputStream().use(::load)
-    }
-}
+// local.properties MUST be read through a Gradle value provider, not plain file IO.
+// `org.gradle.configuration-cache=true` is enabled in gradle.properties: values read
+// with java.io at configuration time are NOT tracked as configuration-cache inputs, so
+// a cached configuration keeps serving the values captured on the very first run. That
+// is how freshly configured TRAKT_*/SIMKL_* credentials silently kept resolving to ""
+// (and got baked into the generated *Config.kt) even after local.properties was filled in.
+// providers.fileContents(...) is tracked, so editing local.properties invalidates the
+// configuration cache and regenerates the runtime config.
+val runtimeLocalProperties: Provider<Map<String, String>> =
+    providers.fileContents(rootProject.layout.projectDirectory.file("local.properties"))
+        .asText
+        .map { text ->
+            Properties()
+                .apply { load(java.io.StringReader(text)) }
+                .entries
+                .associate { (key, value) -> key.toString() to value.toString() }
+        }
+        .orElse(emptyMap())
 
+// Shared normalisation for every credential source: trim, drop one layer of matching
+// surrounding quotes (local.properties and CI `env:` blocks routinely keep them), trim
+// again, and treat blank as "not configured" so the next source in the chain is tried.
+fun normalizeRuntimeConfigValue(raw: String?): String? =
+    raw?.trim()
+        ?.let { if (it.length >= 2 && it.first() == '"' && it.last() == '"') it.substring(1, it.length - 1) else it }
+        ?.let { if (it.length >= 2 && it.first() == '\'' && it.last() == '\'') it.substring(1, it.length - 1) else it }
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+// Precedence: local.properties (developer machine) -> environment (CI secrets) -> -P property.
 fun runtimeConfigValue(key: String, fallback: String = ""): String =
-    runtimeLocalProperties.getProperty(key)?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
-        ?: providers.environmentVariable(key).orNull?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
-        ?: providers.gradleProperty(key).orNull?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
+    normalizeRuntimeConfigValue(runtimeLocalProperties.get()[key])
+        ?: normalizeRuntimeConfigValue(providers.environmentVariable(key).orNull)
+        ?: normalizeRuntimeConfigValue(providers.gradleProperty(key).orNull)
         ?: fallback
 
 fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
