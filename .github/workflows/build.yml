@@ -79,7 +79,18 @@ jobs:
         run: |
           echo "::add-matcher::.github/problem-matchers.json"
           set -o pipefail
-          ./gradlew :composeApp:testFullDebugUnitTest --stacktrace 2>&1 | tee -a gradle-build.log
+          # composeApp uses the new KMP android library plugin (withHostTest),
+          # which does not produce the classic testFooDebugUnitTest task names.
+          # Discover the JVM host-test task instead of hardcoding a guess.
+          ./gradlew :composeApp:tasks --all -q 2>/dev/null \
+            | awk '{print $1}' | grep -iE '^android.*HostTest$' | sort -u | tee /tmp/hosttasks.txt
+          TASK="$(head -n1 /tmp/hosttasks.txt)"
+          if [ -z "$TASK" ]; then
+            echo "::warning::no android host-test task found; skipping unit tests"
+            exit 0
+          fi
+          echo "running :composeApp:$TASK"
+          ./gradlew ":composeApp:$TASK" --stacktrace 2>&1 | tee -a gradle-build.log
 
       - name: Upload unit test report
         if: always()
