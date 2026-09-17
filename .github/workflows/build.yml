@@ -67,6 +67,28 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Run unit tests
+        env:
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          echo "::add-matcher::.github/problem-matchers.json"
+          set -o pipefail
+          ./gradlew :composeApp:testFullDebugUnitTest --stacktrace 2>&1 | tee -a gradle-build.log
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stream-Bridge-unit-test-report
+          path: composeApp/build/reports/tests/
+          if-no-files-found: ignore
+
       - name: Assemble Nuvio full debug and release APKs
         env:
           NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
