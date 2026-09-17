@@ -403,6 +403,23 @@ fun runtimeConfigValue(key: String, fallback: String = ""): String =
         ?: normalizeRuntimeConfigValue(providers.gradleProperty(key).orNull)
         ?: fallback
 
+// local.properties ONLY -- no environment, no -P fallback.
+//
+// This mirrors official NuvioMobile exactly. Upstream's GenerateRuntimeConfigsTask
+// resolves the Trakt/Simkl keys with `props.getProperty("TRAKT_CLIENT_ID", "")`,
+// reading only the local.properties it loaded, even though its generic
+// runtimeConfigValue() helper does consult the environment for other keys. The
+// credential supply mechanism is therefore the local.properties file itself:
+// developers write it by hand, CI materialises it by decoding the
+// NUVIO_LOCAL_PROPERTIES_BASE64 secret before Gradle starts
+// (see .github/workflows/release-draft.yml and docs/TRAKT-SIMKL-CONFIG.md).
+//
+// Deliberately NOT falling back to individual TRAKT_*/SIMKL_* environment
+// variables: that was a StreamBridge-only deviation from upstream and has been
+// removed so there is exactly one credential path shared with official Nuvio.
+fun runtimeLocalPropertyValue(key: String, fallback: String = ""): String =
+    normalizeRuntimeConfigValue(runtimeLocalProperties.get()[key]) ?: fallback
+
 fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
     when (runtimeConfigValue(key).lowercase()) {
         "1", "true", "yes", "y", "on" -> true
@@ -437,12 +454,16 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
             else -> "production"
         }
     )
-    traktClientId.set(runtimeConfigValue("TRAKT_CLIENT_ID"))
-    traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
-    traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
-    simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
-    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
-    simklAppName.set(runtimeConfigValue("SIMKL_APP_NAME", "StreamBridge"))
+    // Trakt/Simkl resolve from local.properties only, exactly as official Nuvio does.
+    // SIMKL_APP_NAME must stay "nuvio": it is sent to the Simkl API as the `app-name`
+    // header and in the User-Agent, so it identifies the registered application and is
+    // not a user-visible brand string.
+    traktClientId.set(runtimeLocalPropertyValue("TRAKT_CLIENT_ID"))
+    traktClientSecret.set(runtimeLocalPropertyValue("TRAKT_CLIENT_SECRET"))
+    traktRedirectUri.set(runtimeLocalPropertyValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
+    simklClientId.set(runtimeLocalPropertyValue("SIMKL_CLIENT_ID"))
+    simklRedirectUri.set(runtimeLocalPropertyValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
+    simklAppName.set(runtimeLocalPropertyValue("SIMKL_APP_NAME", "nuvio"))
     introDbApiUrl.set(runtimeConfigValue("INTRODB_API_URL"))
     imdbRatingsApiBaseUrl.set(runtimeConfigValue("IMDB_RATINGS_API_BASE_URL"))
     imdbTapframeApiBaseUrl.set(runtimeConfigValue("IMDB_TAPFRAME_API_BASE_URL"))

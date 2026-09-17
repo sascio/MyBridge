@@ -13,7 +13,7 @@ No credentials are committed to this repository, and none are required to build.
 | `SIMKL_CLIENT_ID` | Simkl | *(empty)* |
 | `TRAKT_REDIRECT_URI` | optional | `nuvio://auth/trakt` |
 | `SIMKL_REDIRECT_URI` | optional | `nuvio://auth/simkl` |
-| `SIMKL_APP_NAME` | optional | `StreamBridge` |
+| `SIMKL_APP_NAME` | optional | `nuvio` |
 
 Trakt requires **both** the client id and the client secret; a partially
 configured Trakt is treated as not configured. Simkl uses PKCE and only needs a
@@ -21,16 +21,24 @@ client id.
 
 ## Sources and precedence
 
-`:composeApp:generateRuntimeConfigs` resolves each key in this order:
+StreamBridge uses the **same credential-supply mechanism as official
+NuvioMobile**: the Trakt and Simkl keys are read from `local.properties` and
+nothing else.
 
-1. `local.properties` (repository root — gitignored, never commit it)
-2. environment variable (used by CI via GitHub Actions secrets)
-3. Gradle project property (`-PTRAKT_CLIENT_ID=...`)
+Upstream's `GenerateRuntimeConfigsTask` resolves them with
+`props.getProperty("TRAKT_CLIENT_ID", "")` — reading only the loaded
+`local.properties` — even though its generic helper consults the environment for
+other keys. StreamBridge mirrors that with `runtimeLocalPropertyValue()`.
+
+> Individual `TRAKT_*` / `SIMKL_*` environment variables are **not** supported.
+> That was a StreamBridge-only deviation and has been removed so there is exactly
+> one credential path, shared with official Nuvio. Non-credential keys such as
+> `NUVIO_SUPABASE_URL` and `TMDB_API_KEY` still use `runtimeConfigValue()`, which
+> does accept the environment.
 
 Values are trimmed and one layer of matching surrounding quotes is removed, so
-`KEY=value`, `KEY="value"` and a CI secret with a trailing newline all resolve
-identically. A blank value is treated as "not set" and falls through to the next
-source.
+`KEY=value` and `KEY="value"` resolve identically. A blank value is treated as
+"not set".
 
 ### Local development
 
@@ -42,19 +50,39 @@ TRAKT_CLIENT_SECRET=your-trakt-client-secret
 SIMKL_CLIENT_ID=your-simkl-client-id
 ```
 
-### CI
+### CI / release
 
-Set repository secrets named `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET` and
-`SIMKL_CLIENT_ID`. They are passed to Gradle as environment variables in
-`.github/workflows/build.yml` and `.github/workflows/release-draft.yml`. If a
-secret is unset the corresponding value stays empty and the build still
-succeeds with the integration reported as unconfigured.
+Exactly as official Nuvio's `android-release.yml` does it: a single repository
+secret **`NUVIO_LOCAL_PROPERTIES_BASE64`** holds a base64-encoded
+`local.properties`, which `.github/workflows/release-draft.yml` decodes into the
+repository root *before* Gradle runs.
+
+Create it locally from a file that is never committed:
+
+```bash
+base64 -w0 local.properties        # paste the output into the secret
+```
+
+The workflow then:
+
+1. decodes the secret to `local.properties` (no value is ever echoed);
+2. strips `sdk.dir` and `NUVIO_RELEASE_STORE_FILE` (runner-specific; the keystore
+   is decoded separately);
+3. **fails the build** if `TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET` or
+   `SIMKL_CLIENT_ID` is missing or empty, rather than silently shipping an APK
+   that reports "Missing TRAKT_CLIENT_ID";
+4. after assembling, greps the *generated* `TraktConfig.kt`/`SimklConfig.kt` to
+   confirm the constants are non-empty — presence only, never values.
+
+`build.yml` (CI compile validation) does not supply credentials at all, so its
+APKs intentionally build in the unconfigured state.
 
 ## Pipeline
 
 ```
-local.properties / env / -P
-  -> runtimeConfigValue()            (composeApp/build.gradle.kts)
+NUVIO_LOCAL_PROPERTIES_BASE64 (CI secret)
+  -> decoded local.properties        (release-draft.yml, before Gradle)
+  -> runtimeLocalPropertyValue()     (composeApp/build.gradle.kts)
   -> GenerateRuntimeConfigsTask      (@Input properties)
   -> generated TraktConfig.kt / SimklConfig.kt
      (build/generated/runtime-config/kotlin, added to commonMain srcDir)

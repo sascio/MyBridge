@@ -76,6 +76,50 @@ jobs:
           printf '%s' "$NUVIO_RELEASE_STORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/upload.jks"
           test -s "$RUNNER_TEMP/signing/upload.jks"
 
+      # Official NuvioMobile credential-supply mechanism, reproduced from
+      # NuvioMedia/NuvioMobile .github/workflows/android-release.yml ("Configure
+      # release properties"). :composeApp generateRuntimeConfigs reads the
+      # Trakt/Simkl keys out of local.properties only, so CI has to materialise that
+      # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
+      # file and the checks only test for presence.
+      - name: Configure release properties
+        env:
+          NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
+            echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 GitHub secret is not set. It must contain a base64-encoded local.properties providing TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET and SIMKL_CLIENT_ID. See docs/TRAKT-SIMKL-CONFIG.md."
+            exit 1
+          fi
+
+          printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+
+          # sdk.dir is runner-specific and the keystore is decoded separately above,
+          # so drop any copies carried inside the secret (official does the same).
+          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+
+          # Fail fast, as official Nuvio does, rather than shipping an APK whose
+          # Settings screen reports "Missing TRAKT_CLIENT_ID / SIMKL_CLIENT_ID".
+          # Matches a non-empty value without ever printing it.
+          required_properties=(
+            TRAKT_CLIENT_ID
+            TRAKT_CLIENT_SECRET
+            SIMKL_CLIENT_ID
+          )
+          missing=0
+          for property_name in "${required_properties[@]}"; do
+            if ! grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\S" local.properties; then
+              echo "::error::Missing required property in NUVIO_LOCAL_PROPERTIES_BASE64: ${property_name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          echo "local.properties configured; required Trakt/Simkl properties present."
+
       - name: Assemble production full release
         env:
           NUVIO_RELEASE_STORE_FILE: ${{ runner.temp }}/signing/upload.jks
@@ -86,15 +130,42 @@ jobs:
           NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
           NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
           NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
-          # Trakt/Simkl are resolved by :composeApp generateRuntimeConfigs. Without
-          # these the production APK ships empty TraktConfig/SimklConfig and Settings
-          # reports "Missing TRAKT_CLIENT_ID / SIMKL_CLIENT_ID". Optional: if a secret
-          # is unset the value stays empty and the app keeps the safe unconfigured state.
-          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
-          TRAKT_CLIENT_SECRET: ${{ secrets.TRAKT_CLIENT_SECRET }}
-          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          # Trakt/Simkl are deliberately NOT passed as environment variables. They are
+          # supplied through the decoded local.properties above, which is the official
+          # NuvioMobile mechanism and the only credential path this build supports.
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
+
+      # Presence-only proof that the credentials survived
+      # local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig.
+      # Greps the generated Kotlin for a non-empty literal; never prints a value.
+      - name: Verify generated Trakt/Simkl config is populated
+        run: |
+          set -euo pipefail
+          generated="composeApp/build/generated/runtime-config/kotlin"
+          trakt="$generated/com/nuvio/app/features/trakt/TraktConfig.kt"
+          simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
+
+          failed=0
+          check_populated() {
+            local file="$1" constant="$2"
+            if [ ! -f "$file" ]; then
+              echo "::error::Generated config missing: $file"
+              failed=1
+              return
+            fi
+            if grep -Eq "const val ${constant} = \"\"" "$file"; then
+              echo "::error::${constant} is empty in the generated release config."
+              failed=1
+            else
+              echo "${constant} present=true"
+            fi
+          }
+
+          check_populated "$trakt" CLIENT_ID
+          check_populated "$trakt" CLIENT_SECRET
+          check_populated "$simkl" CLIENT_ID
+          [ "$failed" -eq 0 ]
 
       - name: Reject debug certificates and record public cert identity
         run: |
