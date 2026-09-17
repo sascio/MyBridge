@@ -114,6 +114,7 @@ internal fun settingsSearchEntries(
     val posterStylePage = stringResource(Res.string.compose_settings_page_poster_customization)
     val addonsPage = stringResource(Res.string.compose_settings_page_addons)
     val pluginsPage = stringResource(Res.string.compose_settings_page_plugins)
+    val cloudStreamPage = stringResource(Res.string.compose_settings_page_cloudstream)
     val collectionsPage = stringResource(Res.string.collections_header)
     val tmdbPage = stringResource(Res.string.compose_settings_page_tmdb_enrichment)
     val mdbListPage = stringResource(Res.string.compose_settings_page_mdblist_ratings)
@@ -507,6 +508,13 @@ internal fun settingsSearchEntries(
             icon = Icons.Rounded.Hub,
         )
     }
+    addPage(
+        page = SettingsPage.CloudStream,
+        key = "cloudstream",
+        title = cloudStreamPage,
+        description = stringResource(Res.string.settings_content_discovery_cloudstream_description),
+        icon = Icons.Rounded.Extension,
+    )
     addPage(
         page = SettingsPage.Homescreen,
         key = "home-layout",
