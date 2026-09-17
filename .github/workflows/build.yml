@@ -26,7 +26,26 @@ jobs:
           java-version: '21'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        run: |
+          set -x
+          exec > >(tee -a gradle-build.log) 2>&1
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          ls "$SDK" || true
+          ls "$SDK/platforms" || true
+          SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
+          echo "sdkmanager=$SDKMANAGER"
+          "$SDKMANAGER" --version
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "platform-tools"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+        env:
+          ANDROID_COMPILE_SDK: '37'
+          ANDROID_BUILD_TOOLS: '36.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -45,7 +64,7 @@ jobs:
         run: |
           echo "::add-matcher::.github/problem-matchers.json"
           set -o pipefail
-          ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee gradle-build.log
+          ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee -a gradle-build.log
 
       - name: APK size report
         run: python3 .github/apk-size-report.py androidApp/build/outputs/apk/full/release
