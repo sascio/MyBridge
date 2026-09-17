@@ -1,52 +1,81 @@
-# Long-term Nuvio upstream sync
+# Upstream Nuvio sync status
 
-StreamBridge is **NuvioMobile core + StreamBridge branding/updater**.
-NuvioMobile (`cmp-rewrite`) moves often. Do not freeze on one commit,
-and do **not** auto-merge upstream into the production branch.
+## Current pin
 
-## Pin
+| Field | Value |
+|---|---|
+| Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
+| Branch | `cmp-rewrite` |
+| Commit | `cbc921d910c1c555fbbf683d438b1ba850df23ca` |
+| Release | 0.4.23 (`chore(store): publish 0.4.23`, 2026-09-17) |
 
-Canonical pin: [`streambridge.version.properties`](../streambridge.version.properties)
-and [`UPSTREAM.md`](UPSTREAM.md).
+## Important: upstream rewrote history
 
-## Flow
+The previously recorded pin `d177eb57dfc8989e56de577bda8f4c2714b2bd64`
+(0.4.17) **no longer exists** in the upstream repository. It is not an
+ancestor of `cmp-rewrite` and `git cat-file` cannot resolve it.
+
+StreamBridge was also imported as a squashed commit, so there is **no merge
+base** with upstream:
 
 ```
-NuvioMobile cmp-rewrite
-        ↓  (watch workflow, daily)
-new SHA detected → GitHub issue (no auto-merge)
-        ↓
-review branch on arena/… (or equivalent)
-        ↓
-overlay upstream sources; re-apply StreamBridge deltas
-        ↓
-./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease
-        ↓
-device check for playback-critical paths
-        ↓
-merge when verified
+git merge-base HEAD nuvio/cmp-rewrite   -> (empty)
 ```
 
-## StreamBridge deltas to re-apply after every sync
+A conventional `git merge` or `git rebase` against upstream is therefore
+impossible. Sync must be done by tree comparison
+(`git diff HEAD nuvio/cmp-rewrite`), not by merging.
 
-Keep these; they are not Nuvio bugs:
+## State of the core
 
-- `applicationId` `com.streambridge.app` (debug and release)
-- `app_name` / `app_brand_name` StreamBridge
-- Gradle heap + `nuvio.android.distribution=full`
-- `generateRuntimeConfigs` skips missing `local.properties`
-- StreamBridge version properties (do not ship Nuvio’s version as ours)
-- Updater GitHub owner/repo = `sascio/MyBridge` (never NuvioMedia)
-- Updater is silent unless a real newer StreamBridge APK exists (no “no update” / “cannot reach servers” popups)
-- Empty addons/plugins; empty Trakt/Simkl/TMDB/Supabase keys
-- Release signing fallback for CI
-- Branding assets under `branding/` and launcher/splash overlays
-- User-facing StreamBridge version in `streambridge.version.properties` (currently `0.1.01`)
+Tree comparison against upstream `cbc921d9`, restricted to `composeApp`:
 
-Prefer upstream for player, addons, networking, metadata, settings.
+| Category | Count |
+|---|---|
+| Files only upstream has | 3 |
+| Files only StreamBridge has | 143 |
+| Files modified on both sides | 124 |
 
-## Automation
+StreamBridge already carries the NuvioMobile-Enhanced overlay pinned at
+`ce4492ec` / 0.4.23-beta, which tracks upstream 0.4.23. The core is therefore
+**already current**; it is not an outdated fork. The 143 StreamBridge-only
+files are the Enhanced overlay plus intentional StreamBridge work (Live TV,
+downloads engine, OMDB ratings, player settings, logging, branding).
 
-[`.github/workflows/nuvio-upstream.yml`](../.github/workflows/nuvio-upstream.yml)
-compares `NUVIO_UPSTREAM_COMMIT` to `NuvioMedia/NuvioMobile@cmp-rewrite`
-and opens an issue. It never pushes a production merge.
+A wholesale file-level sync would delete those 143 files and is not
+appropriate.
+
+## The 3 upstream-only files
+
+| File | Decision |
+|---|---|
+| `features/details/ImdbEpisodeRatingsRepository.kt` | **Not ported** — duplicate |
+| `features/details/SeriesGraphApi.kt` | **Not ported** — duplicate |
+| `features/home/components/CollectionCardRemoteImage.ios.kt` | iOS-only; not applicable to the Android target |
+
+### Why the ratings files were not ported
+
+Upstream fetches episode ratings from the IMDb ratings API via
+`ImdbEpisodeRatingsRepository` + `SeriesGraphApi`.
+
+StreamBridge already implements the same capability through
+`OmdbEpisodeRatingsService`, with persistent storage
+(`OmdbEpisodeRatingsStorage`), user-facing settings (`OmdbSettingsRepository`,
+`OmdbSettingsStorage`) and live wiring in `TmdbMetadataService`
+(lines ~700–729).
+
+Porting upstream's implementation would create a **second, competing episode
+ratings engine** — explicitly against the "no duplicate implementations"
+requirement — while replacing a working, settings-backed feature. The existing
+OMDB implementation is retained.
+
+## Verification
+
+Re-run the comparison with:
+
+```sh
+git remote add nuvio https://github.com/NuvioMedia/NuvioMobile.git
+git fetch nuvio
+git diff --numstat HEAD nuvio/cmp-rewrite -- composeApp | awk -F'\t' '$2==0'  # upstream-only
+git diff --numstat HEAD nuvio/cmp-rewrite -- composeApp | awk -F'\t' '$1==0'  # ours-only
+```
