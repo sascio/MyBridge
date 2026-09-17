@@ -105,6 +105,11 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
             .replace("\n", "\\n")
             .replace("\r", "\\r")
 
+    // From NuvioMobile-Enhanced: personal TMDB API key override (TmdbSettingsRepository
+    // falls back to this build-time key when the user has not set their own).
+    @get:Input
+    abstract val tmdbApiKey: Property<String>
+
     @TaskAction
     fun generate() {
         val outDir = outputDir.get().asFile
@@ -137,7 +142,18 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
             )
         }
 
-        outDir.resolve("com/nuvio/app/features/tmdb/TmdbConfig.kt").delete()
+        outDir.resolve("com/nuvio/app/features/tmdb").apply {
+            mkdirs()
+            resolve("TmdbConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.tmdb
+                |
+                |object TmdbConfig {
+                |    const val API_KEY = "${tmdbApiKey.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
 
         outDir.resolve("com/nuvio/app/features/trakt").apply {
             mkdirs()
@@ -280,11 +296,15 @@ val supabaseProps = Properties().apply {
     if (propsFile.exists()) propsFile.inputStream().use { load(it) }
 }
 val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconfig")
+// StreamBridge ships its own user-facing version, independent of the NuvioMobile
+// MARKETING_VERSION in Version.xcconfig. Keep StreamBridge's version source here;
+// Enhanced's `nuvio.app.versionName` property would publish Nuvio's version as ours.
 val streamBridgeVersionFile = rootProject.file("streambridge.version.properties")
 val streamBridgeProps = Properties().apply {
     if (streamBridgeVersionFile.exists()) streamBridgeVersionFile.inputStream().use(::load)
 }
 val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+    ?: providers.gradleProperty("nuvio.app.versionName").orNull
     ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
 val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
@@ -408,6 +428,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY", "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
+    tmdbApiKey.set(runtimeConfigValue("TMDB_API_KEY"))
     sentryEnvironment.set(
         when {
             requestedGradleTasks.any { "benchmark" in it } -> "benchmark"

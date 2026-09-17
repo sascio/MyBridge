@@ -179,7 +179,7 @@ object ProviderCredentialSync {
         return snapshot
     }
 
-    private fun buildSnapshot(
+    internal fun buildSnapshot(
         profileId: Int,
         debrid: DebridSettings,
         tmdb: TmdbSettings,

@@ -64,11 +64,15 @@ val sentryOrg = envOrLocalProperty("SENTRY_ORG")
 val sentryProject = envOrLocalProperty("SENTRY_PROJECT")
 val sentryMappingUploadEnabled = sentryAuthToken != null && sentryOrg != null && sentryProject != null
 val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconfig")
+// StreamBridge's own user-facing version (see streambridge.version.properties).
+// Keep this ahead of Enhanced's `nuvio.app.versionName` so we never ship Nuvio's
+// version number as StreamBridge's.
 val streamBridgeProps = Properties().apply {
     val f = rootProject.file("streambridge.version.properties")
     if (f.exists()) f.inputStream().use(::load)
 }
 val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+    ?: providers.gradleProperty("nuvio.app.versionName").orNull
     ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
 val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()

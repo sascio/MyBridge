@@ -7,6 +7,7 @@ data class MetaDetails(
     val id: String,
     val type: String,
     val name: String,
+    val imdbId: String? = null,
     val poster: String? = null,
     val background: String? = null,
     val logo: String? = null,
@@ -56,6 +57,7 @@ data class MoreLikeThisPage(
 data class MetaExternalRating(
     val source: String,
     val value: Double,
+    val isCertified: Boolean = false,
 )
 
 data class MetaTrailer(
@@ -103,7 +105,7 @@ data class MetaVideo(
     val overview: String? = null,
     val runtime: Int? = null,
     val tmdbRating: Double? = null,
-    val ratingIsImdb: Boolean = false,
+    val imdbRating: Double? = null,
     val rating: Double? = null,
     val streams: List<StreamItem> = emptyList(),
 )
