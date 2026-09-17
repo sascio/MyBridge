@@ -85,22 +85,24 @@ jobs:
           # Note: grep exits 1 on no match and the step runs under -e/pipefail,
           # so every stage here is explicitly guarded.
           ./gradlew :composeApp:tasks --all -q > /tmp/alltasks.txt 2>&1 || true
-          echo "--- candidate test tasks ---"
-          grep -iE '(test|check)' /tmp/alltasks.txt | head -40 || true
-          echo "----------------------------"
+          {
+            echo "--- candidate test tasks ---"
+            grep -iE '(test|check)' /tmp/alltasks.txt | head -60 || true
+            echo "----------------------------"
+          } | tee -a gradle-build.log
           TASK="$(awk '{print $1}' /tmp/alltasks.txt \
-            | grep -iE '^android.*HostTest$' \
+            | grep -iE '^(android.*HostTest|.*UnitTest|jvmTest|testDebugUnitTest)$' \
             | sort -u | head -n1 || true)"
           if [ -z "$TASK" ]; then
-            echo "::warning::no android host-test task found; skipping unit tests"
-            exit 0
+            echo "no host-test task matched; see candidates above" | tee -a gradle-build.log
+            exit 1
           fi
-          echo "running :composeApp:$TASK"
+          echo "running :composeApp:$TASK" | tee -a gradle-build.log
           ./gradlew ":composeApp:$TASK" --stacktrace 2>&1 | tee -a gradle-build.log
 
       - name: Upload unit test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Stream-Bridge-unit-test-report
           path: composeApp/build/reports/tests/
@@ -143,14 +145,14 @@ jobs:
           EOF
 
       - name: Upload full debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Stream-Bridge-CI-full-debug-APK
           path: androidApp/build/outputs/apk/full/debug/*.apk
           if-no-files-found: error
 
       - name: Upload full release APK (debug-signed, not production)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Stream-Bridge-CI-full-release-APK-not-production
           path: |

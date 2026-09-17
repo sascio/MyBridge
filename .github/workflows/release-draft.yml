@@ -152,7 +152,7 @@ jobs:
           fi
 
       - name: Upload production-signed APKs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: StreamBridge-production-full-release-apk
           path: |
