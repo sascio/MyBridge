@@ -10,6 +10,7 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+import java.io.StringReader
 import java.util.Properties
 
 abstract class GenerateRuntimeConfigsTask : DefaultTask() {
@@ -379,7 +380,7 @@ val runtimeLocalProperties: Provider<Map<String, String>> =
         .asText
         .map { text ->
             Properties()
-                .apply { load(java.io.StringReader(text)) }
+                .apply { load(StringReader(text)) }
                 .entries
                 .associate { (key, value) -> key.toString() to value.toString() }
         }
