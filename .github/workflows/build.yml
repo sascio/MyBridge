@@ -36,15 +36,30 @@ jobs:
           SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
           echo "sdkmanager=$SDKMANAGER"
           "$SDKMANAGER" --version
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" --install \
-            "platforms;android-${ANDROID_COMPILE_SDK}" \
-            "build-tools;${ANDROID_BUILD_TOOLS}" \
-            "platform-tools"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+
+          # The runner image ships minor-versioned platforms (android-37.0,
+          # android-37.1, ...); the unsuffixed "platforms;android-37" package
+          # no longer exists, so installing it hard-fails the job. AGP resolves
+          # compileSdk=37 + compileSdkMinor=0 to android-37.0, which is already
+          # present, so only install what is genuinely missing.
+          PLATFORM="android-${ANDROID_COMPILE_SDK}.${ANDROID_COMPILE_SDK_MINOR}"
+          if [ -d "$SDK/platforms/$PLATFORM" ]; then
+            echo "platform $PLATFORM already installed"
+          else
+            "$SDKMANAGER" --install "platforms;$PLATFORM"
+          fi
+          if [ -d "$SDK/build-tools/${ANDROID_BUILD_TOOLS}" ]; then
+            echo "build-tools ${ANDROID_BUILD_TOOLS} already installed"
+          else
+            "$SDKMANAGER" --install "build-tools;${ANDROID_BUILD_TOOLS}"
+          fi
+
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
         env:
           ANDROID_COMPILE_SDK: '37'
+          ANDROID_COMPILE_SDK_MINOR: '0'
           ANDROID_BUILD_TOOLS: '36.0.0'
 
       - name: Set up Gradle
