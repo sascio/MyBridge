@@ -11,6 +11,7 @@ import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.io.StringReader
+import java.security.MessageDigest
 import java.util.Properties
 
 abstract class GenerateRuntimeConfigsTask : DefaultTask() {
@@ -384,9 +385,9 @@ val verifyCloudStreamRuntime by tasks.registering {
     inputs.property("expectedSha256", expected)
     outputs.upToDateWhen { true }
     doLast {
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        val actual = digest.digest(artifact.readBytes()).joinToString("") { byte ->
-            "%02x".format(byte)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val actual = digest.digest(artifact.readBytes()).joinToString("") { hashByte: Byte ->
+            "%02x".format(hashByte)
         }
         require(actual == expected) {
             "CloudStream runtime AAR integrity check failed.\n" +
