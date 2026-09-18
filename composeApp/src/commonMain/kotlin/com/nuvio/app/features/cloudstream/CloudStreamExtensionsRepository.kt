@@ -1,6 +1,7 @@
 package com.nuvio.app.features.cloudstream
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.features.streams.StreamItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -137,6 +138,71 @@ internal object CloudStreamExtensionsRepository {
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(errorMessage = null)
+    }
+
+    // --- aggregator integration --------------------------------------------
+
+    /**
+     * Execution backend used to resolve real streams.
+     *
+     * Null until a platform runtime registers one. While it is null every
+     * provider resolves to "no streams" instead of inventing results, which is
+     * the honest outcome on builds that have no sanctioned execution backend.
+     */
+    private var executor: CloudStreamPluginExecutor? = null
+
+    /** Registers the platform execution backend. Called once during startup. */
+    fun registerExecutor(backend: CloudStreamPluginExecutor?) {
+        executor = backend
+    }
+
+    /**
+     * Resolves real streams for one CloudStream provider.
+     *
+     * Called by `StreamsRepository` from inside the existing aggregation scope,
+     * so cancellation and concurrency are inherited. Failures are returned as a
+     * failed [Result] rather than thrown, keeping one broken provider isolated
+     * from the rest of the aggregation.
+     *
+     * No fabricated streams: without an execution backend, or when the provider
+     * legitimately has nothing, the result is an empty list.
+     */
+    suspend fun resolveStreams(
+        target: CloudStreamAggregatorBridge.Target,
+        mediaType: String,
+        videoId: String,
+        season: Int?,
+        episode: Int?,
+    ): Result<List<StreamItem>> {
+        val backend = executor ?: return Result.success(emptyList())
+        val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
+            ?: return Result.success(emptyList())
+
+        // Re-check executability at request time: persisted state must never be
+        // able to activate a plugin the runtime cannot actually run.
+        if (!extension.plugin.isExecutable) return Result.success(emptyList())
+
+        return runCatching {
+            val request = CloudStreamResolveRequest(
+                plugin = extension.plugin,
+                mediaType = mediaType,
+                videoId = videoId,
+                season = season,
+                episode = episode,
+            )
+            val resolved = backend.resolve(request)
+            CloudStreamProviderAdapter.adaptLinks(
+                links = resolved.links,
+                pluginName = target.addonName,
+                pluginId = extension.plugin.internalNameOrId(),
+                subtitles = resolved.subtitles,
+                pluginLogo = target.iconUrl,
+                addonId = target.addonId,
+            )
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            log.w { "CloudStream provider '${target.addonId}' failed: ${error.message}" }
+        }
     }
 
     // --- internals ---------------------------------------------------------

@@ -89,12 +89,29 @@ data class CloudStreamLinkResult(
 )
 
 /**
+ * One end-to-end resolve request for a single provider.
+ *
+ * Carries what a CloudStream provider needs to run its own search → detail →
+ * episode → links flow. The backend owns that flow because providers differ in
+ * how they navigate it; StreamBridge only states what it wants resolved.
+ */
+internal data class CloudStreamResolveRequest(
+    val plugin: CloudStreamPlugin,
+    /** StreamBridge media type, e.g. `movie` or `series`. */
+    val mediaType: String,
+    /** StreamBridge content id (IMDb/TMDB style) for the requested title. */
+    val videoId: String,
+    val season: Int? = null,
+    val episode: Int? = null,
+)
+
+/**
  * Execution backend contract.
  *
- * Intentionally has no production implementation: satisfying it means running
- * CloudStream's compiled DEX, which StreamBridge does not do. It exists so the
- * mapping layer is verifiable today and so a future sanctioned backend has a
- * defined seam to plug into.
+ * Implementations run real CloudStream provider logic. There is deliberately
+ * no implementation in `commonMain`: any backend capable of running a real
+ * `.cs3` must be platform-specific and confined to a distribution that permits
+ * it, so the no-execution boundary stays explicit on every other target.
  */
 internal interface CloudStreamPluginExecutor {
     suspend fun search(plugin: CloudStreamPlugin, query: String): List<CloudStreamSearchResult>
@@ -105,4 +122,13 @@ internal interface CloudStreamPluginExecutor {
         plugin: CloudStreamPlugin,
         query: CloudStreamStreamQuery,
     ): CloudStreamLinkResult
+
+    /**
+     * Runs the provider's full lifecycle and returns its links and subtitles.
+     *
+     * Returning an empty result is valid and means the provider genuinely found
+     * nothing; it must never be used to paper over an error, which should be
+     * thrown so the aggregator can report it against this provider only.
+     */
+    suspend fun resolve(request: CloudStreamResolveRequest): CloudStreamLinkResult
 }

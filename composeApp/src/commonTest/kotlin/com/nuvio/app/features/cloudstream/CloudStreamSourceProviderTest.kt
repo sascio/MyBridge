@@ -39,6 +39,7 @@ class CloudStreamSourceProviderTest {
         override suspend fun search(plugin: CloudStreamPlugin, query: String) = emptyList<CloudStreamSearchResult>()
         override suspend fun loadEpisodes(plugin: CloudStreamPlugin, url: String) = emptyList<CloudStreamEpisode>()
         override suspend fun loadLinks(plugin: CloudStreamPlugin, query: CloudStreamStreamQuery) = onLoad(plugin)
+        override suspend fun resolve(request: CloudStreamResolveRequest) = onLoad(request.plugin)
     }
 
     @Test

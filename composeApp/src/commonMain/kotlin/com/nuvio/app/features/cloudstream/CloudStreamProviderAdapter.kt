@@ -96,6 +96,12 @@ internal object CloudStreamProviderAdapter {
         pluginId: String,
         subtitles: List<CloudStreamSubtitleFile> = emptyList(),
         pluginLogo: String? = null,
+        /**
+         * Aggregator group identity. Must be supplied when these streams are
+         * published to the source picker so they land in the right group;
+         * defaults to the plugin-derived id for standalone mapping/tests.
+         */
+        addonId: String? = null,
     ): List<StreamItem> {
         if (links.isEmpty()) return emptyList()
         val adaptedSubtitles = adaptSubtitles(subtitles)
@@ -111,7 +117,7 @@ internal object CloudStreamProviderAdapter {
                 url = url,
                 sourceName = link.source?.takeIf { it.isNotBlank() } ?: pluginName,
                 addonName = pluginName,
-                addonId = cloudStreamAddonId(pluginId),
+                addonId = addonId ?: cloudStreamAddonId(pluginId),
                 addonLogo = pluginLogo,
                 streamType = streamType(link),
                 behaviorHints = StreamBehaviorHints(
