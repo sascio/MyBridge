@@ -110,6 +110,29 @@ jobs:
           set -o pipefail
           ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee -a gradle-build.log
 
+      - name: Verify Play Store distribution excludes the CloudStream runtime
+        env:
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          echo "::add-matcher::.github/problem-matchers.json"
+          set -o pipefail
+          # The Play Store build must compile WITHOUT the CloudStream execution
+          # runtime. Building it here proves the no-DEX stub is real rather than
+          # merely unused, and that no runtime dependency leaked across.
+          ./gradlew :androidApp:assemblePlaystoreDebug \
+            -Pnuvio.android.distribution=playstore --stacktrace 2>&1 | tee -a gradle-build.log
+          echo "Checking the Play Store APK for CloudStream runtime classes..."
+          APK=$(find androidApp/build/outputs/apk/playstore/debug -name '*.apk' | head -1)
+          test -n "$APK" || { echo "Play Store APK not found"; exit 1; }
+          if unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -q "com/lagradost/cloudstream3/plugins/BasePlugin"; then
+            echo "::error::Play Store APK contains the CloudStream plugin runtime ABI"
+            exit 1
+          fi
+          echo "OK: Play Store APK does not contain the CloudStream plugin runtime."
+
       - name: APK size report
         run: python3 .github/apk-size-report.py androidApp/build/outputs/apk/full/release
 
