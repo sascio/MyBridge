@@ -25,6 +25,14 @@ dependencyResolutionManagement {
             }
         }
         mavenCentral()
+        // Required by the CloudStream compatibility runtime (full distribution):
+        // NiceHttp is published via JitPack. Restricted to com.github.* so no
+        // other dependency can silently resolve from it.
+        maven("https://jitpack.io") {
+            content {
+                includeGroupByRegex("com\\.github\\..*")
+            }
+        }
     }
 }
 

@@ -115,6 +115,10 @@ android {
     productFlavors {
         create("full") {
             dimension = "distribution"
+            // Only the sideload distribution can load CloudStream .cs3 packages,
+            // so only it needs the keep rules that make dynamically loaded
+            // provider bytecode resolve against the embedded runtime.
+            proguardFile("../composeApp/proguard-cloudstream-full.pro")
         }
         create("playstore") {
             dimension = "distribution"

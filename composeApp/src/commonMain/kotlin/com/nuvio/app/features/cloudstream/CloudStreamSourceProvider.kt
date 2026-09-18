@@ -101,6 +101,15 @@ internal data class CloudStreamResolveRequest(
     val mediaType: String,
     /** StreamBridge content id (IMDb/TMDB style) for the requested title. */
     val videoId: String,
+    /**
+     * Title used to search the provider.
+     *
+     * CloudStream providers are site scrapers keyed by title, not by IMDb/TMDB
+     * id, so without this no provider can be searched.
+     */
+    val title: String? = null,
+    /** Release year, used to disambiguate remakes with identical titles. */
+    val year: Int? = null,
     val season: Int? = null,
     val episode: Int? = null,
 )

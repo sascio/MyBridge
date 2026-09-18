@@ -145,16 +145,20 @@ internal object CloudStreamExtensionsRepository {
     /**
      * Execution backend used to resolve real streams.
      *
-     * Null until a platform runtime registers one. While it is null every
-     * provider resolves to "no streams" instead of inventing results, which is
-     * the honest outcome on builds that have no sanctioned execution backend.
+     * Resolved from [CloudStreamPlatformRuntime], which only provides one on a
+     * distribution permitted to execute CloudStream extensions. Everywhere else
+     * it stays null and every provider resolves to "no streams" rather than
+     * inventing results.
      */
-    private var executor: CloudStreamPluginExecutor? = null
+    private var executorOverride: CloudStreamPluginExecutor? = null
 
-    /** Registers the platform execution backend. Called once during startup. */
+    /** Injection point for tests. Production uses the platform runtime. */
     fun registerExecutor(backend: CloudStreamPluginExecutor?) {
-        executor = backend
+        executorOverride = backend
     }
+
+    private fun activeExecutor(): CloudStreamPluginExecutor? =
+        executorOverride ?: CloudStreamPlatformRuntime.executor()
 
     /**
      * Resolves real streams for one CloudStream provider.
@@ -173,8 +177,10 @@ internal object CloudStreamExtensionsRepository {
         videoId: String,
         season: Int?,
         episode: Int?,
+        title: String? = null,
+        year: Int? = null,
     ): Result<List<StreamItem>> {
-        val backend = executor ?: return Result.success(emptyList())
+        val backend = activeExecutor() ?: return Result.success(emptyList())
         val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
             ?: return Result.success(emptyList())
 
@@ -187,6 +193,8 @@ internal object CloudStreamExtensionsRepository {
                 plugin = extension.plugin,
                 mediaType = mediaType,
                 videoId = videoId,
+                title = title,
+                year = year,
                 season = season,
                 episode = episode,
             )

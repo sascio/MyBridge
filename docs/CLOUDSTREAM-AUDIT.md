@@ -142,3 +142,56 @@ position is the one StreamBridge's build system is *already* structured for:
 
 This keeps the security boundary explicit and reviewable rather than silently weakened, and
 is the only route to the user's stated acceptance criterion of real streams in the player.
+
+---
+
+## Increment 2 — controlled execution runtime (implemented)
+
+### Distribution mechanism (verified in code, not assumed)
+
+`composeApp` does **not** use Gradle product flavors. `composeApp/build.gradle.kts`
+resolves `androidDistribution` (`full` | `playstore`) from
+`-Pnuvio.android.distribution` / `NUVIO_ANDROID_DISTRIBUTION` and then swaps a
+**source directory**: `src/androidFull/kotlin` vs `src/androidPlaystore/kotlin`
+(line ~569). `src/fullCommonMain/kotlin` is added for `full` only.
+
+`androidApp` *does* use real flavors (`full`, `playstore`, dimension
+`distribution`), which is where the CloudStream ProGuard rules are attached.
+
+CI builds `:androidApp:assembleFullDebug` and `:androidApp:assembleFullRelease`,
+so **only the full distribution is compiled in CI**. The playstore path is not
+currently exercised by CI.
+
+### Execution boundary
+
+| Target | `supportsExecution` | Source set |
+| --- | --- | --- |
+| Android full | `true` | `androidFull/.../CloudStreamPlatformRuntime.android.kt` |
+| Android playstore | `false` | `androidPlaystore/.../CloudStreamPlatformRuntime.android.kt` |
+| iOS | `false` | `iosMain/.../CloudStreamPlatformRuntime.ios.kt` |
+
+The runtime AAR is declared inside `if (androidDistribution == "full")`. Its
+filename deliberately does **not** match the unconditional
+`fileTree(... "lib-*.aar")` include, so it cannot leak into the Play Store build
+implicitly. Play Store/iOS are compiled *without* the CloudStream ABI, so there
+is no `PathClassLoader` path to disable — the capability is absent.
+
+### Gates applied before any plugin code is reachable
+
+1. app-private storage (`filesDir/cloudstream-packages/`), staged then committed
+2. SHA-256 vs the repository's `fileHash` (verified before commit *and* at load)
+3. archive layout: `manifest.json` + `classes.dex`, Zip-Slip rejected
+4. `pluginClassName` present and a well-formed JVM binary name
+5. file set read-only before loading
+6. loaded class must extend `BasePlugin`
+7. must register ≥1 provider, else providers/extractors are rolled back
+
+Decisions for 2-4 live in `CloudStreamPackageValidation` (pure, unit-tested).
+
+### Artifact integrity
+
+`cloudstream-runtime-api-4.8.0-3496e5f.aar`, SHA-256
+`b67a4384bea1f4072123b86c5f164471422d9c6c12845d5067f12db44674d427`, committed to
+the repo (not fetched at build time), pinned by the `verifyCloudStreamRuntime`
+Gradle task that every full-distribution Kotlin compilation depends on, and
+re-checked by `CloudStreamRuntimeArtifactTest`.

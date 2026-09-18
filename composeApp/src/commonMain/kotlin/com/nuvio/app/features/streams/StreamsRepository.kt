@@ -187,6 +187,14 @@ object StreamsRepository {
             extensions = CloudStreamExtensionsRepository.uiState.value.extensions,
             mediaType = type,
         )
+        // CloudStream providers are site scrapers keyed by title, not by
+        // IMDb/TMDB id, so the display metadata is what makes them searchable.
+        val cloudStreamMeta = MetaDetailsRepository.uiState.value.meta
+            ?.takeIf { it.id == videoId || it.id == parentMetaId }
+        val cloudStreamTitle = cloudStreamMeta?.name
+        val cloudStreamYear = cloudStreamMeta?.releaseInfo
+            ?.take(4)
+            ?.toIntOrNull()
 
         if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty() && cloudStreamTargets.isEmpty()) {
             InAppLogger.warn("Streams/StreamsRepository", "No stream addons or plugin scrapers installed for type=$type id=$videoId")
@@ -583,6 +591,8 @@ object StreamsRepository {
                         videoId = videoId,
                         season = season,
                         episode = episode,
+                        title = cloudStreamTitle,
+                        year = cloudStreamYear,
                     ).fold(
                         onSuccess = { streams ->
                             InAppLogger.info(

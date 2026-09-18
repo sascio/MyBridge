@@ -367,6 +367,35 @@ val androidDistributionSourceDir = if (androidDistribution == "full") {
 } else {
     "src/androidPlaystore/kotlin"
 }
+
+// CloudStream compatibility runtime, pinned by name AND content hash.
+// Built from recloudstream/cloudstream @ 3496e5f8d2ebae4c1b5bdf264782f58375c1eb06
+// (upstream 4.8.0 / library 1.0.1). The hash is verified at build time so the
+// executable runtime can never be silently swapped for a different artifact.
+val cloudStreamRuntimeAar = "cloudstream-runtime-api-4.8.0-3496e5f.aar"
+val cloudStreamRuntimeSha256 = "b67a4384bea1f4072123b86c5f164471422d9c6c12845d5067f12db44674d427"
+
+val verifyCloudStreamRuntime by tasks.registering {
+    group = "verification"
+    description = "Verifies the pinned CloudStream runtime AAR matches its expected SHA-256."
+    val artifact = layout.projectDirectory.file("libs/$cloudStreamRuntimeAar").asFile
+    val expected = cloudStreamRuntimeSha256
+    inputs.file(artifact).withPropertyName("cloudStreamRuntimeAar")
+    inputs.property("expectedSha256", expected)
+    outputs.upToDateWhen { true }
+    doLast {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        val actual = digest.digest(artifact.readBytes()).joinToString("") { byte ->
+            "%02x".format(byte)
+        }
+        require(actual == expected) {
+            "CloudStream runtime AAR integrity check failed.\n" +
+                "  expected: $expected\n" +
+                "  actual:   $actual\n" +
+                "Refusing to build an executable CloudStream runtime from an unverified artifact."
+        }
+    }
+}
 // local.properties MUST be read through a Gradle value provider, not plain file IO.
 // `org.gradle.configuration-cache=true` is enabled in gradle.properties: values read
 // with java.io at configuration time are NOT tracked as configuration-cache inputs, so
@@ -477,6 +506,11 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
     dependsOn(generateRuntimeConfigs)
+    // Full builds link against the executable CloudStream runtime, so its
+    // integrity is verified before any code that can load a .cs3 is compiled.
+    if (androidDistribution == "full") {
+        dependsOn(verifyCloudStreamRuntime)
+    }
 }
 
 kotlin {
@@ -600,6 +634,25 @@ kotlin {
                 implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
                 if (androidDistribution == "full") {
                     implementation(files("libs/quickjs-kt-android-1.0.5-nuvio.aar"))
+                    // CloudStream compatibility runtime (GPL-3.0). Full/sideload only:
+                    // this artifact is what makes controlled .cs3 execution possible, so
+                    // the Play Store distribution must never receive it. The filename
+                    // deliberately does not match the `lib-*.aar` fileTree above, so it
+                    // cannot be picked up by the unconditional dependency.
+                    // See composeApp/libs/NOTICE.md and docs/CLOUDSTREAM-AUDIT.md.
+                    implementation(files("libs/$cloudStreamRuntimeAar"))
+                    // Libraries CloudStream plugins link against by their original JVM
+                    // names. Without them a loaded .cs3 fails with NoClassDefFoundError.
+                    implementation("androidx.annotation:annotation:1.10.0")
+                    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
+                    implementation("org.jsoup:jsoup:1.22.1")
+                    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
+                    implementation("com.github.Blatzar:NiceHttp:0.4.18")
+                    implementation("me.xdrop:fuzzywuzzy:1.4.0")
+                    implementation("org.mozilla:rhino:1.8.1")
+                    implementation("dev.whyoleg.cryptography:cryptography-core:0.6.0")
+                    implementation("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
+                    implementation(kotlin("reflect"))
                     implementation(libs.ksoup)
                 }
             }
