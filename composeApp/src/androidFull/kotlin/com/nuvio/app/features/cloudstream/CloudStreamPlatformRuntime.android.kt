@@ -272,7 +272,7 @@ internal actual object CloudStreamPlatformRuntime {
                         name = response.name,
                         url = response.url,
                         posterUrl = response.posterUrl,
-                        year = response.year,
+                        year = response.searchYear(),
                         type = response.type?.name,
                     )
                 }
@@ -375,7 +375,7 @@ internal actual object CloudStreamPlatformRuntime {
                         name = response.name,
                         url = response.url,
                         posterUrl = response.posterUrl,
-                        year = response.year,
+                        year = response.searchYear(),
                         type = response.type?.name,
                     )
                 }
@@ -460,6 +460,20 @@ internal actual object CloudStreamPlatformRuntime {
 private class CloudStreamIdentityContext(base: Context) : ContextWrapper(base) {
     override fun getPackageName(): String = "com.lagradost.cloudstream3"
     override fun getApplicationContext(): Context = this
+}
+
+/**
+ * Reads the release year from a CloudStream search result.
+ *
+ * `year` is declared on the concrete subtypes (Movie/TvSeries/Anime search
+ * responses) rather than on the `SearchResponse` base type, so it is read
+ * through those subtypes and is simply absent for other result kinds.
+ */
+private fun com.lagradost.cloudstream3.SearchResponse.searchYear(): Int? = when (this) {
+    is com.lagradost.cloudstream3.MovieSearchResponse -> year
+    is com.lagradost.cloudstream3.TvSeriesSearchResponse -> year
+    is com.lagradost.cloudstream3.AnimeSearchResponse -> year
+    else -> null
 }
 
 /** Normalises a title for tolerant comparison between metadata and provider results. */
