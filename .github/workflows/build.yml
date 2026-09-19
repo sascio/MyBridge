@@ -123,11 +123,12 @@ jobs:
             APK=$(find "androidApp/build/outputs/apk/full/$VARIANT" -name '*.apk' | head -1)
             test -n "$APK" || { echo "Full $VARIANT APK not found"; exit 1; }
             echo "Inspecting full/$VARIANT: $APK"
-            echo "--- APK entries (dex/jar) ---"
-            unzip -l "$APK" | grep -Ei 'classes.*\.dex|\.jar' || true
-            echo "--- lagradost strings present (sample) ---"
-            unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -o 'com/lagradost[a-zA-Z0-9/_$]*' | sort -u | head -20 || true
-            echo "--- end diagnostics ---"
+            # Emit findings as workflow errors: artifact download is not
+            # always available, but annotations always are.
+            DEXCOUNT=$(unzip -l "$APK" | grep -Ec 'classes[0-9]*\.dex' || true)
+            LAG=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -c 'com/lagradost' || true)
+            SAMPLE=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -o 'com/lagradost[a-zA-Z0-9/_$]*' | sort -u | head -5 | tr '\n' ' ' || true)
+            echo "::error::DIAG $VARIANT dexfiles=$DEXCOUNT lagradostStrings=$LAG sample=[$SAMPLE]"
             DEX=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings)
 
             # 1. The CloudStream plugin ABI must be present and linkable.
