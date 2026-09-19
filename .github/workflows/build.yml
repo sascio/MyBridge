@@ -113,6 +113,8 @@ jobs:
       - name: Verify the Full APK selects the real CloudStream execution runtime
         run: |
           set -o pipefail
+          mkdir -p apk-diagnostics
+          exec > >(tee apk-diagnostics/full-apk-verification.txt) 2>&1
           # The Play Store build is a hard no-op stub. If source-set selection
           # ever regressed, the Full APK would silently ship that stub and every
           # extension would report "Unsupported - requires native execution" on
@@ -146,6 +148,14 @@ jobs:
             }
             echo "OK: full/$VARIANT contains the real CloudStream execution runtime."
           done
+
+      - name: Upload Full APK verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: Stream-Bridge-full-apk-diagnostics
+          path: apk-diagnostics/
+          if-no-files-found: ignore
 
       - name: Verify Play Store distribution excludes the CloudStream runtime
         env:
