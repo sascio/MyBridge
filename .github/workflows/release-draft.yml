@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.04)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.05)
         required: true
         type: string
-        default: "0.1.04"
+        default: "v0.1.05"
 
 permissions:
   contents: write
@@ -258,12 +258,18 @@ jobs:
             checksums.sha256
           )
           notes="$(mktemp)"
-          cat > "$notes" <<EOF
-          StreamBridge ${TAG}
+          cat > "$notes" <<'EOF'
+          ## StreamBridge 0.1.05
 
-          Based on NuvioMobile $(grep '^NUVIO_UPSTREAM_RELEASE=' streambridge.version.properties | cut -d= -f2) ($(grep '^NUVIO_UPSTREAM_COMMIT=' streambridge.version.properties | cut -d= -f2)).
-
-          Draft only — publish after device validation. In-app updates require this production certificate (docs/SIGNING.md). CI debug-signed APKs are not updates.
+          - Updated the core to the latest Nuvio 0.4.25-beta improvements.
+          - Improved Home hero carousel behavior and transitions.
+          - Improved player controls, timeline, gestures, brightness persistence, and next-episode behavior.
+          - Improved Simkl watch history and playback-position handling.
+          - Improved external-player and playback integrations.
+          - Improved subtitle support, including CJK subtitle font handling.
+          - Updated UI styling, surfaces, chips, navigation, and settings.
+          - Updated Greek and Vietnamese translations.
+          - Preserved StreamBridge's metadata, ratings, integrations, addons, plugins, and personalization features.
           EOF
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${assets[@]}" --clobber
