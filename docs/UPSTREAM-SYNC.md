@@ -6,8 +6,8 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `cbc921d910c1c555fbbf683d438b1ba850df23ca` |
-| Release | 0.4.23 (`chore(store): publish 0.4.23`, 2026-09-17) |
+| Commit | `ec441c7b6075abdc3b1ae8cd1c8a41cf1773346e` |
+| Release | 0.4.25-beta (`bump version`, 2026-09-18) |
 
 ## Important: upstream rewrote history
 
@@ -25,6 +25,14 @@ git merge-base HEAD nuvio/cmp-rewrite   -> (empty)
 A conventional `git merge` or `git rebase` against upstream is therefore
 impossible. Sync must be done by tree comparison
 (`git diff HEAD nuvio/cmp-rewrite`), not by merging.
+
+## 0.4.25-beta integration
+
+The delta from the prior official 0.4.23 pin (`cbc921d9`) was ported as a
+source-level three-way integration so StreamBridge and Enhanced-only files remain intact.
+This includes the hero cycling fix, restored surface/chip styling, Simkl read/write
+corrections, Infuse external-playback callbacks, player UI/settings updates, iOS CJK
+subtitle font fallback, ratings controls, and Greek/Vietnamese translations.
 
 ## State of the core
 
