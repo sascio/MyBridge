@@ -195,3 +195,61 @@ Decisions for 2-4 live in `CloudStreamPackageValidation` (pure, unit-tested).
 the repo (not fetched at build time), pinned by the `verifyCloudStreamRuntime`
 Gradle task that every full-distribution Kotlin compilation depends on, and
 re-checked by `CloudStreamRuntimeArtifactTest`.
+
+## Increment 3 — download and install lifecycle (implemented)
+
+### The blocker this closes
+
+`CloudStreamPackageStorage.install()` existed from Increment 2 but **had no
+callers**. The runtime's `providersFor()` resolves a plugin's providers from the
+installed `.cs3`, so in practice it always threw *"CloudStream package is not
+installed"*: extensions could be discovered and displayed, but never obtained.
+
+### What was added
+
+| Concern | Where |
+| --- | --- |
+| Lifecycle states + pure decision rules | `CloudStreamInstallation.kt` (`CloudStreamInstallState`, `CloudStreamInstallError`, `CloudStreamInstallPolicy`) |
+| Platform install seam | `CloudStreamPackageInstaller.kt` (`expect`) |
+| Real implementation | `androidFull/.../CloudStreamPackageInstaller.android.kt` |
+| Hard no-op stubs | `androidPlaystore/…`, `iosMain/…` |
+| Orchestration + state | `CloudStreamExtensionsRepository` (`installExtension`, `updateExtension`, `removeExtension`) |
+| UI | `InstallStateChip`, `InstallActions` on the extension card; status/version/error on the detail screen |
+
+### Pipeline
+
+discover → download → verify hash → validate archive → install to app-private
+storage → enable → provider available to the aggregator.
+
+Downloads reuse the existing `AddonHttpClientProvider` OkHttp client — **no
+second HTTP engine**. Bytes are buffered under a 32 MB ceiling, staged in the
+cache directory, and validated *before* `CloudStreamPackageStorage.install()`
+commits them, so a rejected artifact never reaches the plugin directory.
+
+### Failure modes handled distinctly
+
+HTTP failure, 404/410 (repository gone), timeout, empty/invalid response,
+oversize response, interrupted/truncated transfer, `fileSize` disagreement,
+hash mismatch, corrupt `.cs3`, malformed manifest, missing/invalid
+`pluginClassName`, insufficient storage, unsupported distribution, and
+duplicate/concurrent install requests (coalesced).
+
+### Honesty invariants now enforced
+
+- A package that is not genuinely on disk cannot be enabled, cannot appear in
+  `CloudStreamAggregatorBridge.resolveTargets`, and cannot resolve streams —
+  three independent gates, so a stale persisted flag cannot resurrect a dead
+  provider.
+- `CloudStreamExtension.isActive` requires **installed AND an enabled source**.
+- A failed *update* keeps the previously working installation visible and
+  usable; only a failed *first* install reports `FAILED`.
+- Uninstalling clears the enabled state of every source it owned.
+- Play Store and iOS report `UNSUPPORTED` with a truthful message rather than
+  pretending an install merely failed.
+
+### Verification
+
+Commit `833da4b`, CI run `35448116026` — **success**, all steps green including
+`Verify Play Store distribution excludes the CloudStream runtime`.
+
+Physical CloudStream playback verification was not possible in this environment.
