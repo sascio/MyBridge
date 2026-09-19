@@ -128,6 +128,9 @@ jobs:
             # Dex string pools split identifiers, so match the class and its
             # package separately rather than assuming one contiguous literal.
             DEX=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings)
+            SUBPKG=$(echo "$DEX" | grep -o 'com/lagradost/cloudstream3/[a-z0-9]*' | sort -u | tr '\n' ' ')
+            HASBASE=$(echo "$DEX" | grep -c 'BasePlugin' || true)
+            echo "::error::DIAG2 $VARIANT subpackages=[$SUBPKG] basePluginRefs=$HASBASE"
 
             # 1. The CloudStream plugin ABI must be present and linkable.
             echo "$DEX" | grep -q "com/lagradost/cloudstream3/plugins" || {
