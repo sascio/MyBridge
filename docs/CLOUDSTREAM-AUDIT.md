@@ -253,3 +253,72 @@ Commit `833da4b`, CI run `35448116026` — **success**, all steps green includin
 `Verify Play Store distribution excludes the CloudStream runtime`.
 
 Physical CloudStream playback verification was not possible in this environment.
+
+## Final pass — real execution on Android Full
+
+### Regression target: "Unsupported — requires native execution"
+
+Two independent defects produced this on the installed Full APK. Both are fixed.
+
+**Defect 1 — classification never consulted the runtime.**
+`CloudStreamRepositoryParser.toPlugin()` assigned
+`compatibility = CloudStreamCompatibility.UNSUPPORTED` unconditionally and only
+chose *which reason* to display. The androidFull execution backend could
+therefore never influence what the UI reported. Because `plugin.isExecutable`
+requires `COMPATIBLE`, this also silently gated `setSourceEnabled`,
+`CloudStreamAggregatorBridge.resolveTargets` and `resolveStreams` — the whole
+execution path was unreachable on every build, including Full.
+
+*Fix:* compatibility derives from `CloudStreamPlatformRuntime.supportsExecution`,
+injected as `canExecute` so both branches stay pure and testable. Genuine format
+problems (unsupported `apiVersion`, missing artifact URL) still outrank
+capability, so nothing is whitewashed as compatible.
+
+**Defect 2 — the runtime was not packaged into the APK.**
+The CloudStream AAR was declared with `implementation` on a Kotlin Multiplatform
+`androidMain` source set. Such a local `.aar` file dependency is not reliably
+exported to the consuming application's runtime classpath: `composeApp` compiled
+against it, but `:androidApp` did not package it. Even with Defect 1 fixed,
+every plugin load would have failed on device with `NoClassDefFoundError` on
+`BasePlugin`, while CI stayed green.
+
+*Fix:* the runtime and the libraries plugin bytecode resolves by original JVM
+name are declared `fullImplementation` on `:androidApp`. This keeps them
+strictly out of the `playstore` flavor, so the no-DEX boundary is unchanged, and
+integrity remains pinned by `verifyCloudStreamRuntime`.
+
+### Extractor support
+
+Providers split into two kinds and both now work: those that emit
+`ExtractorLink`s directly, and those that only know an embed/host page URL and
+expect the host to run the extractor chain. The second kind previously produced
+no streams. `collectLinks` now falls back to CloudStream's generic
+`loadExtractor(url, referer, subtitleCallback, callback)` when the provider
+emitted nothing, dispatching through the runtime's 328 registered extractors
+plus any the plugin registered itself. Registry-driven — no per-provider or
+per-extractor special-casing, and no allowlist.
+
+### Removed second aggregation path
+
+`CloudStreamSourceProvider` was referenced only by its own tests while the live
+path is `StreamsRepository` → `CloudStreamExtensionsRepository.resolveStreams`.
+It was deleted; its seam types moved unchanged to `CloudStreamExecution.kt`.
+
+### CI verification of the built APK
+
+`Verify the Full APK selects the real CloudStream execution runtime` inspects
+both `full/debug` and `full/release` for the plugin package, the `BasePlugin`
+type, the controlled `PathClassLoader` path, and the extractor API — so an R8
+rule regression or a source-set fallback to the no-DEX stub fails the build.
+
+A false failure from this step exposed a further real problem: the dex string
+pool is large enough that capturing it into a shell variable and echoing it back
+overflows the argument list, making every `grep` fail regardless of content.
+Both the Full positive check and the **Play Store negative check** now extract
+to a file first; the negative check had the same flaw and could have been
+passing vacuously, which would have voided the no-DEX guarantee.
+
+### Not verified
+
+Physical CloudStream playback verification was not possible in this environment.
+See `docs/CLOUDSTREAM-DEVICE-CHECKLIST.md`.

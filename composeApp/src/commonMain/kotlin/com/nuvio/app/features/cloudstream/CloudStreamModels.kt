@@ -96,10 +96,12 @@ enum class CloudStreamCompatibility {
     PARTIALLY_COMPATIBLE,
 
     /**
-     * Understood, but StreamBridge cannot execute it. CloudStream ships
-     * provider logic exclusively as compiled Android DEX bytecode; running it
-     * would mean executing arbitrary remote code, which StreamBridge does not
-     * do.
+     * Understood, but this build cannot run it.
+     *
+     * Either the distribution has no CloudStream execution backend (Play Store,
+     * iOS), or the plugin declares a format this runtime does not model.
+     * Extensions are never marked unsupported merely because some other
+     * implementation lacks support for them.
      */
     UNSUPPORTED,
 
@@ -112,7 +114,14 @@ enum class CloudStreamCompatibilityReason {
     /** Nothing blocking was detected at the metadata level. */
     NONE,
 
-    /** Provider logic is compiled DEX; StreamBridge will not execute it. */
+    /**
+     * Provider logic is compiled Android DEX and this distribution has no
+     * controlled execution backend for it.
+     *
+     * Reported on the Play Store and iOS builds. The Android `full` (sideload)
+     * distribution does execute plugins through a verified, gated runtime and
+     * therefore does not report this.
+     */
     REQUIRES_NATIVE_EXECUTION,
 
     /** Declared `apiVersion` is newer than this compatibility layer models. */
