@@ -715,7 +715,7 @@ private fun HeroPageIndicator(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(itemCount) { index ->
-            val activeFraction = heroPageVisibility(pagerState, index)
+            val activeFraction = heroPageVisibility(pagerState, index, itemCount)
             Box(
                 modifier = Modifier
                     .clickable {
