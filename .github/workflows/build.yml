@@ -121,6 +121,11 @@ jobs:
             APK=$(find "androidApp/build/outputs/apk/full/$VARIANT" -name '*.apk' | head -1)
             test -n "$APK" || { echo "Full $VARIANT APK not found"; exit 1; }
             echo "Inspecting full/$VARIANT: $APK"
+            echo "--- APK entries (dex/jar) ---"
+            unzip -l "$APK" | grep -Ei 'classes.*\.dex|\.jar' || true
+            echo "--- lagradost strings present (sample) ---"
+            unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -o 'com/lagradost[a-zA-Z0-9/_$]*' | sort -u | head -20 || true
+            echo "--- end diagnostics ---"
             DEX=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings)
 
             # 1. The CloudStream plugin ABI must be present and linkable.
