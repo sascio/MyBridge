@@ -112,50 +112,21 @@ jobs:
 
       - name: Verify the Full APK selects the real CloudStream execution runtime
         run: |
-          set -o pipefail
-          mkdir -p apk-diagnostics
+          set -euo pipefail
           # The Play Store build is a hard no-op stub. If source-set selection
           # ever regressed, the Full APK would silently ship that stub and every
           # extension would report "Unsupported - requires native execution" on
-          # device while CI still passed. These checks prove the opposite.
+          # device while CI still passed. This proves the opposite.
+          #
+          # Inspection is done in Python, reading dex bytes straight from the
+          # zip. A previous shell version piped the dex string pool through a
+          # variable, which overflowed the argument list and made the checks
+          # pass or fail independently of the APK's real contents.
           for VARIANT in debug release; do
             APK=$(find "androidApp/build/outputs/apk/full/$VARIANT" -name '*.apk' | head -1)
-            test -n "$APK" || { echo "Full $VARIANT APK not found"; exit 1; }
-            echo "Inspecting full/$VARIANT: $APK"
-
-            # Extract dex strings to a FILE. The string pool is large enough
-            # that holding it in a shell variable overflows the argument list,
-            # which previously made every grep fail regardless of content.
-            SYMS="apk-diagnostics/$VARIANT-symbols.txt"
-            unzip -p "$APK" 'classes*.dex' 2>/dev/null | strings > "$SYMS"
-            echo "symbol lines: $(wc -l < "$SYMS")"
-
-            check() {
-              if grep -q "$1" "$SYMS"; then
-                echo "OK: full/$VARIANT contains $2"
-              else
-                echo "::error::Full $VARIANT APK is missing $2"
-                exit 1
-              fi
-            }
-
-            # 1. The CloudStream plugin ABI must be present and linkable.
-            check "com/lagradost/cloudstream3/plugins" "the CloudStream plugin package"
-            check "BasePlugin" "the BasePlugin type"
-            # 2. The controlled loader must be present, i.e. the androidFull
-            #    CloudStreamPlatformRuntime actual, not the no-DEX stub.
-            check "dalvik/system/PathClassLoader" "the controlled class loader path"
-            # 3. The extractor registry must survive R8 on release.
-            check "com/lagradost/cloudstream3/utils/ExtractorApi" "the CloudStream extractor API"
+            test -n "$APK" || { echo "::error::Full $VARIANT APK not found"; exit 1; }
+            python3 .github/verify-cloudstream-apk.py --apk "$APK" --expect-runtime
           done
-
-      - name: Upload Full APK verification diagnostics
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: Stream-Bridge-full-apk-diagnostics
-          path: apk-diagnostics/
-          if-no-files-found: ignore
 
       - name: Verify Play Store distribution excludes the CloudStream runtime
         env:
@@ -171,25 +142,12 @@ jobs:
           # merely unused, and that no runtime dependency leaked across.
           ./gradlew :androidApp:assemblePlaystoreDebug \
             -Pnuvio.android.distribution=playstore --stacktrace 2>&1 | tee -a gradle-build.log
-          echo "Checking the Play Store APK for CloudStream runtime classes..."
           APK=$(find androidApp/build/outputs/apk/playstore/debug -name '*.apk' | head -1)
-          test -n "$APK" || { echo "Play Store APK not found"; exit 1; }
-          # Same matching as the Full check, so this cannot pass vacuously
-          # because of how dex string pools split identifiers.
-          # Extract to a file for the same reason as the Full check: the dex
-          # string pool overflows a shell variable, which would make these
-          # greps pass vacuously and silently void the no-DEX guarantee.
-          mkdir -p apk-diagnostics
-          PSSYMS=apk-diagnostics/playstore-symbols.txt
-          unzip -p "$APK" 'classes*.dex' 2>/dev/null | strings > "$PSSYMS"
-          LAGCOUNT=$(grep -c "com/lagradost" "$PSSYMS" || true)
-          echo "Play Store APK com/lagradost string count: $LAGCOUNT (expected 0)"
-          if [ "$LAGCOUNT" -ne 0 ]; then
-            echo "::error::Play Store APK contains $LAGCOUNT CloudStream runtime references"
-            grep -o 'com/lagradost[a-zA-Z0-9/_$]*' "$PSSYMS" | sort -u | head -20
-            exit 1
-          fi
-          echo "OK: Play Store APK does not contain the CloudStream plugin runtime."
+          test -n "$APK" || { echo "::error::Play Store APK not found"; exit 1; }
+          # Same inspector as the Full check, inverted. Reading dex bytes in
+          # Python is what makes this a real negative check rather than one
+          # that passes vacuously and silently voids the no-DEX guarantee.
+          python3 .github/verify-cloudstream-apk.py --apk "$APK" --expect-no-runtime
 
       - name: APK size report
         run: python3 .github/apk-size-report.py androidApp/build/outputs/apk/full/release
