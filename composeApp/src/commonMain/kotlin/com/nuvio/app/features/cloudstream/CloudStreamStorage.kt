@@ -11,6 +11,12 @@ package com.nuvio.app.features.cloudstream
  *  - the list of repository URLs the user added
  *  - per-source enabled/disabled state
  *  - supported configuration values
+ *  - metadata for extensions whose package is installed
+ *
+ * The installed-plugin cache matters for correctness, not just speed: provider
+ * discovery must work at app start and offline. Without it the extension list
+ * exists only after a network refresh has completed, so an installed, enabled
+ * provider is invisible to source aggregation on a cold start.
  */
 internal expect object CloudStreamStorage {
     fun loadRepositories(): String?
@@ -21,4 +27,8 @@ internal expect object CloudStreamStorage {
 
     fun loadConfiguration(): String?
     fun saveConfiguration(payload: String)
+
+    /** Metadata for extensions with an installed package, as a JSON array. */
+    fun loadInstalledPlugins(): String?
+    fun saveInstalledPlugins(payload: String)
 }

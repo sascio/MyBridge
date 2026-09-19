@@ -55,6 +55,15 @@ internal object CloudStreamExtensionsRepository {
         sourceStates = decodeSourceStates(CloudStreamStorage.loadSourceStates())
         configuration = decodeConfiguration(CloudStreamStorage.loadConfiguration())
 
+        // Restore installed extensions synchronously, BEFORE any network work.
+        //
+        // This is what makes an installed provider usable at app start and
+        // offline. `refresh()` below is asynchronous, so callers that read
+        // `uiState.value` immediately -- notably StreamsRepository when the
+        // user presses Play -- would otherwise see an empty extension list and
+        // silently drop every CloudStream provider from source aggregation.
+        restoreInstalledExtensions()
+
         if (repositoryUrls.isEmpty()) {
             _uiState.value = _uiState.value.copy(hasLoadedOnce = true)
             return
@@ -183,6 +192,15 @@ internal object CloudStreamExtensionsRepository {
                                 .installedVersion(extension.plugin) ?: result.version,
                         )
                     }
+                    // Installing is an explicit opt-in, so the extension's
+                    // sources are switched on unless the user previously chose
+                    // otherwise. Without this a freshly installed provider is
+                    // installed-but-disabled and never reaches Play -> Sources,
+                    // which reads to the user as the install having done nothing.
+                    enableSourcesByDefault(pluginId)
+                    // Cache immediately so the provider survives a restart and
+                    // is usable offline without waiting for a repository refresh.
+                    persistInstalledPlugins()
                     log.i { "CloudStream extension '$pluginId' installed" }
                 }
 
@@ -211,6 +229,31 @@ internal object CloudStreamExtensionsRepository {
         }
     }
 
+    /**
+     * Switches on every activatable source of a freshly installed extension.
+     *
+     * Only applied to sources the user has never expressed a preference for, so
+     * a deliberate disable is never silently undone by a reinstall or update.
+     */
+    private fun enableSourcesByDefault(pluginId: String) {
+        val extension = _uiState.value.extensions.firstOrNull { it.id == pluginId } ?: return
+        var changed = false
+        extension.sources.forEach { source ->
+            if (!source.canActivate) return@forEach
+            if (sourceStates.containsKey(source.id)) return@forEach
+            sourceStates[source.id] = CloudStreamSourceState(
+                sourceId = source.id,
+                enabled = true,
+                installed = true,
+            )
+            changed = true
+        }
+        if (changed) {
+            persistSourceStates()
+            applyPersistedState()
+        }
+    }
+
     /** Re-runs installation to pick up a newer published version. */
     fun updateExtension(pluginId: String) = installExtension(pluginId)
 
@@ -233,6 +276,8 @@ internal object CloudStreamExtensionsRepository {
 
             updateInstallStatus(pluginId) { CloudStreamInstallStatus() }
             applyPersistedState()
+            // Drop it from the cache too, so a restart cannot resurrect it.
+            persistInstalledPlugins()
         }
     }
 
@@ -445,6 +490,69 @@ internal object CloudStreamExtensionsRepository {
             extensions = extensions,
             errorMessage = null,
         )
+        persistInstalledPlugins()
+    }
+
+    /**
+     * Rebuilds installed extensions from the on-disk cache.
+     *
+     * Only extensions whose package is genuinely present are restored: the
+     * cache records metadata, while [CloudStreamPackageInstaller] remains the
+     * single source of truth for whether something is installed. A cache entry
+     * for a package the user removed is therefore ignored, not trusted.
+     */
+    private fun restoreInstalledExtensions() {
+        val cached = decodeInstalledPlugins(CloudStreamStorage.loadInstalledPlugins())
+        if (cached.isEmpty()) return
+
+        val extensions = cached.mapNotNull { entry ->
+            val plugin = CloudStreamRepositoryParser.toPlugin(entry.manifest)
+            if (plugin.id.isEmpty()) return@mapNotNull null
+            if (!CloudStreamPackageInstaller.isInstalled(plugin)) return@mapNotNull null
+
+            CloudStreamExtensionMapping.toExtension(
+                plugin = plugin,
+                repositoryUrl = entry.repositoryUrl,
+                states = sourceStates,
+                configuration = configuration,
+            ).copy(installStatus = installStatusFor(plugin))
+        }.sortedBy { it.name.lowercase() }
+
+        if (extensions.isEmpty()) return
+        log.i { "Restored ${extensions.size} installed CloudStream extension(s) from cache" }
+        _uiState.value = _uiState.value.copy(extensions = extensions)
+    }
+
+    /** Caches metadata for every installed extension so it survives restarts. */
+    private fun persistInstalledPlugins() {
+        val installed = _uiState.value.extensions
+            .filter { it.installStatus.isInstalled }
+            .map { extension ->
+                CloudStreamInstalledPlugin(
+                    repositoryUrl = extension.repositoryUrl,
+                    manifest = extension.plugin.toManifest(),
+                )
+            }
+        runCatching {
+            CloudStreamStorage.saveInstalledPlugins(
+                json.encodeToString(
+                    ListSerializer(CloudStreamInstalledPlugin.serializer()),
+                    installed,
+                ),
+            )
+        }.onFailure { error ->
+            log.w { "Could not cache installed CloudStream extensions: ${error.message}" }
+        }
+    }
+
+    private fun decodeInstalledPlugins(payload: String?): List<CloudStreamInstalledPlugin> {
+        if (payload.isNullOrBlank()) return emptyList()
+        return runCatching {
+            json.decodeFromString(
+                ListSerializer(CloudStreamInstalledPlugin.serializer()),
+                payload,
+            )
+        }.getOrElse { emptyList() }
     }
 
     private fun applyPersistedState() {

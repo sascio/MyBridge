@@ -187,3 +187,41 @@ internal object CloudStreamInstallPolicy {
         }
     }
 }
+
+/**
+ * Cached metadata for an extension whose package is installed.
+ *
+ * Persisted so provider discovery works at app start and offline. The cache is
+ * metadata only: whether something is actually installed is always re-checked
+ * against storage, and compatibility is always re-derived from the current
+ * build's runtime capability rather than restored from disk.
+ */
+@kotlinx.serialization.Serializable
+internal data class CloudStreamInstalledPlugin(
+    val repositoryUrl: String,
+    val manifest: CloudStreamPluginManifest,
+)
+
+/**
+ * Converts a normalised plugin back to its repository manifest form.
+ *
+ * Only the fields a repository genuinely publishes are written; compatibility
+ * and install state are deliberately excluded because they are decided at
+ * runtime, not restored.
+ */
+internal fun CloudStreamPlugin.toManifest(): CloudStreamPluginManifest =
+    CloudStreamPluginManifest(
+        name = displayName,
+        internalName = id,
+        url = artifactUrl,
+        version = version,
+        description = description,
+        authors = authors,
+        tvTypes = tvTypes,
+        language = language,
+        iconUrl = iconUrl,
+        repositoryUrl = repositoryUrl,
+        fileSize = fileSize,
+        fileHash = fileHash,
+        apiVersion = apiVersion,
+    )

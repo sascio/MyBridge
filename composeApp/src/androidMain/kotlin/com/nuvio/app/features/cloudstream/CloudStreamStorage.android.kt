@@ -8,6 +8,7 @@ internal actual object CloudStreamStorage {
     private const val repositoriesKey = "cloudstream_repositories"
     private const val sourceStatesKey = "cloudstream_source_states"
     private const val configurationKey = "cloudstream_configuration"
+    private const val installedPluginsKey = "cloudstream_installed_plugins"
 
     private var preferences: SharedPreferences? = null
 
@@ -31,5 +32,11 @@ internal actual object CloudStreamStorage {
 
     actual fun saveConfiguration(payload: String) {
         preferences?.edit()?.putString(configurationKey, payload)?.apply()
+    }
+
+    actual fun loadInstalledPlugins(): String? = preferences?.getString(installedPluginsKey, null)
+
+    actual fun saveInstalledPlugins(payload: String) {
+        preferences?.edit()?.putString(installedPluginsKey, payload)?.apply()
     }
 }
