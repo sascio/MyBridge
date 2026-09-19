@@ -18,6 +18,7 @@ import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.extractorApis
+import com.lagradost.cloudstream3.utils.loadExtractor
 import dalvik.system.PathClassLoader
 import java.io.File
 import java.lang.ref.WeakReference
@@ -398,13 +399,35 @@ internal actual object CloudStreamPlatformRuntime {
                 ?: typeFiltered.first()
         }
 
-        /** Invokes `loadLinks` and converts CloudStream results to StreamBridge models. */
+        /**
+         * Invokes `loadLinks` and converts CloudStream results to StreamBridge
+         * models.
+         *
+         * Providers behave in two ways here, and both must work:
+         *
+         *  1. the provider resolves media itself and emits [ExtractorLink]s
+         *     directly through the callback, or
+         *  2. the provider only knows an *embed/host page* URL and relies on
+         *     CloudStream's shared extractor registry to turn it into media.
+         *
+         * Case 2 is why `loadLinks` can legitimately return `true` having
+         * emitted nothing: the provider expects the host to run the extractor
+         * chain. StreamBridge therefore falls back to CloudStream's generic
+         * `loadExtractor`, which dispatches to whichever of the runtime's 328
+         * registered extractors (plus any the plugin itself registered) matches
+         * the URL. This is registry-driven, so no per-provider or
+         * per-extractor special-casing is involved.
+         */
         private suspend fun collectLinks(api: MainAPI, data: String): CloudStreamLinkResult {
             val links = Collections.synchronizedList(mutableListOf<ExtractorLink>())
             val subtitles = Collections.synchronizedList(mutableListOf<SubtitleFile>())
 
             withTimeout(LINK_TIMEOUT_MS) {
                 api.loadLinks(data, false, { subtitles += it }, { links += it })
+            }
+
+            if (synchronized(links) { links.isEmpty() }) {
+                runExtractorFallback(api, data, links, subtitles)
             }
 
             val linkSnapshot = synchronized(links) { links.toList() }
@@ -443,6 +466,48 @@ internal actual object CloudStreamPlatformRuntime {
             val file = CloudStreamPackageStorage.packageFile(context, plugin)
                 ?: error("CloudStream package is not installed")
             return loadedPlugin(plugin, file).providers
+        }
+
+        /**
+         * Resolves an embed/host URL through CloudStream's extractor registry.
+         *
+         * Only attempted when the provider emitted no links of its own and the
+         * payload actually looks like a URL — a provider's `data` string is
+         * often an opaque token, and handing that to the extractor chain would
+         * be pointless work rather than a resolution attempt.
+         *
+         * Failure is logged and swallowed *here only*: an extractor that cannot
+         * handle a URL is a normal outcome, and the caller correctly reports
+         * "no streams" rather than a provider error. No stream is ever invented.
+         */
+        private suspend fun runExtractorFallback(
+            api: MainAPI,
+            data: String,
+            links: MutableList<ExtractorLink>,
+            subtitles: MutableList<SubtitleFile>,
+        ) {
+            val target = data.trim()
+            if (!target.startsWith("http://", true) && !target.startsWith("https://", true)) return
+
+            runCatching {
+                withTimeout(LINK_TIMEOUT_MS) {
+                    // Referer defaults to the provider's own main URL, which is
+                    // what most hosts check before serving media.
+                    loadExtractor(
+                        target,
+                        api.mainUrl,
+                        { subtitle -> subtitles += subtitle },
+                        { link -> links += link },
+                    )
+                }
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                log.w(error) { "CloudStream extractor fallback failed api=${api.name}" }
+            }
+
+            if (links.isNotEmpty()) {
+                log.i { "Extractor fallback resolved ${links.size} link(s) for ${api.name}" }
+            }
         }
 
         /** Whether a provider declares support for the requested media shape. */

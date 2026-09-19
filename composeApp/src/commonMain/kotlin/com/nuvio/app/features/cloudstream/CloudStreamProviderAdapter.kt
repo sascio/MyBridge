@@ -9,22 +9,24 @@ import com.nuvio.app.features.streams.StreamSubtitle
  * Compatibility layer translating CloudStream provider concepts into
  * StreamBridge's unified models.
  *
- * ## Why this exists without an execution backend
+ * ## Role
  *
- * CloudStream providers are distributed exclusively as compiled Android DEX.
- * StreamBridge does not execute downloaded bytecode, so nothing here ever runs
- * a real plugin today. What this layer does provide is the complete, tested
- * translation contract:
+ * This is the translation contract between a real CloudStream provider and the
+ * rest of StreamBridge:
  *
  *   CloudStream search result -> [CloudStreamSearchResult] -> StreamBridge search
  *   CloudStream episode       -> [CloudStreamEpisode]
  *   CloudStream link          -> [CloudStreamLink] -> [StreamItem]
  *   CloudStream subtitle      -> [CloudStreamSubtitleFile] -> [StreamSubtitle]
  *
+ * On the Android `full` distribution these types are produced by real plugin
+ * execution in `CloudStreamPlatformRuntime`; on distributions without an
+ * execution backend no links are produced at all and this layer simply has
+ * nothing to map.
+ *
  * The mapping is the part that is easy to get subtly wrong (dropped Referer,
- * lost cookies, mangled quality), so it is implemented and unit-tested against
- * fixtures now. Should a sanctioned execution backend ever be introduced, it
- * feeds these types and the rest of StreamBridge works unchanged.
+ * lost cookies, mangled quality), so it is kept pure and unit-tested against
+ * fixtures independently of any runtime.
  *
  * Nothing in this file fabricates playable media: [adaptLinks] maps only links
  * it is actually given, and returns an empty list for empty input.

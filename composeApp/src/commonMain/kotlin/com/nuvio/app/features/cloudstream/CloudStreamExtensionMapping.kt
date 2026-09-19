@@ -71,10 +71,11 @@ internal object CloudStreamExtensionMapping {
      * Configuration a source genuinely supports.
      *
      * CloudStream publishes no declarative configuration schema in `repo.json`
-     * or `plugins.json`; any real settings live inside the compiled DEX that
-     * StreamBridge does not execute. Returning an empty list is therefore the
-     * truthful answer and correctly hides the Configure action rather than
-     * showing a button that cannot do anything.
+     * or `plugins.json`, and the runtime exposes no enumerable settings
+     * contract for a loaded plugin. There is therefore nothing StreamBridge can
+     * honestly present as configurable, so returning an empty list correctly
+     * hides the Configure action rather than showing a control that cannot be
+     * wired to anything real.
      */
     fun supportedConfiguration(
         sourceId: String,
