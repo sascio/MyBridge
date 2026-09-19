@@ -641,19 +641,31 @@ kotlin {
                     // deliberately does not match the `lib-*.aar` fileTree above, so it
                     // cannot be picked up by the unconditional dependency.
                     // See composeApp/libs/NOTICE.md and docs/CLOUDSTREAM-AUDIT.md.
-                    implementation(files("libs/$cloudStreamRuntimeAar"))
+                    //
+                    // Declared as `api`, not `implementation`, deliberately. A local
+                    // .aar file dependency of a *library* module is not propagated to
+                    // the consuming application's runtime classpath, so with
+                    // `implementation` this compiled fine and was then absent from the
+                    // packaged APK: every plugin load would fail at runtime with
+                    // NoClassDefFoundError on BasePlugin. `api` puts it on the
+                    // exported classpath so :androidApp packages it.
+                    api(files("libs/$cloudStreamRuntimeAar"))
                     // Libraries CloudStream plugins link against by their original JVM
                     // names. Without them a loaded .cs3 fails with NoClassDefFoundError.
-                    implementation("androidx.annotation:annotation:1.10.0")
-                    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
-                    implementation("org.jsoup:jsoup:1.22.1")
-                    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
-                    implementation("com.github.Blatzar:NiceHttp:0.4.18")
-                    implementation("me.xdrop:fuzzywuzzy:1.4.0")
-                    implementation("org.mozilla:rhino:1.8.1")
-                    implementation("dev.whyoleg.cryptography:cryptography-core:0.6.0")
-                    implementation("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
-                    implementation(kotlin("reflect"))
+                    // Exported for the same reason as the runtime above: these must be
+                    // present in the installed APK, not merely on the compile classpath,
+                    // because the classes are resolved by dynamically loaded bytecode
+                    // that the build system cannot see.
+                    api("androidx.annotation:annotation:1.10.0")
+                    api("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
+                    api("org.jsoup:jsoup:1.22.1")
+                    api("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
+                    api("com.github.Blatzar:NiceHttp:0.4.18")
+                    api("me.xdrop:fuzzywuzzy:1.4.0")
+                    api("org.mozilla:rhino:1.8.1")
+                    api("dev.whyoleg.cryptography:cryptography-core:0.6.0")
+                    api("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
+                    api(kotlin("reflect"))
                     implementation(libs.ksoup)
                 }
             }
