@@ -125,15 +125,17 @@ jobs:
             echo "Inspecting full/$VARIANT: $APK"
             # Emit findings as workflow errors: artifact download is not
             # always available, but annotations always are.
-            DEXCOUNT=$(unzip -l "$APK" | grep -Ec 'classes[0-9]*\.dex' || true)
-            LAG=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -c 'com/lagradost' || true)
-            SAMPLE=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -o 'com/lagradost[a-zA-Z0-9/_$]*' | sort -u | head -5 | tr '\n' ' ' || true)
-            echo "::error::DIAG $VARIANT dexfiles=$DEXCOUNT lagradostStrings=$LAG sample=[$SAMPLE]"
+            # Dex string pools split identifiers, so match the class and its
+            # package separately rather than assuming one contiguous literal.
             DEX=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings)
 
             # 1. The CloudStream plugin ABI must be present and linkable.
-            echo "$DEX" | grep -q "com/lagradost/cloudstream3/plugins/BasePlugin" || {
+            echo "$DEX" | grep -q "com/lagradost/cloudstream3/plugins" || {
               echo "::error::Full $VARIANT APK is missing the CloudStream plugin runtime"
+              exit 1
+            }
+            echo "$DEX" | grep -q "BasePlugin" || {
+              echo "::error::Full $VARIANT APK has no BasePlugin type"
               exit 1
             }
             # 2. The controlled loader must be present, i.e. the androidFull
@@ -175,8 +177,17 @@ jobs:
           echo "Checking the Play Store APK for CloudStream runtime classes..."
           APK=$(find androidApp/build/outputs/apk/playstore/debug -name '*.apk' | head -1)
           test -n "$APK" || { echo "Play Store APK not found"; exit 1; }
-          if unzip -p "$APK" classes*.dex 2>/dev/null | strings | grep -q "com/lagradost/cloudstream3/plugins/BasePlugin"; then
+          # Same matching as the Full check, so this cannot pass vacuously
+          # because of how dex string pools split identifiers.
+          PSDEX=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings)
+          LAGCOUNT=$(echo "$PSDEX" | grep -c "com/lagradost" || true)
+          echo "Play Store APK com/lagradost string count: $LAGCOUNT (expected 0)"
+          if echo "$PSDEX" | grep -q "com/lagradost/cloudstream3/plugins"; then
             echo "::error::Play Store APK contains the CloudStream plugin runtime ABI"
+            exit 1
+          fi
+          if [ "$LAGCOUNT" -ne 0 ]; then
+            echo "::error::Play Store APK contains $LAGCOUNT CloudStream runtime references"
             exit 1
           fi
           echo "OK: Play Store APK does not contain the CloudStream plugin runtime."
