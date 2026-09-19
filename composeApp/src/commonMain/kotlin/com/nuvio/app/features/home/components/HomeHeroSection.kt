@@ -746,6 +746,15 @@ private fun heroPageOffset(
     page: Int,
 ): Float = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
 
+private fun heroPageVisibility(
+    pagerState: PagerState,
+    itemIndex: Int,
+    itemCount: Int,
+): Float {
+    val page = heroPageForItem(pagerState.currentPage, itemIndex, itemCount)
+    return (1f - abs(heroPageOffset(pagerState, page))).coerceIn(0f, 1f)
+}
+
 internal fun heroPageForItem(currentPage: Int, itemIndex: Int, itemCount: Int): Int {
     val page = currentPage.toLong() - currentPage % itemCount + itemIndex
     return listOf(page - itemCount, page, page + itemCount)

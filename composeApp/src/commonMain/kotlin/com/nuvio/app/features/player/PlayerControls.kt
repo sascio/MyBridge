@@ -178,40 +178,14 @@ internal fun PlayerControlsShell(
                 .fillMaxSize()
                 .padding(horizontal = horizontalSafePadding),
         ) {
-            PlayerHeader(
-                title = title,
-                streamTitle = streamTitle,
-                providerName = providerName,
-                seasonNumber = seasonNumber,
-                episodeNumber = episodeNumber,
-                episodeTitle = episodeTitle,
-                metrics = metrics,
-                isLocked = isLocked,
-                showActions = showPlaybackControls,
-                onSubmitIntroClick = onSubmitIntroClick,
-                parentalWarnings = parentalWarnings,
-                showParentalGuide = showParentalGuide,
-                onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
-                onLockToggle = onLockToggle,
-                onVideoSettingsClick = onVideoSettingsClick,
-                onPictureInPictureClick = onPictureInPictureClick,
-                onInfoClick = onInfoClick,
-                onOpenInExternalPlayer = onOpenInExternalPlayer,
-                onBack = onBack,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
-                    .padding(
-                        start = metrics.horizontalPadding,
-                        end = metrics.horizontalPadding,
-                        top = metrics.verticalPadding / 4,
-                    ),
-            )
-
-            if (showPlaybackControls) {
-                CenterControls(
-                    snapshot = playbackSnapshot,
+            if (useLegacyLayout) {
+                PlayerHeader(
+                    title = title,
+                    streamTitle = streamTitle,
+                    providerName = providerName,
+                    seasonNumber = seasonNumber,
+                    episodeNumber = episodeNumber,
+                    episodeTitle = episodeTitle,
                     metrics = metrics,
                     isLocked = isLocked,
                     showActions = showPlaybackControls,
