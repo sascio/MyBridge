@@ -110,6 +110,38 @@ jobs:
           set -o pipefail
           ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee -a gradle-build.log
 
+      - name: Verify the Full APK selects the real CloudStream execution runtime
+        run: |
+          set -o pipefail
+          # The Play Store build is a hard no-op stub. If source-set selection
+          # ever regressed, the Full APK would silently ship that stub and every
+          # extension would report "Unsupported - requires native execution" on
+          # device while CI still passed. These checks prove the opposite.
+          for VARIANT in debug release; do
+            APK=$(find "androidApp/build/outputs/apk/full/$VARIANT" -name '*.apk' | head -1)
+            test -n "$APK" || { echo "Full $VARIANT APK not found"; exit 1; }
+            echo "Inspecting full/$VARIANT: $APK"
+            DEX=$(unzip -p "$APK" classes*.dex 2>/dev/null | strings)
+
+            # 1. The CloudStream plugin ABI must be present and linkable.
+            echo "$DEX" | grep -q "com/lagradost/cloudstream3/plugins/BasePlugin" || {
+              echo "::error::Full $VARIANT APK is missing the CloudStream plugin runtime"
+              exit 1
+            }
+            # 2. The controlled loader must be present, i.e. the androidFull
+            #    CloudStreamPlatformRuntime actual, not the stub.
+            echo "$DEX" | grep -q "dalvik/system/PathClassLoader" || {
+              echo "::error::Full $VARIANT APK has no class loader path; the no-DEX stub was selected"
+              exit 1
+            }
+            # 3. The extractor registry must survive R8 on release.
+            echo "$DEX" | grep -q "com/lagradost/cloudstream3/utils/ExtractorApi" || {
+              echo "::error::Full $VARIANT APK is missing the CloudStream extractor API"
+              exit 1
+            }
+            echo "OK: full/$VARIANT contains the real CloudStream execution runtime."
+          done
+
       - name: Verify Play Store distribution excludes the CloudStream runtime
         env:
           NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
