@@ -1125,6 +1125,13 @@ internal fun MainAppContent(
             }
 
             if (!PlaybackAvailability.current().canStream(type, videoId)) {
+                // Record why Play was refused. Without this the user only sees
+                // the generic toast and the real reason -- no addon, no plugin,
+                // or no eligible CloudStream provider -- is unrecoverable.
+                InAppLogger.warn(
+                    "Streams/Play",
+                    PlaybackAvailability.current().describeUnavailability(type, videoId),
+                )
                 NuvioToastController.show(playbackUnavailableMessage)
                 return
             }
