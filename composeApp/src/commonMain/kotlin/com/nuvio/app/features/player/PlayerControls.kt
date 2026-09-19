@@ -323,7 +323,7 @@ internal fun PlayerControlsShell(
                         onSourcesClick = onSourcesClick,
                         onEpisodesClick = onEpisodesClick,
                         onNextEpisodeClick = onNextEpisodeClick,
-                        onSpeedClick = onSpeedClick,
+                        onSpeedClick = { onSpeedClick?.invoke() },
                         onResizeModeClick = onResizeModeClick,
                         onVideoSettingsClick = onVideoSettingsClick,
                         onOpenInExternalPlayer = onOpenInExternalPlayer,
