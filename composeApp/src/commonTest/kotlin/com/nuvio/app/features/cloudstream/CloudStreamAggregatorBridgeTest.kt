@@ -57,7 +57,48 @@ class CloudStreamAggregatorBridgeTest {
             plugin = plugin(id, tvTypes, version, executable),
             repositoryUrl = repositoryUrl,
         )
-        return base.copy(sources = base.sources.map { it.copy(installed = true, enabled = true) })
+        return base.copy(
+            // Participation now also requires the package to be on disk, which
+            // is what the user opting in genuinely implies.
+            installStatus = CloudStreamInstallStatus(
+                state = CloudStreamInstallState.ENABLED,
+                installedVersion = version,
+            ),
+            sources = base.sources.map { it.copy(installed = true, enabled = true) },
+        )
+    }
+
+    // ---- installation gate ----------------------------------------------
+
+    @Test
+    fun `an enabled extension whose package is not installed never aggregates`() {
+        // Simulates a stale persisted enable flag after the package was removed:
+        // there is no provider code on disk, so nothing may run.
+        val uninstalled = enabledExtension("Ghost", listOf("Movie"))
+            .copy(installStatus = CloudStreamInstallStatus())
+
+        val targets = CloudStreamAggregatorBridge.resolveTargets(listOf(uninstalled), "movie")
+        assertTrue(targets.isEmpty())
+    }
+
+    @Test
+    fun `an installed and enabled extension does aggregate`() {
+        val targets = CloudStreamAggregatorBridge.resolveTargets(
+            listOf(enabledExtension("Real", listOf("Movie"))),
+            "movie",
+        )
+        assertEquals(1, targets.size)
+        assertEquals("cloudstream:real::movie", targets.single().addonId)
+    }
+
+    @Test
+    fun `an extension still downloading does not aggregate`() {
+        val downloading = enabledExtension("Pending", listOf("Movie"))
+            .copy(installStatus = CloudStreamInstallStatus(CloudStreamInstallState.DOWNLOADING))
+
+        assertTrue(
+            CloudStreamAggregatorBridge.resolveTargets(listOf(downloading), "movie").isEmpty(),
+        )
     }
 
     // ---- identity -------------------------------------------------------

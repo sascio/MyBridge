@@ -129,8 +129,17 @@ class CloudStreamExtensionMappingTest {
         assertTrue(source.canActivate)
         assertTrue(source.enabled)
         assertTrue(source.installed)
-        assertTrue(extension.isActive)
+        // Enabled sources alone are not "active": the package must also be
+        // installed, otherwise there is no provider code to run.
+        assertTrue(!extension.isActive)
+        assertTrue(extension.copy(installStatus = installed()).isActive)
     }
+
+    /** An extension whose `.cs3` is genuinely present on disk. */
+    private fun installed(version: Int? = 1) = CloudStreamInstallStatus(
+        state = CloudStreamInstallState.ENABLED,
+        installedVersion = version,
+    )
 
     @Test
     fun `active count reflects only extensions with an enabled source`() {
@@ -142,12 +151,12 @@ class CloudStreamExtensionMappingTest {
                 executablePlugin("A", listOf("Movie", "TvSeries")),
                 "https://e.com/repo.json",
                 states,
-            ),
+            ).copy(installStatus = installed()),
             CloudStreamExtensionMapping.toExtension(
                 executablePlugin("B", listOf("Anime")),
                 "https://e.com/repo.json",
                 states,
-            ),
+            ).copy(installStatus = installed()),
         )
         val overview = CloudStreamExtensionMapping.overview(extensions)
         assertEquals(2, overview.extensionCount)

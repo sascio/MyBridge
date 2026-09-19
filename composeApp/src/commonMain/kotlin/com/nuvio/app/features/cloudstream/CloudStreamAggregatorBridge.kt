@@ -89,6 +89,11 @@ internal object CloudStreamAggregatorBridge {
             // never contribute a provider, whatever is persisted for it.
             if (!extension.plugin.isExecutable) return@forEach
 
+            // The provider code lives in the installed `.cs3`. Without it on
+            // disk there is nothing to run, so the extension must not
+            // participate even if a stale enabled flag survived.
+            if (!extension.installStatus.isInstalled) return@forEach
+
             extension.sources.forEach { source ->
                 if (!source.enabled || !source.canActivate) return@forEach
                 if (!matchesMediaType(source.contentType, mediaType)) return@forEach

@@ -143,6 +143,16 @@
     <string name="cloudstream_authors_format">By %1$s</string>
     <string name="cloudstream_sources_format">%1$d sources</string>
     <string name="cloudstream_repository_failed">Could not read this repository.</string>
+    <string name="cloudstream_state_available">Not installed</string>
+    <string name="cloudstream_state_downloading">Downloading…</string>
+    <string name="cloudstream_state_installing">Installing…</string>
+    <string name="cloudstream_state_failed">Install failed</string>
+    <string name="cloudstream_state_update_available">Update available</string>
+    <string name="cloudstream_action_update">Update</string>
+    <string name="cloudstream_action_retry">Retry</string>
+    <string name="cloudstream_action_uninstall">Uninstall</string>
+    <string name="cloudstream_install_unsupported">This build cannot run CloudStream extensions.</string>
+    <string name="cloudstream_installed_version_format">Installed version %1$s</string>
     <string name="addons_summary_id_rules">%1$d id rules</string>
     <string name="addons_version_format">Version %1$s</string>
     <string name="cd_selected">Selected</string>

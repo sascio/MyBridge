@@ -72,6 +72,10 @@ internal actual object CloudStreamPlatformRuntime {
 
     actual fun initialize(context: Any?) {
         appContext = (context as? Context)?.applicationContext
+        // The installer shares this distribution's execution boundary, so it is
+        // initialised from the same call rather than from shared Android code
+        // that also runs in the Play Store build.
+        appContext?.let(CloudStreamPackageInstaller::initialize)
     }
 
     actual fun executor(): CloudStreamPluginExecutor? =

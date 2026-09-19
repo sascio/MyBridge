@@ -49,6 +49,11 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.cloudstream_action_add
 import nuvio.composeapp.generated.resources.cloudstream_action_refresh
 import nuvio.composeapp.generated.resources.cloudstream_action_remove
+import nuvio.composeapp.generated.resources.cloudstream_action_install
+import nuvio.composeapp.generated.resources.cloudstream_action_retry
+import nuvio.composeapp.generated.resources.cloudstream_action_uninstall
+import nuvio.composeapp.generated.resources.cloudstream_action_update
+import nuvio.composeapp.generated.resources.cloudstream_install_unsupported
 import nuvio.composeapp.generated.resources.cloudstream_authors_format
 import nuvio.composeapp.generated.resources.cloudstream_empty_description
 import nuvio.composeapp.generated.resources.cloudstream_empty_title
@@ -162,6 +167,8 @@ internal fun CloudStreamExtensionsPageContent(
                 ExtensionCard(
                     extension = extension,
                     onClick = { selectedExtensionId = extension.id },
+                    onInstall = { CloudStreamExtensionsRepository.installExtension(extension.id) },
+                    onUninstall = { CloudStreamExtensionsRepository.removeExtension(extension.id) },
                 )
             }
         }
@@ -342,6 +349,8 @@ private fun EmptyStateCard() {
 private fun ExtensionCard(
     extension: CloudStreamExtension,
     onClick: () -> Unit,
+    onInstall: () -> Unit = {},
+    onUninstall: () -> Unit = {},
 ) {
     NuvioSurfaceCard(modifier = Modifier.clickable(onClick = onClick)) {
         Row(
@@ -404,8 +413,77 @@ private fun ExtensionCard(
                 compatibility = extension.compatibility,
                 reason = extension.compatibilityReason,
             )
+            InstallStateChip(extension.installStatus)
             extension.plugin.language?.takeIf { it.isNotBlank() }?.let { MetaChip(it.uppercase()) }
             MetaChip(stringResource(Res.string.cloudstream_sources_format, extension.sourceCount))
+        }
+
+        // The failure reason is shown verbatim so the user can tell a dead
+        // network apart from a package that failed verification.
+        extension.installStatus.errorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        InstallActions(
+            extension = extension,
+            onInstall = onInstall,
+            onUninstall = onUninstall,
+        )
+    }
+}
+
+/**
+ * Install / update / uninstall controls.
+ *
+ * Nothing is offered that cannot genuinely be done: an extension this build
+ * cannot execute gets an explanation instead of a dead Install button, and no
+ * action is offered while one is already running.
+ */
+@Composable
+private fun InstallActions(
+    extension: CloudStreamExtension,
+    onInstall: () -> Unit,
+    onUninstall: () -> Unit,
+) {
+    if (!extension.plugin.isExecutable) {
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(Res.string.cloudstream_install_unsupported),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (extension.installStatus.isInstalled) {
+            Button(onClick = onUninstall, enabled = !extension.installStatus.isBusy) {
+                Text(stringResource(Res.string.cloudstream_action_uninstall))
+            }
+        }
+        when {
+            extension.canUpdate -> Button(onClick = onInstall) {
+                Text(stringResource(Res.string.cloudstream_action_update))
+            }
+
+            extension.installStatus.state == CloudStreamInstallState.FAILED ->
+                Button(onClick = onInstall) {
+                    Text(stringResource(Res.string.cloudstream_action_retry))
+                }
+
+            extension.canInstall -> Button(onClick = onInstall) {
+                Text(stringResource(Res.string.cloudstream_action_install))
+            }
         }
     }
 }

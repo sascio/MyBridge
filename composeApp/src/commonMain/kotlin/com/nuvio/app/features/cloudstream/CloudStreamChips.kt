@@ -18,6 +18,14 @@ import nuvio.composeapp.generated.resources.cloudstream_reason_api_version
 import nuvio.composeapp.generated.resources.cloudstream_reason_incomplete
 import nuvio.composeapp.generated.resources.cloudstream_reason_native_execution
 import nuvio.composeapp.generated.resources.cloudstream_reason_unreachable
+import nuvio.composeapp.generated.resources.cloudstream_state_available
+import nuvio.composeapp.generated.resources.cloudstream_state_disabled
+import nuvio.composeapp.generated.resources.cloudstream_state_downloading
+import nuvio.composeapp.generated.resources.cloudstream_state_enabled
+import nuvio.composeapp.generated.resources.cloudstream_state_failed
+import nuvio.composeapp.generated.resources.cloudstream_state_installed
+import nuvio.composeapp.generated.resources.cloudstream_state_installing
+import nuvio.composeapp.generated.resources.cloudstream_state_update_available
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -38,6 +46,49 @@ internal fun CompatibilityChip(
         CloudStreamCompatibility.PARTIALLY_COMPATIBLE -> Color(0xFFFFB300)
         CloudStreamCompatibility.UNSUPPORTED -> Color(0xFF9E9E9E)
         CloudStreamCompatibility.FAILED -> MaterialTheme.colorScheme.error
+    }
+
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = color,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(color.copy(alpha = 0.12f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
+}
+
+/**
+ * Installation lifecycle badge.
+ *
+ * Every state is visually distinct, and a failed install is never coloured or
+ * labelled as if it succeeded.
+ */
+@Composable
+internal fun InstallStateChip(status: CloudStreamInstallStatus) {
+    val label = when (status.state) {
+        CloudStreamInstallState.AVAILABLE -> stringResource(Res.string.cloudstream_state_available)
+        CloudStreamInstallState.DOWNLOADING -> stringResource(Res.string.cloudstream_state_downloading)
+        CloudStreamInstallState.INSTALLING -> stringResource(Res.string.cloudstream_state_installing)
+        CloudStreamInstallState.INSTALLED -> stringResource(Res.string.cloudstream_state_installed)
+        CloudStreamInstallState.ENABLED -> stringResource(Res.string.cloudstream_state_enabled)
+        CloudStreamInstallState.DISABLED -> stringResource(Res.string.cloudstream_state_disabled)
+        CloudStreamInstallState.FAILED -> stringResource(Res.string.cloudstream_state_failed)
+        CloudStreamInstallState.UPDATE_AVAILABLE ->
+            stringResource(Res.string.cloudstream_state_update_available)
+    }
+    val color = when (status.state) {
+        CloudStreamInstallState.ENABLED -> Color(0xFF4CAF50)
+        CloudStreamInstallState.INSTALLED -> Color(0xFF66BB6A)
+        CloudStreamInstallState.UPDATE_AVAILABLE -> Color(0xFF29B6F6)
+        CloudStreamInstallState.DOWNLOADING,
+        CloudStreamInstallState.INSTALLING,
+        -> Color(0xFFFFB300)
+        CloudStreamInstallState.FAILED -> MaterialTheme.colorScheme.error
+        CloudStreamInstallState.AVAILABLE,
+        CloudStreamInstallState.DISABLED,
+        -> Color(0xFF9E9E9E)
     }
 
     Text(

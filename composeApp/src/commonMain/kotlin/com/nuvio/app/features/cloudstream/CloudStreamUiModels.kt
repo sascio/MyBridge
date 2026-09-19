@@ -64,16 +64,33 @@ data class CloudStreamExtension(
     val plugin: CloudStreamPlugin,
     val repositoryUrl: String,
     val sources: List<CloudStreamSource> = emptyList(),
+    /** Download/install lifecycle for this extension's `.cs3` package. */
+    val installStatus: CloudStreamInstallStatus = CloudStreamInstallStatus(),
 ) {
     val id: String get() = plugin.id
     val name: String get() = plugin.displayName
     val compatibility: CloudStreamCompatibility get() = plugin.compatibility
     val compatibilityReason: CloudStreamCompatibilityReason get() = plugin.compatibilityReason
 
-    /** An extension is active when at least one of its sources is enabled. */
-    val isActive: Boolean get() = sources.any { it.enabled }
+    /**
+     * An extension is active only when its package is genuinely installed *and*
+     * at least one of its sources is enabled. A source flag alone is never
+     * enough: without an installed package nothing can actually run.
+     */
+    val isActive: Boolean get() = installStatus.isInstalled && sources.any { it.enabled }
 
     val sourceCount: Int get() = sources.size
+
+    /** Whether installing (or retrying) is a meaningful action right now. */
+    val canInstall: Boolean
+        get() = !installStatus.isBusy &&
+            !installStatus.isInstalled &&
+            !plugin.artifactUrl.isNullOrBlank()
+
+    /** Whether an update is offered. */
+    val canUpdate: Boolean
+        get() = !installStatus.isBusy &&
+            installStatus.state == CloudStreamInstallState.UPDATE_AVAILABLE
 }
 
 /** Everything the Extensions screen renders. */

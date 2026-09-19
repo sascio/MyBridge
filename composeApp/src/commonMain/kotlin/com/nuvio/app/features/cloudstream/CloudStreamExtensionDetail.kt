@@ -37,6 +37,7 @@ import nuvio.composeapp.generated.resources.cloudstream_action_configure
 import nuvio.composeapp.generated.resources.cloudstream_authors_format
 import nuvio.composeapp.generated.resources.cloudstream_metadata_unavailable
 import nuvio.composeapp.generated.resources.cloudstream_section_sources
+import nuvio.composeapp.generated.resources.cloudstream_installed_version_format
 import nuvio.composeapp.generated.resources.cloudstream_sources_format
 import nuvio.composeapp.generated.resources.cloudstream_state_disabled
 import nuvio.composeapp.generated.resources.cloudstream_state_enabled
@@ -82,6 +83,8 @@ internal fun CloudStreamExtensionDetail(
         extension.sources.forEach { source ->
             SourceCard(
                 source = source,
+                // Enabling is only meaningful once the package is on disk.
+                packageInstalled = extension.installStatus.isInstalled,
                 onEnabledChange = { enabled ->
                     CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled)
                 },
@@ -138,9 +141,33 @@ private fun MetadataCard(extension: CloudStreamExtension) {
                 compatibility = extension.compatibility,
                 reason = extension.compatibilityReason,
             )
+            InstallStateChip(extension.installStatus)
             plugin.language?.takeIf { it.isNotBlank() }?.let { MetaChip(it.uppercase()) }
             plugin.tvTypes.forEach { type -> MetaChip(type) }
             MetaChip(stringResource(Res.string.cloudstream_sources_format, extension.sourceCount))
+        }
+
+        // Shows what is genuinely on disk, which is what an update offer is
+        // compared against.
+        extension.installStatus.installedVersion?.let { version ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = stringResource(
+                    Res.string.cloudstream_installed_version_format,
+                    version.toString(),
+                ),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        extension.installStatus.errorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }
@@ -148,6 +175,7 @@ private fun MetadataCard(extension: CloudStreamExtension) {
 @Composable
 private fun SourceCard(
     source: CloudStreamSource,
+    packageInstalled: Boolean,
     onEnabledChange: (Boolean) -> Unit,
     onConfigurationChange: (String, String) -> Unit,
 ) {
@@ -178,12 +206,13 @@ private fun SourceCard(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            // Only a genuinely activatable source can be switched on. For a
-            // .cs3 needing DEX execution this stays disabled rather than
-            // offering a control that cannot work.
+            // Only a genuinely activatable source with its package installed
+            // can be switched on. For a .cs3 needing DEX execution, or one that
+            // has not been downloaded, this stays disabled rather than offering
+            // a control that cannot work.
             Switch(
                 checked = source.enabled,
-                enabled = source.canActivate,
+                enabled = source.canActivate && packageInstalled,
                 onCheckedChange = onEnabledChange,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
