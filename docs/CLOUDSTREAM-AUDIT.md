@@ -377,3 +377,48 @@ vacuously — the no-DEX guarantee was never actually being proven.
 straight from the zip, so there is no quoting, argument-size limit or
 truncation. It was verified against synthetic APKs in both directions before
 being wired in.
+
+## Root cause: Play refused before Source Results could open
+
+Reported symptom: an extension is installed and enabled, but tapping Play
+immediately shows "Playback isn't available for this title with your current
+setup" and the Source Results screen never opens.
+
+This is a *different and earlier* defect than the discovery race documented
+above, and it is the one responsible for the reported behaviour. Tracing the
+message rather than the assumed cause:
+
+`playback_unavailable_message` (`strings.xml:1849`) has two call sites. The one
+that matches the symptom is `MainAppContent.kt:1127`, a toast in the Play
+handler:
+
+```kotlin
+if (!PlaybackAvailability.current().canStream(type, videoId)) {
+    NuvioToastController.show(playbackUnavailableMessage)
+    return
+}
+```
+
+This runs *before* `StreamLaunchStore.put(...)` and the navigation to the
+streams route, so the early `return` means Source Results is never created —
+exactly "the screen does not open at all".
+
+`PlaybackAvailability.canStream()` considered only Stremio addons, plugin
+scrapers, embedded streams and downloads. CloudStream was a first-class source
+in `StreamsRepository` (which already resolves CloudStream targets and handles
+the empty cases correctly) but was **invisible to the one check that decides
+whether Play may proceed**. With CloudStream as the only installed source the
+gate always failed, and the correctly-wired aggregation path below it was never
+reached.
+
+Fix: the gate now also consults CloudStream, reusing
+`CloudStreamAggregatorBridge.resolveTargets()` instead of reimplementing the
+eligibility rules — so the check that permits Play and the check that later
+builds the targets cannot drift apart. Extensions are initialised synchronously
+in `PlaybackAvailability.current()` for the cold-start case, and collected as
+observed state in `rememberPlaybackAvailability()` so installing or enabling an
+extension enables Play without reopening the screen or restarting.
+
+`describeUnavailability()` is logged whenever Play is refused, reporting each
+source family separately, so "no eligible CloudStream provider" can never again
+be indistinguishable from "no addons installed".
