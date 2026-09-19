@@ -322,3 +322,58 @@ passing vacuously, which would have voided the no-DEX guarantee.
 
 Physical CloudStream playback verification was not possible in this environment.
 See `docs/CLOUDSTREAM-DEVICE-CHECKLIST.md`.
+
+## Root cause: an installed extension never reached Play → Sources
+
+Reported symptom: Phisher installs and is enabled, but no CloudStream provider
+appears under Play → Sources. Tracing the real path
+(`StreamsRepository.load()` → `CloudStreamAggregatorBridge.resolveTargets()` →
+`CloudStreamExtensionsRepository.uiState`) showed the aggregator gates were
+correct; they were being handed an empty extension list. Two separate defects
+produced that.
+
+### 1. An async/sync race at cold start
+
+`CloudStreamExtensionsRepository.initialize()` called `refresh()`, an
+*asynchronous* network re-fetch. `StreamsRepository.load()` then read
+`uiState.value.extensions` *synchronously* to build its targets. Installed
+plugin metadata lived only in memory and was rebuilt from the network, so on a
+cold start the list was still empty and every CloudStream provider was dropped
+before aggregation. The integration only appeared to work if the user first
+opened CloudStream settings and waited for a refresh to land — which is exactly
+the "works in settings, invisible in Play" behaviour reported.
+
+Fix: installed extensions are cached (`CloudStreamStorage.loadInstalledPlugins`
+/ `saveInstalledPlugins`) and restored **synchronously** in `initialize()`
+before any network work, so discovery is correct at cold start and offline.
+The cache is metadata only:
+
+* installation is re-checked against `CloudStreamPackageInstaller`, so a cache
+  entry for a removed package is ignored rather than trusted;
+* compatibility is re-derived from the current build's
+  `CloudStreamPlatformRuntime.supportsExecution`, so a Play Store build reading
+  the same cache still reports unsupported.
+
+### 2. Installed, but with every source switched off
+
+`CloudStreamExtensionMapping` set `enabled = canActivate && persisted?.enabled
+== true`, so a source was enabled only when a preference had already been
+persisted. A freshly installed extension therefore had no enabled source and
+contributed nothing — the install looked like it had done nothing at all.
+
+Fix: installing is an explicit opt-in, so `enableSourcesByDefault()` switches on
+the extension's activatable sources — but only those the user has never
+expressed a preference for, so a deliberate disable is never undone by a
+reinstall or update. The cache is written immediately on install and removal, so
+neither requires a refresh or an app restart.
+
+### CI: the boundary checks were partly fictional
+
+Both APK checks piped the dex string pool through `strings` into a shell
+variable. The pool is large enough to overflow argument limits, which caused
+false failures on the Full check and made the Play Store *negative* check pass
+vacuously — the no-DEX guarantee was never actually being proven.
+`.github/verify-cloudstream-apk.py` now reads each `classes*.dex` as bytes
+straight from the zip, so there is no quoting, argument-size limit or
+truncation. It was verified against synthetic APKs in both directions before
+being wired in.
