@@ -60,7 +60,7 @@ class CloudStreamRepositoryParserTest {
         assertNotNull(plugins)
         assertEquals(1, plugins.size)
 
-        val plugin = CloudStreamRepositoryParser.toPlugin(plugins.first())
+        val plugin = CloudStreamRepositoryParser.toPlugin(plugins.first(), canExecute = true)
         assertEquals("AllMovieLandProvider", plugin.id)
         assertEquals("AllMovieLandProvider", plugin.displayName)
         assertEquals(25, plugin.version)
@@ -72,10 +72,29 @@ class CloudStreamRepositoryParserTest {
         assertEquals("https://example.com/icon.png", plugin.iconUrl)
     }
 
+    /**
+     * Regression guard for the real-device bug where the Full APK reported
+     * "Unsupported — requires native execution" for every extension.
+     *
+     * Compatibility must follow the build's genuine execution capability, not
+     * a hardcoded assumption.
+     */
     @Test
-    fun `a well-formed plugin is reported unsupported because it needs DEX execution`() {
+    fun `a well-formed plugin is compatible on a build that can execute plugins`() {
         val plugin = CloudStreamRepositoryParser.toPlugin(
             CloudStreamRepositoryParser.parsePluginList(realPluginsJson)!!.first(),
+            canExecute = true,
+        )
+        assertEquals(CloudStreamCompatibility.COMPATIBLE, plugin.compatibility)
+        assertEquals(CloudStreamCompatibilityReason.NONE, plugin.compatibilityReason)
+        assertTrue(plugin.isExecutable)
+    }
+
+    @Test
+    fun `the same plugin is honestly unsupported where no runtime exists`() {
+        val plugin = CloudStreamRepositoryParser.toPlugin(
+            CloudStreamRepositoryParser.parsePluginList(realPluginsJson)!!.first(),
+            canExecute = false,
         )
         assertEquals(CloudStreamCompatibility.UNSUPPORTED, plugin.compatibility)
         assertEquals(
@@ -86,9 +105,27 @@ class CloudStreamRepositoryParserTest {
     }
 
     @Test
+    fun `an unsupported api version stays unsupported even where execution is possible`() {
+        // Capability must not override a genuine format incompatibility.
+        val futureApi =
+            """[{"name":"X","internalName":"X","url":"https://e.com/x.cs3","apiVersion":99}]"""
+        val plugin = CloudStreamRepositoryParser.toPlugin(
+            CloudStreamRepositoryParser.parsePluginList(futureApi)!!.first(),
+            canExecute = true,
+        )
+        assertEquals(CloudStreamCompatibility.UNSUPPORTED, plugin.compatibility)
+        assertEquals(
+            CloudStreamCompatibilityReason.UNSUPPORTED_API_VERSION,
+            plugin.compatibilityReason,
+        )
+        assertTrue(!plugin.isExecutable)
+    }
+
+    @Test
     fun `discovery never marks a plugin installed`() {
         val plugin = CloudStreamRepositoryParser.toPlugin(
             CloudStreamRepositoryParser.parsePluginList(realPluginsJson)!!.first(),
+            canExecute = true,
         )
         assertTrue(!plugin.installed)
     }
@@ -136,6 +173,7 @@ class CloudStreamRepositoryParserTest {
         val anonymous = """[{"url":"https://e.com/x.cs3","apiVersion":1}]"""
         val plugin = CloudStreamRepositoryParser.toPlugin(
             CloudStreamRepositoryParser.parsePluginList(anonymous)!!.first(),
+            canExecute = true,
         )
         assertEquals(CloudStreamCompatibility.FAILED, plugin.compatibility)
         assertEquals(
@@ -149,6 +187,7 @@ class CloudStreamRepositoryParserTest {
         val noUrl = """[{"name":"X","internalName":"X","apiVersion":1}]"""
         val plugin = CloudStreamRepositoryParser.toPlugin(
             CloudStreamRepositoryParser.parsePluginList(noUrl)!!.first(),
+            canExecute = true,
         )
         assertEquals(
             CloudStreamCompatibilityReason.INCOMPLETE_METADATA,
@@ -161,6 +200,7 @@ class CloudStreamRepositoryParserTest {
         val futureApi = """[{"name":"X","internalName":"X","url":"https://e.com/x.cs3","apiVersion":99}]"""
         val plugin = CloudStreamRepositoryParser.toPlugin(
             CloudStreamRepositoryParser.parsePluginList(futureApi)!!.first(),
+            canExecute = true,
         )
         assertEquals(
             CloudStreamCompatibilityReason.UNSUPPORTED_API_VERSION,

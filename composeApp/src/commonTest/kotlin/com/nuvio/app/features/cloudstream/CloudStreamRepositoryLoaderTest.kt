@@ -21,9 +21,17 @@ class CloudStreamRepositoryLoaderTest {
          {"name":"Beta","internalName":"Beta","url":"https://e.com/b.cs3","apiVersion":1,"version":1}]
     """.trimIndent()
 
-    private fun loader(responses: Map<String, String>) = CloudStreamRepositoryLoader { url ->
-        responses[url] ?: throw IllegalStateException("404 $url")
-    }
+    /**
+     * Execution capability is pinned explicitly so results never depend on
+     * which distribution the test host happens to be configured for.
+     */
+    private fun loader(
+        responses: Map<String, String>,
+        canExecute: Boolean = true,
+    ) = CloudStreamRepositoryLoader(
+        fetch = { url -> responses[url] ?: throw IllegalStateException("404 $url") },
+        canExecute = canExecute,
+    )
 
     @Test
     fun `loads a repository and its plugins`() = runBlocking {
@@ -106,9 +114,21 @@ class CloudStreamRepositoryLoaderTest {
     }
 
     @Test
-    fun `no discovered plugin is ever reported installed or executable`() = runBlocking {
+    fun `discovery never marks a plugin installed even when it is executable`() = runBlocking {
+        // Executable describes capability; installed describes disk state. A
+        // discovered plugin is never installed, whatever the build can run.
         val repo = loader(mapOf(repoUrl to repoJson, listUrl to pluginsJson)).load(repoUrl)
         assertTrue(repo.plugins.none { it.installed })
+        assertTrue(repo.plugins.all { it.isExecutable })
+    }
+
+    @Test
+    fun `plugins are not executable where the build has no runtime`() = runBlocking {
+        val repo = loader(
+            mapOf(repoUrl to repoJson, listUrl to pluginsJson),
+            canExecute = false,
+        ).load(repoUrl)
         assertTrue(repo.plugins.none { it.isExecutable })
+        assertTrue(repo.plugins.none { it.installed })
     }
 }

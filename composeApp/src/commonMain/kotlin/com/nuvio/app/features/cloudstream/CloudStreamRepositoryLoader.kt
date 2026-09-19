@@ -17,6 +17,14 @@ import kotlinx.coroutines.CancellationException
  */
 internal class CloudStreamRepositoryLoader(
     private val fetch: suspend (String) -> String = { url -> httpGetText(url) },
+    /**
+     * Whether this build can genuinely execute CloudStream plugins.
+     *
+     * Threaded through to the parser so compatibility reflects real runtime
+     * capability. Injected rather than read statically so both the executing
+     * and non-executing branches are testable on any host.
+     */
+    private val canExecute: Boolean = CloudStreamPlatformRuntime.supportsExecution,
 ) {
     private val log = Logger.withTag("CloudStreamRepo")
 
@@ -86,7 +94,7 @@ internal class CloudStreamRepositoryLoader(
                 continue
             }
             anyListLoaded = true
-            parsed.forEach { plugins += CloudStreamRepositoryParser.toPlugin(it) }
+            parsed.forEach { plugins += CloudStreamRepositoryParser.toPlugin(it, canExecute) }
         }
 
         if (!anyListLoaded) {

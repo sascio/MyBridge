@@ -57,16 +57,24 @@ internal object CloudStreamRepositoryParser {
     /**
      * Classifies a plugin manifest and normalises it.
      *
-     * CloudStream provider logic is distributed only as compiled Android DEX
-     * (`classes.dex` inside the `.cs3` archive). StreamBridge deliberately does
-     * not execute downloaded bytecode, so even a perfectly-formed plugin is
-     * reported as [CloudStreamCompatibility.UNSUPPORTED] with reason
-     * [CloudStreamCompatibilityReason.REQUIRES_NATIVE_EXECUTION].
+     * Compatibility is derived from **what this build can actually do**, never
+     * from a fixed assumption. On a distribution with a controlled CloudStream
+     * execution backend (Android `full`), a well-formed plugin whose declared
+     * `apiVersion` we understand is genuinely [CloudStreamCompatibility.COMPATIBLE].
+     * Where no backend exists (Play Store, iOS) the same plugin is honestly
+     * reported as [CloudStreamCompatibilityReason.REQUIRES_NATIVE_EXECUTION].
+     *
+     * [canExecute] is injected so the decision stays pure and both branches are
+     * unit-testable; production passes
+     * [CloudStreamPlatformRuntime.supportsExecution].
      *
      * Metadata-level defects are still classified first, so users get the most
      * specific and actionable reason available.
      */
-    fun toPlugin(manifest: CloudStreamPluginManifest): CloudStreamPlugin {
+    fun toPlugin(
+        manifest: CloudStreamPluginManifest,
+        canExecute: Boolean = CloudStreamPlatformRuntime.supportsExecution,
+    ): CloudStreamPlugin {
         val displayName = manifest.name?.takeIf { it.isNotBlank() }
             ?: manifest.internalName?.takeIf { it.isNotBlank() }
         val identity = manifest.internalName?.takeIf { it.isNotBlank() }
@@ -102,8 +110,23 @@ internal object CloudStreamRepositoryParser {
             artifactUrl == null ->
                 CloudStreamCompatibilityReason.INCOMPLETE_METADATA
 
-            // Well-formed and understood, but still not executable by design.
-            else -> CloudStreamCompatibilityReason.REQUIRES_NATIVE_EXECUTION
+            // Well formed and understood. Whether it is usable now depends
+            // entirely on whether this build can execute CloudStream plugins.
+            !canExecute -> CloudStreamCompatibilityReason.REQUIRES_NATIVE_EXECUTION
+
+            else -> CloudStreamCompatibilityReason.NONE
+        }
+
+        val compatibility = when (reason) {
+            // Nothing blocking, and a real execution backend exists.
+            CloudStreamCompatibilityReason.NONE -> CloudStreamCompatibility.COMPATIBLE
+
+            // Metadata is usable but the artifact cannot be fetched; the entry
+            // is still worth showing, so this is a partial rather than a hard no.
+            CloudStreamCompatibilityReason.INCOMPLETE_METADATA ->
+                CloudStreamCompatibility.PARTIALLY_COMPATIBLE
+
+            else -> CloudStreamCompatibility.UNSUPPORTED
         }
 
         return CloudStreamPlugin(
@@ -120,7 +143,7 @@ internal object CloudStreamRepositoryParser {
             fileSize = manifest.fileSize,
             fileHash = manifest.fileHash,
             apiVersion = apiVersion,
-            compatibility = CloudStreamCompatibility.UNSUPPORTED,
+            compatibility = compatibility,
             compatibilityReason = reason,
             installed = false,
         )
