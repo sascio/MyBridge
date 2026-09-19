@@ -4,8 +4,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +75,7 @@ import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.dynamicScrimAlpha
 import com.nuvio.app.core.ui.heroStretchHeight
+import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.details.HeroTrailerAudioState
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -219,26 +222,44 @@ internal fun HomeHeroSection(
 ) {
     if (items.isEmpty()) return
 
-    val pagerState = rememberPagerState(pageCount = { items.size })
+    val pagerState = key(items.size) {
+        rememberPagerState(
+            initialPage = if (items.size > 1) {
+                Int.MAX_VALUE / 2 - (Int.MAX_VALUE / 2) % items.size
+            } else {
+                0
+            },
+            pageCount = { if (items.size > 1) Int.MAX_VALUE else 1 },
+        )
+    }
     val coroutineScope = rememberCoroutineScope()
-    val autoScrollPage = pagerState.currentPage
+    val autoScrollPage = pagerState.settledPage
     val effectiveTrailerPlaybackEnabled = trailerPlaybackEnabled &&
         AppFeaturePolicy.heroTrailerPlaybackSupported &&
         AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP
 
-    LaunchedEffect(autoScrollPage, items.size, effectiveTrailerPlaybackEnabled) {
-        // The carousel only advances by itself when trailer playback is off; with it on, the
-        // current item's trailer plays and only a swipe should move to the next one.
-        if (items.size <= 1 || effectiveTrailerPlaybackEnabled) return@LaunchedEffect
+    LaunchedEffect(pagerState) {
+        pagerState.scrollToPage(pagerState.currentPage)
+    }
+
+    ScreenActivityEffect(pagerState) { active ->
+        if (!active) {
+            pagerState.stopScroll(MutatePriority.PreventUserInput)
+            pagerState.scrollToPage(pagerState.currentPage)
+        }
+    }
+
+    ScreenActivityEffect(autoScrollPage, items.size, effectiveTrailerPlaybackEnabled) { active ->
+        // The carousel only advances by itself when the screen is active and trailer playback is
+        // off; with it on, the current item's trailer plays and only a swipe should move on.
+        if (!active || items.size <= 1 || effectiveTrailerPlaybackEnabled) return@ScreenActivityEffect
         delay(HERO_AUTO_SCROLL_INTERVAL_MS)
         while (pagerState.isScrollInProgress) {
             delay(100L)
         }
 
-        val nextPage = (pagerState.currentPage + 1) % items.size
-        coroutineScope.launch {
-            pagerState.animateScrollToPage(nextPage)
-        }
+        val nextPage = pagerState.currentPage + 1
+        pagerState.animateScrollToPage(nextPage)
     }
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
@@ -313,11 +334,11 @@ internal fun HomeHeroSection(
             }
             val heroScrollScale = heroBackgroundScrollScale(scrollOffsetPx)
             val heroScrollTranslationY = heroBackgroundScrollTranslationY(scrollOffsetPx)
-            val currentPage = pagerState.currentPage.coerceIn(items.indices)
+            val currentPage = pagerState.currentPage
             val visiblePages = listOf(
                 currentPage,
-                (currentPage - 1).coerceIn(items.indices),
-                (currentPage + 1).coerceIn(items.indices),
+                (currentPage - 1).coerceAtLeast(0),
+                (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
             ).distinct()
                 .mapNotNull { index ->
                     val pageOffset = heroPageOffset(pagerState, index)
@@ -326,7 +347,7 @@ internal fun HomeHeroSection(
                         null
                     } else {
                         HeroPageLayer(
-                            page = index,
+                            itemIndex = index % items.size,
                             visibility = visibility,
                             offset = pageOffset,
                         )
@@ -335,9 +356,9 @@ internal fun HomeHeroSection(
                 .sortedBy(HeroPageLayer::visibility)
             val currentItem = visiblePages
                 .lastOrNull()
-                ?.page
+                ?.itemIndex
                 ?.let(items::get)
-                ?: items[currentPage]
+                ?: items[currentPage % items.size]
 
             val activeArtworkUrl = when (effectiveArtworkSource) {
                 HomeHeroArtworkSource.POSTER -> currentItem.poster ?: currentItem.banner
@@ -440,7 +461,7 @@ internal fun HomeHeroSection(
                             .heroStretchZoom(stretchPx),
                     ) {
                         visiblePages.forEach { layer ->
-                            val item = items[layer.page]
+                            val item = items[layer.itemIndex]
                             val artworkUrl = when (effectiveArtworkSource) {
                                 HomeHeroArtworkSource.POSTER -> item.poster ?: item.banner
                                 HomeHeroArtworkSource.BACKDROP -> item.banner ?: item.poster
@@ -581,7 +602,7 @@ internal fun HomeHeroSection(
                                         },
                                     ) {
                                         HeroContentBlock(
-                                            item = items[layer.page],
+                                            item = items[layer.itemIndex],
                                             layout = layout,
                                             onItemClick = onItemClick,
                                         )
@@ -694,7 +715,7 @@ private fun HeroPageIndicator(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(itemCount) { index ->
-            val activeFraction = heroPageVisibility(pagerState, index)
+            val activeFraction = heroPageVisibility(pagerState, index, itemCount)
             Box(
                 modifier = Modifier
                     .clickable {
@@ -715,7 +736,7 @@ private fun HeroPageIndicator(
 }
 
 private data class HeroPageLayer(
-    val page: Int,
+    val itemIndex: Int,
     val visibility: Float,
     val offset: Float,
 )
@@ -727,9 +748,19 @@ private fun heroPageOffset(
 
 private fun heroPageVisibility(
     pagerState: PagerState,
-    page: Int,
+    itemIndex: Int,
+    itemCount: Int,
 ): Float {
+    val page = heroPageForItem(pagerState.currentPage, itemIndex, itemCount)
     return (1f - abs(heroPageOffset(pagerState, page))).coerceIn(0f, 1f)
+}
+
+internal fun heroPageForItem(currentPage: Int, itemIndex: Int, itemCount: Int): Int {
+    val page = currentPage.toLong() - currentPage % itemCount + itemIndex
+    return listOf(page - itemCount, page, page + itemCount)
+        .filter { it in 0L until Int.MAX_VALUE.toLong() }
+        .minBy { abs(it - currentPage) }
+        .toInt()
 }
 
 @Composable
@@ -1033,7 +1064,7 @@ private fun Modifier.homeHeroPagerGesture(
                     if (dragging) {
                         val targetPage = resolveHeroTargetPage(
                             startPage = startPage,
-                            itemCount = itemCount,
+                            pageCount = pagerState.pageCount,
                             totalDx = totalDx,
                             velocityX = velocityTracker.calculateVelocity().x,
                             widthPx = widthPx,
@@ -1071,7 +1102,7 @@ private fun Modifier.homeHeroPagerGesture(
 
 private fun resolveHeroTargetPage(
     startPage: Int,
-    itemCount: Int,
+    pageCount: Int,
     totalDx: Float,
     velocityX: Float,
     widthPx: Float,
@@ -1080,10 +1111,10 @@ private fun resolveHeroTargetPage(
         abs(velocityX) > HERO_SWIPE_VELOCITY_THRESHOLD
     if (!thresholdPassed) return startPage
 
-    val currentPage = startPage.coerceIn(0, itemCount - 1)
+    val currentPage = startPage.coerceIn(0, pageCount - 1)
     return when {
-        totalDx > 0f -> if (currentPage == 0) itemCount - 1 else currentPage - 1
-        totalDx < 0f -> if (currentPage == itemCount - 1) 0 else currentPage + 1
+        totalDx > 0f -> (currentPage - 1).coerceAtLeast(0)
+        totalDx < 0f -> (currentPage + 1).coerceAtMost(pageCount - 1)
         else -> currentPage
     }
 }

@@ -7,24 +7,19 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.AppVersionConfig
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioToastController
-import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
-
-private const val gitHubOwner = "sascio"
-private const val gitHubRepo = "MyBridge"
-private const val gitHubApiBase = "https://api.github.com"
 
 data class AppUpdate(
     val tag: String,
@@ -37,6 +32,7 @@ data class AppUpdate(
 )
 
 data class AppUpdaterUiState(
+    val updateChannel: UpdateChannel = UpdateChannel.STABLE,
     val isChecking: Boolean = false,
     val update: AppUpdate? = null,
     val isUpdateAvailable: Boolean = false,
@@ -49,96 +45,38 @@ data class AppUpdaterUiState(
     val isDebugTest: Boolean = false,
 )
 
-@Serializable
-private data class GitHubReleaseDto(
-    @SerialName("tag_name") val tagName: String? = null,
-    val name: String? = null,
-    val body: String? = null,
-    val draft: Boolean = false,
-    val prerelease: Boolean = false,
-    @SerialName("html_url") val htmlUrl: String? = null,
-    @SerialName("target_commitish") val targetCommitish: String? = null,
-    val assets: List<GitHubAssetDto> = emptyList(),
-)
-
-@Serializable
-private data class GitHubAssetDto(
-    val name: String,
-    @SerialName("browser_download_url") val browserDownloadUrl: String,
-    val size: Long? = null,
-    @SerialName("content_type") val contentType: String? = null,
-)
-
-private val appUpdaterJson = Json {
-    ignoreUnknownKeys = true
-    isLenient = true
-}
-
-private object AppUpdaterRepository {
-    suspend fun lookupLatestUpdate(): AppUpdateLookup {
-        val response = try {
-            httpRequestRaw(
-                method = "GET",
-                url = "$gitHubApiBase/repos/$gitHubOwner/$gitHubRepo/releases?per_page=20",
-                headers = mapOf(
-                    "Accept" to "application/vnd.github+json",
-                    "User-Agent" to "StreamBridge",
-                ),
-                body = "",
-            )
-        } catch (error: Throwable) {
-            return AppUpdateLookup.RequestFailed(
-                error.message?.takeIf { it.isNotBlank() } ?: getString(Res.string.updates_check_failed),
-            )
-        }
-
-        AppUpdateReleaseSelector.classifyHttpStatus(
-            status = response.status,
-            errorMessage = getString(Res.string.updates_github_api_error, response.status),
-        )?.let { return it }
-
-        val releases = try {
-            appUpdaterJson.decodeFromString<List<GitHubReleaseDto>>(response.body)
-        } catch (error: Throwable) {
-            return AppUpdateLookup.RequestFailed(
-                error.message?.takeIf { it.isNotBlank() } ?: getString(Res.string.updates_check_failed),
-            )
-        }
-
-        return AppUpdateReleaseSelector.classifyDecodedReleases(
-            releases = releases.map { release ->
-                AppUpdateReleaseCandidate(
-                    tagName = release.tagName,
-                    name = release.name,
-                    body = release.body,
-                    draft = release.draft,
-                    prerelease = release.prerelease,
-                    htmlUrl = release.htmlUrl,
-                    assets = release.assets.map { asset ->
-                        AppUpdateAssetCandidate(
-                            name = asset.name,
-                            browserDownloadUrl = asset.browserDownloadUrl,
-                            size = asset.size,
-                            contentType = asset.contentType,
-                        )
-                    },
-                )
-            },
-            supportedAbis = AppUpdaterPlatform.getSupportedAbis(),
-        )
-    }
-}
-
 class AppUpdaterController internal constructor(
     private val scope: CoroutineScope,
+    private val preferences: UpdatePreferences = UpdatePreferences.shared,
+    private val fetchUpdate: suspend (UpdateChannel) -> Result<AppUpdate> = AppUpdaterRepository::getLatestChannelUpdate,
 ) {
-    private val _uiState = MutableStateFlow(AppUpdaterUiState())
+    private val _uiState = MutableStateFlow(AppUpdaterUiState(updateChannel = preferences.channel.value))
     val uiState: StateFlow<AppUpdaterUiState> = _uiState.asStateFlow()
 
     private var autoCheckStarted = false
+    private var updateCheckJob: Job? = null
+    private var downloadJob: Job? = null
+
+    init {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            preferences.channel.collect { channel ->
+                if (channel != _uiState.value.updateChannel) {
+                    updateCheckJob?.cancel()
+                    downloadJob?.cancel()
+                    _uiState.value.downloadedApkPath?.let(AppUpdaterPlatform::deleteDownloadedApk)
+                    _uiState.value = AppUpdaterUiState(updateChannel = channel)
+                    if (!AppUpdaterPlatform.isDebugBuild) {
+                        checkForUpdates(force = true, showNoUpdateFeedback = false)
+                    }
+                }
+            }
+        }
+    }
 
     fun ensureAutoCheckStarted() {
-        if (autoCheckStarted || !AppFeaturePolicy.inAppUpdaterEnabled || !AppUpdaterPlatform.isSupported) {
+        if (autoCheckStarted || !AppFeaturePolicy.inAppUpdaterEnabled ||
+            !AppUpdaterPlatform.isSupported || AppUpdaterPlatform.isDebugBuild
+        ) {
             return
         }
         autoCheckStarted = true
@@ -155,7 +93,10 @@ class AppUpdaterController internal constructor(
             return
         }
 
-        scope.launch {
+        if (_uiState.value.isDownloading) return
+        updateCheckJob?.cancel()
+        val channel = preferences.channel.value
+        updateCheckJob = scope.launch {
             _uiState.update { state ->
                 state.copy(
                     isChecking = true,
@@ -166,83 +107,70 @@ class AppUpdaterController internal constructor(
             }
 
             val ignoredTag = AppUpdaterPlatform.getIgnoredTag()
-            val lookup = AppUpdaterRepository.lookupLatestUpdate()
-            val feedback = appUpdateFeedback(
-                lookup = lookup,
-                localVersion = AppVersionConfig.VERSION_NAME,
-                manual = showNoUpdateFeedback,
-            )
+            val result = fetchUpdate(channel)
+            currentCoroutineContext().ensureActive()
+            if (channel != preferences.channel.value) return@launch
 
-            when (feedback) {
-                AppUpdateUserFeedback.ShowUpdate -> {
-                    val update = (lookup as AppUpdateLookup.Available).update
-                    val ignored = ignoredTag != null && ignoredTag == update.tag
-                    _uiState.update { state ->
-                        state.copy(
-                            isChecking = false,
-                            update = update,
-                            isUpdateAvailable = true,
-                            isDownloading = false,
-                            downloadProgress = null,
-                            downloadedApkPath = state.downloadedApkPath,
-                            showDialog = force || !ignored,
-                            showUnknownSourcesDialog = false,
-                            errorMessage = null,
-                        )
-                    }
+            result.onSuccess { update ->
+                val remoteNewer = VersionUtils.isRemoteNewer(update.tag, AppVersionConfig.VERSION_NAME)
+                val ignored = ignoredTag != null && ignoredTag == update.tag
+                val shouldShowDialog = remoteNewer && (force || !ignored)
+
+                _uiState.update { state ->
+                    state.copy(
+                        isChecking = false,
+                        update = update.takeIf { remoteNewer },
+                        isUpdateAvailable = remoteNewer,
+                        isDownloading = false,
+                        downloadProgress = null,
+                        downloadedApkPath = state.downloadedApkPath.takeIf {
+                            remoteNewer && state.update?.tag == update.tag
+                        },
+                        showDialog = shouldShowDialog,
+                        showUnknownSourcesDialog = false,
+                        errorMessage = null,
+                    )
                 }
-                AppUpdateUserFeedback.UpToDate -> {
-                    _uiState.update { state ->
-                        state.copy(
-                            isChecking = false,
-                            update = null,
-                            isUpdateAvailable = false,
-                            isDownloading = false,
-                            downloadProgress = null,
-                            downloadedApkPath = null,
-                            showDialog = false,
-                            showUnknownSourcesDialog = false,
-                            errorMessage = null,
-                        )
-                    }
-                    NuvioToastController.show(getString(Res.string.updates_latest_version))
+
+                if (showNoUpdateFeedback && !remoteNewer) {
+                    NuvioToastController.show(noUpdateMessage(channel))
                 }
-                AppUpdateUserFeedback.CheckFailed -> {
-                    val message = (lookup as? AppUpdateLookup.RequestFailed)?.message
-                        ?: getString(Res.string.updates_check_failed)
-                    _uiState.update { state ->
-                        state.copy(
-                            isChecking = false,
-                            isDownloading = false,
-                            downloadProgress = null,
-                            downloadedApkPath = null,
-                            update = null,
-                            isUpdateAvailable = false,
-                            showDialog = false,
-                            showUnknownSourcesDialog = false,
-                            errorMessage = null,
-                        )
-                    }
-                    NuvioToastController.show(message)
+            }.onFailure { error ->
+                _uiState.update { state ->
+                    state.copy(
+                        isChecking = false,
+                        isDownloading = false,
+                        downloadProgress = null,
+                        downloadedApkPath = null,
+                        update = null,
+                        isUpdateAvailable = false,
+                        showDialog = force && error !is NoChannelReleaseException,
+                        showUnknownSourcesDialog = false,
+                        errorMessage = if (force && error !is NoChannelReleaseException) {
+                            error.message ?: getString(Res.string.updates_check_failed)
+                        } else {
+                            null
+                        },
+                    )
                 }
-                AppUpdateUserFeedback.Silent -> {
-                    _uiState.update { state ->
-                        state.copy(
-                            isChecking = false,
-                            isDownloading = false,
-                            downloadProgress = null,
-                            downloadedApkPath = null,
-                            update = null,
-                            isUpdateAvailable = false,
-                            showDialog = false,
-                            showUnknownSourcesDialog = false,
-                            errorMessage = null,
-                        )
-                    }
+
+                if (showNoUpdateFeedback) {
+                    NuvioToastController.show(
+                        if (error is NoChannelReleaseException) noUpdateMessage(channel)
+                        else error.message ?: getString(Res.string.updates_check_failed),
+                    )
                 }
             }
         }
     }
+
+    private suspend fun noUpdateMessage(channel: UpdateChannel): String = getString(
+        if (channel == UpdateChannel.STABLE && VersionUtils.isPrerelease(AppVersionConfig.VERSION_NAME)) {
+            Res.string.updates_waiting_for_stable
+        } else {
+            Res.string.updates_latest_version
+        },
+    )
 
     fun dismissDialog() {
         _uiState.update { state ->
@@ -261,13 +189,19 @@ class AppUpdaterController internal constructor(
     }
 
     fun downloadUpdate() {
+        if (_uiState.value.isDownloading) return
         val update = _uiState.value.update ?: return
         if (_uiState.value.isDebugTest) {
             runDebugDownloadTest()
             return
         }
 
-        scope.launch {
+        val previousDownload = downloadJob
+        previousDownload?.cancel()
+        val channel = preferences.channel.value
+        downloadJob = scope.launch {
+            previousDownload?.join()
+            val downloadContext = currentCoroutineContext()
             _uiState.update { state ->
                 state.copy(
                     isDownloading = true,
@@ -276,17 +210,23 @@ class AppUpdaterController internal constructor(
                 )
             }
 
-            AppUpdaterPlatform.downloadApk(
+            val result = AppUpdaterPlatform.downloadApk(
                 assetUrl = update.assetUrl,
                 assetName = update.assetName,
             ) { downloadedBytes, totalBytes ->
+                downloadContext.ensureActive()
                 val progress = if (totalBytes != null && totalBytes > 0L) {
                     (downloadedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
                 } else {
                     null
                 }
-                _uiState.update { state -> state.copy(downloadProgress = progress) }
-            }.onSuccess { path ->
+                _uiState.update { state ->
+                    if (state.updateChannel == channel) state.copy(downloadProgress = progress) else state
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            if (channel != preferences.channel.value) return@launch
+            result.onSuccess { path ->
                 _uiState.update { state ->
                     state.copy(
                         isDownloading = false,
@@ -343,10 +283,13 @@ class AppUpdaterController internal constructor(
     fun showDebugTestUpdate() {
         if (!AppUpdaterPlatform.isDebugBuild || !AppUpdaterPlatform.isSupported) return
 
+        updateCheckJob?.cancel()
+        downloadJob?.cancel()
         _uiState.value = AppUpdaterUiState(
+            updateChannel = preferences.channel.value,
             update = AppUpdate(
                 tag = "9.9.9",
-                title = "StreamBridge 9.9.9",
+                title = "Nuvio 9.9.9",
                 notes = """
                     A local preview of the new update experience.
 
@@ -355,7 +298,7 @@ class AppUpdaterController internal constructor(
                     - Release notes live behind the info button.
                 """.trimIndent(),
                 releaseUrl = null,
-                assetName = "StreamBridge-debug-preview.apk",
+                assetName = "Nuvio-debug-preview.apk",
                 assetUrl = "debug://update-preview",
                 assetSizeBytes = 185L * 1024L * 1024L,
             ),
@@ -366,7 +309,7 @@ class AppUpdaterController internal constructor(
     }
 
     private fun runDebugDownloadTest() {
-        scope.launch {
+        downloadJob = scope.launch {
             _uiState.update { state ->
                 state.copy(
                     isDownloading = true,

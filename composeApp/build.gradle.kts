@@ -2,6 +2,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
@@ -9,6 +10,8 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+import java.io.StringReader
+import java.security.MessageDigest
 import java.util.Properties
 
 abstract class GenerateRuntimeConfigsTask : DefaultTask() {
@@ -91,6 +94,24 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val donationsDonateUrl: Property<String>
 
+    /**
+     * Escapes a resolved config value for embedding in a Kotlin string literal.
+     * Without this, a value containing a quote, backslash or `$` produces a generated
+     * file that either fails to compile or silently truncates the credential.
+     */
+    private fun Property<String>.asKotlinLiteral(): String =
+        get()
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\${'$'}")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+
+    // From NuvioMobile-Enhanced: personal TMDB API key override (TmdbSettingsRepository
+    // falls back to this build-time key when the user has not set their own).
+    @get:Input
+    abstract val tmdbApiKey: Property<String>
+
     @TaskAction
     fun generate() {
         val outDir = outputDir.get().asFile
@@ -123,7 +144,18 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
             )
         }
 
-        outDir.resolve("com/nuvio/app/features/tmdb/TmdbConfig.kt").delete()
+        outDir.resolve("com/nuvio/app/features/tmdb").apply {
+            mkdirs()
+            resolve("TmdbConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.tmdb
+                |
+                |object TmdbConfig {
+                |    const val API_KEY = "${tmdbApiKey.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
 
         outDir.resolve("com/nuvio/app/features/trakt").apply {
             mkdirs()
@@ -132,9 +164,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.trakt
                 |
                 |object TraktConfig {
-                |    const val CLIENT_ID = "${traktClientId.get()}"
-                |    const val CLIENT_SECRET = "${traktClientSecret.get()}"
-                |    const val REDIRECT_URI = "${traktRedirectUri.get()}"
+                |    const val CLIENT_ID = "${traktClientId.asKotlinLiteral()}"
+                |    const val CLIENT_SECRET = "${traktClientSecret.asKotlinLiteral()}"
+                |    const val REDIRECT_URI = "${traktRedirectUri.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -147,9 +179,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.simkl
                 |
                 |object SimklConfig {
-                |    const val CLIENT_ID = "${simklClientId.get()}"
-                |    const val REDIRECT_URI = "${simklRedirectUri.get()}"
-                |    const val APP_NAME = "${simklAppName.get()}"
+                |    const val CLIENT_ID = "${simklClientId.asKotlinLiteral()}"
+                |    const val REDIRECT_URI = "${simklRedirectUri.asKotlinLiteral()}"
+                |    const val APP_NAME = "${simklAppName.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -227,6 +259,15 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 """.trimMargin()
             )
         }
+
+        // Presence-only diagnostics. Never log the values themselves — this output
+        // ends up in CI logs. It lets a build prove whether credentials actually
+        // reached the generated runtime config.
+        logger.lifecycle(
+            "generateRuntimeConfigs: TRAKT_CLIENT_ID present=${traktClientId.get().isNotBlank()} " +
+                "TRAKT_CLIENT_SECRET present=${traktClientSecret.get().isNotBlank()} " +
+                "SIMKL_CLIENT_ID present=${simklClientId.get().isNotBlank()}"
+        )
     }
 }
 
@@ -257,11 +298,15 @@ val supabaseProps = Properties().apply {
     if (propsFile.exists()) propsFile.inputStream().use { load(it) }
 }
 val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconfig")
+// StreamBridge ships its own user-facing version, independent of the NuvioMobile
+// MARKETING_VERSION in Version.xcconfig. Keep StreamBridge's version source here;
+// Enhanced's `nuvio.app.versionName` property would publish Nuvio's version as ours.
 val streamBridgeVersionFile = rootProject.file("streambridge.version.properties")
 val streamBridgeProps = Properties().apply {
     if (streamBridgeVersionFile.exists()) streamBridgeVersionFile.inputStream().use(::load)
 }
 val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+    ?: providers.gradleProperty("nuvio.app.versionName").orNull
     ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
 val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
@@ -323,18 +368,87 @@ val androidDistributionSourceDir = if (androidDistribution == "full") {
 } else {
     "src/androidPlaystore/kotlin"
 }
-val runtimeLocalProperties = Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) {
-        file.inputStream().use(::load)
+
+// CloudStream compatibility runtime, pinned by name AND content hash.
+// Built from recloudstream/cloudstream @ 3496e5f8d2ebae4c1b5bdf264782f58375c1eb06
+// (upstream 4.8.0 / library 1.0.1). The hash is verified at build time so the
+// executable runtime can never be silently swapped for a different artifact.
+val cloudStreamRuntimeAar = "cloudstream-runtime-api-4.8.0-3496e5f.aar"
+val cloudStreamRuntimeSha256 = "b67a4384bea1f4072123b86c5f164471422d9c6c12845d5067f12db44674d427"
+
+val verifyCloudStreamRuntime by tasks.registering {
+    group = "verification"
+    description = "Verifies the pinned CloudStream runtime AAR matches its expected SHA-256."
+    val artifact = layout.projectDirectory.file("libs/$cloudStreamRuntimeAar").asFile
+    val expected = cloudStreamRuntimeSha256
+    inputs.file(artifact).withPropertyName("cloudStreamRuntimeAar")
+    inputs.property("expectedSha256", expected)
+    outputs.upToDateWhen { true }
+    doLast {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val actual = digest.digest(artifact.readBytes()).joinToString("") { hashByte: Byte ->
+            "%02x".format(hashByte)
+        }
+        require(actual == expected) {
+            "CloudStream runtime AAR integrity check failed.\n" +
+                "  expected: $expected\n" +
+                "  actual:   $actual\n" +
+                "Refusing to build an executable CloudStream runtime from an unverified artifact."
+        }
     }
 }
+// local.properties MUST be read through a Gradle value provider, not plain file IO.
+// `org.gradle.configuration-cache=true` is enabled in gradle.properties: values read
+// with java.io at configuration time are NOT tracked as configuration-cache inputs, so
+// a cached configuration keeps serving the values captured on the very first run. That
+// is how freshly configured TRAKT_*/SIMKL_* credentials silently kept resolving to ""
+// (and got baked into the generated *Config.kt) even after local.properties was filled in.
+// providers.fileContents(...) is tracked, so editing local.properties invalidates the
+// configuration cache and regenerates the runtime config.
+val runtimeLocalProperties: Provider<Map<String, String>> =
+    providers.fileContents(rootProject.layout.projectDirectory.file("local.properties"))
+        .asText
+        .map { text ->
+            Properties()
+                .apply { load(StringReader(text)) }
+                .entries
+                .associate { (key, value) -> key.toString() to value.toString() }
+        }
+        .orElse(emptyMap())
 
+// Shared normalisation for every credential source: trim, drop one layer of matching
+// surrounding quotes (local.properties and CI `env:` blocks routinely keep them), trim
+// again, and treat blank as "not configured" so the next source in the chain is tried.
+fun normalizeRuntimeConfigValue(raw: String?): String? =
+    raw?.trim()
+        ?.let { if (it.length >= 2 && it.first() == '"' && it.last() == '"') it.substring(1, it.length - 1) else it }
+        ?.let { if (it.length >= 2 && it.first() == '\'' && it.last() == '\'') it.substring(1, it.length - 1) else it }
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+// Precedence: local.properties (developer machine) -> environment (CI secrets) -> -P property.
 fun runtimeConfigValue(key: String, fallback: String = ""): String =
-    runtimeLocalProperties.getProperty(key)?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
-        ?: providers.environmentVariable(key).orNull?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
-        ?: providers.gradleProperty(key).orNull?.trim()?.removeSurrounding("\"")?.removeSurrounding("'")?.trim()?.takeIf { it.isNotBlank() }
+    normalizeRuntimeConfigValue(runtimeLocalProperties.get()[key])
+        ?: normalizeRuntimeConfigValue(providers.environmentVariable(key).orNull)
+        ?: normalizeRuntimeConfigValue(providers.gradleProperty(key).orNull)
         ?: fallback
+
+// local.properties ONLY -- no environment, no -P fallback.
+//
+// This mirrors official NuvioMobile exactly. Upstream's GenerateRuntimeConfigsTask
+// resolves the Trakt/Simkl keys with `props.getProperty("TRAKT_CLIENT_ID", "")`,
+// reading only the local.properties it loaded, even though its generic
+// runtimeConfigValue() helper does consult the environment for other keys. The
+// credential supply mechanism is therefore the local.properties file itself:
+// developers write it by hand, CI materialises it by decoding the
+// NUVIO_LOCAL_PROPERTIES_BASE64 secret before Gradle starts
+// (see .github/workflows/release-draft.yml and docs/TRAKT-SIMKL-CONFIG.md).
+//
+// Deliberately NOT falling back to individual TRAKT_*/SIMKL_* environment
+// variables: that was a StreamBridge-only deviation from upstream and has been
+// removed so there is exactly one credential path shared with official Nuvio.
+fun runtimeLocalPropertyValue(key: String, fallback: String = ""): String =
+    normalizeRuntimeConfigValue(runtimeLocalProperties.get()[key]) ?: fallback
 
 fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
     when (runtimeConfigValue(key).lowercase()) {
@@ -362,6 +476,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY", "sb_publishable_1Clq8rlTVACkdcZuqr6_AD__xUUC_EN"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
     sentryDsn.set(runtimeConfigValue("SENTRY_DSN"))
+    tmdbApiKey.set(runtimeConfigValue("TMDB_API_KEY"))
     sentryEnvironment.set(
         when {
             requestedGradleTasks.any { "benchmark" in it } -> "benchmark"
@@ -369,12 +484,16 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
             else -> "production"
         }
     )
-    traktClientId.set(runtimeConfigValue("TRAKT_CLIENT_ID"))
-    traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
-    traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
-    simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
-    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
-    simklAppName.set(runtimeConfigValue("SIMKL_APP_NAME", "StreamBridge"))
+    // Trakt/Simkl resolve from local.properties only, exactly as official Nuvio does.
+    // SIMKL_APP_NAME must stay "nuvio": it is sent to the Simkl API as the `app-name`
+    // header and in the User-Agent, so it identifies the registered application and is
+    // not a user-visible brand string.
+    traktClientId.set(runtimeLocalPropertyValue("TRAKT_CLIENT_ID"))
+    traktClientSecret.set(runtimeLocalPropertyValue("TRAKT_CLIENT_SECRET"))
+    traktRedirectUri.set(runtimeLocalPropertyValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
+    simklClientId.set(runtimeLocalPropertyValue("SIMKL_CLIENT_ID"))
+    simklRedirectUri.set(runtimeLocalPropertyValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
+    simklAppName.set(runtimeLocalPropertyValue("SIMKL_APP_NAME", "nuvio"))
     introDbApiUrl.set(runtimeConfigValue("INTRODB_API_URL"))
     imdbRatingsApiBaseUrl.set(runtimeConfigValue("IMDB_RATINGS_API_BASE_URL"))
     imdbTapframeApiBaseUrl.set(runtimeConfigValue("IMDB_TAPFRAME_API_BASE_URL"))
@@ -388,6 +507,11 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
     dependsOn(generateRuntimeConfigs)
+    // Full builds link against the executable CloudStream runtime, so its
+    // integrity is verified before any code that can load a .cs3 is compiled.
+    if (androidDistribution == "full") {
+        dependsOn(verifyCloudStreamRuntime)
+    }
 }
 
 kotlin {
@@ -511,6 +635,37 @@ kotlin {
                 implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("lib-*.aar"))))
                 if (androidDistribution == "full") {
                     implementation(files("libs/quickjs-kt-android-1.0.5-nuvio.aar"))
+                    // CloudStream compatibility runtime (GPL-3.0). Full/sideload only:
+                    // this artifact is what makes controlled .cs3 execution possible, so
+                    // the Play Store distribution must never receive it. The filename
+                    // deliberately does not match the `lib-*.aar` fileTree above, so it
+                    // cannot be picked up by the unconditional dependency.
+                    // See composeApp/libs/NOTICE.md and docs/CLOUDSTREAM-AUDIT.md.
+                    //
+                    // Declared as `api`, not `implementation`, deliberately. A local
+                    // .aar file dependency of a *library* module is not propagated to
+                    // the consuming application's runtime classpath, so with
+                    // `implementation` this compiled fine and was then absent from the
+                    // packaged APK: every plugin load would fail at runtime with
+                    // NoClassDefFoundError on BasePlugin. `api` puts it on the
+                    // exported classpath so :androidApp packages it.
+                    api(files("libs/$cloudStreamRuntimeAar"))
+                    // Libraries CloudStream plugins link against by their original JVM
+                    // names. Without them a loaded .cs3 fails with NoClassDefFoundError.
+                    // Exported for the same reason as the runtime above: these must be
+                    // present in the installed APK, not merely on the compile classpath,
+                    // because the classes are resolved by dynamically loaded bytecode
+                    // that the build system cannot see.
+                    api("androidx.annotation:annotation:1.10.0")
+                    api("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
+                    api("org.jsoup:jsoup:1.22.1")
+                    api("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")
+                    api("com.github.Blatzar:NiceHttp:0.4.18")
+                    api("me.xdrop:fuzzywuzzy:1.4.0")
+                    api("org.mozilla:rhino:1.8.1")
+                    api("dev.whyoleg.cryptography:cryptography-core:0.6.0")
+                    api("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
+                    api(kotlin("reflect"))
                     implementation(libs.ksoup)
                 }
             }

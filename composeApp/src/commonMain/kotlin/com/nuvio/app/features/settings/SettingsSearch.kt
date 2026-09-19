@@ -81,6 +81,7 @@ internal data class SettingsSearchEntry(
 
 @Composable
 internal fun settingsSearchEntries(
+    isTablet: Boolean,
     pluginsEnabled: Boolean,
     supportersContributorsPageEnabled: Boolean,
     accountDeletionEnabled: Boolean,
@@ -113,6 +114,7 @@ internal fun settingsSearchEntries(
     val posterStylePage = stringResource(Res.string.compose_settings_page_poster_customization)
     val addonsPage = stringResource(Res.string.compose_settings_page_addons)
     val pluginsPage = stringResource(Res.string.compose_settings_page_plugins)
+    val cloudStreamPage = stringResource(Res.string.compose_settings_page_cloudstream)
     val collectionsPage = stringResource(Res.string.collections_header)
     val tmdbPage = stringResource(Res.string.compose_settings_page_tmdb_enrichment)
     val mdbListPage = stringResource(Res.string.compose_settings_page_mdblist_ratings)
@@ -232,6 +234,15 @@ internal fun settingsSearchEntries(
         title = contentDiscoveryPage,
         description = stringResource(Res.string.compose_settings_root_content_discovery_description),
         icon = Icons.Rounded.Extension,
+    )
+    addRow(
+        page = SettingsPage.ContentDiscovery,
+        key = "recent-searches",
+        title = stringResource(Res.string.settings_content_discovery_recent_searches),
+        description = stringResource(Res.string.settings_content_discovery_recent_searches_description),
+        pageLabel = contentDiscoveryPage,
+        section = stringResource(Res.string.settings_content_discovery_section_search),
+        icon = Icons.Rounded.Search,
     )
     add(
         key = "downloads",
@@ -498,6 +509,13 @@ internal fun settingsSearchEntries(
         )
     }
     addPage(
+        page = SettingsPage.CloudStream,
+        key = "cloudstream",
+        title = cloudStreamPage,
+        description = stringResource(Res.string.settings_content_discovery_cloudstream_description),
+        icon = Icons.Rounded.Extension,
+    )
+    addPage(
         page = SettingsPage.Homescreen,
         key = "home-layout",
         title = homeLayoutPage,
@@ -539,6 +557,17 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_stream_display_section),
         icon = Icons.Rounded.Style,
     )
+    if (!isTablet) {
+        addRow(
+            page = SettingsPage.Streams,
+            key = "stream-background",
+            title = stringResource(Res.string.settings_stream_background_title),
+            description = stringResource(Res.string.settings_stream_background_description),
+            pageLabel = streamsPage,
+            section = stringResource(Res.string.settings_stream_display_section),
+            icon = Icons.Rounded.Style,
+        )
+    }
     addRow(
         page = SettingsPage.Streams,
         key = "stream-size-badges",
@@ -576,6 +605,11 @@ internal fun settingsSearchEntries(
                 "loading-overlay",
                 stringResource(Res.string.settings_playback_show_loading_overlay),
                 stringResource(Res.string.settings_playback_show_loading_overlay_description),
+            ),
+            PlaybackSearchRow(
+                "pause-overlay",
+                stringResource(Res.string.settings_playback_pause_overlay),
+                stringResource(Res.string.settings_playback_pause_overlay_description),
             ),
             PlaybackSearchRow(
                 "external-player",
@@ -859,7 +893,7 @@ internal fun settingsSearchEntries(
     val tmdbModulesSection = stringResource(Res.string.settings_tmdb_section_modules)
     listOf(
         PlaybackSearchRow("tmdb-enable", stringResource(Res.string.settings_tmdb_enable_enrichment), stringResource(Res.string.settings_tmdb_enable_enrichment_description), stringResource(Res.string.settings_tmdb_section_title)),
-        PlaybackSearchRow("tmdb-api-key", stringResource(Res.string.settings_tmdb_personal_api_key), "", stringResource(Res.string.settings_tmdb_section_credentials)),
+        PlaybackSearchRow("tmdb-api-key", stringResource(Res.string.settings_tmdb_personal_api_key), stringResource(Res.string.settings_tmdb_api_key_override_description), stringResource(Res.string.settings_tmdb_section_title)),
         PlaybackSearchRow("tmdb-language", stringResource(Res.string.settings_tmdb_preferred_language), stringResource(Res.string.settings_tmdb_preferred_language_description), stringResource(Res.string.settings_tmdb_section_localization)),
         PlaybackSearchRow("tmdb-trailers", stringResource(Res.string.settings_tmdb_module_trailers), stringResource(Res.string.settings_tmdb_module_trailers_description), tmdbModulesSection),
         PlaybackSearchRow("tmdb-artwork", stringResource(Res.string.settings_tmdb_module_artwork), stringResource(Res.string.settings_tmdb_module_artwork_description), tmdbModulesSection),

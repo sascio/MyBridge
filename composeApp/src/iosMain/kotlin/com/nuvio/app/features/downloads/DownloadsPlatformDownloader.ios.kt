@@ -4,6 +4,12 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
 import kotlinx.cinterop.usePinned
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_error_finalize_file_failed
@@ -15,6 +21,12 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSHTTPURLResponse
 import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSMutableURLRequest
+import platform.Foundation.NSData
+import platform.Foundation.NSURLErrorCancelled
+import platform.Foundation.NSURLErrorDomain
+import platform.Foundation.NSURLSessionDownloadTaskResumeData
+import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.writeToFile
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
 import platform.Foundation.NSURLRequestReloadIgnoringLocalCacheData
@@ -33,6 +45,8 @@ import platform.posix.fopen
 import platform.posix.fread
 import platform.posix.fwrite
 import platform.darwin.NSObject
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
 private const val BACKGROUND_SESSION_IDENTIFIER = "com.nuvio.app.downloads"
 private const val DOWNLOAD_RESOURCE_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
@@ -40,6 +54,37 @@ private const val PROGRESS_MIN_INTERVAL_SECONDS = 0.5
 private const val PROGRESS_MIN_BYTE_DELTA = 512L * 1024L
 
 private val backgroundSessionCompletionHandlers = mutableMapOf<String, () -> Unit>()
+
+/**
+ * Addon subtitles are fetched alongside the video. The download itself runs on a background
+ * NSURLSession with no coroutine of its own, so the subtitle fetch gets a scope here and is
+ * tracked per download so cancelling the download cancels it too.
+ */
+private val subtitlePreparationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+private val subtitlePreparationJobs = mutableMapOf<String, Job>()
+
+@OptIn(ExperimentalForeignApi::class)
+private fun prepareDownloadSubtitles(downloadId: String, request: DownloadPlatformRequest) {
+    subtitlePreparationJobs.remove(downloadId)?.cancel()
+    val destinationUri = resolveDownloadsBaseDirectory().withAccess { downloadsDirectory ->
+        NSURL.fileURLWithPath("$downloadsDirectory/${request.destinationFileName}").absoluteString
+    } ?: return
+    val job = subtitlePreparationScope.launch {
+        try {
+            DownloadSubtitles.prepare(request.item, destinationUri)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            // Bundled subtitles are best effort; never fail the video download over them.
+        }
+    }
+    subtitlePreparationJobs[downloadId] = job
+    job.invokeOnCompletion { subtitlePreparationJobs.remove(downloadId) }
+}
+
+private fun cancelDownloadSubtitles(downloadId: String) {
+    subtitlePreparationJobs.remove(downloadId)?.cancel()
+}
 
 fun handleDownloadsBackgroundEvents(
     identifier: String,
@@ -60,6 +105,7 @@ internal actual object DownloadsPlatformDownloader {
         onFailure: (message: String) -> Unit,
         onPaused: () -> Unit,
     ): DownloadsTaskHandle {
+        prepareDownloadSubtitles(request.item.id, request)
         IosBackgroundDownloadCoordinator.startOrResume(
             downloadId = request.item.id,
             request = request,
@@ -91,7 +137,12 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun removePartialFile(destinationFileName: String): Boolean =
         resolveDownloadsBaseDirectory().withAccess { downloadsDirectory ->
-            removePathIfExists("$downloadsDirectory/$destinationFileName.part")
+            val destinationPath = "$downloadsDirectory/$destinationFileName"
+            NSURL.fileURLWithPath(destinationPath).absoluteString?.let { uri ->
+                DownloadSubtitleStorage(uri).remove()
+            }
+            IosBackgroundDownloadCoordinator.discardResumeData(destinationFileName)
+            removePathIfExists("$destinationPath.part")
         }
 
     actual fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String? =
@@ -129,6 +180,7 @@ private class IosDownloadsTaskHandle(
     private val downloadId: String,
 ) : DownloadsTaskHandle {
     override fun cancel() {
+        cancelDownloadSubtitles(downloadId)
         IosBackgroundDownloadCoordinator.cancelDownload(downloadId)
     }
 }
@@ -142,7 +194,9 @@ private class DownloadCallbacks(
 /** Bookkeeping for one in-flight NSURLSessionDownloadTask, alive only as long as this process is. */
 private class ActiveDownload(
     val request: DownloadPlatformRequest,
+    val taskIdentifier: ULong,
     var callbacks: DownloadCallbacks?,
+    val resumedFromData: Boolean = false,
     var retriedWithoutRange: Boolean = false,
     var deliberatelyCancelled: Boolean = false,
     var lastProgressBytes: Long = -1L,
@@ -159,6 +213,13 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
     private var session: NSURLSession? = null
     private val activeDownloads = mutableMapOf<String, ActiveDownload>()
     private val tasksByDownloadId = mutableMapOf<String, NSURLSessionDownloadTask>()
+
+    private val pendingPauses = mutableMapOf<String, PendingPause>()
+
+    private class PendingPause(val fileName: String) {
+        var discard: Boolean = false
+        var deferredStart: (() -> Unit)? = null
+    }
 
     fun ensureSessionCreated(): NSURLSession {
         session?.let { return it }
@@ -190,6 +251,30 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
             return
         }
 
+        pendingPauses[downloadId]?.let { pending ->
+            pending.deferredStart = { startOrResume(downloadId, request, rangeStart, callbacks) }
+            return
+        }
+
+        if (rangeStart == null) {
+            val resumeData = takeResumeData(request.destinationFileName)
+            if (resumeData != null) {
+                val task = ensureSessionCreated().downloadTaskWithResumeData(resumeData)
+                task.taskDescription = downloadId
+                activeDownloads[downloadId] = ActiveDownload(
+                    request = request,
+                    taskIdentifier = task.taskIdentifier,
+                    callbacks = callbacks,
+                    resumedFromData = true,
+                )
+                tasksByDownloadId[downloadId] = task
+                task.resume()
+                return
+            }
+        } else {
+            removePathIfExists(resumeDataPath(request.destinationFileName))
+        }
+
         val base = resolveDownloadsBaseDirectory()
         val started = base.scopedUrl?.startAccessingSecurityScopedResource() ?: false
         try {
@@ -200,7 +285,11 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
             val task = ensureSessionCreated().downloadTaskWithRequest(nativeRequest)
             task.taskDescription = downloadId
 
-            activeDownloads[downloadId] = ActiveDownload(request = request, callbacks = callbacks)
+            activeDownloads[downloadId] = ActiveDownload(
+                request = request,
+                taskIdentifier = task.taskIdentifier,
+                callbacks = callbacks,
+            )
             tasksByDownloadId[downloadId] = task
             callbacks?.onProgress?.invoke(resumeFromBytes, null)
             task.resume()
@@ -210,8 +299,54 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
     }
 
     fun cancelDownload(downloadId: String) {
-        activeDownloads[downloadId]?.deliberatelyCancelled = true
-        tasksByDownloadId.remove(downloadId)?.cancel()
+        val active = activeDownloads.remove(downloadId)
+        active?.deliberatelyCancelled = true
+        val task = tasksByDownloadId.remove(downloadId) ?: return
+        val fileName = active?.request?.destinationFileName
+        if (fileName == null) {
+            task.cancel()
+            return
+        }
+
+        val pending = PendingPause(fileName)
+        pendingPauses[downloadId] = pending
+        task.cancelByProducingResumeData { resumeData ->
+            dispatch_async(dispatch_get_main_queue()) {
+                if (pendingPauses[downloadId] === pending) pendingPauses.remove(downloadId)
+                if (resumeData != null && !pending.discard) {
+                    writeResumeData(fileName, resumeData)
+                }
+                pending.deferredStart?.invoke()
+            }
+        }
+    }
+
+    fun discardResumeData(fileName: String) {
+        pendingPauses.values
+            .filter { it.fileName == fileName }
+            .forEach { it.discard = true }
+        removePathIfExists(resumeDataPath(fileName))
+    }
+
+    private fun activeFor(task: NSURLSessionTask): Pair<String, ActiveDownload>? {
+        val downloadId = task.taskDescription ?: return null
+        val active = activeDownloads[downloadId] ?: return null
+        if (active.taskIdentifier != task.taskIdentifier) return null
+        return downloadId to active
+    }
+
+    override fun URLSession(
+        session: NSURLSession,
+        downloadTask: NSURLSessionDownloadTask,
+        didResumeAtOffset: Long,
+        expectedTotalBytes: Long,
+    ) {
+        val (downloadId, _) = activeFor(downloadTask) ?: return
+        reportProgress(
+            downloadId = downloadId,
+            downloadedBytes = didResumeAtOffset,
+            totalBytes = expectedTotalBytes.takeIf { it > 0L },
+        )
     }
 
     override fun URLSession(
@@ -221,7 +356,7 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
         totalBytesWritten: Long,
         totalBytesExpectedToWrite: Long,
     ) {
-        val downloadId = downloadTask.taskDescription ?: return
+        val (downloadId, _) = activeFor(downloadTask) ?: return
         reportProgress(
             downloadId = downloadId,
             downloadedBytes = resumeOffset(downloadTask) + totalBytesWritten,
@@ -236,7 +371,7 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
         didFinishDownloadingToURL: NSURL,
     ) {
         val downloadId = downloadTask.taskDescription ?: return
-        val active = activeDownloads[downloadId]
+        val active = activeFor(downloadTask)?.second
         val request = active?.request
         if (request == null) {
             runCatching { NSFileManager.defaultManager.removeItemAtPath(didFinishDownloadingToURL.path.orEmpty(), null) }
@@ -318,13 +453,22 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
         task: NSURLSessionTask,
         didCompleteWithError: NSError?,
     ) {
-        val downloadId = task.taskDescription ?: return
-        val active = activeDownloads[downloadId] ?: return
+        val (downloadId, active) = activeFor(task) ?: return
         tasksByDownloadId.remove(downloadId)
         if (didCompleteWithError == null) return
         if (active.deliberatelyCancelled) {
             activeDownloads.remove(downloadId)
             return
+        }
+        val isCancelled = didCompleteWithError.domain == NSURLErrorDomain &&
+            didCompleteWithError.code == NSURLErrorCancelled
+        if (active.resumedFromData && !isCancelled) {
+            activeDownloads.remove(downloadId)
+            startOrResume(downloadId, active.request, rangeStart = 0L, callbacks = active.callbacks)
+            return
+        }
+        (didCompleteWithError.userInfo[NSURLSessionDownloadTaskResumeData] as? NSData)?.let { data ->
+            writeResumeData(active.request.destinationFileName, data)
         }
         finishWithFailure(downloadId, didCompleteWithError.localizedDescription)
     }
@@ -481,4 +625,32 @@ private fun String.toLocalPath(): String? {
         return NSURL(string = value).path ?: value.removePrefix("file://")
     }
     return value.takeIf { it.isNotBlank() }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun resumeDataDirectoryPath(): String {
+    val path = "${NSHomeDirectory().trimEnd('/')}/Library/Application Support/nuvio_download_resume"
+    NSFileManager.defaultManager.createDirectoryAtPath(
+        path = path,
+        withIntermediateDirectories = true,
+        attributes = null,
+        error = null,
+    )
+    return path
+}
+
+private fun resumeDataPath(fileName: String): String =
+    "${resumeDataDirectoryPath()}/$fileName.resumedata"
+
+@OptIn(ExperimentalForeignApi::class)
+private fun writeResumeData(fileName: String, data: NSData) {
+    data.writeToFile(resumeDataPath(fileName), atomically = true)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun takeResumeData(fileName: String): NSData? {
+    val path = resumeDataPath(fileName)
+    val data = NSData.dataWithContentsOfFile(path)
+    removePathIfExists(path)
+    return data?.takeIf { it.length > 0uL }
 }

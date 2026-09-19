@@ -1,6 +1,7 @@
 package com.nuvio.app.features.trakt
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.build.RuntimeCredentials
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.addons.httpPostJsonWithHeaders
 import com.nuvio.app.features.addons.httpRequestRaw
@@ -130,8 +131,13 @@ object TraktAuthRepository : TrackingAuthProvider {
         return _uiState.value
     }
 
+    /**
+     * Trakt OAuth needs both the client id and the client secret. Both come from the
+     * build-time generated [TraktConfig]; they are empty when nothing was configured,
+     * so an unconfigured install correctly reports missing credentials.
+     */
     fun hasRequiredCredentials(): Boolean =
-        TraktConfig.CLIENT_ID.isNotBlank() && TraktConfig.CLIENT_SECRET.isNotBlank()
+        RuntimeCredentials.allConfigured(TraktConfig.CLIENT_ID, TraktConfig.CLIENT_SECRET)
 
     internal fun selectedAuthenticationMethod(profileId: Int = ProfileRepository.activeProfileId): TraktAuthenticationMethod {
         ensureLoaded(profileId)
@@ -395,19 +401,76 @@ object TraktAuthRepository : TrackingAuthProvider {
             ),
         )
 
+        // Trakt's device token endpoint signals flow state through the HTTP status
+        // code (400 pending, 404 invalid, 409 already used, 410 expired, 418 denied,
+        // 429 slow down). It must therefore be issued with the raw helper that exposes
+        // the status: httpPostJsonWithHeaders throws on every non-2xx, which collapsed
+        // "denied" and "expired" into an indistinguishable failure and left the user
+        // polling a dead code until the local timeout elapsed.
         val response = runCatching {
-            httpPostJsonWithHeaders(
+            httpRequestRaw(
+                method = "POST",
                 url = "$BASE_URL/oauth/device/token",
                 body = body,
-                headers = emptyMap(),
+                headers = mapOf(
+                    "Accept" to "application/json",
+                    "Content-Type" to "application/json",
+                ),
             )
         }.onFailure { error ->
             if (error is CancellationException) throw error
+            log.d { "Trakt device token poll transport failure: ${error.message}" }
         }.getOrNull() ?: return false
 
+        when (traktDevicePollAction(response.status)) {
+            TraktDevicePollAction.PENDING -> return false
+            TraktDevicePollAction.SLOW_DOWN -> {
+                // Back off one extra interval; the loop supplies the base delay.
+                delay(DEFAULT_DEVICE_POLL_INTERVAL_SECONDS * 1_000L)
+                return false
+            }
+
+            TraktDevicePollAction.DENIED -> {
+                clearPendingAuthorization()
+                persist(profileId)
+                publish(
+                    isLoading = false,
+                    statusMessage = null,
+                    errorMessage = localizedString(Res.string.trakt_authorization_denied),
+                )
+                return true
+            }
+
+            TraktDevicePollAction.EXPIRED -> {
+                clearPendingAuthorization()
+                persist(profileId)
+                publish(
+                    isLoading = false,
+                    statusMessage = null,
+                    errorMessage = localizedString(Res.string.trakt_device_code_expired),
+                )
+                return true
+            }
+
+            TraktDevicePollAction.FAILED -> {
+                clearPendingAuthorization()
+                persist(profileId)
+                publish(
+                    isLoading = false,
+                    statusMessage = null,
+                    errorMessage = localizedString(Res.string.trakt_device_start_failed),
+                )
+                return true
+            }
+
+            TraktDevicePollAction.ACCEPT -> Unit
+        }
+
         val parsed = runCatching {
-            json.decodeFromString<TraktTokenResponse>(response)
+            json.decodeFromString<TraktTokenResponse>(response.body)
         }.getOrNull() ?: return false
+
+        if (parsed.accessToken.isBlank()) return false
 
         authState = authState.copy(
             accessToken = parsed.accessToken,
@@ -822,6 +885,46 @@ internal fun traktTokenRefreshResponseAction(status: Int): TraktTokenRefreshResp
     status == 400 -> TraktTokenRefreshResponseAction.INVALIDATE
     status in 200..299 -> TraktTokenRefreshResponseAction.ACCEPT
     else -> TraktTokenRefreshResponseAction.TRANSIENT_FAILURE
+}
+
+/** Outcome of one poll against Trakt's `/oauth/device/token` endpoint. */
+internal enum class TraktDevicePollAction {
+    /** Token issued. */
+    ACCEPT,
+
+    /** User has not entered the code yet — keep polling. */
+    PENDING,
+
+    /** Polling too fast — wait an extra interval, then keep polling. */
+    SLOW_DOWN,
+
+    /** User explicitly rejected the authorization. */
+    DENIED,
+
+    /** The device code is no longer usable. */
+    EXPIRED,
+
+    /** Unusable device code or unexpected server response — stop polling. */
+    FAILED,
+}
+
+/**
+ * Maps a Trakt device-token HTTP status to a polling decision, per Trakt's
+ * documented device authentication contract:
+ *
+ * - 200 success, 400 pending, 404 invalid device code, 409 code already used,
+ *   410 expired, 418 denied by user, 429 polling too fast.
+ */
+internal fun traktDevicePollAction(status: Int): TraktDevicePollAction = when (status) {
+    in 200..299 -> TraktDevicePollAction.ACCEPT
+    400 -> TraktDevicePollAction.PENDING
+    429 -> TraktDevicePollAction.SLOW_DOWN
+    418 -> TraktDevicePollAction.DENIED
+    410 -> TraktDevicePollAction.EXPIRED
+    404, 409 -> TraktDevicePollAction.FAILED
+    // 5xx and anything else unexpected: treat as transient and keep polling until
+    // the device code's own expiry window closes the loop.
+    else -> TraktDevicePollAction.PENDING
 }
 
 private data class PendingDeviceAuthorization(

@@ -97,6 +97,9 @@ data class AddonsSettingsRoute(override val title: String = "") : SettingsDestin
 data class PluginsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable
+data class CloudStreamSettingsRoute(override val title: String = "") : SettingsDestinationRoute
+
+@Serializable
 data class AccountSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable
@@ -138,10 +141,7 @@ data class FolderDetailRoute(
 data class StreamRoute(
     val launchId: Long,
     override val title: String = "",
-) : AppRoute {
-    override val hidesNavigationBar: Boolean
-        get() = true
-}
+) : AppRoute
 
 @Serializable
 data class CatalogRoute(

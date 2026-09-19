@@ -33,10 +33,9 @@ class AndroidDownloadTransferTest {
             val directory = temporary.newFolder()
             File(directory, "video.mkv.part").writeText("hello")
 
-            val output = transferAndroidDownload(downloadItem(server.url("/video").toString()), directory,
-                "\"version-1\"", onHeaders = { _, _ -> }, onProgress = { _, _ -> })
+            transferInto(directory, server.url("/video").toString(), "\"version-1\"")
 
-            assertEquals("hello world", output.readText())
+            assertEquals("hello world", File(directory, "video.mkv.part").readText())
             val request = server.takeRequest()
             assertEquals("bytes=5-", request.getHeader("Range"))
             assertEquals("\"version-1\"", request.getHeader("If-Range"))
@@ -51,9 +50,8 @@ class AndroidDownloadTransferTest {
             server.enqueue(MockResponse().setBody("new file"))
             val directory = temporary.newFolder()
             File(directory, "video.mkv.part").writeText("old prefix")
-            val output = transferAndroidDownload(downloadItem(server.url("/video").toString()), directory,
-                null, onHeaders = { _, _ -> }, onProgress = { _, _ -> })
-            assertEquals("new file", output.readText())
+            transferInto(directory, server.url("/video").toString())
+            assertEquals("new file", File(directory, "video.mkv.part").readText())
         }
     }
 
@@ -64,9 +62,8 @@ class AndroidDownloadTransferTest {
             server.enqueue(MockResponse().setBody("replacement"))
             val directory = temporary.newFolder()
             File(directory, "video.mkv.part").writeText("old prefix")
-            val output = transferAndroidDownload(downloadItem(server.url("/video").toString()), directory,
-                null, onHeaders = { _, _ -> }, onProgress = { _, _ -> })
-            assertEquals("replacement", output.readText())
+            transferInto(directory, server.url("/video").toString())
+            assertEquals("replacement", File(directory, "video.mkv.part").readText())
             assertEquals("bytes=10-", server.takeRequest().getHeader("Range"))
             assertNull(server.takeRequest().getHeader("Range"))
         }
@@ -79,8 +76,7 @@ class AndroidDownloadTransferTest {
             val directory = temporary.newFolder()
             val partial = File(directory, "video.mkv.part").apply { writeText("hello") }
             assertFailsWith<IOException> {
-                transferAndroidDownload(downloadItem(server.url("/video").toString()), directory,
-                    null, onHeaders = { _, _ -> }, onProgress = { _, _ -> })
+                transferInto(directory, server.url("/video").toString())
             }
             assertEquals("hello", partial.readText())
         }
@@ -92,8 +88,7 @@ class AndroidDownloadTransferTest {
             server.enqueue(MockResponse().setBody("abcdefghij").setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY))
             val directory = temporary.newFolder()
             assertFailsWith<IOException> {
-                transferAndroidDownload(downloadItem(server.url("/video").toString()), directory,
-                    null, onHeaders = { _, _ -> }, onProgress = { _, _ -> })
+                transferInto(directory, server.url("/video").toString())
             }
             assertFalse(File(directory, "video.mkv").exists())
             assertTrue(File(directory, "video.mkv.part").length() < 10)
@@ -106,8 +101,7 @@ class AndroidDownloadTransferTest {
             server.enqueue(MockResponse().setBody("abcdefghij").throttleBody(1, 10, TimeUnit.SECONDS))
             val directory = temporary.newFolder()
             val task = async(Dispatchers.Default) {
-                transferAndroidDownload(downloadItem(server.url("/video").toString()), directory,
-                    null, onHeaders = { _, _ -> }, onProgress = { _, _ -> })
+                transferInto(directory, server.url("/video").toString())
             }
             withContext(Dispatchers.IO) { server.takeRequest(5, TimeUnit.SECONDS) }
             withTimeout(5_000) {
@@ -127,6 +121,24 @@ class AndroidDownloadTransferTest {
         assertFalse(shouldRetryAndroidDownload(DownloadHttpException(403), 0))
         assertFalse(shouldRetryAndroidDownload(IOException("connection lost"), 4))
     }
+}
+
+/**
+ * StreamBridge's transferAndroidDownload writes through a [DownloadSink] (so downloads can
+ * target a SAF document as well as a plain file) and returns Unit, whereas these tests were
+ * written against the older directory-based signature that returned the output File. Adapt
+ * rather than weaken the production API: the sink points at the same "<name>.part" file the
+ * scheduler uses, and promotion of .part to the final name stays the scheduler's job.
+ */
+private suspend fun transferInto(directory: File, url: String, validator: String? = null) {
+    val item = downloadItem(url)
+    transferAndroidDownload(
+        item = item,
+        sink = FileDownloadSink(File(directory, item.fileName + ".part")),
+        validator = validator,
+        onHeaders = { _, _ -> },
+        onProgress = { _, _ -> },
+    )
 }
 
 internal fun downloadItem(url: String = "https://example.com/video.mkv", id: String = "test-download") = DownloadItem(

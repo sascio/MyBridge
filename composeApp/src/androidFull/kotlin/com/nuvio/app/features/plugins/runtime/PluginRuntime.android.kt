@@ -1,6 +1,7 @@
 package com.nuvio.app.features.plugins.runtime
 
 import android.os.Process
+import com.dokar.quickjs.QuickJs
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
@@ -14,3 +15,9 @@ internal val pluginDispatcher: CoroutineDispatcher =
             isDaemon = true
         }
     }.asCoroutineDispatcher()
+
+internal suspend fun <T> withPluginThread(block: suspend () -> T): T = block()
+
+internal fun QuickJs.configurePluginRuntime() {
+    evaluationTimeoutMillis = PLUGIN_TIMEOUT_MS
+}

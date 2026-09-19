@@ -72,8 +72,8 @@ Production cert SHA-256: 5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBD
 1. Secrets above are set on `sascio/MyBridge`.
 2. `streambridge.version.properties` is the version you intend to ship
    (do not bump only to exercise the updater).
-3. Run **Draft production GitHub Release** with tag = `STREAMBRIDGE_VERSION_NAME`
-   (currently `0.1.01`).
+3. Run **Draft production GitHub Release** with tag `v<STREAMBRIDGE_VERSION_NAME>`
+   (for this release, `v0.1.05`).
 4. Workflow fails closed without secrets, if the tag does not match, if
    the APK is debug-signed, or if `apksigner` cannot verify.
 5. Inspect the **draft**. Device-validate install + playback before

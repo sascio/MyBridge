@@ -64,11 +64,15 @@ val sentryOrg = envOrLocalProperty("SENTRY_ORG")
 val sentryProject = envOrLocalProperty("SENTRY_PROJECT")
 val sentryMappingUploadEnabled = sentryAuthToken != null && sentryOrg != null && sentryProject != null
 val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconfig")
+// StreamBridge's own user-facing version (see streambridge.version.properties).
+// Keep this ahead of Enhanced's `nuvio.app.versionName` so we never ship Nuvio's
+// version number as StreamBridge's.
 val streamBridgeProps = Properties().apply {
     val f = rootProject.file("streambridge.version.properties")
     if (f.exists()) f.inputStream().use(::load)
 }
 val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
+    ?: providers.gradleProperty("nuvio.app.versionName").orNull
     ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
 val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
@@ -111,6 +115,10 @@ android {
     productFlavors {
         create("full") {
             dimension = "distribution"
+            // Only the sideload distribution can load CloudStream .cs3 packages,
+            // so only it needs the keep rules that make dynamically loaded
+            // provider bytecode resolve against the embedded runtime.
+            proguardFile("../composeApp/proguard-cloudstream-full.pro")
         }
         create("playstore") {
             dimension = "distribution"
@@ -216,6 +224,30 @@ sentry {
 dependencies {
     implementation(project(":composeApp"))
     implementation(libs.androidx.appcompat)
+
+    // CloudStream compatibility runtime (GPL-3.0), sideload distribution only.
+    //
+    // This must be declared here, on the application module, in addition to
+    // composeApp. A local .aar file dependency of a Kotlin Multiplatform
+    // library source set is not reliably exported to the consuming
+    // application's runtime classpath, so composeApp compiled against it while
+    // the APK shipped without it: every plugin load would then fail on device
+    // with NoClassDefFoundError for BasePlugin, even though CI was green.
+    //
+    // `fullImplementation` keeps it strictly out of the Play Store variant, so
+    // the no-DEX boundary is unchanged. Integrity is still enforced by
+    // :composeApp:verifyCloudStreamRuntime against the pinned SHA-256.
+    "fullImplementation"(files("../composeApp/libs/cloudstream-runtime-api-4.8.0-3496e5f.aar"))
+    // Libraries that dynamically loaded plugin bytecode resolves by its
+    // original JVM names; unreachable to R8's static analysis.
+    "fullImplementation"("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
+    "fullImplementation"("org.jsoup:jsoup:1.22.1")
+    "fullImplementation"("com.github.Blatzar:NiceHttp:0.4.18")
+    "fullImplementation"("me.xdrop:fuzzywuzzy:1.4.0")
+    "fullImplementation"("org.mozilla:rhino:1.8.1")
+    "fullImplementation"("dev.whyoleg.cryptography:cryptography-core:0.6.0")
+    "fullImplementation"("dev.whyoleg.cryptography:cryptography-provider-optimal:0.6.0")
+
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     debugImplementation(libs.compose.uiTooling)
     androidTestImplementation("androidx.test:runner:1.7.0")

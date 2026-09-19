@@ -7,6 +7,8 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.cloudstream.CloudStreamAggregatorBridge
+import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
@@ -81,6 +83,9 @@ object StreamsRepository {
         } else {
             PluginsUiState(pluginsEnabled = false)
         }
+        // CloudStream extensions must be available to aggregation even when the
+        // user has never opened the CloudStream settings screen this session.
+        CloudStreamExtensionsRepository.initialize()
         val requestToken = requestToken(
             type = type,
             videoId = videoId,
@@ -136,6 +141,7 @@ object StreamsRepository {
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isDirectAutoPlayFlow = true,
+                autoPlayDecided = true,
                 showDirectAutoPlayOverlay = true,
             )
         }
@@ -157,6 +163,7 @@ object StreamsRepository {
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 groups = listOf(presentedGroup),
+                autoPlayDecided = true,
                 activeAddonIds = setOf("embedded"),
                 isAnyLoading = false,
             )
@@ -173,13 +180,29 @@ object StreamsRepository {
             repositories = pluginUiState.repositories,
             groupByRepository = pluginUiState.groupStreamsByRepository,
         )
+        // CloudStream providers join the same aggregation as Stremio addons and
+        // plugin scrapers. Only genuinely executable, user-enabled providers whose
+        // declared content type can serve this request are returned.
+        val cloudStreamTargets = CloudStreamAggregatorBridge.resolveTargets(
+            extensions = CloudStreamExtensionsRepository.uiState.value.extensions,
+            mediaType = type,
+        )
+        // CloudStream providers are site scrapers keyed by title, not by
+        // IMDb/TMDB id, so the display metadata is what makes them searchable.
+        val cloudStreamMeta = MetaDetailsRepository.uiState.value.meta
+            ?.takeIf { it.id == videoId || it.id == parentMetaId }
+        val cloudStreamTitle = cloudStreamMeta?.name
+        val cloudStreamYear = cloudStreamMeta?.releaseInfo
+            ?.take(4)
+            ?.toIntOrNull()
 
-        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (installedAddons.isEmpty() && pluginProviderGroups.isEmpty() && cloudStreamTargets.isEmpty()) {
             InAppLogger.warn("Streams/StreamsRepository", "No stream addons or plugin scrapers installed for type=$type id=$videoId")
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isAnyLoading = false,
                 emptyStateReason = StreamsEmptyStateReason.NoAddonsInstalled,
+                autoPlayDecided = true,
             )
             return
         }
@@ -203,12 +226,13 @@ object StreamsRepository {
                 "for type=$type id=$videoId",
         )
 
-        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty()) {
+        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && cloudStreamTargets.isEmpty()) {
             InAppLogger.warn("Streams/StreamsRepository", "No compatible stream addon/plugin for type=$type id=$videoId")
             _uiState.value = StreamsUiState(
                 requestToken = requestToken,
                 isAnyLoading = false,
                 emptyStateReason = StreamsEmptyStateReason.NoCompatibleAddons,
+                autoPlayDecided = true,
             )
             return
         }
@@ -229,6 +253,13 @@ object StreamsRepository {
                 streams = emptyList(),
                 isLoading = true,
             )
+        } + cloudStreamTargets.map { target ->
+            AddonStreamGroup(
+                addonName = target.addonName,
+                addonId = target.addonId,
+                streams = emptyList(),
+                isLoading = true,
+            )
         }, installedAddonOrder)
         val isInitiallyLoading = initialGroups.any { it.isLoading }
         _uiState.value = StreamsUiState(
@@ -238,6 +269,7 @@ object StreamsRepository {
             isAnyLoading = isInitiallyLoading,
             emptyStateReason = null,
             isDirectAutoPlayFlow = isDirectAutoPlayFlow,
+            autoPlayDecided = true,
             showDirectAutoPlayOverlay = isDirectAutoPlayFlow,
         )
 
@@ -246,9 +278,13 @@ object StreamsRepository {
             val pluginRemainingByAddonId = pluginProviderGroups
                 .associate { it.addonId to it.scrapers.size }
                 .toMutableMap()
+            // Each CloudStream provider is exactly one task and reuses the
+            // PluginScraper completion path, so it shares this bookkeeping.
+            cloudStreamTargets.forEach { pluginRemainingByAddonId[it.addonId] = 1 }
             val pluginFirstErrorByAddonId = mutableMapOf<String, String>()
             val totalTasks = streamAddons.size +
-                pluginProviderGroups.sumOf { it.scrapers.size }
+                pluginProviderGroups.sumOf { it.scrapers.size } +
+                cloudStreamTargets.size
 
             val installedAddonNames = installedAddonOrder.toSet()
             val installedAddonIds = streamAddons.map { it.addonId }.toSet()
@@ -539,6 +575,53 @@ object StreamsRepository {
                 }
             }
 
+            // CloudStream providers: one coroutine each, so a slow or broken
+            // extension cannot delay or break Stremio addons, plugin scrapers,
+            // or the other CloudStream providers.
+            cloudStreamTargets.forEach { target ->
+                launch {
+                    InAppLogger.info(
+                        "Streams/CloudStreamFetch",
+                        "Resolving provider=${target.addonName} addonId=${target.addonId} " +
+                            "type=$type id=$videoId season=${season ?: -1} episode=${episode ?: -1}",
+                    )
+                    val completion = CloudStreamExtensionsRepository.resolveStreams(
+                        target = target,
+                        mediaType = type,
+                        videoId = videoId,
+                        season = season,
+                        episode = episode,
+                        title = cloudStreamTitle,
+                        year = cloudStreamYear,
+                    ).fold(
+                        onSuccess = { streams ->
+                            InAppLogger.info(
+                                "Streams/CloudStreamFetch",
+                                "Provider loaded provider=${target.addonName} count=${streams.size}",
+                            )
+                            StreamLoadCompletion.PluginScraper(
+                                addonId = target.addonId,
+                                streams = streams,
+                                error = null,
+                            )
+                        },
+                        onFailure = { error ->
+                            InAppLogger.warn(
+                                "Streams/CloudStreamFetch",
+                                "Provider failed provider=${target.addonName} " +
+                                    "error=${InAppLogger.throwableSummary(error)}",
+                            )
+                            StreamLoadCompletion.PluginScraper(
+                                addonId = target.addonId,
+                                streams = emptyList(),
+                                error = error.message,
+                            )
+                        },
+                    )
+                    publishCompletion(completion)
+                }
+            }
+
             repeat(totalTasks) {
                 when (val completion = completions.receive()) {
                     is StreamLoadCompletion.Addon -> {
@@ -789,6 +872,7 @@ object StreamsRepository {
                 autoPlayCandidates = remaining,
                 isDirectAutoPlayFlow = remaining.isNotEmpty(),
                 showDirectAutoPlayOverlay = remaining.isNotEmpty(),
+                overlayMessage = null,
             )
         }
         return hasNext
