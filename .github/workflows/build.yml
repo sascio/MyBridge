@@ -91,6 +91,16 @@ jobs:
           # the host test suite (allTests).
           ./gradlew :composeApp:check --continue --stacktrace 2>&1 | tee -a gradle-build.log
 
+      - name: Surface failing unit tests as annotations
+        # The unit-test step is continue-on-error, so failures would otherwise
+        # only be visible inside a downloaded report. Emit each failing test
+        # as a check annotation so the failing names are readable straight
+        # from the run (API/web) without log or artifact access.
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 .github/report-failing-tests.py composeApp/build/test-results
+
       - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@v6
