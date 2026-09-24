@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
 import androidx.compose.foundation.background
@@ -461,6 +462,7 @@ fun SettingsScreen(
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
                         homescreenHeroTrailerStartDelaySeconds = homescreenSettingsUiState.heroTrailerStartDelaySeconds,
+                        homescreenHeroTrailerStartUnmuted = homescreenSettingsUiState.heroTrailerStartUnmuted,
                         homescreenShowCatalogType = homescreenSettingsUiState.showCatalogType,
                         homescreenHideUnreleasedContent = homescreenSettingsUiState.hideUnreleasedContent,
                         homescreenItems = homescreenSettingsUiState.items,
@@ -538,6 +540,7 @@ fun SettingsScreen(
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
                         homescreenHeroTrailerStartDelaySeconds = homescreenSettingsUiState.heroTrailerStartDelaySeconds,
+                        homescreenHeroTrailerStartUnmuted = homescreenSettingsUiState.heroTrailerStartUnmuted,
                         homescreenShowCatalogType = homescreenSettingsUiState.showCatalogType,
                         homescreenHideUnreleasedContent = homescreenSettingsUiState.hideUnreleasedContent,
                         homescreenItems = homescreenSettingsUiState.items,
@@ -628,6 +631,7 @@ private fun MobileSettingsScreen(
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
     homescreenHeroTrailerStartDelaySeconds: Int,
+    homescreenHeroTrailerStartUnmuted: Boolean,
     homescreenShowCatalogType: Boolean,
     homescreenHideUnreleasedContent: Boolean,
     homescreenItems: List<HomeCatalogSettingsItem>,
@@ -722,12 +726,15 @@ private fun MobileSettingsScreen(
             }
         }
 
+        val profileDrawsOwnChrome = page == SettingsPage.Profile && showInternalHeader && !LocalUseNativeNavigation.current
         NuvioScreen(
             modifier = Modifier.nestedScroll(rootSearchRevealConnection),
             listState = listState,
             autoHidesNativeTabBar = true,
+            topPadding = if (page == SettingsPage.Profile) 0.dp else null,
         ) {
-            if (showInternalHeader) {
+            if (profileDrawsOwnChrome) {
+            } else if (showInternalHeader) {
                 stickyHeader {
                     val previousPage = page.previousPage()
                     NuvioScreenHeader(
@@ -795,6 +802,7 @@ private fun MobileSettingsScreen(
                     onSwitchProfile = onSwitchProfile,
                     onEditProfile = onEditProfile,
                     onPosterClick = onPosterClick,
+                    onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
                 )
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
@@ -906,6 +914,7 @@ private fun MobileSettingsScreen(
                     heroEnabled = homescreenHeroEnabled,
                     heroTrailerPlaybackEnabled = homescreenHeroTrailerPlaybackEnabled,
                     heroTrailerStartDelaySeconds = homescreenHeroTrailerStartDelaySeconds,
+                    heroTrailerStartUnmuted = homescreenHeroTrailerStartUnmuted,
                     showCatalogType = homescreenShowCatalogType,
                     hideUnreleasedContent = homescreenHideUnreleasedContent,
                     items = homescreenItems,
@@ -1057,6 +1066,7 @@ private fun TabletSettingsScreen(
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
     homescreenHeroTrailerStartDelaySeconds: Int,
+    homescreenHeroTrailerStartUnmuted: Boolean,
     homescreenShowCatalogType: Boolean,
     homescreenHideUnreleasedContent: Boolean,
     homescreenItems: List<HomeCatalogSettingsItem>,
@@ -1386,6 +1396,7 @@ private fun TabletSettingsScreen(
                         heroEnabled = homescreenHeroEnabled,
                         heroTrailerPlaybackEnabled = homescreenHeroTrailerPlaybackEnabled,
                         heroTrailerStartDelaySeconds = homescreenHeroTrailerStartDelaySeconds,
+                        heroTrailerStartUnmuted = homescreenHeroTrailerStartUnmuted,
                         showCatalogType = homescreenShowCatalogType,
                         hideUnreleasedContent = homescreenHideUnreleasedContent,
                         items = homescreenItems,

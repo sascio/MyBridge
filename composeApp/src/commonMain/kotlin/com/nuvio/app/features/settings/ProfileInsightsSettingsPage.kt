@@ -1,23 +1,38 @@
 package com.nuvio.app.features.settings
 
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 import co.touchlab.kermit.Logger
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -27,14 +42,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.CollectionsBookmark
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -53,18 +71,25 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.format.resolveReleaseInfoForDisplay
+import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
+import com.nuvio.app.core.ui.accentBrush
+import com.nuvio.app.core.ui.gradientMask
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.NuvioAsyncImage
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaDetails
@@ -72,6 +97,9 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.LibraryUiState
+import com.nuvio.app.features.library.LibraryUpcomingEpisode
+import com.nuvio.app.features.library.libraryUpcomingEpisodesFlow
+import com.nuvio.app.features.library.warmLibraryReleaseSchedule
 import com.nuvio.app.features.profiles.AvatarCatalogItem
 import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -100,6 +128,7 @@ internal fun LazyListScope.profileInsightsContent(
     onSwitchProfile: (() -> Unit)?,
     onEditProfile: (() -> Unit)?,
     onPosterClick: ((MetaPreview) -> Unit)?,
+    onBack: (() -> Unit)? = null,
 ) {
     item {
         ProfileInsightsBody(
@@ -107,6 +136,7 @@ internal fun LazyListScope.profileInsightsContent(
             onSwitchProfile = onSwitchProfile,
             onEditProfile = onEditProfile,
             onPosterClick = onPosterClick,
+            onBack = onBack,
         )
     }
 }
@@ -117,6 +147,7 @@ private fun ProfileInsightsBody(
     onSwitchProfile: (() -> Unit)?,
     onEditProfile: (() -> Unit)?,
     onPosterClick: ((MetaPreview) -> Unit)?,
+    onBack: (() -> Unit)? = null,
 ) {
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val avatars by AvatarRepository.avatars.collectAsStateWithLifecycle()
@@ -134,6 +165,12 @@ private fun ProfileInsightsBody(
         LibraryRepository.uiState
     }.collectAsStateWithLifecycle()
     val todayIsoDate = remember { CurrentDateProvider.todayIsoDate() }
+    val upcomingEpisodes by remember {
+        libraryUpcomingEpisodesFlow(days = PROFILE_UPCOMING_EPISODE_DAYS)
+    }.collectAsStateWithLifecycle(initialValue = emptyList())
+    LaunchedEffect(libraryState.items) {
+        warmLibraryReleaseSchedule(libraryState.items)
+    }
 
     LaunchedEffect(Unit) {
         AvatarRepository.fetchAvatars()
@@ -152,7 +189,7 @@ private fun ProfileInsightsBody(
         ?.trim()
         ?.takeIf { it.isNotBlank() }
         ?: profileNameFallback
-    val stats = remember(activeProfileIndex, watchProgressState, watchedState, fullyWatchedSeriesKeys, libraryState, todayIsoDate) {
+    val baseStats = remember(activeProfileIndex, watchProgressState, watchedState, fullyWatchedSeriesKeys, libraryState, todayIsoDate) {
         runCatching {
             buildProfileInsightsStats(
                 watchProgressState = watchProgressState,
@@ -167,12 +204,16 @@ private fun ProfileInsightsBody(
             emptyProfileInsightsStats()
         }
     }
+    val stats = remember(baseStats, upcomingEpisodes) {
+        baseStats.copy(upcomingCount = upcomingEpisodes.size)
+    }
     val continueTitle = stringResource(Res.string.profile_insights_stat_continue)
+    val watchedTitle = stringResource(Res.string.profile_insights_stat_watched)
     val completedTitle = stringResource(Res.string.profile_insights_stat_completed)
     val ongoingTitle = stringResource(Res.string.profile_insights_stat_ongoing)
     val libraryTitle = stringResource(Res.string.profile_insights_stat_library)
     val upcomingTitle = stringResource(Res.string.profile_insights_stat_upcoming)
-    val insightCollections = remember(
+    val baseInsightCollections = remember(
         activeProfileIndex,
         watchProgressState,
         watchedState,
@@ -180,6 +221,7 @@ private fun ProfileInsightsBody(
         libraryState,
         todayIsoDate,
         continueTitle,
+        watchedTitle,
         completedTitle,
         ongoingTitle,
         libraryTitle,
@@ -193,6 +235,7 @@ private fun ProfileInsightsBody(
                 libraryState = libraryState,
                 todayIsoDate = todayIsoDate,
                 continueTitle = continueTitle,
+                watchedTitle = watchedTitle,
                 completedTitle = completedTitle,
                 ongoingTitle = ongoingTitle,
                 libraryTitle = libraryTitle,
@@ -203,6 +246,7 @@ private fun ProfileInsightsBody(
         }.getOrElse {
             emptyProfileInsightCollections(
                 continueTitle = continueTitle,
+                watchedTitle = watchedTitle,
                 completedTitle = completedTitle,
                 ongoingTitle = ongoingTitle,
                 libraryTitle = libraryTitle,
@@ -210,49 +254,61 @@ private fun ProfileInsightsBody(
             )
         }
     }
+    val insightCollections = remember(baseInsightCollections, upcomingEpisodes, upcomingTitle) {
+        baseInsightCollections + (
+            ProfileInsightCollectionKind.Upcoming to ProfileInsightCollection(
+                title = upcomingTitle,
+                subtitle = "",
+                items = upcomingEpisodes.map(LibraryUpcomingEpisode::toProfileInsightPosterItem),
+            )
+        )
+    }
     var selectedInsightCollection by remember { mutableStateOf<ProfileInsightCollection?>(null) }
     LaunchedEffect(activeProfileIndex) {
         selectedInsightCollection = null
     }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(if (isTablet) 18.dp else 14.dp),
-    ) {
-        if (onSwitchProfile != null || onEditProfile != null) {
-            ProfileManagementActions(
-                isTablet = isTablet,
-                onSwitchProfile = onSwitchProfile,
-                onEditProfile = onEditProfile,
-            )
-        }
+    val isCollectionAvailable: (ProfileInsightCollectionKind) -> Boolean = { kind ->
+        insightCollections[kind]?.items?.isNotEmpty() == true
+    }
+    val onCollectionClick: (ProfileInsightCollectionKind) -> Unit = { kind ->
+        selectedInsightCollection = insightCollections[kind]
+            ?.takeIf { collection -> collection.items.isNotEmpty() }
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
         ProfileInsightsHero(
             profile = activeProfile,
             avatarItem = avatarItem,
             profileName = profileName,
+            isTablet = isTablet,
             stats = stats,
-            isTablet = isTablet,
+            isCollectionAvailable = isCollectionAvailable,
+            onCollectionClick = onCollectionClick,
+            onEditProfile = onEditProfile.takeUnless { isTablet },
+            onSwitchProfile = onSwitchProfile.takeUnless { isTablet },
+            onBack = onBack.takeUnless { isTablet },
         )
-        SettingsSection(
-            title = stringResource(Res.string.profile_insights_section_overview),
-            isTablet = isTablet,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = if (isTablet) 18.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isTablet) 18.dp else 14.dp),
         ) {
-            ProfileInsightsStatsGrid(
-                stats = stats,
+            val inlineEditProfile = onEditProfile.takeIf { isTablet }
+            val inlineSwitchProfile = onSwitchProfile.takeIf { isTablet }
+            if (inlineSwitchProfile != null || inlineEditProfile != null) {
+                ProfileManagementActions(
+                    isTablet = isTablet,
+                    onSwitchProfile = inlineSwitchProfile,
+                    onEditProfile = inlineEditProfile,
+                )
+            }
+            ProfileWatchTimeRow(stats = stats)
+            SettingsSection(
+                title = stringResource(Res.string.profile_insights_section_taste),
                 isTablet = isTablet,
-                isCollectionAvailable = { kind ->
-                    insightCollections[kind]?.items?.isNotEmpty() == true
-                },
-                onCollectionClick = { kind ->
-                    selectedInsightCollection = insightCollections[kind]
-                        ?.takeIf { collection -> collection.items.isNotEmpty() }
-                },
-            )
-        }
-        SettingsSection(
-            title = stringResource(Res.string.profile_insights_section_taste),
-            isTablet = isTablet,
-        ) {
-            ProfileTasteCard(stats = stats)
+            ) {
+                ProfileTasteCard(stats = stats)
+            }
         }
     }
 
@@ -303,6 +359,7 @@ private fun ProfileManagementActions(
                 Icon(
                     imageVector = Icons.Rounded.Edit,
                     contentDescription = null,
+                    modifier = Modifier.gradientMask(MaterialTheme.themePalette.accentBrush()),
                     tint = tokens.colors.accent,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -317,42 +374,98 @@ private fun ProfileManagementActions(
 }
 
 @Composable
+private fun ProfileHeaderIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.14f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(18.dp),
+        )
+    }
+}
+
+@Composable
 private fun ProfileInsightsHero(
     profile: NuvioProfile?,
     avatarItem: AvatarCatalogItem?,
     profileName: String,
-    stats: ProfileInsightsStats,
     isTablet: Boolean,
+    stats: ProfileInsightsStats,
+    isCollectionAvailable: (ProfileInsightCollectionKind) -> Boolean,
+    onCollectionClick: (ProfileInsightCollectionKind) -> Unit,
+    onEditProfile: (() -> Unit)?,
+    onSwitchProfile: (() -> Unit)?,
+    onBack: (() -> Unit)? = null,
+) {
+    if (isTablet) {
+        ProfileInsightsHeroBounded(
+            profile = profile,
+            avatarItem = avatarItem,
+            profileName = profileName,
+            stats = stats,
+            isCollectionAvailable = isCollectionAvailable,
+            onCollectionClick = onCollectionClick,
+        )
+    } else {
+        ProfileInsightsHeroCinematic(
+            profile = profile,
+            avatarItem = avatarItem,
+            profileName = profileName,
+            stats = stats,
+            isCollectionAvailable = isCollectionAvailable,
+            onCollectionClick = onCollectionClick,
+            onEditProfile = onEditProfile,
+            onSwitchProfile = onSwitchProfile,
+            onBack = onBack,
+        )
+    }
+}
+
+@Composable
+private fun ProfileInsightsHeroBounded(
+    profile: NuvioProfile?,
+    avatarItem: AvatarCatalogItem?,
+    profileName: String,
+    stats: ProfileInsightsStats,
+    isCollectionAvailable: (ProfileInsightCollectionKind) -> Boolean,
+    onCollectionClick: (ProfileInsightCollectionKind) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     val accent = profile?.avatarColorHex?.let(::parseHexColor) ?: tokens.colors.accent
     val avatarImageUrl = remember(profile, avatarItem) {
         profile?.let { profileAvatarImageUrl(it, avatarItem) }
     }
-    val shape = RoundedCornerShape(if (isTablet) 34.dp else 28.dp)
+    val shape = RoundedCornerShape(34.dp)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .height(320.dp)
             .clip(shape)
             .border(1.dp, Color.White.copy(alpha = 0.12f), shape),
     ) {
         if (profile != null) {
-            ProfileBackgroundBackdrop(
-                profile = profile,
-                modifier = Modifier.matchParentSize(),
-            )
+            ProfileBackgroundBackdrop(profile = profile, modifier = Modifier.matchParentSize())
         } else {
             Box(
                 modifier = Modifier
                     .matchParentSize()
                     .background(
                         Brush.linearGradient(
-                            listOf(
-                                Color(0xFF0E1727),
-                                accent.copy(alpha = 0.42f),
-                                tokens.colors.surface,
-                            ),
+                            listOf(Color(0xFF0E1727), accent.copy(alpha = 0.42f), tokens.colors.surface),
                         ),
                     ),
             )
@@ -361,89 +474,211 @@ private fun ProfileInsightsHero(
             modifier = Modifier
                 .matchParentSize()
                 .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            accent.copy(alpha = 0.34f),
-                            Color.Transparent,
-                        ),
-                        radius = 760f,
-                    ),
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
                     Brush.verticalGradient(
-                        listOf(
-                            Color.Black.copy(alpha = 0.04f),
-                            Color.Black.copy(alpha = 0.56f),
-                        ),
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.20f), Color.Black.copy(alpha = 0.88f)),
+                        startY = 0f,
+                        endY = Float.POSITIVE_INFINITY,
                     ),
                 ),
         )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(if (isTablet) 24.dp else 18.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+                .align(Alignment.BottomStart)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            ProfileHeroAvatar(
+                profileName = profileName,
+                avatarImageUrl = avatarImageUrl,
+                avatarColor = accent,
+                avatarBackgroundColor = avatarItem?.bgColor?.let(::parseHexColor) ?: accent,
+                isTablet = true,
+            )
+            Text(
+                text = stringResource(Res.string.profile_insights_title, profileName),
+                style = MaterialTheme.typography.displaySmall,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            ProfileMetricPillRow(
+                stats = stats,
+                isCollectionAvailable = isCollectionAvailable,
+                onCollectionClick = onCollectionClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProfileInsightsHeroCinematic(
+    profile: NuvioProfile?,
+    avatarItem: AvatarCatalogItem?,
+    profileName: String,
+    stats: ProfileInsightsStats,
+    isCollectionAvailable: (ProfileInsightCollectionKind) -> Boolean,
+    onCollectionClick: (ProfileInsightCollectionKind) -> Unit,
+    onEditProfile: (() -> Unit)?,
+    onSwitchProfile: (() -> Unit)?,
+    onBack: (() -> Unit)? = null,
+) {
+    val tokens = MaterialTheme.nuvio
+    val accent = profile?.avatarColorHex?.let(::parseHexColor) ?: tokens.colors.accent
+    val avatarImageUrl = remember(profile, avatarItem) {
+        profile?.let { profileAvatarImageUrl(it, avatarItem) }
+    }
+
+    val bleedsUnderNativeNavBar = LocalUseNativeNavigation.current
+    val floatingChromeTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .aspectRatio(1f),
+    ) {
+        BoxWithConstraints(modifier = Modifier.matchParentSize()) {
+            val leftInset = tokens.spacing.screenHorizontal + 40.dp
+            val rightInset = tokens.spacing.screenHorizontal + 160.dp
+            val bleedWidth = maxWidth + leftInset + rightInset
+            val topExtension = if (bleedsUnderNativeNavBar) 56.dp else 0.dp
+            val extendedHeight = maxHeight + topExtension
+
+            Box(
+                modifier = Modifier
+                    .requiredWidth(bleedWidth)
+                    .requiredHeight(extendedHeight)
+                    .offset(x = -leftInset, y = -topExtension),
+            ) {
+                if (profile != null) {
+                    ProfileBackgroundBackdrop(
+                        profile = profile,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        Color(0xFF0E1727),
+                                        accent.copy(alpha = 0.42f),
+                                        tokens.colors.surface,
+                                    ),
+                                ),
+                            ),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.20f),
+                                    Color.Black.copy(alpha = 0.88f),
+                                ),
+                                startY = 0f,
+                                endY = Float.POSITIVE_INFINITY,
+                            ),
+                        ),
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomStart)
+                    .padding(horizontal = 18.dp)
+                    .padding(bottom = 140.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 ProfileHeroAvatar(
                     profileName = profileName,
                     avatarImageUrl = avatarImageUrl,
                     avatarColor = accent,
                     avatarBackgroundColor = avatarItem?.bgColor?.let(::parseHexColor) ?: accent,
-                    isTablet = isTablet,
+                    isTablet = false,
                 )
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Text(
+                    text = stringResource(Res.string.profile_insights_title, profileName),
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            ProfileMetricPillRow(
+                stats = stats,
+                isCollectionAvailable = isCollectionAvailable,
+                onCollectionClick = onCollectionClick,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 18.dp)
+                    .padding(bottom = 18.dp),
+            )
+
+            if (onEditProfile != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(
+                            top = if (bleedsUnderNativeNavBar) platformPhysicalTopInset() + 4.dp else floatingChromeTop,
+                            end = 18.dp,
+                        ),
                 ) {
-                    Text(
-                        text = stringResource(Res.string.profile_insights_title, profileName),
-                        style = if (isTablet) {
-                            MaterialTheme.typography.headlineMedium
-                        } else {
-                            MaterialTheme.typography.headlineSmall
-                        },
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(Res.string.profile_insights_subtitle),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.74f),
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                    ProfileHeaderIconButton(
+                        icon = Icons.Rounded.Edit,
+                        contentDescription = stringResource(Res.string.profile_insights_edit_profile),
+                        onClick = onEditProfile,
                     )
                 }
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ProfileHeroMetric(
-                    value = stats.continueCount.toString(),
-                    label = stringResource(Res.string.profile_insights_stat_continue),
-                    modifier = Modifier.weight(1f),
+
+            if (onBack != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = floatingChromeTop, start = 18.dp),
+                ) {
+                    ProfileHeaderIconButton(
+                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = stringResource(Res.string.action_back),
+                        onClick = onBack,
+                    )
+                }
+                Text(
+                    text = stringResource(Res.string.compose_settings_page_profile),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = floatingChromeTop + 9.dp),
                 )
-                ProfileHeroMetric(
-                    value = stats.libraryCount.toString(),
-                    label = stringResource(Res.string.profile_insights_stat_library),
-                    modifier = Modifier.weight(1f),
-                )
-                ProfileHeroMetric(
-                    value = stats.upcomingCount.toString(),
-                    label = stringResource(Res.string.profile_insights_stat_upcoming),
-                    modifier = Modifier.weight(1f),
-                )
+            }
+
+            if (onSwitchProfile != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 140.dp, end = 18.dp),
+                ) {
+                    ProfileHeaderIconButton(
+                        icon = Icons.Rounded.People,
+                        contentDescription = stringResource(Res.string.profile_insights_switch_profile),
+                        onClick = onSwitchProfile,
+                    )
+                }
             }
         }
     }
@@ -494,21 +729,108 @@ private fun ProfileHeroAvatar(
 }
 
 @Composable
-private fun ProfileHeroMetric(
-    value: String,
-    label: String,
+private fun ProfileMetricPillRow(
+    stats: ProfileInsightsStats,
+    isCollectionAvailable: (ProfileInsightCollectionKind) -> Boolean,
+    onCollectionClick: (ProfileInsightCollectionKind) -> Unit,
     modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+) {
+    val pills = listOf(
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.PlayArrow,
+            value = stats.continueCount.toString(),
+            label = stringResource(Res.string.profile_insights_hero_continue),
+            collectionKind = ProfileInsightCollectionKind.Continue,
+        ),
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.CollectionsBookmark,
+            value = stats.libraryCount.toString(),
+            label = stringResource(Res.string.profile_insights_hero_library),
+            collectionKind = ProfileInsightCollectionKind.Library,
+        ),
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.CalendarMonth,
+            value = stats.upcomingCount.toString(),
+            label = stringResource(Res.string.profile_insights_hero_upcoming),
+            collectionKind = ProfileInsightCollectionKind.Upcoming,
+        ),
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.Movie,
+            value = stats.watchedMovieCount.toString(),
+            label = stringResource(Res.string.profile_insights_hero_watched),
+            collectionKind = ProfileInsightCollectionKind.Watched,
+        ),
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.Favorite,
+            value = stats.completedCount.toString(),
+            label = stringResource(Res.string.profile_insights_stat_completed),
+            collectionKind = ProfileInsightCollectionKind.Completed,
+        ),
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.Sync,
+            value = stats.ongoingSeriesCount.toString(),
+            label = stringResource(Res.string.profile_insights_stat_ongoing),
+            collectionKind = ProfileInsightCollectionKind.Ongoing,
+        ),
+        ProfileMetricPillSpec(
+            icon = Icons.Rounded.Tv,
+            value = stats.episodesWatchedCount.toString(),
+            label = stringResource(Res.string.profile_insights_hero_episodes),
+            collectionKind = null,
+        ),
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Spacer(modifier = Modifier.width(contentPadding.calculateStartPadding(LayoutDirection.Ltr)))
+        pills.forEach { pill ->
+            ProfileMetricPill(
+                spec = pill,
+                onClick = pill.collectionKind
+                    ?.takeIf(isCollectionAvailable)
+                    ?.let { kind -> { onCollectionClick(kind) } },
+            )
+        }
+        Spacer(modifier = Modifier.width(contentPadding.calculateEndPadding(LayoutDirection.Ltr)))
+    }
+}
+
+private data class ProfileMetricPillSpec(
+    val icon: ImageVector,
+    val value: String,
+    val label: String,
+    val collectionKind: ProfileInsightCollectionKind?,
+)
+
+@Composable
+private fun ProfileMetricPill(
+    spec: ProfileMetricPillSpec,
+    onClick: (() -> Unit)?,
 ) {
     Column(
-        modifier = modifier
+        modifier = Modifier
+            .width(96.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.10f))
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .background(Color.White.copy(alpha = 0.14f))
+            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        Icon(
+            imageVector = spec.icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = Color.White,
+        )
         Text(
-            text = value,
+            text = spec.value,
             autoSize = TextAutoSize.StepBased(
                 minFontSize = 14.sp,
                 maxFontSize = MaterialTheme.typography.titleLarge.fontSize,
@@ -519,11 +841,9 @@ private fun ProfileHeroMetric(
             maxLines = 1,
         )
         Text(
-            text = label,
+            text = spec.label,
             style = MaterialTheme.typography.labelSmall,
-            fontSize = 8.sp,
-            letterSpacing = 0.sp,
-            color = Color.White.copy(alpha = 0.70f),
+            color = Color.White.copy(alpha = 0.72f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -531,158 +851,57 @@ private fun ProfileHeroMetric(
 }
 
 @Composable
-private fun ProfileInsightsStatsGrid(
-    stats: ProfileInsightsStats,
-    isTablet: Boolean,
-    isCollectionAvailable: (ProfileInsightCollectionKind) -> Boolean,
-    onCollectionClick: (ProfileInsightCollectionKind) -> Unit,
-) {
-    val tiles = listOf(
-        ProfileInsightTile(
-            icon = Icons.Rounded.PlayArrow,
-            value = stats.continueCount.toString(),
-            label = stringResource(Res.string.profile_insights_stat_continue),
-            caption = stringResource(Res.string.profile_insights_stat_continue_caption),
-            collectionKind = ProfileInsightCollectionKind.Continue,
-        ),
-        ProfileInsightTile(
-            icon = Icons.Rounded.CollectionsBookmark,
-            value = stats.upcomingCount.toString(),
-            label = stringResource(Res.string.profile_insights_stat_upcoming),
-            caption = stringResource(Res.string.profile_insights_stat_upcoming_caption),
-            collectionKind = ProfileInsightCollectionKind.Upcoming,
-        ),
-        ProfileInsightTile(
-            icon = Icons.Rounded.Favorite,
-            value = stats.completedCount.toString(),
-            label = stringResource(Res.string.profile_insights_stat_completed),
-            caption = stringResource(Res.string.profile_insights_stat_completed_caption),
-            collectionKind = ProfileInsightCollectionKind.Completed,
-        ),
-        ProfileInsightTile(
-            icon = Icons.Rounded.Sync,
-            value = stats.ongoingSeriesCount.toString(),
-            label = stringResource(Res.string.profile_insights_stat_ongoing),
-            caption = stringResource(Res.string.profile_insights_stat_ongoing_caption),
-            collectionKind = ProfileInsightCollectionKind.Ongoing,
-        ),
-        ProfileInsightTile(
-            icon = Icons.Rounded.CollectionsBookmark,
-            value = stats.libraryCount.toString(),
-            label = stringResource(Res.string.profile_insights_stat_library),
-            caption = stringResource(Res.string.profile_insights_stat_library_caption),
-            collectionKind = ProfileInsightCollectionKind.Library,
-        ),
-        ProfileInsightTile(
-            icon = Icons.Rounded.AutoAwesome,
-            value = profileInsightDurationLabel(stats.trackedDurationMs),
-            label = stringResource(Res.string.profile_insights_stat_time),
-            caption = stringResource(Res.string.profile_insights_stat_time_caption),
-        ),
-    )
-    val columns = if (isTablet) 3 else 2
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        tiles.chunked(columns).forEach { rowTiles ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                rowTiles.forEach { tile ->
-                    ProfileInsightStatCard(
-                        tile = tile,
-                        onClick = tile.collectionKind
-                            ?.takeIf(isCollectionAvailable)
-                            ?.let { kind -> { onCollectionClick(kind) } },
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                repeat(columns - rowTiles.size) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProfileInsightStatCard(
-    tile: ProfileInsightTile,
-    onClick: (() -> Unit)?,
-    modifier: Modifier = Modifier,
-) {
+private fun ProfileWatchTimeRow(stats: ProfileInsightsStats) {
     val tokens = MaterialTheme.nuvio
     Surface(
-        modifier = modifier
-            .height(136.dp)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
-                } else {
-                    Modifier
-                },
-            ),
+        modifier = Modifier.fillMaxWidth(),
         color = tokens.colors.surface,
-        shape = RoundedCornerShape(22.dp),
+        shape = tokens.shapes.card,
         border = BorderStroke(1.dp, tokens.colors.borderSubtle),
     ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier.size(40.dp),
+                color = tokens.colors.accent.copy(alpha = tokens.opacity.pressed),
+                shape = RoundedCornerShape(12.dp),
             ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .gradientMask(MaterialTheme.themePalette.accentBrush()),
+                        tint = tokens.colors.accent,
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = tile.value,
-                    modifier = Modifier.weight(1f, fill = false),
-                    autoSize = TextAutoSize.StepBased(
-                        minFontSize = 14.sp,
-                        maxFontSize = MaterialTheme.typography.titleLarge.fontSize,
-                    ),
-                    style = MaterialTheme.typography.titleLarge,
+                    text = stringResource(Res.string.profile_insights_stat_time),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = tokens.colors.textPrimary,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = stringResource(Res.string.profile_insights_stat_time_caption),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Surface(
-                    modifier = Modifier.size(34.dp),
-                    color = tokens.colors.accent.copy(alpha = tokens.opacity.pressed),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = tile.icon,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = tokens.colors.accent,
-                        )
-                    }
-                }
             }
             Text(
-                text = tile.label,
-                autoSize = TextAutoSize.StepBased(
-                    minFontSize = 10.sp,
-                    maxFontSize = MaterialTheme.typography.bodyMedium.fontSize,
-                ),
-                style = MaterialTheme.typography.bodyMedium,
+                text = profileInsightDurationLabel(stats.trackedDurationMs),
+                style = MaterialTheme.typography.titleMedium,
                 color = tokens.colors.textPrimary,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = tile.caption,
-                style = MaterialTheme.typography.labelSmall,
-                fontSize = 9.sp,
-                letterSpacing = 0.sp,
-                color = tokens.colors.textMuted,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -887,14 +1106,20 @@ private fun ProfileTasteCard(stats: ProfileInsightsStats) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    modifier = Modifier.size(52.dp),
-                    color = tokens.colors.accent.copy(alpha = tokens.opacity.pressed),
+                    modifier = Modifier
+                        .size(52.dp)
+                        .background(
+                            brush = MaterialTheme.themePalette.accentBrush(alpha = tokens.opacity.pressed),
+                            shape = RoundedCornerShape(18.dp),
+                        ),
+                    color = Color.Transparent,
                     shape = RoundedCornerShape(18.dp),
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Rounded.AutoAwesome,
                             contentDescription = null,
+                            modifier = Modifier.gradientMask(MaterialTheme.themePalette.accentBrush()),
                             tint = tokens.colors.accent,
                         )
                     }
@@ -980,15 +1205,20 @@ private fun ProfileTasteSegmentRow(segment: ProfileTasteSegment) {
                 maxLines = 1,
             )
         }
-        LinearProgressIndicator(
-            progress = { segment.share.coerceIn(0f, 1f) },
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(5.dp)
-                .clip(RoundedCornerShape(999.dp)),
-            color = tokens.colors.accent,
-            trackColor = tokens.colors.borderSubtle,
-        )
+                .clip(RoundedCornerShape(999.dp))
+                .background(tokens.colors.borderSubtle),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(segment.share.coerceIn(0f, 1f))
+                    .fillMaxHeight()
+                    .background(MaterialTheme.themePalette.accentBrush()),
+            )
+        }
     }
 }
 
@@ -1022,29 +1252,19 @@ private fun ProfileTasteBalanceBar(stats: ProfileInsightsStats) {
                 .background(tokens.colors.borderSubtle),
         ) {
             val movieLeaning = stats.movieShare >= 0.5f
+            val accentBrush = MaterialTheme.themePalette.accentBrush()
+            val mutedBrush = SolidColor(tokens.colors.textMuted.copy(alpha = 0.42f))
             Box(
                 modifier = Modifier
                     .weight(stats.movieShare.coerceIn(0.05f, 0.95f))
                     .fillMaxSize()
-                    .background(
-                        if (movieLeaning) {
-                            tokens.colors.accent
-                        } else {
-                            tokens.colors.textMuted.copy(alpha = 0.42f)
-                        },
-                    ),
+                    .background(if (movieLeaning) accentBrush else mutedBrush),
             )
             Box(
                 modifier = Modifier
                     .weight((1f - stats.movieShare).coerceIn(0.05f, 0.95f))
                     .fillMaxSize()
-                    .background(
-                        if (movieLeaning) {
-                            tokens.colors.textMuted.copy(alpha = 0.42f)
-                        } else {
-                            tokens.colors.accent
-                        },
-                    ),
+                    .background(if (movieLeaning) mutedBrush else accentBrush),
             )
         }
         Row(
@@ -1074,8 +1294,8 @@ private fun ProfileTasteDnaChip(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(tokens.colors.accent.copy(alpha = tokens.opacity.pressed))
-            .border(1.dp, tokens.colors.accent.copy(alpha = 0.22f), RoundedCornerShape(999.dp))
+            .background(MaterialTheme.themePalette.accentBrush(alpha = tokens.opacity.pressed))
+            .border(1.dp, MaterialTheme.themePalette.accentBrush(alpha = 0.22f), RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1083,7 +1303,9 @@ private fun ProfileTasteDnaChip(
         Icon(
             imageVector = Icons.Rounded.AutoAwesome,
             contentDescription = null,
-            modifier = Modifier.size(14.dp),
+            modifier = Modifier
+                .size(14.dp)
+                .gradientMask(MaterialTheme.themePalette.accentBrush()),
             tint = tokens.colors.accent,
         )
         Text(
@@ -1149,6 +1371,7 @@ private fun buildProfileInsightsStats(
         progressEntries = progressEntries,
     )
     val completedContentItems = watchedBuckets.completedItems
+    val watchedMovieItems = watchedBuckets.watchedMovieItems
     val ongoingSeriesItems = watchedBuckets.ongoingSeriesItems
     val normalizedTypes = libraryItems.map { item -> item.type } +
         progressEntries.map { entry -> entry.parentMetaType } +
@@ -1173,7 +1396,9 @@ private fun buildProfileInsightsStats(
 
     return ProfileInsightsStats(
         continueCount = continueEntries.size,
+        watchedMovieCount = watchedMovieItems.size,
         completedCount = completedContentItems.size,
+        episodesWatchedCount = watchedItems.profileWatchedEpisodeCount(),
         ongoingSeriesCount = ongoingSeriesItems.size,
         libraryCount = libraryItems.size,
         trackedDurationMs = profileTrackedDurationMs(
@@ -1199,7 +1424,7 @@ private fun buildProfileInsightsStats(
         dnaChips = buildProfileTasteDnaChips(
             libraryCount = libraryItems.size,
             continueCount = continueEntries.size,
-            completedCount = completedContentItems.size,
+            completedCount = watchedMovieItems.size + completedContentItems.size,
             recentActivityCount = recentActivityCount,
             upcomingCount = libraryItems.count { item ->
                 item.profileReleaseIsoDate()?.let { releaseDate -> releaseDate >= todayIsoDate } == true
@@ -1217,6 +1442,7 @@ private fun buildProfileInsightCollections(
     libraryState: LibraryUiState,
     todayIsoDate: String,
     continueTitle: String,
+    watchedTitle: String,
     completedTitle: String,
     ongoingTitle: String,
     libraryTitle: String,
@@ -1243,6 +1469,20 @@ private fun buildProfileInsightCollections(
         libraryItems = libraryState.items,
         progressEntries = watchProgressState.entries,
     )
+
+    val watchedMovieItems = watchedBuckets.watchedMovieItems
+        .asSequence()
+        .map { item ->
+            ProfileInsightPosterItem(
+                id = "watched:${item.kind}:${item.id}",
+                title = item.title,
+                releaseInfo = item.releaseInfo,
+                imageUrl = item.imageUrl,
+                lookupType = item.kind,
+                lookupId = item.id,
+            )
+        }
+        .toList()
 
     val completedItems = watchedBuckets.completedItems
         .asSequence()
@@ -1288,28 +1528,17 @@ private fun buildProfileInsightCollections(
         }
         .toList()
 
-    val upcomingItems = libraryState.items
-        .asSequence()
-        .filter(LibraryItem::isProfileInsightContent)
-        .filter { item -> item.profileReleaseIsoDate()?.let { releaseDate -> releaseDate >= todayIsoDate } == true }
-        .sortedBy { item -> item.profileReleaseIsoDate().orEmpty() }
-        .map { item ->
-            ProfileInsightPosterItem(
-                id = "upcoming:${item.id}:${item.type}",
-                title = item.name.trim().takeIf { it.isNotBlank() } ?: item.id,
-                releaseInfo = item.releaseInfo?.trim()?.takeIf { it.isNotBlank() },
-                imageUrl = item.poster ?: item.banner,
-                lookupType = item.type,
-                lookupId = item.id,
-            )
-        }
-        .toList()
 
     return mapOf(
         ProfileInsightCollectionKind.Continue to ProfileInsightCollection(
             title = continueTitle,
             subtitle = "",
             items = continueItems,
+        ),
+        ProfileInsightCollectionKind.Watched to ProfileInsightCollection(
+            title = watchedTitle,
+            subtitle = "",
+            items = watchedMovieItems,
         ),
         ProfileInsightCollectionKind.Completed to ProfileInsightCollection(
             title = completedTitle,
@@ -1326,10 +1555,11 @@ private fun buildProfileInsightCollections(
             subtitle = "",
             items = libraryItems,
         ),
+        // Filled from the release calendar in the composable (see upcomingEpisodes).
         ProfileInsightCollectionKind.Upcoming to ProfileInsightCollection(
             title = upcomingTitle,
             subtitle = "",
-            items = upcomingItems,
+            items = emptyList(),
         ),
     )
 }
@@ -1337,7 +1567,9 @@ private fun buildProfileInsightCollections(
 private fun emptyProfileInsightsStats(): ProfileInsightsStats =
     ProfileInsightsStats(
         continueCount = 0,
+        watchedMovieCount = 0,
         completedCount = 0,
+        episodesWatchedCount = 0,
         ongoingSeriesCount = 0,
         libraryCount = 0,
         trackedDurationMs = 0L,
@@ -1353,6 +1585,7 @@ private fun emptyProfileInsightsStats(): ProfileInsightsStats =
 
 private fun emptyProfileInsightCollections(
     continueTitle: String,
+    watchedTitle: String,
     completedTitle: String,
     ongoingTitle: String,
     libraryTitle: String,
@@ -1361,6 +1594,11 @@ private fun emptyProfileInsightCollections(
     mapOf(
         ProfileInsightCollectionKind.Continue to ProfileInsightCollection(
             title = continueTitle,
+            subtitle = "",
+            items = emptyList(),
+        ),
+        ProfileInsightCollectionKind.Watched to ProfileInsightCollection(
+            title = watchedTitle,
             subtitle = "",
             items = emptyList(),
         ),
@@ -1387,6 +1625,7 @@ private fun emptyProfileInsightCollections(
     )
 
 private data class ProfileWatchedContentBuckets(
+    val watchedMovieItems: List<ProfileCompletedContentItem>,
     val completedItems: List<ProfileCompletedContentItem>,
     val ongoingSeriesItems: List<ProfileCompletedContentItem>,
 )
@@ -1511,10 +1750,19 @@ private fun buildProfileWatchedContentBuckets(
         }
 
     return ProfileWatchedContentBuckets(
-        completedItems = (movieItems + completedSeriesItems).sortedByDescending(ProfileCompletedContentItem::markedAtEpochMs),
+        watchedMovieItems = movieItems.sortedByDescending(ProfileCompletedContentItem::markedAtEpochMs),
+        completedItems = completedSeriesItems.sortedByDescending(ProfileCompletedContentItem::markedAtEpochMs),
         ongoingSeriesItems = ongoingSeriesItems.sortedByDescending(ProfileCompletedContentItem::markedAtEpochMs),
     )
 }
+private fun List<WatchedItem>.profileWatchedEpisodeCount(): Int =
+    asSequence()
+        .filter { item -> item.type.profileCompletedContentKind() == "series" }
+        .filter { item -> item.season != null && item.episode != null }
+        .map { item -> Triple(item.id, item.season, item.episode) }
+        .distinct()
+        .count()
+
 private fun WatchProgressEntry.isProfileInsightProgressEntry(): Boolean =
     parentMetaType.profileCompletedContentKind() != null &&
         !parentMetaId.isLikelyProfileLiveTvValue() &&
@@ -1950,6 +2198,8 @@ private data class ProfileInsightsStats(
     val trackedDurationMs: Long,
     val recentActivityCount: Int,
     val upcomingCount: Int,
+    val watchedMovieCount: Int = 0,
+    val episodesWatchedCount: Int = 0,
     val topGenre: String?,
     val topType: String?,
     val tasteSegments: List<ProfileTasteSegment>,
@@ -1959,16 +2209,22 @@ private data class ProfileInsightsStats(
 )
 
 
-private data class ProfileInsightTile(
-    val icon: ImageVector,
-    val value: String,
-    val label: String,
-    val caption: String,
-    val collectionKind: ProfileInsightCollectionKind? = null,
-)
+private const val PROFILE_UPCOMING_EPISODE_DAYS = 7
+
+private fun LibraryUpcomingEpisode.toProfileInsightPosterItem(): ProfileInsightPosterItem =
+    ProfileInsightPosterItem(
+        id = "upcoming:$key",
+        title = item.name.trim().takeIf { it.isNotBlank() } ?: item.id,
+        secondaryText = subtitle,
+        releaseInfo = dateIso,
+        imageUrl = item.poster ?: imageUrl ?: item.banner,
+        lookupType = item.type,
+        lookupId = item.id,
+    )
 
 private enum class ProfileInsightCollectionKind {
     Continue,
+    Watched,
     Completed,
     Ongoing,
     Library,

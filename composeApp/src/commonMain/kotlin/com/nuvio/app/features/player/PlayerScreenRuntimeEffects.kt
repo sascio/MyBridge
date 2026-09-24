@@ -301,19 +301,20 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playbackSnapshot.isLoading,
         preferredAudioSelectionApplied,
         preferredSubtitleSelectionApplied,
+        trackPreferenceRestoreApplied,
         addonSubtitles,
         isLoadingAddonSubtitles,
     ) {
         if (playerController == null || playbackSnapshot.isLoading) {
             return@LaunchedEffect
         }
-        if (preferredAudioSelectionApplied && preferredSubtitleSelectionApplied) {
+        if (trackPreferenceRestoreApplied && preferredAudioSelectionApplied && preferredSubtitleSelectionApplied) {
             return@LaunchedEffect
         }
 
         repeat(10) {
             refreshTracks()
-            if (preferredAudioSelectionApplied && preferredSubtitleSelectionApplied) {
+            if (trackPreferenceRestoreApplied && preferredAudioSelectionApplied && preferredSubtitleSelectionApplied) {
                 return@LaunchedEffect
             }
             delay(300)
@@ -706,6 +707,29 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 playNextEpisode()
             }
         }
+    }
+
+    LaunchedEffect(
+        playbackSnapshot.positionMs,
+        playbackSnapshot.durationMs,
+        playbackSnapshot.isEnded,
+        playerMeta?.moreLikeThis,
+        movieRecommendationDismissedStage,
+        playerSettingsUiState.movieRecommendationsEnabled,
+    ) {
+        if (!isMoviePlayback || !playerSettingsUiState.movieRecommendationsEnabled || playerMeta?.moreLikeThis.isNullOrEmpty()) {
+            showMovieRecommendationCard = false
+            return@LaunchedEffect
+        }
+        val stage = PlayerNextEpisodeRules.movieRecommendationStage(
+            positionMs = playbackSnapshot.positionMs,
+            durationMs = playbackSnapshot.durationMs,
+            isEnded = playbackSnapshot.isEnded,
+        )
+        if (stage == 0 && movieRecommendationDismissedStage != 0) {
+            movieRecommendationDismissedStage = 0
+        }
+        showMovieRecommendationCard = stage > movieRecommendationDismissedStage
     }
 }
 

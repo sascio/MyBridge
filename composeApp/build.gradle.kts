@@ -9,6 +9,7 @@ import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.io.StringReader
 import java.security.MessageDigest
@@ -93,6 +94,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
 
     @get:Input
     abstract val donationsDonateUrl: Property<String>
+
+    @get:Input
+    abstract val mdblistClientId: Property<String>
 
     /**
      * Escapes a resolved config value for embedding in a Kotlin string literal.
@@ -182,6 +186,19 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |    const val CLIENT_ID = "${simklClientId.asKotlinLiteral()}"
                 |    const val REDIRECT_URI = "${simklRedirectUri.asKotlinLiteral()}"
                 |    const val APP_NAME = "${simklAppName.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
+
+        outDir.resolve("com/nuvio/app/features/mdblist").apply {
+            mkdirs()
+            resolve("MdbListConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.mdblist
+                |
+                |object MdbListConfig {
+                |    const val CLIENT_ID = "${mdblistClientId.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -503,6 +520,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     supportersWallUrl.set(runtimeConfigValue("SUPPORTERS_WALL_URL"))
     donationsBaseUrl.set(runtimeConfigValue("DONATIONS_BASE_URL"))
     donationsDonateUrl.set(runtimeConfigValue("DONATIONS_DONATE_URL"))
+    mdblistClientId.set(runtimeConfigValue("MDBLIST_CLIENT_ID"))
 }
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
@@ -592,6 +610,14 @@ kotlin {
                     "-framework", "SystemConfiguration",
                     "-framework", "CoreFoundation",
                 )
+            }
+        }
+
+        if (iosTarget.name == "iosSimulatorArm64") {
+            val testEntitlements = project.file("src/iosTest/resources/keychain-test.entitlements")
+            iosTarget.binaries.withType<TestExecutable>().configureEach {
+                linkerOpts("-sectcreate", "__TEXT", "__entitlements", testEntitlements.absolutePath)
+                linkTaskProvider.configure { inputs.file(testEntitlements) }
             }
         }
     }
@@ -722,6 +748,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.kotlinx.coroutines.get()}")
         }
     }
 }

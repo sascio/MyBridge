@@ -78,6 +78,7 @@ import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.details.HeroTrailerAudioState
+import com.nuvio.app.features.details.HeroTrailerSurface
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.components.DetailIconAction
 import com.nuvio.app.features.details.components.HeroTrailerPlayerSurface
@@ -217,6 +218,7 @@ internal fun HomeHeroSection(
     stretchPx: () -> Float = { 0f },
     trailerPlaybackEnabled: Boolean = false,
     trailerStartDelaySeconds: Int = 0,
+    trailerStartUnmuted: Boolean = false,
     onItemClick: ((MetaPreview) -> Unit)? = null,
     onActiveArtworkChange: ((String?) -> Unit)? = null,
 ) {
@@ -388,7 +390,13 @@ internal fun HomeHeroSection(
             }
             var heroTrailerReady by remember(currentItem.type, currentItem.id) { mutableStateOf(false) }
             var heroTrailerFinished by remember(currentItem.type, currentItem.id) { mutableStateOf(false) }
-            val heroTrailerMuted by HeroTrailerAudioState.muted.collectAsStateWithLifecycle()
+            val heroTrailerMuted by HeroTrailerAudioState
+                .muted(HeroTrailerSurface.Home)
+                .collectAsStateWithLifecycle()
+
+            LaunchedEffect(trailerStartUnmuted) {
+                HeroTrailerAudioState.applyStartMuted(HeroTrailerSurface.Home, !trailerStartUnmuted)
+            }
 
             val latestForceStopTrailer = rememberUpdatedState {
                 if (heroTrailerPlaybackSource != null || !heroTrailerFinished) {
@@ -676,7 +684,7 @@ internal fun HomeHeroSection(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                 ) {
-                                    HeroTrailerAudioState.toggleMuted()
+                                    HeroTrailerAudioState.toggleMuted(HeroTrailerSurface.Home)
                                 }
                                 .padding(8.dp),
                         ) {
@@ -715,12 +723,14 @@ private fun HeroPageIndicator(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         repeat(itemCount) { index ->
-            val activeFraction = heroPageVisibility(pagerState, index, itemCount)
+            val activeFraction = heroItemVisibility(pagerState, index, itemCount)
             Box(
                 modifier = Modifier
                     .clickable {
                         coroutineScope.launch {
-                            pagerState.animateScrollToPage(index)
+                            pagerState.animateScrollToPage(
+                                heroPageForItem(pagerState.currentPage, index, itemCount),
+                            )
                         }
                     }
                     .clip(CircleShape)
@@ -746,11 +756,11 @@ private fun heroPageOffset(
     page: Int,
 ): Float = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
 
-private fun heroPageVisibility(
-    pagerState: PagerState,
-    itemIndex: Int,
-    itemCount: Int,
-): Float {
+/**
+ * How visible an item is, for the dots. Pages are no longer item indices since upstream made the
+ * pager endless, so the item's nearest page has to be resolved first.
+ */
+private fun heroItemVisibility(pagerState: PagerState, itemIndex: Int, itemCount: Int): Float {
     val page = heroPageForItem(pagerState.currentPage, itemIndex, itemCount)
     return (1f - abs(heroPageOffset(pagerState, page))).coerceIn(0f, 1f)
 }
