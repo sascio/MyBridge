@@ -40,7 +40,7 @@ download location / Wi-Fi-only, etc.) were overlaid from:
 
   https://github.com/luqmanfadlli/NuvioMobile-Enhanced
   branch: enhanced
-  commit: d4a3b23
+  commit: 9d311c18 (tag 0.5.1-beta)
   license: GNU General Public License v3.0
 
 Official NuvioMobile 0.4.17 plugin/sync/player fixes were re-applied on
