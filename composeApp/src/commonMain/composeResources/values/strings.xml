@@ -46,6 +46,8 @@
     <string name="action_back">Back</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_close">Close</string>
+    <string name="action_collapse">Collapse</string>
+    <string name="action_expand">Expand</string>
     <string name="action_delete">Delete</string>
     <string name="action_delete_confirm_message">Are you sure you want to delete it?</string>
     <string name="action_delete_confirm_title">Delete?</string>
@@ -515,6 +517,7 @@
     <string name="compose_player_font_size">Font Size</string>
     <string name="compose_player_font_size_value">%1$dsp</string>
     <string name="compose_player_lock_controls">Lock player controls</string>
+    <string name="compose_player_picture_in_picture">Picture in Picture</string>
     <string name="compose_player_playback_info">Playback Info</string>
     <string name="compose_player_loading_lines">Loading subtitle lines...</string>
     <string name="compose_player_languages">Languages</string>
@@ -702,7 +705,7 @@
     <string name="settings_licenses_attributions_torbox_title">TorBox</string>
     <string name="settings_licenses_attributions_torbox_body">StreamBridge connects to TorBox for account authentication, cloud library access, cache checks, and cloud playback features. StreamBridge is not affiliated with or endorsed by TorBox.</string>
     <string name="settings_licenses_attributions_mdblist_title">MDBList</string>
-    <string name="settings_licenses_attributions_mdblist_body">StreamBridge uses MDBList for ratings and external score provider data. StreamBridge is not affiliated with or endorsed by MDBList.</string>
+    <string name="settings_licenses_attributions_mdblist_body">StreamBridge uses MDBList for ratings, watched history and playback tracking. StreamBridge is not affiliated with or endorsed by MDBList.</string>
     <string name="settings_licenses_attributions_introdb_title">IntroDB</string>
     <string name="settings_licenses_attributions_introdb_body">StreamBridge uses the IntroDB API for community-provided intro, recap, credits, and preview timestamps used by skip controls. StreamBridge is not affiliated with or endorsed by IntroDB.</string>
     <string name="settings_licenses_attributions_mpvkit_title">MPVKit</string>
@@ -864,6 +867,8 @@
     <string name="settings_homescreen_show_hero_description">Display hero carousel at top of home.</string>
     <string name="settings_homescreen_hero_trailer_playback">Hero Trailer Playback</string>
     <string name="settings_homescreen_hero_trailer_playback_description">Autoplay trailers in the hero carousel. When on, the carousel only advances when you swipe.</string>
+    <string name="settings_hero_trailer_start_unmuted">Start with sound</string>
+    <string name="settings_hero_trailer_start_unmuted_description">Play the trailer unmuted. You can still mute it with the speaker button.</string>
     <string name="settings_hero_trailer_start_delay">Trailer Start Delay</string>
     <string name="settings_hero_trailer_start_delay_description">Wait this long after the hero appears before the trailer starts.</string>
     <string name="settings_hero_trailer_start_delay_instant">Instant</string>
@@ -931,6 +936,14 @@
     <string name="settings_poster_width_dense">Dense</string>
     <string name="settings_poster_width_large">Large</string>
     <string name="settings_poster_width_standard">Standard</string>
+    <!-- Custom Poster URL -->
+    <string name="settings_custom_poster_title">CUSTOM POSTER SOURCE</string>
+    <string name="settings_custom_poster_description">Provide a poster URL pattern from an external service. If a placeholder has no value for a given title, the original poster is used instead.</string>
+    <string name="settings_custom_poster_placeholder">https://example.com/poster?id={id}&amp;id_type={id_type}&amp;type={type}</string>
+    <string name="settings_custom_poster_active">Custom poster source active</string>
+    <string name="settings_custom_poster_none">No pattern configured</string>
+    <string name="settings_custom_poster_save">Save</string>
+    <string name="settings_custom_poster_clear">Clear</string>
     <string name="settings_show_secret">Show value</string>
     <string name="settings_continue_watching_resume_prompt_description">Show a popup to continue where you left off when opening the app after leaving from the player.</string>
     <string name="settings_continue_watching_resume_prompt_title">Resume prompt on launch</string>
@@ -1084,7 +1097,12 @@
     <string name="settings_stream_size_badges_description">Show file size badges in stream results and player source panels.</string>
     <string name="settings_stream_addon_logo_title">Addon logo</string>
     <string name="settings_stream_addon_logo_description">Show addon logo and name next to stream sources.</string>
+    <string name="settings_stream_search_title">Search bar</string>
+    <string name="settings_stream_search_description">Show a filter field above the stream list to search by language, quality, codec or release group.</string>
     <string name="settings_stream_display_section">DISPLAY</string>
+    <string name="streams_search_placeholder">Filter streams</string>
+    <string name="streams_search_clear">Clear filter</string>
+    <string name="streams_search_no_results">No streams match your filter.</string>
     <string name="streams_pin_source">Pin to top</string>
     <string name="streams_unpin_source">Unpin from top</string>
     <string name="streams_pinned_source">Pinned source</string>
@@ -1149,6 +1167,9 @@
     <string name="settings_meta_comments_description">Reviews from Trakt</string>
     <string name="settings_meta_details">Details</string>
     <string name="settings_meta_details_description">Runtime, status, release, language, and related info.</string>
+    <string name="settings_meta_icon_action_row">Icon action row</string>
+    <string name="settings_meta_icon_action_row_description">Show the actions as icons under the play button instead of behind a menu.</string>
+    <string name="details_action_start_from_beginning">Start from beginning</string>
     <string name="settings_meta_hero_trailer_playback">Hero Trailer Playback</string>
     <string name="settings_meta_hero_trailer_playback_description">Play trailer previews in the metadata hero when a trailer is available.</string>
     <string name="settings_meta_episode_cards">Episode Cards</string>
@@ -1286,6 +1307,8 @@
     <string name="settings_playback_touch_gestures">Touch Gestures</string>
     <string name="settings_playback_touch_gestures_description">Allow swipes and double-taps on the player surface to seek, adjust brightness, or adjust volume.</string>
     <string name="settings_playback_swipe_to_seek">Swipe to Seek</string>
+    <string name="settings_playback_movie_recommendations">Movie Recommendations</string>
+    <string name="settings_playback_movie_recommendations_description">Suggest titles from More Like This when a movie reaches its end credits.</string>
     <string name="settings_playback_swipe_to_seek_description">Swipe left or right across the player to scrub through the video. Turn this off to keep only the up and down swipes for brightness and volume — double-tapping to skip still works.</string>
     <string name="settings_playback_auto_show_subtitles_on_rewind">Auto-Show Subtitles on Rewind</string>
     <string name="settings_playback_auto_show_subtitles_on_rewind_description">When subtitles are off, automatically turn them on while you rewind, then hide them again once playback catches back up to where you rewound from.</string>
@@ -1439,8 +1462,6 @@
     <string name="settings_tmdb_module_credits_description">Cast with photos, director, and writer from TMDB</string>
     <string name="settings_tmdb_module_details">Details</string>
     <string name="settings_tmdb_module_details_description">Runtime, status, country, and language from TMDB</string>
-    <string name="settings_tmdb_module_release_dates">Release dates</string>
-    <string name="settings_tmdb_module_release_dates_description">Use TMDB broadcaster air dates instead of precise add-on release times</string>
     <string name="settings_tmdb_module_episodes">Episodes</string>
     <string name="settings_tmdb_module_episodes_description">Episode titles, overviews, thumbnails, and runtime from TMDB</string>
     <string name="settings_tmdb_module_episode_ratings">Episode ratings</string>
@@ -1548,6 +1569,7 @@
     <string name="settings_simkl_sync_info_library_statuses">Shows placed in Simkl’s On Hold or Dropped lists are hidden from Continue Watching. They remain hidden for as long as they stay in either list.</string>
     <string name="settings_simkl_sync_info_docs">Read the Simkl sync guide</string>
     <string name="settings_simkl_authorization_revoked">Simkl authorization was revoked. Connect again.</string>
+    <string name="settings_tracking_not_connected">Not connected</string>
     <string name="tracking_source_simkl">Simkl</string>
     <string name="tracking_library_source_simkl_selected">Simkl watchlist selected</string>
     <string name="tracking_watch_progress_simkl_selected">Watch progress source set to Simkl</string>
@@ -1714,6 +1736,7 @@
     <string name="catalog_empty_message">This catalog did not return any items.</string>
     <string name="catalog_empty_title">No titles found</string>
     <string name="catalog_load_failed_title">Couldn’t load this catalog</string>
+    <string name="details_download_action">Download</string>
     <string name="details_actions_menu_label">More actions</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>
@@ -2096,6 +2119,8 @@
     <string name="downloads_enqueue_unsupported_format">Unsupported stream format for downloads</string>
     <string name="downloads_enqueue_requires_wifi">Connect to Wi-Fi to download, or allow mobile data in Downloads settings</string>
     <string name="downloads_allow_mobile_data_title">Allow mobile data</string>
+    <string name="downloads_show_download_button_title">Show download button</string>
+    <string name="downloads_show_download_button_description">Adds a download button under Play on a title's details page.</string>
     <string name="downloads_allow_mobile_data_description">By default, downloads only start on Wi-Fi. Enable this to also allow them on mobile data.</string>
     <string name="downloads_error_empty_body">Empty response body</string>
     <string name="downloads_error_finalize_failed">Failed to finalize download file</string>
@@ -2145,6 +2170,7 @@
     <string name="library_sort_added_asc">Oldest added</string>
     <string name="library_sort_added_desc">Recently added</string>
     <string name="library_sort_title_asc">Title A–Z</string>
+    <string name="library_error_sort_failed">Couldn\'t load sort order. Showing provider order.</string>
     <string name="library_sort_title_desc">Title Z–A</string>
     <string name="library_sort_provider_order">Tracker order</string>
     <string name="library_source_cloud">Cloud</string>
@@ -2617,4 +2643,7 @@
     <string name="compose_player_show_remaining_time">Show remaining time</string>
     <string name="compose_player_brightness">Brightness</string>
     <string name="compose_player_volume">Volume</string>
+    <string name="settings_nav_bar_position">Position</string>
+    <string name="settings_nav_bar_position_bottom">Bottom</string>
+    <string name="settings_nav_bar_position_top">Top</string>
 </resources>

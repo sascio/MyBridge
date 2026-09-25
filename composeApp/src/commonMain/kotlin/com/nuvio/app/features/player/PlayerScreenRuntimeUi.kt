@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
+import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
@@ -255,7 +256,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     playerControllerSourceUrl = playerSurfaceSourceUrl
                 },
                 onSnapshot = { snapshot ->
-                    playbackSnapshot = snapshot
+                    updatePlaybackSnapshot(snapshot)
                     checkAutoSubtitleRewindWatermark(snapshot.positionMs)
                     refreshAudioTracksIfChanged()
                     if (!snapshot.isLoading) initialLoadCompleted = true
@@ -596,6 +597,26 @@ private fun BoxScope.RenderPlaybackOverlays(
             nextEpisodeAutoPlaySourceName = null
             nextEpisodeAutoPlayCountdown = null
         },
+        movieRecommendations = if (isMoviePlayback && args.onOpenMetaDetails != null) {
+            playerMeta?.moreLikeThis.orEmpty()
+                .filterNot { it.id == parentMetaId }
+                .take(MOVIE_RECOMMENDATION_LIMIT)
+        } else {
+            emptyList()
+        },
+        showMovieRecommendationCard = showMovieRecommendationCard,
+        onOpenMovieRecommendation = { preview ->
+            flushWatchProgress()
+            args.onOpenMetaDetails?.invoke(preview)
+        },
+        onDismissMovieRecommendations = {
+            movieRecommendationDismissedStage = PlayerNextEpisodeRules.movieRecommendationStage(
+                positionMs = playbackSnapshot.positionMs,
+                durationMs = playbackSnapshot.durationMs,
+                isEnded = playbackSnapshot.isEnded,
+            )
+            showMovieRecommendationCard = false
+        },
         errorMessage = errorMessage,
             onDismissError = {
                 flushWatchProgress()
@@ -841,3 +862,6 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onStreamInfoModalDismissed = { showStreamInfoModal = false },
     )
 }
+
+private const val MOVIE_RECOMMENDATION_LIMIT = 10
+

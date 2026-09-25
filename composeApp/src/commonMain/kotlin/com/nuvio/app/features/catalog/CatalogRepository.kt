@@ -1,5 +1,7 @@
 package com.nuvio.app.features.catalog
 
+import com.nuvio.app.core.poster.CustomPosterUrlRepository
+import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.details.MoreLikeThisSource
 import com.nuvio.app.features.tmdb.TmdbMetadataService
@@ -100,7 +102,9 @@ object CatalogRepository {
             try {
                 val target = request.target as CatalogTarget.Library
                 LibraryRepository.ensureLoaded()
-                LibraryRepository.uiState.libraryCatalogStates(target).collect { state ->
+                LibraryRepository.uiState.libraryCatalogStates(
+                    target, LibraryRepository.uiState.libraryCatalogOrders(target),
+                ).collect { state ->
                     if (activeRequest != request) return@collect
                     _uiState.value = state
                 }
@@ -173,8 +177,10 @@ object CatalogRepository {
                         loadedNewItems = loadedNewItems,
                         consecutiveDuplicatePages = if (reset) 0 else current.consecutiveDuplicatePages,
                     )
+                    CustomPosterUrlRepository.ensureLoaded()
+                    val posterPattern = CustomPosterUrlRepository.pattern.value
                     _uiState.value = CatalogUiState(
-                        items = mergedItems,
+                        items = mergedItems.withCustomPosterUrls(posterPattern),
                         isLoading = false,
                         nextSkip = paginationState.nextSkip,
                         consecutiveDuplicatePages = paginationState.consecutiveDuplicatePages,

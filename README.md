@@ -16,8 +16,9 @@ plugins. The app does not ship, host, or recommend any content.
 It is **NuvioMobile core with StreamBridge identity** (name, icon, package,
 in-app updater). The runnable app is official
 [NuvioMobile](https://github.com/NuvioMedia/NuvioMobile)
-(`cmp-rewrite` `d177eb57`, **0.4.17**), GPL-3.0, plus unique features
-overlaid from [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced).
+(`cmp-rewrite` `b88fef2e`, **0.5.1**), GPL-3.0, plus unique features
+overlaid from [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced)
+(`enhanced` `9d311c18`, **0.5.1-beta**).
 Kotlin packages stay `com.nuvio.app`. `applicationId` is `com.streambridge.app`.
 
 The app ships **empty**: no catalogs, no metadata, no streams, no
