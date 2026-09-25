@@ -61,14 +61,14 @@ class CloudStreamRepositoryLoaderTest {
     }
 
     @Test
-    fun `a malformed repository manifest fails gracefully`() = runBlocking {
+    fun `a malformed repository manifest fails gracefully`() = runBlocking<Unit> {
         val repo = loader(mapOf(repoUrl to "{ broken")).load(repoUrl)
         assertEquals(CloudStreamCompatibility.FAILED, repo.compatibility)
         assertNotNull(repo.errorMessage)
     }
 
     @Test
-    fun `an unreachable plugin list fails the repository without throwing`() = runBlocking {
+    fun `an unreachable plugin list fails the repository without throwing`() = runBlocking<Unit> {
         val repo = loader(mapOf(repoUrl to repoJson)).load(repoUrl)
         assertEquals(CloudStreamCompatibility.FAILED, repo.compatibility)
         assertNotNull(repo.errorMessage)
