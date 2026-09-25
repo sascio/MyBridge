@@ -86,7 +86,7 @@ private fun AvatarChoiceItem(
         if (imageUrl != null) {
             NuvioAsyncImage(
                 imageUrl = imageUrl,
-                contentDescription = null,
+                contentDescription = avatar.displayName,
                 modifier = Modifier.fillMaxSize().clip(CircleShape),
                 contentScale = ContentScale.Crop,
                 animateIfPossible = true,
