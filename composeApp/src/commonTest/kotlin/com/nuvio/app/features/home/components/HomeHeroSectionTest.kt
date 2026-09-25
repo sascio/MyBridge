@@ -31,7 +31,7 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(452.4f, layout.heroHeight.value, 0.001f)
+        assertEquals(585f, layout.heroHeight.value, 0.001f)
     }
 
     @Test
@@ -46,7 +46,7 @@ class HomeHeroSectionTest {
     }
 
     @Test
-    fun `mobile hero height leaves room for continue watching card section`() {
+    fun `mobile hero stays width driven when continue watching is present`() {
         val viewportHeight = 844f
         val continueWatchingLayout = rememberContinueWatchingLayout(maxWidthDp = 390f)
         val continueWatchingHeight = continueWatchingSectionHeightEstimate(
@@ -65,11 +65,12 @@ class HomeHeroSectionTest {
             mobileBelowSectionHeightHintDp = reserveHeight.value,
         )
 
-        assertEquals(24f, viewportHeight - layout.heroHeight.value - continueWatchingHeight.value, 0.001f)
+        assertEquals(585f, layout.heroHeight.value, 0.001f)
+        assertEquals(74.966095f, viewportHeight - layout.heroHeight.value - continueWatchingHeight.value, 0.001f)
     }
 
     @Test
-    fun `mobile hero can shrink below default minimum to fit short viewport`() {
+    fun `mobile hero remains width driven in a short viewport`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
             viewportHeightDp = 568f,
@@ -77,6 +78,6 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(268f, layout.heroHeight.value, 0.001f)
+        assertEquals(585f, layout.heroHeight.value, 0.001f)
     }
 }

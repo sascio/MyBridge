@@ -70,6 +70,7 @@ class AvatarPickerTest {
                     configuration.value = size
                     direction.value = layoutDirection
                 }
+                compose.waitForIdle()
                 val grid = compose.onNodeWithTag("avatars").fetchSemanticsNode().boundsInRoot
                 val first = compose.onNodeWithContentDescription("Avatar 0").fetchSemanticsNode().boundsInRoot
                 val last = compose.onNodeWithContentDescription("Avatar ${size.columns - 1}")

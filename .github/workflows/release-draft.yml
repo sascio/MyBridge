@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.05)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.06)
         required: true
         type: string
-        default: "v0.1.05"
+        default: "v0.1.06"
 
 permissions:
   contents: write
@@ -255,9 +255,9 @@ jobs:
           )
           notes="$(mktemp)"
           cat > "$notes" <<'EOF'
-          ## StreamBridge 0.1.05
+          ## StreamBridge 0.1.06
 
-          - Updated the core to the latest Nuvio 0.4.25-beta improvements.
+          - Updated the core to the complete NuvioMobile-Enhanced 0.5.1-beta baseline.
           - Improved Home hero carousel behavior and transitions.
           - Improved player controls, timeline, gestures, brightness persistence, and next-episode behavior.
           - Improved Simkl watch history and playback-position handling.

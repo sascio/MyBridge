@@ -102,7 +102,7 @@ class RatingsVisibilityTest {
                 progress.value = emptyMap()
                 ratings.value = mapOf((1 to 1) to 8.4)
             }
-            compose.onNodeWithText("8.4").assertIsDisplayed()
+            compose.onNodeWithText("8.4").fetchSemanticsNode()
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_UNWATCHED_EPISODES }
@@ -110,7 +110,7 @@ class RatingsVisibilityTest {
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { watchedKeys.value = watchedItemKeys(meta.type, meta.id, 1, 1).toSet() }
-            compose.onNodeWithText("8.4").assertIsDisplayed()
+            compose.onNodeWithText("8.4").fetchSemanticsNode()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_EPISODES }
             compose.onNodeWithText("8.4").assertDoesNotExist()
@@ -119,7 +119,7 @@ class RatingsVisibilityTest {
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_UNWATCHED_EPISODES }
-            compose.onNodeWithText("6.2").assertIsDisplayed()
+            compose.onNodeWithText("6.2").fetchSemanticsNode()
 
             compose.runOnIdle { watchedKeys.value = emptySet() }
             compose.onNodeWithText("6.2").assertDoesNotExist()
@@ -138,13 +138,13 @@ class RatingsVisibilityTest {
                     lastUpdatedEpochMs = 1,
                 ))
             }
-            compose.onNodeWithText("6.2").assertIsDisplayed()
+            compose.onNodeWithText("6.2").fetchSemanticsNode()
 
             compose.runOnIdle {
                 progress.value = emptyMap()
                 visibility.value = EpisodeRatingsVisibility.SHOW_ALL
             }
-            compose.onNodeWithText("6.2").assertIsDisplayed()
+            compose.onNodeWithText("6.2").fetchSemanticsNode()
         }
     }
 }

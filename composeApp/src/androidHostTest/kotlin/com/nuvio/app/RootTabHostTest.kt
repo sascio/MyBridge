@@ -62,6 +62,7 @@ class RootTabHostTest {
     private val tokens = mutableMapOf<AppScreenTab, Any>()
     private val owners = mutableMapOf<AppScreenTab, LifecycleOwner>()
     private val measures = mutableMapOf<AppScreenTab, Int>()
+    private val visitedTabs = listOf(AppScreenTab.Home, AppScreenTab.Search, AppScreenTab.Library, AppScreenTab.Settings)
 
     @Test
     fun switchingAllTabsRetainsVisitedContentWithoutMountingUnvisitedTabs() {
@@ -80,7 +81,7 @@ class RootTabHostTest {
         }
 
         compose.runOnIdle {
-            assertEquals(AppScreenTab.entries.associateWith { 1 }, mounts)
+            assertEquals(visitedTabs.associateWith { 1 }, mounts)
             assertTrue(disposals.isEmpty())
             assertSame(homeToken, tokens.getValue(AppScreenTab.Home))
         }
@@ -120,7 +121,7 @@ class RootTabHostTest {
             compose.runOnIdle { assertEquals(setOf(tab), runningEffects) }
         }
 
-        compose.runOnIdle { assertEquals(AppScreenTab.entries.associateWith { 1 }, compositions) }
+        compose.runOnIdle { assertEquals(visitedTabs.associateWith { 1 }, compositions) }
     }
 
     @Test
