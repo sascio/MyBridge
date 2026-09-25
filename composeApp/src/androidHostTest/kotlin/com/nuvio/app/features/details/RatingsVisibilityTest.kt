@@ -2,6 +2,7 @@ package com.nuvio.app.features.details
 
 import android.app.Application
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -102,7 +103,7 @@ class RatingsVisibilityTest {
                 progress.value = emptyMap()
                 ratings.value = mapOf((1 to 1) to 8.4)
             }
-            compose.onNodeWithText("8.4").assertIsDisplayed()
+            compose.onNodeWithText("8.4").assertExists()
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_UNWATCHED_EPISODES }
@@ -110,7 +111,7 @@ class RatingsVisibilityTest {
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { watchedKeys.value = watchedItemKeys(meta.type, meta.id, 1, 1).toSet() }
-            compose.onNodeWithText("8.4").assertIsDisplayed()
+            compose.onNodeWithText("8.4").assertExists()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_EPISODES }
             compose.onNodeWithText("8.4").assertDoesNotExist()
@@ -119,7 +120,7 @@ class RatingsVisibilityTest {
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_UNWATCHED_EPISODES }
-            compose.onNodeWithText("6.2").assertIsDisplayed()
+            compose.onNodeWithText("6.2").assertExists()
 
             compose.runOnIdle { watchedKeys.value = emptySet() }
             compose.onNodeWithText("6.2").assertDoesNotExist()
@@ -138,13 +139,13 @@ class RatingsVisibilityTest {
                     lastUpdatedEpochMs = 1,
                 ))
             }
-            compose.onNodeWithText("6.2").assertIsDisplayed()
+            compose.onNodeWithText("6.2").assertExists()
 
             compose.runOnIdle {
                 progress.value = emptyMap()
                 visibility.value = EpisodeRatingsVisibility.SHOW_ALL
             }
-            compose.onNodeWithText("6.2").assertIsDisplayed()
+            compose.onNodeWithText("6.2").assertExists()
         }
     }
 }

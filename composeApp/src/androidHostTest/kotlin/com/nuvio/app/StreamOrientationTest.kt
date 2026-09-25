@@ -8,7 +8,9 @@ import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.PlayerSettingsStorage
 import com.nuvio.app.features.streams.StreamLaunch
-import com.nuvio.app.features.streams.StreamLaunchStore
+import com.nuvio.app.features.updater.AndroidAppUpdaterPlatform
+import com.nuvio.app.features.streams.StreamLaunch
+import com.nuvio.app.features.updater.AndroidAppUpdaterPlatformStore
 import com.nuvio.app.features.streams.StreamsRepository
 import com.nuvio.app.navigation.StreamRoute
 import org.junit.Rule
@@ -37,6 +39,7 @@ class StreamOrientationTest {
 
     @BeforeTest
     fun initialize() {
+        AndroidAppUpdaterPlatform.initialize(RuntimeEnvironment.getApplication())
         PlayerSettingsStorage.initialize(RuntimeEnvironment.getApplication())
         PlayerSettingsRepository.clearLocalState()
         StreamsRepository.clear()
