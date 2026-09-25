@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.04)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.05)
         required: true
         type: string
-        default: "0.1.04"
+        default: "v0.1.05"
 
 permissions:
   contents: write
@@ -82,6 +82,11 @@ jobs:
       # Trakt/Simkl keys out of local.properties only, so CI has to materialise that
       # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
       # file and the checks only test for presence.
+      #
+      # NUVIO_LOCAL_PROPERTIES_BASE64 is optional. Trakt/Simkl are not configured for
+      # every release, so when the secret is absent CI creates an empty
+      # local.properties and the build proceeds with unconfigured Trakt/Simkl (empty
+      # generated credentials). No placeholder credentials are ever injected.
       - name: Configure release properties
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
@@ -89,8 +94,9 @@ jobs:
           set -euo pipefail
 
           if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
-            echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 GitHub secret is not set. It must contain a base64-encoded local.properties providing TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET and SIMKL_CLIENT_ID. See docs/TRAKT-SIMKL-CONFIG.md."
-            exit 1
+            : > local.properties
+            echo "NUVIO_LOCAL_PROPERTIES_BASE64 not set; using empty local.properties (Trakt/Simkl unconfigured for this build)."
+            exit 0
           fi
 
           printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
@@ -99,26 +105,18 @@ jobs:
           # so drop any copies carried inside the secret (official does the same).
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
 
-          # Fail fast, as official Nuvio does, rather than shipping an APK whose
-          # Settings screen reports "Missing TRAKT_CLIENT_ID / SIMKL_CLIENT_ID".
-          # Matches a non-empty value without ever printing it.
-          required_properties=(
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
-            SIMKL_CLIENT_ID
-          )
-          missing=0
-          for property_name in "${required_properties[@]}"; do
-            if ! grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\S" local.properties; then
-              echo "::error::Missing required property in NUVIO_LOCAL_PROPERTIES_BASE64: ${property_name}"
-              missing=1
+          # Trakt/Simkl properties are optional: a missing TRAKT_CLIENT_ID,
+          # TRAKT_CLIENT_SECRET or SIMKL_CLIENT_ID must not fail the release.
+          # Presence-only report; values are never printed.
+          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+            if grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\S" local.properties; then
+              echo "${property_name} present=true"
+            else
+              echo "${property_name} present=false"
             fi
           done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
 
-          echo "local.properties configured; required Trakt/Simkl properties present."
+          echo "local.properties configured."
 
       - name: Assemble production full release
         env:
@@ -136,36 +134,34 @@ jobs:
           # NuvioMobile mechanism and the only credential path this build supports.
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
-      # Presence-only proof that the credentials survived
-      # local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig.
-      # Greps the generated Kotlin for a non-empty literal; never prints a value.
-      - name: Verify generated Trakt/Simkl config is populated
+      # Presence-only report of what reached the generated runtime config
+      # (local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig).
+      # Trakt/Simkl credentials are optional, so empty generated values must not
+      # fail the release. Greps the generated Kotlin for an empty literal; never
+      # prints a value.
+      - name: Report generated Trakt/Simkl config presence
         run: |
           set -euo pipefail
           generated="composeApp/build/generated/runtime-config/kotlin"
           trakt="$generated/com/nuvio/app/features/trakt/TraktConfig.kt"
           simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
 
-          failed=0
-          check_populated() {
+          report_populated() {
             local file="$1" constant="$2"
             if [ ! -f "$file" ]; then
-              echo "::error::Generated config missing: $file"
-              failed=1
+              echo "::warning::Generated config missing: $file"
               return
             fi
             if grep -Eq "const val ${constant} = \"\"" "$file"; then
-              echo "::error::${constant} is empty in the generated release config."
-              failed=1
+              echo "${constant} present=false"
             else
               echo "${constant} present=true"
             fi
           }
 
-          check_populated "$trakt" CLIENT_ID
-          check_populated "$trakt" CLIENT_SECRET
-          check_populated "$simkl" CLIENT_ID
-          [ "$failed" -eq 0 ]
+          report_populated "$trakt" CLIENT_ID
+          report_populated "$trakt" CLIENT_SECRET
+          report_populated "$simkl" CLIENT_ID
 
       - name: Reject debug certificates and record public cert identity
         run: |
@@ -258,12 +254,18 @@ jobs:
             checksums.sha256
           )
           notes="$(mktemp)"
-          cat > "$notes" <<EOF
-          StreamBridge ${TAG}
+          cat > "$notes" <<'EOF'
+          ## StreamBridge 0.1.05
 
-          Based on NuvioMobile $(grep '^NUVIO_UPSTREAM_RELEASE=' streambridge.version.properties | cut -d= -f2) ($(grep '^NUVIO_UPSTREAM_COMMIT=' streambridge.version.properties | cut -d= -f2)).
-
-          Draft only — publish after device validation. In-app updates require this production certificate (docs/SIGNING.md). CI debug-signed APKs are not updates.
+          - Updated the core to the latest Nuvio 0.4.25-beta improvements.
+          - Improved Home hero carousel behavior and transitions.
+          - Improved player controls, timeline, gestures, brightness persistence, and next-episode behavior.
+          - Improved Simkl watch history and playback-position handling.
+          - Improved external-player and playback integrations.
+          - Improved subtitle support, including CJK subtitle font handling.
+          - Updated UI styling, surfaces, chips, navigation, and settings.
+          - Updated Greek and Vietnamese translations.
+          - Preserved StreamBridge's metadata, ratings, integrations, addons, plugins, and personalization features.
           EOF
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${assets[@]}" --clobber
