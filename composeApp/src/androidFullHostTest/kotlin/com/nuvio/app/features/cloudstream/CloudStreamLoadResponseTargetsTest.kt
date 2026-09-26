@@ -30,7 +30,13 @@ import kotlin.test.assertTrue
  * repository — matched neither cast, so the episode list came back empty and
  * the resolve stage threw, which the source picker rendered as
  * "The installed stream addons failed to return a valid stream response".
+ *
+ * The response constructors are deprecated in favour of CloudStream's
+ * `newXLoadResponse` builders, which are suspend extensions on `MainAPI` and
+ * exist for plugin authors. A host-side test needs the plain values, so the
+ * deprecation is suppressed here rather than in production code.
  */
+@Suppress("DEPRECATION", "DEPRECATION_ERROR")
 class CloudStreamLoadResponseTargetsTest {
 
     private fun episode(data: String, season: Int? = null, number: Int? = null) =
