@@ -18,4 +18,6 @@ internal actual object CloudStreamPlatformRuntime {
     actual fun initialize(context: Any?) = Unit
 
     actual fun executor(): CloudStreamPluginExecutor? = null
+
+    actual fun unload(pluginId: String) = Unit
 }

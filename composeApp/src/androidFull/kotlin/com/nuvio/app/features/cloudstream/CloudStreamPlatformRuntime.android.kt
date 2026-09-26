@@ -1,5 +1,6 @@
 package com.nuvio.app.features.cloudstream
 
+import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.AssetManager
@@ -7,8 +8,10 @@ import android.content.res.Resources
 import co.touchlab.kermit.Logger
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.APIHolder
+import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.actions.VideoClickActionHolder
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.plugins.BasePlugin
@@ -72,7 +75,18 @@ internal actual object CloudStreamPlatformRuntime {
 
     private var appContext: Context? = null
 
+    /**
+     * Weakly held so the host never keeps a destroyed Activity alive.
+     *
+     * CloudStream's `CommonActivity.activity` is part of the ABI: providers that
+     * need a UI-bound context (WebView-based resolvers, Cloudflare challenges,
+     * providers that show a chooser) read it, and it was always null here
+     * because nothing ever set it.
+     */
+    private var activityReference: WeakReference<Activity>? = null
+
     actual fun initialize(context: Any?) {
+        (context as? Activity)?.let { activityReference = WeakReference(it) }
         appContext = (context as? Context)?.applicationContext
         // The installer shares this distribution's execution boundary, so it is
         // initialised from the same call rather than from shared Android code
@@ -83,17 +97,54 @@ internal actual object CloudStreamPlatformRuntime {
     actual fun executor(): CloudStreamPluginExecutor? =
         appContext?.let { AndroidCloudStreamExecutor(it) }
 
-    /** Timeout for one provider stage, so a hung provider cannot stall aggregation. */
+    /**
+     * Drops a loaded plugin and everything it registered.
+     *
+     * Without this an update or reinstall was unrecoverable: the old providers
+     * stayed in the process-global `APIHolder.allProviders`, so the next load
+     * saw them in `providersBefore`, found nothing new, and failed gate 7 with
+     * "Plugin loaded but registered no providers" — a working extension
+     * permanently broken until the app was killed.
+     */
+    actual fun unload(pluginId: String) {
+        val removed = synchronized(loaded) { loaded.remove(pluginId) } ?: return
+        removed.unload()
+        log.i { "Unloaded CloudStream plugin '$pluginId'" }
+    }
+
+    // Upper bound for one provider stage, so a hung provider cannot stall
+    // aggregation. A provider may ask for *less* than this through the
+    // `MainAPI.*TimeoutMs` fields it declares (see `stageBudget`); it can never
+    // ask for more, because the host owns responsiveness.
     private const val SEARCH_TIMEOUT_MS = 20_000L
-    private const val LOAD_TIMEOUT_MS = 25_000L
-    private const val LINK_TIMEOUT_MS = 40_000L
+    private const val LOAD_TIMEOUT_MS = 30_000L
+    private const val LINK_TIMEOUT_MS = 90_000L
+
+
 
     private data class LoadedPlugin(
         val path: String,
         val instance: BasePlugin,
         val providers: List<MainAPI>,
         val extractors: List<com.lagradost.cloudstream3.utils.ExtractorApi>,
-    )
+    ) {
+        /**
+         * Reverses every process-global registration this plugin performed.
+         *
+         * `beforeUnload` is the extension's own hook and may throw; that must
+         * not stop the host from cleaning up after it.
+         */
+        fun unload() {
+            runCatching { instance.beforeUnload() }
+            providers.forEach { api ->
+                APIHolder.allProviders.remove(api)
+                runCatching { APIHolder.removePluginMapping(api) }
+            }
+            extractorApis.removeAll(extractors.toSet())
+            VideoClickActionHolder.allVideoClickActions.removeAll { it.sourcePlugin == path }
+            PluginManager.unregister(path)
+        }
+    }
 
     /**
      * Loads a plugin once and caches it.
@@ -106,9 +157,17 @@ internal actual object CloudStreamPlatformRuntime {
         plugin: CloudStreamPlugin,
         packageFile: File,
     ): LoadedPlugin = loadMutex.withLock {
-        loaded[plugin.id]?.let { return@withLock it }
+        synchronized(loaded) { loaded[plugin.id] }?.let { cached ->
+            // A reinstall or update replaces the file; the cached providers then
+            // point at code that is no longer on disk.
+            if (cached.path == packageFile.absolutePath && File(cached.path).isFile) {
+                return@withLock cached
+            }
+            synchronized(loaded) { loaded.remove(plugin.id) }
+            cached.unload()
+        }
         val created = loadPluginLocked(plugin, packageFile)
-        loaded[plugin.id] = created
+        synchronized(loaded) { loaded[plugin.id] = created }
         created
     }
 
@@ -205,13 +264,17 @@ internal actual object CloudStreamPlatformRuntime {
             }
             extractorApis.removeAll { it !in extractorsBefore && it.sourcePlugin == file.absolutePath }
             log.e(error) { "Failed to load CloudStream plugin '${plugin.id}'" }
-            throw error
+            // A NoClassDefFoundError here means the host APK is missing part of
+            // the ABI the plugin links against; say that rather than leaking a
+            // raw linkage error that reads like a provider bug.
+            throw error.asDiagnosedFailure(plugin.displayName)
         } finally {
             PluginManager.currentlyLoading = null
         }
     }
 
     private fun prepareHostContext(context: Context) {
+        activityReference?.get()?.let(CommonActivity::setActivityInstance)
         CloudStreamApp.context = context
         setContext(WeakReference(context))
     }
@@ -279,15 +342,19 @@ internal actual object CloudStreamPlatformRuntime {
         private suspend fun <T> stage(
             name: String,
             api: MainAPI,
-            timeoutMs: Long,
+            hostMaximumMs: Long,
+            providerDeclaredMs: Long? = null,
             block: suspend () -> T,
-        ): T = try {
-            withTimeout(timeoutMs) { block() }
-        } catch (timeout: TimeoutCancellationException) {
-            throw CloudStreamStageTimeoutException(
-                "CloudStream provider '${api.name}' timed out during $name after ${timeoutMs}ms",
-                timeout,
-            )
+        ): T {
+            val budget = CloudStreamStageBudget.reconcile(providerDeclaredMs, hostMaximumMs)
+            return try {
+                withTimeout(budget) { block() }
+            } catch (timeout: TimeoutCancellationException) {
+                throw CloudStreamStageTimeoutException(
+                    "CloudStream provider '${api.name}' timed out during $name after ${budget}ms",
+                    timeout,
+                )
+            }
         }
 
         override suspend fun search(
@@ -297,7 +364,9 @@ internal actual object CloudStreamPlatformRuntime {
             val apis = providersFor(plugin)
             apis.flatMap { api ->
                 runCatching {
-                    stage("search", api, SEARCH_TIMEOUT_MS) { api.search(query, 1)?.items.orEmpty() }
+                    stage("search", api, SEARCH_TIMEOUT_MS, api.searchTimeoutMs) {
+                        api.search(query, 1)?.items.orEmpty()
+                    }
                 }.onFailure { error ->
                     if (error is kotlinx.coroutines.CancellationException) throw error
                     log.w(error) { "CloudStream search failed api=${api.name} query=$query" }
@@ -318,7 +387,7 @@ internal actual object CloudStreamPlatformRuntime {
             url: String,
         ): List<CloudStreamEpisode> = withContext(Dispatchers.IO) {
             val api = providersFor(plugin).firstOrNull() ?: return@withContext emptyList()
-            val response = stage("loadEpisodes", api, LOAD_TIMEOUT_MS) { api.load(url) }
+            val response = stage("loadEpisodes", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) { api.load(url) }
                 ?: return@withContext emptyList()
             // Episode lists live in a different field per LoadResponse shape;
             // CloudStreamLoadResponseTargets knows all of them.
@@ -364,7 +433,7 @@ internal actual object CloudStreamPlatformRuntime {
                         val match = bestMatch(api, title, request.year, wantsSeries)
                             ?: return@runCatching null
 
-                        val detail = stage("load", api, LOAD_TIMEOUT_MS) { api.load(match.url) }
+                        val detail = stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) { api.load(match.url) }
                             ?: error("Provider returned no details for '${match.name}'")
 
                         val shape = CloudStreamLoadResponseTargets.describe(detail)
@@ -403,8 +472,11 @@ internal actual object CloudStreamPlatformRuntime {
                         // request) must stay a cancellation and never be
                         // recorded as a provider failure.
                         if (error is kotlinx.coroutines.CancellationException) throw error
-                        lastError = error
-                        log.w(error) { "CloudStream resolve failed api=${api.name} title=$title" }
+                        lastError = error.asDiagnosedFailure(api.name)
+                        log.w(error) {
+                            "CloudStream resolve failed api=${api.name} title=$title: " +
+                                (lastError?.message ?: error::class.simpleName)
+                        }
                     }.getOrNull()
 
                     if (attempt != null && attempt.links.isNotEmpty()) return@withContext attempt
@@ -423,7 +495,9 @@ internal actual object CloudStreamPlatformRuntime {
             year: Int?,
             wantsSeries: Boolean,
         ): CloudStreamSearchResult? {
-            val results = stage("search", api, SEARCH_TIMEOUT_MS) { api.search(title, 1)?.items.orEmpty() }
+            val results = stage("search", api, SEARCH_TIMEOUT_MS, api.searchTimeoutMs) {
+                api.search(title, 1)?.items.orEmpty()
+            }
                 .map { response ->
                     CloudStreamSearchResult(
                         name = response.name,
@@ -471,12 +545,23 @@ internal actual object CloudStreamPlatformRuntime {
             val links = Collections.synchronizedList(mutableListOf<ExtractorLink>())
             val subtitles = Collections.synchronizedList(mutableListOf<SubtitleFile>())
 
-            stage("loadLinks", api, LINK_TIMEOUT_MS) {
+            // CloudStream's contract: the Boolean says whether the provider
+            // considers it handled the request. It is NOT "found something" —
+            // a provider that hands off to the extractor registry returns true
+            // having emitted nothing — so it is recorded, not acted on alone.
+            val handled = stage("loadLinks", api, LINK_TIMEOUT_MS, api.loadLinksTimeoutMs) {
                 api.loadLinks(data, false, { subtitles += it }, { links += it })
             }
 
             if (synchronized(links) { links.isEmpty() }) {
                 runExtractorFallback(api, data, links, subtitles)
+            }
+
+            if (!handled && synchronized(links) { links.isEmpty() }) {
+                // The provider explicitly declined and nothing resolved. Saying
+                // so is more useful than an empty success that reads as "this
+                // title has no sources on this provider".
+                error("Provider declined to resolve this source (loadLinks returned false)")
             }
 
             val linkSnapshot = synchronized(links) { links.toList() }
@@ -489,7 +574,13 @@ internal actual object CloudStreamPlatformRuntime {
 
             return CloudStreamLinkResult(
                 links = linkSnapshot
-                    .distinctBy { listOf(it.url, it.quality, it.type.name) }
+                    // Referer and headers are part of a link's identity: two
+                    // mirrors of the same CDN path can need different Referers,
+                    // and collapsing them on URL alone silently discarded a
+                    // working source in favour of a broken one.
+                    .distinctBy {
+                        listOf(it.url, it.quality, it.type.name, it.referer, it.headers)
+                    }
                     .mapNotNull { link ->
                         // A provider can emit a placeholder with no URL (e.g. an
                         // ExtractorLinkPlayList whose entries failed to resolve).
@@ -558,7 +649,7 @@ internal actual object CloudStreamPlatformRuntime {
             if (!target.startsWith("http://", true) && !target.startsWith("https://", true)) return
 
             runCatching {
-                stage("loadExtractor", api, LINK_TIMEOUT_MS) {
+                stage("loadExtractor", api, LINK_TIMEOUT_MS, api.loadLinksTimeoutMs) {
                     // Referer defaults to the provider's own main URL, which is
                     // what most hosts check before serving media.
                     loadExtractor(
@@ -587,6 +678,40 @@ internal actual object CloudStreamPlatformRuntime {
         }
     }
 }
+
+/**
+ * Re-describes a raw ART/JVM linkage failure as the host-runtime gap it is.
+ *
+ * `NoClassDefFoundError: Failed resolution of: Lkotlin/collections/SetsKt;`
+ * reads like a provider bug and was reported as one. It is not: it means this
+ * build no longer contains a symbol that dynamically loaded code resolves by
+ * name. [CloudStreamRuntimeFailure] owns that decision table and is unit
+ * tested; this is the thin Android-side bridge to it.
+ *
+ * Anything that is genuinely a provider failure is returned unchanged, so no
+ * error is ever relabelled into something it is not.
+ */
+private fun Throwable.asDiagnosedFailure(providerName: String?): Throwable {
+    val diagnosis = CloudStreamRuntimeFailure.describe(
+        throwableTypeName = this::class.simpleName ?: "Throwable",
+        rawMessage = message,
+        providerName = providerName,
+    )
+    if (!diagnosis.isHostRuntimeGap) return this
+    return CloudStreamHostAbiException(diagnosis.message, this)
+}
+
+/**
+ * The host build cannot satisfy a symbol the extension resolves by name.
+ *
+ * Distinct from a provider error on purpose: this is StreamBridge's defect, and
+ * the message names the missing symbol so the fix (a keep rule, or a packaged
+ * dependency) is obvious from a bug report alone.
+ */
+internal class CloudStreamHostAbiException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
 
 /**
  * A provider stage exceeded its time budget.

@@ -181,6 +181,13 @@ internal object CloudStreamExtensionsRepository {
                 )
             }
 
+            // Release any previously loaded copy first. Providers register into
+            // process-global CloudStream registries, so an update that leaves
+            // the old registration behind makes the new load look like it
+            // registered nothing and permanently breaks the extension until the
+            // app is restarted.
+            CloudStreamPlatformRuntime.unload(pluginId)
+
             val result = CloudStreamPackageInstaller.install(extension.plugin)
 
             when (result) {
@@ -266,6 +273,8 @@ internal object CloudStreamExtensionsRepository {
     fun removeExtension(pluginId: String) {
         scope.launch {
             val extension = _uiState.value.extensions.firstOrNull { it.id == pluginId } ?: return@launch
+            // Stop executing it before its package leaves the disk.
+            CloudStreamPlatformRuntime.unload(pluginId)
             CloudStreamPackageInstaller.remove(extension.plugin)
 
             extension.sources.forEach { source ->

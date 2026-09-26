@@ -9,70 +9,128 @@ import kotlin.test.assertTrue
  * CloudStream plugins at all.
  *
  * A `.cs3` is compiled DEX loaded at runtime. It resolves the host's classes by
- * their original JVM names, which R8 cannot see and therefore renames. Debug
- * builds are not minified, so a missing keep rule produces a build that passes
- * every test and every CI check and then fails on the first provider call in
- * the shipped release APK — exactly the class of defect this file exists to
- * prevent from recurring.
+ * their original JVM names, which R8 cannot see and therefore shrinks or
+ * renames. Debug builds are not minified, so a missing keep rule produces a
+ * build that passes every test and every CI check and then fails on the first
+ * provider call in the shipped release APK.
  *
- * The package list is not a guess. The DEX type tables of 50 `.cs3` packages
- * published by a real CloudStream repository were inspected; the packages
- * asserted below are referenced by all 50 of them.
+ * That is precisely how `Failed resolution of: Lkotlin/collections/SetsKt;`
+ * reached users: `AllMovieLandProvider.cs3` calls
+ * `kotlin.collections.SetsKt.setOf`, and R8 had dropped that multifile facade.
+ *
+ * The package list lives in `composeApp/cloudstream-plugin-abi.txt` and is
+ * shared with `.github/verify-cloudstream-apk.py`, which asserts the same
+ * symbols are genuinely present in the built APK's dex. This test is the fast
+ * guard; that script is the proof on the real artifact.
  */
 class CloudStreamMinificationRulesTest {
 
-    private fun rules(): String {
+    private fun repoFile(vararg candidates: String): File {
         var dir: File? = File(".").absoluteFile
         while (dir != null) {
-            val candidate = File(dir, "proguard-cloudstream-full.pro")
-            if (candidate.isFile) return candidate.readText()
-            val nested = File(dir, "composeApp/proguard-cloudstream-full.pro")
-            if (nested.isFile) return nested.readText()
+            candidates.forEach { relative ->
+                val direct = File(dir, relative)
+                if (direct.isFile) return direct
+                val nested = File(dir, "composeApp/$relative")
+                if (nested.isFile) return nested
+            }
             dir = dir.parentFile
         }
-        error("proguard-cloudstream-full.pro not found")
+        error("None of ${candidates.toList()} found walking up from ${File(".").absolutePath}")
     }
 
-    /** Packages every sampled published extension resolves by original name. */
-    private val requiredByEveryPlugin = listOf(
-        "com.lagradost",
-        "kotlin",
-        "kotlinx.coroutines",
-        "okhttp3",
-    )
+    private fun abiManifest(): List<Pair<String, String>> =
+        repoFile("cloudstream-plugin-abi.txt").readLines().mapNotNull { raw ->
+            val line = raw.trim()
+            if (line.isEmpty() || line.startsWith("#")) return@mapNotNull null
+            val parts = line.split(Regex("\\s+"), limit = 2)
+            if (parts.size != 2) null else parts[0] to parts[1].trim()
+        }
 
-    /** Packages a substantial subset of published extensions resolve. */
-    private val requiredBySomePlugins = listOf(
-        "kotlinx.serialization",
-        "com.fasterxml.jackson",
-        "org.jsoup",
-        "org.mozilla.javascript",
-        "me.xdrop.fuzzywuzzy",
-        "kotlinx.datetime",
-        "io.ktor",
-        "com.google.gson",
-    )
+    private fun keeps(): List<String> = abiManifest().filter { it.first == "keep" }.map { it.second }
+
+    private fun probes(): List<String> = abiManifest().filter { it.first == "probe" }.map { it.second }
+
+    @Test
+    fun `the abi manifest is non trivial and well formed`() {
+        val keeps = keeps()
+        val probes = probes()
+        assertTrue(keeps.size >= 10, "Expected the declared plugin ABI, found ${keeps.size} keeps")
+        assertTrue(probes.size >= 15, "Expected probe symbols, found ${probes.size}")
+        probes.forEach { descriptor ->
+            assertTrue(
+                descriptor.startsWith("L") && descriptor.endsWith(";"),
+                "Probe '$descriptor' is not a JVM type descriptor",
+            )
+        }
+        keeps.forEach { pkg ->
+            assertTrue(
+                pkg.none { it == '/' || it == ';' },
+                "Keep entry '$pkg' should be a dotted java package, not a descriptor",
+            )
+        }
+    }
 
     @Test
     fun `every package a loaded plugin resolves by name survives minification`() {
-        val text = rules()
-        (requiredByEveryPlugin + requiredBySomePlugins).forEach { pkg ->
-            val keep = Regex("""^\s*-keep\s+(class|interface)\s+${Regex.escape(pkg)}\.\*\*""", RegexOption.MULTILINE)
+        val rules = repoFile("proguard-cloudstream-full.pro").readText()
+        keeps().forEach { pkg ->
+            val keep = Regex(
+                """^\s*-keep\s+(class|interface)\s+${Regex.escape(pkg)}\.\*\*""",
+                RegexOption.MULTILINE,
+            )
             assertTrue(
-                keep.containsMatchIn(text),
-                "Release builds would rename '$pkg', which dynamically loaded CloudStream " +
-                    "plugins resolve by its original JVM name. Add a -keep rule.",
+                keep.containsMatchIn(rules),
+                "Release builds would shrink or rename '$pkg', which dynamically loaded " +
+                    "CloudStream plugins resolve by its original JVM name. Add a -keep rule to " +
+                    "proguard-cloudstream-full.pro, or drop '$pkg' from cloudstream-plugin-abi.txt.",
+            )
+        }
+    }
+
+    @Test
+    fun `the class behind the reported AllMovieLand failure is declared`() {
+        // Named explicitly so removing it from the manifest is a deliberate,
+        // visible act rather than an accident.
+        assertTrue(
+            "Lkotlin/collections/SetsKt;" in probes(),
+            "kotlin.collections.SetsKt is the multifile facade AllMovieLandProvider.cs3 calls " +
+                "setOf() through. It must stay in the declared plugin ABI.",
+        )
+    }
+
+    @Test
+    fun `every probe lives inside a kept package`() {
+        // A probe outside a kept package could only pass by luck (some other
+        // reference happened to retain it), which is not a guarantee.
+        val keepPrefixes = keeps().map { it.replace('.', '/') + "/" }
+        probes().forEach { descriptor ->
+            val binary = descriptor.removePrefix("L").removeSuffix(";")
+            assertTrue(
+                keepPrefixes.any { binary.startsWith(it) },
+                "Probe '$descriptor' is not covered by any keep rule, so its presence in a " +
+                    "minified APK would be accidental rather than guaranteed.",
             )
         }
     }
 
     @Test
     fun `obfuscation of the CloudStream runtime itself stays disabled`() {
-        val text = rules()
         assertTrue(
             Regex("""^\s*-keep\s+class\s+com\.lagradost\.\*\*\s*\{\s*\*;\s*}""", RegexOption.MULTILINE)
-                .containsMatchIn(text),
+                .containsMatchIn(repoFile("proguard-cloudstream-full.pro").readText()),
             "The CloudStream runtime ABI must be kept whole, including members.",
+        )
+    }
+
+    @Test
+    fun `the kotlin runtime is kept with its members`() {
+        // `-keep class kotlin.**` without `{ *; }` would preserve the class name
+        // but let R8 rename setOf(), which fails just as hard at runtime.
+        assertTrue(
+            Regex("""^\s*-keep\s+class\s+kotlin\.\*\*\s*\{\s*\*;\s*}""", RegexOption.MULTILINE)
+                .containsMatchIn(repoFile("proguard-cloudstream-full.pro").readText()),
+            "kotlin.** must be kept including members.",
         )
     }
 }

@@ -129,7 +129,13 @@ open class MainActivity : AppCompatActivity() {
         CloudStreamStorage.initialize(applicationContext)
         // Supplies the platform context to the CloudStream execution backend.
         // No-op on distributions that cannot execute CloudStream extensions.
-        CloudStreamPlatformRuntime.initialize(applicationContext)
+        //
+        // Passing the Activity rather than the application context on purpose:
+        // the runtime derives the application context from it for everything it
+        // stores, and additionally publishes it (weakly) as CloudStream's
+        // `CommonActivity.activity`, which is part of the ABI that
+        // WebView-backed resolvers and Cloudflare challenges read.
+        CloudStreamPlatformRuntime.initialize(this)
         MdbListSettingsStorage.initialize(applicationContext)
         TraktAuthStorage.initialize(applicationContext)
         TraktCommentsStorage.initialize(applicationContext)

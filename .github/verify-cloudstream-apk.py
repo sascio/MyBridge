@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import zipfile
 
@@ -34,6 +35,34 @@ REQUIRED_WHEN_EXECUTING = {
 
 # Any occurrence of this in a Play Store build means the runtime leaked in.
 RUNTIME_NAMESPACE = b"com/lagradost"
+
+# Declared plugin-facing ABI, shared with CloudStreamMinificationRulesTest.
+ABI_MANIFEST = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "composeApp",
+    "cloudstream-plugin-abi.txt",
+)
+
+
+def abi_probes(path: str) -> list[str]:
+    """Type descriptors a loaded .cs3 resolves by name, from the ABI manifest.
+
+    These must survive R8. A `.cs3` asks the class loader for e.g.
+    `Lkotlin/collections/SetsKt;`; if shrinking removed it or obfuscation
+    renamed it, the provider dies with NoClassDefFoundError at runtime while
+    every build and test still passes. Checking the real dex of the real
+    minified APK is the only place that fact is observable in CI.
+    """
+    probes = []
+    with open(path, encoding="utf-8") as manifest:
+        for line in manifest:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 1)
+            if len(parts) == 2 and parts[0] == "probe":
+                probes.append(parts[1].strip())
+    return probes
 
 
 def dex_blobs(apk_path: str) -> list[tuple[str, bytes]]:
@@ -80,7 +109,36 @@ def main() -> int:
                 "packaged, or R8 stripped required classes."
             )
             return 1
+
+        # Same APK, stricter question: do the exact symbols that dynamically
+        # loaded provider code resolves by name still exist after minification?
+        probes = abi_probes(ABI_MANIFEST)
+        if not probes:
+            print(f"::error::No probes declared in {ABI_MANIFEST}")
+            return 1
+        print(f"Checking {len(probes)} plugin-facing ABI symbol(s)")
+        missing = []
+        for descriptor in probes:
+            marker = descriptor.encode("ascii")
+            if any(marker in blob for _, blob in blobs):
+                print(f"  OK      {descriptor}")
+            else:
+                missing.append(descriptor)
+                print(f"  MISSING {descriptor}")
+        if missing:
+            print(
+                "::error::R8 removed or renamed "
+                + ", ".join(missing)
+                + " from the Full APK. A loaded .cs3 resolves these by their "
+                "original JVM names and will fail with NoClassDefFoundError "
+                "(this is what produced 'Failed resolution of: "
+                "Lkotlin/collections/SetsKt;'). Add the missing -keep rules to "
+                "composeApp/proguard-cloudstream-full.pro."
+            )
+            return 1
+
         print("PASS: the Full APK contains the real CloudStream execution runtime.")
+        print("PASS: every declared plugin-facing ABI symbol survived minification.")
         return 0
 
     # Negative check: the Play Store build must contain none of it.
