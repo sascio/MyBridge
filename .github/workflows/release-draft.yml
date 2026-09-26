@@ -11,6 +11,9 @@ on:
         required: true
         type: string
         default: "v0.1.07"
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -53,7 +56,7 @@ jobs:
 
       - name: Verify tag matches StreamBridge version
         env:
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           if [ ! -f streambridge.version.properties ]; then
@@ -233,7 +236,7 @@ jobs:
       - name: Ensure git tag and draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
