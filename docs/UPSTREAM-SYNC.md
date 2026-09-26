@@ -6,9 +6,9 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `b88fef2e655609443a9949e578c5267110be5fac` |
-| Release | 0.5.1 (`chore(store): publish 0.5.1`, 2026-09-23) |
-| Enhanced overlay | `9d311c18` (tag `0.5.1-beta`, 2026-09-23) |
+| Commit | `bb3c1e4c43f65b0c12c897ae9eda6f36806452b0` |
+| Release | 0.5.2-beta (`chore(store): publish 0.5.2-beta`, 2026-09-26) |
+| Enhanced overlay | `3da8d06f` (tag `0.5.2-beta`, 2026-09-26) |
 
 ## Important: upstream rewrote history (historical note)
 
@@ -30,7 +30,35 @@ is merged with the new upstream tip so `git merge` sees the correct base,
 then conflicts are resolved by hand. The result is committed as regular
 commits so the StreamBridge branch history stays linear.
 
-## 0.5.1 / Enhanced 0.5.1-beta integration (this sync)
+## 0.5.2-beta / Enhanced 0.5.2-beta integration (this sync)
+
+Base: Enhanced `9d311c18` (0.5.1-beta) / Official `b88fef2e` (0.5.1).
+Theirs: Official NuvioMobile `bb3c1e4c43f65b0c12c897ae9eda6f36806452b0` (tag `0.5.2-beta`) +
+Enhanced `3da8d06f2355dd1c26191b7d5bf61be223405788` (tag `0.5.2-beta`).
+
+**Official NuvioMobile 0.5.1 → 0.5.2-beta Core Upgrades**
+- Upgraded `lib-nuvio-engine-android` to `0.1.2.aar` with optimized binary fetch.
+- Added Simkl "More Like This" recommendations provider (`SimklRelatedRepository.kt`) and toggle in Tracking settings.
+- Added per-screen custom poster URL controls (`custom_poster_enabled_screens`) in Profile Settings Sync (v4 schema) and Poster Customization settings page.
+- Added dedicated `BadgeImageLoader.kt` for provider badges with caching.
+- Player engine surface lifecycle keyed on `PlaybackKey` (item ID, season, episode, stream URL) ensuring clean player resets between episode transitions.
+- Player gesture overlay displaying exact percentage for volume/brightness adjustments.
+- Player next episode auto-play post-credits timing delay support (`postCreditsDurationSeconds`).
+- iOS Swift UI lifecycle updates (`prepare-ios-dependencies.sh`, `SystemUI.swift` replacing obsolete `NuvioImmersiveSystemUI.swift`, `MPVPlayerBridge.swift` rendering callbacks).
+
+**Enhanced 0.5.2-beta Extra Features Integrated**
+- Taste DNA genre derivation and interactive donut chart in Profile Insights settings.
+- Password manager autofill integration in `AuthScreen.kt` using `BasicSecureTextField`.
+- Device-local appearance and bottom navigation item customization sheet and preview.
+- Simkl catalog "View all" repository resolution for enhanced item browsing.
+- Adaptive grid column count calculation for tablet and landscape orientations in Library.
+
+**StreamBridge & CloudStream Preservation**
+- Preserved StreamBridge brand lockup, logo, tagline, and custom assets.
+- Preserved CloudStream runtime, extensions manager, multi-engine aggregators, and no-DEX boundary.
+- Preserved signing, release architecture, and updater configurations.
+
+## 0.5.1 / Enhanced 0.5.1-beta integration (previous sync)
 
 Base: Enhanced `ce4492ec` (0.4.23-beta). Theirs: Enhanced tag `0.5.1-beta`
 (`9d311c18`), which itself contains official NuvioMobile `b88fef2e`

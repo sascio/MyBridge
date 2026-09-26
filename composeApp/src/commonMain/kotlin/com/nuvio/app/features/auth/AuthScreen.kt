@@ -30,9 +30,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicSecureTextField
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.TextObfuscationMode
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Email
@@ -52,10 +58,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.platform.LocalAutofillManager
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -709,6 +721,11 @@ private fun AuthForm(
     onPasswordBoundsChange: (Rect) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
+    val autofillManager = LocalAutofillManager.current
+    val submitWithAutofillCommit: () -> Unit = {
+        autofillManager?.commit()
+        onSubmit()
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -722,6 +739,7 @@ private fun AuthForm(
             modifier = Modifier.onGloballyPositioned { coordinates ->
                 onEmailBoundsChange(coordinates.boundsInRoot())
             },
+            autofillContentType = ContentType.EmailAddress + ContentType.Username,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next,
@@ -743,13 +761,12 @@ private fun AuthForm(
             modifier = Modifier.onGloballyPositioned { coordinates ->
                 onPasswordBoundsChange(coordinates.boundsInRoot())
             },
+            autofillContentType = if (isSignUp) ContentType.NewPassword else ContentType.Password,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done,
             ),
-            keyboardActions = KeyboardActions(
-                onDone = { onSubmit() },
-            ),
+            onImeAction = submitWithAutofillCommit,
         )
 
         authError?.let { errorText ->
@@ -781,7 +798,7 @@ private fun AuthForm(
             enabled = !isLoading,
             height = metrics.primaryHeight,
             scale = scale,
-            onClick = onSubmit,
+            onClick = submitWithAutofillCommit,
         )
 
         Spacer(modifier = Modifier.height(metrics.toggleTop))
@@ -881,9 +898,50 @@ private fun AuthTextField(
     passwordVisible: Boolean = false,
     onPasswordVisibilityToggle: () -> Unit = {},
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    onImeAction: (() -> Unit)? = null,
+    autofillContentType: ContentType? = null,
 ) {
     val shape = RoundedCornerShape(14.dp)
+    val state = rememberTextFieldState(initialText = value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() }.collect { text -> currentOnValueChange(text) }
+    }
+    LaunchedEffect(value) {
+        if (state.text.toString() != value) state.setTextAndPlaceCursorAtEnd(value)
+    }
+
+    val textStyle = MaterialTheme.typography.bodyLarge.copy(
+        color = AuthTextPrimary,
+        fontSize = (16f * scale).sp,
+        lineHeight = (22f * scale).sp,
+        fontWeight = FontWeight.Normal,
+    )
+    val fieldModifier = Modifier
+        .fillMaxHeight()
+        .then(
+            if (autofillContentType != null) {
+                Modifier.semantics { contentType = autofillContentType }
+            } else {
+                Modifier
+            },
+        )
+    val keyboardActionHandler = onImeAction?.let { action -> KeyboardActionHandler { action() } }
+    val decorator = TextFieldDecorator { innerTextField ->
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            if (state.text.isEmpty()) {
+                Text(
+                    text = placeholder,
+                    style = textStyle.copy(color = AuthTextMuted),
+                )
+            }
+            innerTextField()
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -900,47 +958,33 @@ private fun AuthTextField(
             tint = AuthTextMuted,
         )
         Spacer(modifier = Modifier.width(12.dp))
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = AuthTextPrimary,
-                fontSize = (16f * scale).sp,
-                lineHeight = (22f * scale).sp,
-                fontWeight = FontWeight.Normal,
-            ),
-            cursorBrush = SolidColor(AuthTextPrimary),
-            visualTransformation = if (isPassword && !passwordVisible) {
-                PasswordVisualTransformation()
-            } else {
-                VisualTransformation.None
-            },
-            keyboardOptions = keyboardOptions,
-            keyboardActions = keyboardActions,
-            decorationBox = { innerTextField ->
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    if (value.isEmpty()) {
-                        Text(
-                            text = placeholder,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                color = AuthTextMuted,
-                                fontSize = (16f * scale).sp,
-                                lineHeight = (22f * scale).sp,
-                                fontWeight = FontWeight.Normal,
-                            ),
-                        )
-                    }
-                    innerTextField()
-                }
-            },
-        )
+        if (isPassword) {
+            BasicSecureTextField(
+                state = state,
+                modifier = Modifier.weight(1f).then(fieldModifier),
+                textStyle = textStyle,
+                keyboardOptions = keyboardOptions,
+                onKeyboardAction = keyboardActionHandler,
+                cursorBrush = SolidColor(AuthTextPrimary),
+                decorator = decorator,
+                textObfuscationMode = if (passwordVisible) {
+                    TextObfuscationMode.Visible
+                } else {
+                    TextObfuscationMode.RevealLastTyped
+                },
+            )
+        } else {
+            BasicTextField(
+                state = state,
+                modifier = Modifier.weight(1f).then(fieldModifier),
+                textStyle = textStyle,
+                keyboardOptions = keyboardOptions,
+                onKeyboardAction = keyboardActionHandler,
+                lineLimits = TextFieldLineLimits.SingleLine,
+                cursorBrush = SolidColor(AuthTextPrimary),
+                decorator = decorator,
+            )
+        }
         if (isPassword) {
             Spacer(modifier = Modifier.width(12.dp))
             Box(
