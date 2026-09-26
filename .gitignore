@@ -44,3 +44,7 @@ iosApp/Configuration/DeviceSigning.local.json
 .mpvkit-build.sparseimage
 
 legacy/streambridge-app/build/
+
+# Python bytecode from the CI helper scripts
+__pycache__/
+*.pyc
