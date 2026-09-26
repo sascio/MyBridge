@@ -422,3 +422,119 @@ extension enables Play without reopening the screen or restarting.
 `describeUnavailability()` is logged whenever Play is refused, reporting each
 source family separately, so "no eligible CloudStream provider" can never again
 be indistinguishable from "no addons installed".
+
+---
+
+## Increment — "Could not load streams" after pressing Play
+
+### Symptom
+
+An extension installs, its sources appear and are enabled, Play opens Source
+Results, and the picker then shows:
+
+> **Could not load streams**
+> The installed stream addons failed to return a valid stream response.
+
+### How that message is produced
+
+The string is generic and is not emitted by any CloudStream code. It is
+`StreamsEmptyStateReason.StreamFetchFailed`, produced by exactly one function:
+
+```kotlin
+// StreamFetchSupport.kt
+internal fun List<AddonStreamGroup>.toEmptyStateReason(anyLoading: Boolean) = ...
+    if (isNotEmpty() && all { !it.error.isNullOrBlank() }) StreamFetchFailed else NoStreamsFound
+```
+
+So it means: *every* group finished with a non-blank error and zero streams. A
+provider that legitimately has nothing produces `NoStreamsFound` instead. The
+message therefore proves an **exception was thrown per provider** — and nothing
+more, because the real error text was discarded before it reached the UI.
+
+Working backwards: `StreamsRepository.kt` → `CloudStreamExtensionsRepository
+.resolveStreams()` (`runCatching`) → `AndroidCloudStreamExecutor.resolve()`.
+
+### Root cause
+
+`AndroidCloudStreamExecutor.resolve()` understood only two of CloudStream's
+five `LoadResponse` shapes:
+
+```kotlin
+val target = if (wantsSeries) {
+    val episodes = (detail as? TvSeriesLoadResponse)?.episodes.orEmpty()
+    episodes.firstOrNull { it.season == request.season && it.episode == request.episode }
+        ?: error("Provider has no S${request.season}E${request.episode} for '$title'")
+} else {
+    (detail as? MovieLoadResponse)?.dataUrl ?: match.url
+}
+```
+
+Two independent defects:
+
+1. **Unhandled response shapes.** `LoadResponse` has five implementations and
+   the playable payload lives somewhere different in each:
+   `MovieLoadResponse.dataUrl`, `LiveStreamLoadResponse.dataUrl`,
+   `TorrentLoadResponse.magnet`, `TvSeriesLoadResponse.episodes: List<Episode>`
+   and `AnimeLoadResponse.episodes: Map<DubStatus, List<Episode>>`. Both casts
+   miss an `AnimeLoadResponse`, so the episode list came back empty and the
+   stage threw; on the movie path it silently fell back to the *detail page*
+   URL instead of the provider's data payload.
+
+   Measured against a published repository (`phisher98`, 86 extensions, 50
+   downloaded and their DEX type tables inspected): **31 reference
+   `MovieLoadResponse`/`TvSeriesLoadResponse`, 17 reference `AnimeLoadResponse`
+   and 14 of those reference it exclusively**, plus 2 `LiveStreamLoadResponse`.
+   Every one of those 16 extensions could only ever fail.
+
+2. **Over-strict episode matching.** `Episode.season` is `Int?` and real
+   providers routinely leave it null — single-season shows, and effectively all
+   anime, which numbers episodes absolutely. Requiring
+   `episode.season == requestedSeason` fails those providers even when the
+   episode is right there in the list.
+
+A third, aggravating defect made this undiagnosable: the thrown message was
+kept only as `AddonStreamGroup.error`, which no screen renders, so every
+distinct cause collapsed into the same generic sentence.
+
+### Fix
+
+* `CloudStreamEpisodeSelection.kt` (commonMain) — pure, ordered matching rules:
+  exact → undeclared-season-as-season-1 → single-season listing by number →
+  unnumbered listing by position. Returns null rather than guessing across
+  declared seasons, because playing the wrong episode is worse than reporting
+  none.
+* `CloudStreamLoadResponseTargets.kt` (androidFull) — total mapping from all
+  five `LoadResponse` shapes onto the payload `loadLinks` expects, including
+  `AnimeLoadResponse`'s per-`DubStatus` listings (Subbed preferred, chosen
+  deterministically rather than by map order).
+* `CloudStreamPlatformRuntime.android.kt` — uses both; every stage runs through
+  a `stage()` helper that converts `TimeoutCancellationException` into an
+  ordinary reportable failure. Previously a provider timeout propagated as
+  *cancellation*, so the coroutine that was meant to publish that provider's
+  completion died quietly and the aggregator waited for a result that could
+  never arrive. Genuine cancellation is re-thrown untouched everywhere.
+* `loadEpisodes()` now returns anime episodes too (same cast bug).
+* `CloudStreamProviderAdapter.kt` — `ExtractorLinkType.TORRENT`/`MAGNET` are no
+  longer reported as `http`; header merging is case-insensitive so a provider
+  spelling `referer` in lower case overrides rather than duplicates the
+  derived `Referer`.
+* Error preservation — `StreamsUiState.emptyStateDetail` carries the concrete
+  provider failure to the empty state, and a throwable with no message falls
+  back to its type name instead of degrading into "no streams found". The three
+  defensive early-returns in `resolveStreams()` now report why they refused
+  instead of returning an empty success.
+
+### Verified / not verified
+
+Statically verified against the real artifacts: the runtime AAR's ABI matches
+every method and field the sampled `.cs3` files reference (no
+`NoSuchMethodError`/`NoSuchFieldError` candidates), the host shims cover every
+non-AAR `com.lagradost.*` symbol those plugins touch, and `MainAPI`'s paged
+`search(query, page)` default delegates to the single-argument override, so
+providers implementing either form resolve.
+
+Not verified: on-device execution. The development environment has no JDK,
+Android SDK or Maven access, so no APK was built or installed here; the
+behavioural claims above rest on unit tests (including tests constructed from
+the real CloudStream response classes in the embedded AAR) plus static
+analysis of published extensions, not on a device run.

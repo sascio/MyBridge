@@ -320,6 +320,7 @@ object StreamsRepository {
                         groups = updated,
                         isAnyLoading = anyLoading,
                         emptyStateReason = updated.toEmptyStateReason(anyLoading),
+                        emptyStateDetail = updated.toEmptyStateDetail(anyLoading),
                     )
                 }
             }
@@ -614,7 +615,14 @@ object StreamsRepository {
                             StreamLoadCompletion.PluginScraper(
                                 addonId = target.addonId,
                                 streams = emptyList(),
-                                error = error.message,
+                                // Some failures (NoClassDefFoundError, and any
+                                // exception thrown without a message) carry no
+                                // text. Falling back to the type keeps the
+                                // failure reportable instead of degrading into
+                                // an indistinguishable "no streams found".
+                                error = error.message?.takeIf { it.isNotBlank() }
+                                    ?: error::class.simpleName
+                                    ?: "CloudStream provider failed",
                             )
                         },
                     )
@@ -667,6 +675,7 @@ object StreamsRepository {
                                 groups = updated,
                                 isAnyLoading = anyLoading,
                                 emptyStateReason = updated.toEmptyStateReason(anyLoading),
+                                emptyStateDetail = updated.toEmptyStateDetail(anyLoading),
                             )
                         }
                     }
@@ -896,6 +905,11 @@ object StreamsRepository {
                         current.emptyStateReason
                     } else {
                         updatedGroups.toEmptyStateReason(anyLoading = false)
+                    },
+                    emptyStateDetail = if (updatedGroups.isEmpty()) {
+                        current.emptyStateDetail
+                    } else {
+                        updatedGroups.toEmptyStateDetail(anyLoading = false)
                     },
                 )
             }

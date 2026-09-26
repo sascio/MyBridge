@@ -294,6 +294,16 @@ data class StreamsUiState(
     val selectedFilter: String? = null,
     val isAnyLoading: Boolean = false,
     val emptyStateReason: StreamsEmptyStateReason? = null,
+    /**
+     * The concrete reason the sources failed, when there is one.
+     *
+     * Every provider failure used to collapse into a single generic sentence,
+     * which made "extension has no match for this title", "provider timed out"
+     * and "extension could not be loaded" indistinguishable to the user *and*
+     * to anyone triaging a report. The underlying error is preserved here and
+     * shown alongside the generic title.
+     */
+    val emptyStateDetail: String? = null,
     val autoPlayStream: StreamItem? = null,
     val autoPlayCandidates: List<StreamItem> = emptyList(),
     val isDirectAutoPlayFlow: Boolean = false,

@@ -814,7 +814,10 @@ internal fun StreamList(
 
             !hasAnyStreams && !uiState.isAnyLoading -> {
                 item {
-                    EmptyStateBlock(reason = uiState.emptyStateReason)
+                    EmptyStateBlock(
+                        reason = uiState.emptyStateReason,
+                        detail = uiState.emptyStateDetail,
+                    )
                 }
             }
 
@@ -1341,6 +1344,7 @@ private fun LoadingStateBlock(
 private fun EmptyStateBlock(
     reason: StreamsEmptyStateReason?,
     modifier: Modifier = Modifier,
+    detail: String? = null,
 ) {
     val title: String
     val message: String
@@ -1391,6 +1395,17 @@ private fun EmptyStateBlock(
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
         )
+        // The concrete provider failure, when there is one. Without it every
+        // cause -- no match for this title, provider timed out, extension
+        // failed to load -- looks identical and is impossible to act on.
+        detail?.takeIf { it.isNotBlank() }?.let { reasonText ->
+            Text(
+                text = reasonText,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 

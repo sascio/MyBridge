@@ -403,18 +403,39 @@ internal object CloudStreamExtensionsRepository {
         title: String? = null,
         year: Int? = null,
     ): Result<List<StreamItem>> {
-        val backend = activeExecutor() ?: return Result.success(emptyList())
+        // These three guards are defensive: CloudStreamAggregatorBridge has
+        // already applied them when it built the targets, so reaching one means
+        // state drifted mid-request. Reporting that is honest; returning an
+        // empty success would present a broken provider as "this title has no
+        // sources here", which is a different and misleading statement.
+        val backend = activeExecutor() ?: return Result.failure(
+            IllegalStateException("This build cannot execute CloudStream extensions."),
+        )
         val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
-            ?: return Result.success(emptyList())
+            ?: return Result.failure(
+                IllegalStateException(
+                    "Extension '${target.extensionId}' is no longer available.",
+                ),
+            )
 
         // Re-check executability at request time: persisted state must never be
         // able to activate a plugin the runtime cannot actually run.
-        if (!extension.plugin.isExecutable) return Result.success(emptyList())
+        if (!extension.plugin.isExecutable) {
+            return Result.failure(
+                IllegalStateException(
+                    "Extension '${extension.name}' cannot be executed by this build.",
+                ),
+            )
+        }
 
         // The package must actually be on disk: the runtime loads providers from
         // the installed `.cs3`, so targeting an uninstalled extension could only
         // ever fail.
-        if (!extension.installStatus.isInstalled) return Result.success(emptyList())
+        if (!extension.installStatus.isInstalled) {
+            return Result.failure(
+                IllegalStateException("Extension '${extension.name}' is not installed."),
+            )
+        }
 
         return runCatching {
             val request = CloudStreamResolveRequest(
@@ -437,7 +458,10 @@ internal object CloudStreamExtensionsRepository {
             )
         }.onFailure { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
-            log.w { "CloudStream provider '${target.addonId}' failed: ${error.message}" }
+            log.w(error) {
+                "CloudStream provider '${target.addonId}' failed: " +
+                    "${error::class.simpleName}: ${error.message}"
+            }
         }
     }
 

@@ -29,6 +29,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 
@@ -262,6 +263,33 @@ internal actual object CloudStreamPlatformRuntime {
     private class AndroidCloudStreamExecutor(private val context: Context) :
         CloudStreamPluginExecutor {
 
+        /**
+         * Runs one provider stage under a bound, converting a timeout into an
+         * ordinary exception.
+         *
+         * `withTimeout` throws [TimeoutCancellationException], which *is* a
+         * [kotlinx.coroutines.CancellationException]. Left as-is it propagates
+         * as cancellation: the coroutine that was supposed to publish this
+         * provider's completion dies quietly, the aggregator never receives it,
+         * and the source picker waits on a result that can never arrive.
+         * Converting it here keeps a hung provider a reportable failure while
+         * leaving genuine cancellation (user navigates away, new request)
+         * untouched, because only the timeout subtype is caught.
+         */
+        private suspend fun <T> stage(
+            name: String,
+            api: MainAPI,
+            timeoutMs: Long,
+            block: suspend () -> T,
+        ): T = try {
+            withTimeout(timeoutMs) { block() }
+        } catch (timeout: TimeoutCancellationException) {
+            throw CloudStreamStageTimeoutException(
+                "CloudStream provider '${api.name}' timed out during $name after ${timeoutMs}ms",
+                timeout,
+            )
+        }
+
         override suspend fun search(
             plugin: CloudStreamPlugin,
             query: String,
@@ -269,8 +297,9 @@ internal actual object CloudStreamPlatformRuntime {
             val apis = providersFor(plugin)
             apis.flatMap { api ->
                 runCatching {
-                    withTimeout(SEARCH_TIMEOUT_MS) { api.search(query, 1)?.items.orEmpty() }
+                    stage("search", api, SEARCH_TIMEOUT_MS) { api.search(query, 1)?.items.orEmpty() }
                 }.onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
                     log.w(error) { "CloudStream search failed api=${api.name} query=$query" }
                 }.getOrDefault(emptyList()).map { response ->
                     CloudStreamSearchResult(
@@ -289,17 +318,18 @@ internal actual object CloudStreamPlatformRuntime {
             url: String,
         ): List<CloudStreamEpisode> = withContext(Dispatchers.IO) {
             val api = providersFor(plugin).firstOrNull() ?: return@withContext emptyList()
-            val response = withTimeout(LOAD_TIMEOUT_MS) { api.load(url) }
-            (response as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.episodes
-                ?.map { episode ->
-                    CloudStreamEpisode(
-                        name = episode.name,
-                        url = episode.data,
-                        season = episode.season,
-                        episode = episode.episode,
-                    )
-                }
-                .orEmpty()
+            val response = stage("loadEpisodes", api, LOAD_TIMEOUT_MS) { api.load(url) }
+                ?: return@withContext emptyList()
+            // Episode lists live in a different field per LoadResponse shape;
+            // CloudStreamLoadResponseTargets knows all of them.
+            CloudStreamLoadResponseTargets.episodes(response).map { ref ->
+                CloudStreamEpisode(
+                    name = ref.name,
+                    url = ref.data,
+                    season = ref.season,
+                    episode = ref.episode,
+                )
+            }
         }
 
         override suspend fun loadLinks(
@@ -334,26 +364,45 @@ internal actual object CloudStreamPlatformRuntime {
                         val match = bestMatch(api, title, request.year, wantsSeries)
                             ?: return@runCatching null
 
-                        val detail = withTimeout(LOAD_TIMEOUT_MS) { api.load(match.url) }
+                        val detail = stage("load", api, LOAD_TIMEOUT_MS) { api.load(match.url) }
                             ?: error("Provider returned no details for '${match.name}'")
 
+                        val shape = CloudStreamLoadResponseTargets.describe(detail)
                         val target = if (wantsSeries) {
-                            val episodes =
-                                (detail as? com.lagradost.cloudstream3.TvSeriesLoadResponse)
-                                    ?.episodes
-                                    .orEmpty()
-                            val episode = episodes.firstOrNull {
-                                it.season == request.season && it.episode == request.episode
-                            } ?: error(
-                                "Provider has no S${request.season}E${request.episode} for '$title'",
+                            // CloudStream has five LoadResponse shapes and the
+                            // episode list lives in a different place in each.
+                            // See CloudStreamLoadResponseTargets.
+                            val offered = CloudStreamLoadResponseTargets.episodes(detail)
+                            if (offered.isEmpty()) {
+                                error(
+                                    "Provider returned $shape with no episode list, " +
+                                        "so S${request.season}E${request.episode} cannot be resolved.",
+                                )
+                            }
+                            val selected = CloudStreamEpisodeSelector.select(
+                                episodes = offered,
+                                season = request.season,
+                                episode = request.episode,
+                            ) ?: error(
+                                "Provider has no S${request.season}E${request.episode}: " +
+                                    "$shape offers ${CloudStreamEpisodeSelector.describe(offered)}.",
                             )
-                            episode.data
+                            log.d {
+                                "CloudStream episode matched api=${api.name} shape=$shape " +
+                                    "want=S${request.season}E${request.episode} " +
+                                    "got=S${selected.season}E${selected.episode} " +
+                                    "variant=${selected.variant ?: "-"}"
+                            }
+                            selected.data
                         } else {
-                            (detail as? com.lagradost.cloudstream3.MovieLoadResponse)?.dataUrl
-                                ?: match.url
+                            CloudStreamLoadResponseTargets.movieTarget(detail) ?: match.url
                         }
                         collectLinks(api, target)
                     }.onFailure { error ->
+                        // A genuine cancellation (user left the screen, new
+                        // request) must stay a cancellation and never be
+                        // recorded as a provider failure.
+                        if (error is kotlinx.coroutines.CancellationException) throw error
                         lastError = error
                         log.w(error) { "CloudStream resolve failed api=${api.name} title=$title" }
                     }.getOrNull()
@@ -374,7 +423,7 @@ internal actual object CloudStreamPlatformRuntime {
             year: Int?,
             wantsSeries: Boolean,
         ): CloudStreamSearchResult? {
-            val results = withTimeout(SEARCH_TIMEOUT_MS) { api.search(title, 1)?.items.orEmpty() }
+            val results = stage("search", api, SEARCH_TIMEOUT_MS) { api.search(title, 1)?.items.orEmpty() }
                 .map { response ->
                     CloudStreamSearchResult(
                         name = response.name,
@@ -422,7 +471,7 @@ internal actual object CloudStreamPlatformRuntime {
             val links = Collections.synchronizedList(mutableListOf<ExtractorLink>())
             val subtitles = Collections.synchronizedList(mutableListOf<SubtitleFile>())
 
-            withTimeout(LINK_TIMEOUT_MS) {
+            stage("loadLinks", api, LINK_TIMEOUT_MS) {
                 api.loadLinks(data, false, { subtitles += it }, { links += it })
             }
 
@@ -432,18 +481,37 @@ internal actual object CloudStreamPlatformRuntime {
 
             val linkSnapshot = synchronized(links) { links.toList() }
             val subtitleSnapshot = synchronized(subtitles) { subtitles.toList() }
+            log.d {
+                "CloudStream links api=${api.name} links=${linkSnapshot.size} " +
+                    "subtitles=${subtitleSnapshot.size} " +
+                    "types=${linkSnapshot.map { it.type.name }.distinct()}"
+            }
 
             return CloudStreamLinkResult(
                 links = linkSnapshot
                     .distinctBy { listOf(it.url, it.quality, it.type.name) }
-                    .map { link ->
+                    .mapNotNull { link ->
+                        // A provider can emit a placeholder with no URL (e.g. an
+                        // ExtractorLinkPlayList whose entries failed to resolve).
+                        // Dropping it is correct; inventing a URL is not.
+                        val url = link.url.trim().takeIf { it.isNotEmpty() }
+                            ?: return@mapNotNull null
                         CloudStreamLink(
                             name = link.name.ifBlank { link.source },
-                            url = link.url,
+                            url = url,
                             referer = link.referer.takeIf(String::isNotBlank),
                             quality = link.quality.takeIf { it > 0 },
                             isM3u8 = link.type == ExtractorLinkType.M3U8,
                             isDash = link.type == ExtractorLinkType.DASH,
+                            // TORRENT/MAGNET are real CloudStream link types.
+                            // Labelling them "http" would hand a magnet URI to
+                            // the HTTP player; StreamBridge already has torrent
+                            // handling keyed off this flag.
+                            isTorrent = link.type == ExtractorLinkType.TORRENT ||
+                                link.type == ExtractorLinkType.MAGNET,
+                            // Referer stays a separate field: CloudStream keeps it
+                            // out of `headers`, and the adapter merges the two
+                            // (case-insensitively) when building request headers.
                             headers = link.headers,
                             source = link.source,
                         )
@@ -490,7 +558,7 @@ internal actual object CloudStreamPlatformRuntime {
             if (!target.startsWith("http://", true) && !target.startsWith("https://", true)) return
 
             runCatching {
-                withTimeout(LINK_TIMEOUT_MS) {
+                stage("loadExtractor", api, LINK_TIMEOUT_MS) {
                     // Referer defaults to the provider's own main URL, which is
                     // what most hosts check before serving media.
                     loadExtractor(
@@ -519,6 +587,18 @@ internal actual object CloudStreamPlatformRuntime {
         }
     }
 }
+
+/**
+ * A provider stage exceeded its time budget.
+ *
+ * Deliberately **not** a [kotlinx.coroutines.CancellationException]: a hung
+ * provider must be reported as a failure for that provider, while genuine
+ * cancellation of the surrounding request must keep cancelling.
+ */
+internal class CloudStreamStageTimeoutException(
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
 
 /**
  * Presents CloudStream's own package name to loaded plugins.

@@ -20,6 +20,7 @@ class CloudStreamProviderAdapterTest {
         quality: Int? = null,
         isM3u8: Boolean = false,
         isDash: Boolean = false,
+        isTorrent: Boolean = false,
         headers: Map<String, String> = emptyMap(),
         cookies: Map<String, String> = emptyMap(),
         source: String? = null,
@@ -30,6 +31,7 @@ class CloudStreamProviderAdapterTest {
         quality = quality,
         isM3u8 = isM3u8,
         isDash = isDash,
+        isTorrent = isTorrent,
         headers = headers,
         cookies = cookies,
         source = source,
@@ -169,6 +171,112 @@ class CloudStreamProviderAdapterTest {
         assertTrue(
             CloudStreamProviderAdapter.adaptSubtitles(
                 listOf(CloudStreamSubtitleFile("en", "  ")),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun `an extensionless stream url is accepted verbatim`() {
+        // Many CloudStream hosts serve media from a path with no file
+        // extension; rejecting or rewriting those breaks working providers.
+        val url = "https://cdn.example.com/stream/8f2c1d/index"
+        val item = adapt(link(url = url)).single()
+        assertEquals(url, item.url)
+        assertEquals("http", item.streamType)
+        assertNotNull(item.playableDirectUrl)
+    }
+
+    @Test
+    fun `a redirected signed url keeps its query string intact`() {
+        // Extractors commonly emit the post-redirect, token-signed URL. Any
+        // normalisation that drops or reorders the query makes it 403.
+        val url = "https://cdn.example.com/hls/master.m3u8?token=abc%3D%3D&expires=1700000000&s=1"
+        val item = adapt(link(url = url, isM3u8 = true)).single()
+        assertEquals(url, item.url)
+        assertEquals("hls", item.streamType)
+    }
+
+    @Test
+    fun `a dash manifest is reported as dash`() {
+        val item = adapt(link(url = "https://cdn.example.com/manifest.mpd", isDash = true)).single()
+        assertEquals("dash", item.streamType)
+        assertEquals("https://cdn.example.com/manifest.mpd", item.url)
+    }
+
+    @Test
+    fun `torrent and magnet links are not presented as http streams`() {
+        val item = adapt(
+            link(url = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567", isTorrent = true),
+        ).single()
+        assertEquals("torrent", item.streamType)
+        // The player must not receive a magnet URI as a direct HTTP source.
+        assertNull(item.playableDirectUrl)
+    }
+
+    @Test
+    fun `multiple quality variants are all preserved as separate sources`() {
+        val items = CloudStreamProviderAdapter.adaptLinks(
+            links = listOf(
+                link(name = "Server 1", url = "https://cdn.example.com/1080.mp4", quality = 1080),
+                link(name = "Server 1", url = "https://cdn.example.com/720.mp4", quality = 720),
+                link(name = "Server 2", url = "https://cdn.example.com/master.m3u8", isM3u8 = true),
+            ),
+            pluginName = "TestProvider",
+            pluginId = "TestProvider",
+        )
+        assertEquals(3, items.size)
+        assertEquals(listOf("1080p", "720p", null), items.map { it.description })
+        assertEquals(listOf("http", "http", "hls"), items.map { it.streamType })
+    }
+
+    @Test
+    fun `a referer spelled in lower case overrides rather than duplicates`() {
+        // HTTP header names are case-insensitive; emitting both "Referer" and
+        // "referer" makes some CDNs reject the request outright.
+        val headers = adapt(
+            link(referer = "https://old.example", headers = mapOf("referer" to "https://new.example")),
+        ).single().behaviorHints.proxyHeaders?.request
+        assertNotNull(headers)
+        assertEquals(1, headers.keys.count { it.equals("Referer", ignoreCase = true) })
+        assertEquals("https://new.example", headers.entries.single().value)
+    }
+
+    @Test
+    fun `cookies survive alongside referer and user agent`() {
+        val headers = adapt(
+            link(
+                referer = "https://example.com/watch",
+                headers = mapOf("User-Agent" to "Mozilla/5.0"),
+                cookies = mapOf("cf_clearance" to "xyz"),
+            ),
+        ).single().behaviorHints.proxyHeaders?.request
+        assertNotNull(headers)
+        assertEquals("https://example.com/watch", headers["Referer"])
+        assertEquals("Mozilla/5.0", headers["User-Agent"])
+        assertEquals("cf_clearance=xyz", headers["Cookie"])
+    }
+
+    @Test
+    fun `streams are produced even when the provider returned no subtitles`() {
+        // Subtitles must never gate stream validity.
+        val items = CloudStreamProviderAdapter.adaptLinks(
+            links = listOf(link()),
+            pluginName = "TestProvider",
+            pluginId = "TestProvider",
+            subtitles = emptyList(),
+        )
+        assertEquals(1, items.size)
+        assertTrue(items.single().externalSubtitles.isEmpty())
+    }
+
+    @Test
+    fun `subtitles alone never fabricate a stream`() {
+        assertTrue(
+            CloudStreamProviderAdapter.adaptLinks(
+                links = emptyList(),
+                pluginName = "TestProvider",
+                pluginId = "TestProvider",
+                subtitles = listOf(CloudStreamSubtitleFile("en", "https://example.com/en.vtt")),
             ).isEmpty(),
         )
     }
