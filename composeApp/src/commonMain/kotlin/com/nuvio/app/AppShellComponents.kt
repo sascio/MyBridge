@@ -281,14 +281,15 @@ internal fun TabletFloatingTopBar(
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
     modifier: Modifier = Modifier,
+    topInset: Dp? = null,
 ) {
     val tokens = MaterialTheme.nuvio
-    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarPadding = topInset ?: (WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + NuvioTokens.Space.s10)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = statusBarPadding + NuvioTokens.Space.s10, bottom = tokens.spacing.controlGap),
+            .padding(top = statusBarPadding, bottom = tokens.spacing.controlGap),
         contentAlignment = Alignment.TopCenter,
     ) {
         Surface(

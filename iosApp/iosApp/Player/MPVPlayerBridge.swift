@@ -734,7 +734,6 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("subs-match-os-language", "yes")
         setSetupOption("subs-fallback", "yes")
         subtitleFonts.applySetupOptions(setSetupOption)
-        configureBundledCjkSubtitleFont()
         setSetupOption("keep-open", "yes")
         setSetupOption("target-colorspace-hint", "yes")
         setSetupOption("tone-mapping", "auto")
@@ -776,20 +775,6 @@ final class MPVPlayerViewController: UIViewController {
                 message: "Ignoring mpv option \(name)=\(value): \(reason)"
             )
         }
-    }
-
-    /// Prefer the bundled CJK face on physical devices, where mpv cannot reliably
-    /// discover the system fallback fonts used by the simulator.
-    private func configureBundledCjkSubtitleFont() {
-        guard let fontURL = Bundle.main.url(
-            forResource: "NotoSansCJKsc-Regular",
-            withExtension: "otf"
-        ) else {
-            InAppLogBridge.shared.warn(tag: "MPV/iOS", message: "Bundled CJK subtitle font is missing")
-            return
-        }
-        setSetupOption("sub-fonts-dir", fontURL.deletingLastPathComponent().path)
-        setSetupOption("sub-font", "Noto Sans CJK SC")
     }
 
     // MARK: - Playback API
@@ -2433,9 +2418,9 @@ final class MPVPlayerViewController: UIViewController {
     private func publishImmersiveSystemUIVisibility(isVisible: Bool) {
         guard !isEmbeddedPreviewMode else { return }
         if isVisible {
-            NuvioImmersiveSystemUI.shared.playerDidBecomeVisible(self)
+            SystemUI.shared.playerDidBecomeVisible(self)
         } else {
-            NuvioImmersiveSystemUI.shared.playerDidBecomeHidden(self)
+            SystemUI.shared.playerDidBecomeHidden(self)
         }
         NotificationCenter.default.post(
             name: nuvioPlayerImmersiveSystemUIVisibilityDidChange,
