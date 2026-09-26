@@ -37,6 +37,51 @@
 -keep interface dev.whyoleg.cryptography.** { *; }
 -dontwarn dev.whyoleg.cryptography.**
 
+# The Kotlin runtime, coroutines and OkHttp.
+#
+# Measured, not guessed: the DEX type tables of 50 `.cs3` packages published by
+# a real CloudStream repository were inspected. Every single one of the 50
+# references `kotlin.*`, `kotlinx.coroutines.*` and `okhttp3.*` by their
+# original JVM names — a provider is a suspend function that makes HTTP calls,
+# so it cannot not reference them. R8 renames those packages in the app, and a
+# dynamically loaded plugin then dies on its first call with
+# NoClassDefFoundError/NoSuchMethodError. This is invisible in debug builds,
+# which are not minified, which is why it could ship.
+-keep class kotlin.** { *; }
+-keep interface kotlin.** { *; }
+-dontwarn kotlin.**
+-keep class kotlinx.coroutines.** { *; }
+-keep interface kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-dontwarn okhttp3.**
+-keep class okio.** { *; }
+-dontwarn okio.**
+
+# Same measurement: kotlinx-datetime and androidx.annotation are exported to
+# plugins from composeApp's dependency list precisely so they resolve at
+# runtime, which only holds if their names survive minification.
+-keep class kotlinx.datetime.** { *; }
+-dontwarn kotlinx.datetime.**
+-keep class androidx.annotation.** { *; }
+
+# Referenced by every sampled plugin (Android UI entry points used by the
+# providers that expose settings), and by subsets of them for JSON/HTML work.
+# Keeping a package that this build does not ship is a harmless no-op, so these
+# are listed for completeness of the plugin-facing ABI rather than trimmed to
+# today's dependency graph.
+-keep class androidx.fragment.app.** { *; }
+-dontwarn androidx.fragment.app.**
+-keep class androidx.appcompat.app.** { *; }
+-dontwarn androidx.appcompat.app.**
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.gson.**
+-keep class io.ktor.** { *; }
+-dontwarn io.ktor.**
+-keep class com.fleeksoft.ksoup.** { *; }
+-dontwarn com.fleeksoft.ksoup.**
+
 # HTML/HTTP/JS libraries that providers reference by original name.
 -keep class org.jsoup.** { *; }
 -dontwarn org.jsoup.**

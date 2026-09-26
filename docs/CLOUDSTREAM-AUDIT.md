@@ -538,3 +538,36 @@ Android SDK or Maven access, so no APK was built or installed here; the
 behavioural claims above rest on unit tests (including tests constructed from
 the real CloudStream response classes in the embedded AAR) plus static
 analysis of published extensions, not on a device run.
+
+### Second defect found in the same pass: minified release builds
+
+`proguard-cloudstream-full.pro` kept `com.lagradost.**` and a handful of
+provider libraries, but not the Kotlin runtime, coroutines or OkHttp.
+
+A `.cs3` is DEX loaded at runtime and resolves the host's classes by their
+original JVM names, which R8 cannot see. Inspecting the DEX type tables of the
+same 50 published extensions:
+
+| Package | Extensions referencing it | Kept before |
+| --- | --- | --- |
+| `kotlin.**` | 50 / 50 | no |
+| `kotlinx.coroutines.**` | 50 / 50 | no |
+| `okhttp3.**` | 50 / 50 | no |
+| `androidx.fragment.app.**` | 50 / 50 | no |
+| `androidx.appcompat.app.**` | 50 / 50 | no |
+| `kotlin.reflect.**` | 41 / 50 | no |
+| `io.ktor.**` | 18 / 50 | no |
+| `com.google.gson.**` | 12 / 50 | no |
+| `org.jsoup.**` | 42 / 50 | yes |
+| `com.fasterxml.jackson.**` | 38 / 50 | yes |
+| `kotlinx.serialization.**` | 33 / 50 | yes |
+
+A provider is a suspend function that makes HTTP calls, so it cannot *not*
+reference the first three. In the minified **release** APK every one of them is
+renamed, and the plugin dies on its first call with `NoClassDefFoundError`.
+Debug builds are not minified, so this is invisible to every existing test and
+CI check — which is how it shipped.
+
+Fixed by extending the keep rules, and guarded by
+`CloudStreamMinificationRulesTest`, which fails if a package that dynamically
+loaded code resolves by name loses its keep rule.
