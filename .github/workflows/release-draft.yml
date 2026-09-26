@@ -7,10 +7,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.06)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.07)
         required: true
         type: string
-        default: "v0.1.06"
+        default: "v0.1.07"
 
 permissions:
   contents: write
@@ -255,17 +255,19 @@ jobs:
           )
           notes="$(mktemp)"
           cat > "$notes" <<'EOF'
-          ## StreamBridge 0.1.06
+          ## StreamBridge 0.1.07
 
-          - Updated the core to the complete NuvioMobile-Enhanced 0.5.1-beta baseline.
-          - Improved Home hero carousel behavior and transitions.
-          - Improved player controls, timeline, gestures, brightness persistence, and next-episode behavior.
-          - Improved Simkl watch history and playback-position handling.
-          - Improved external-player and playback integrations.
-          - Improved subtitle support, including CJK subtitle font handling.
-          - Updated UI styling, surfaces, chips, navigation, and settings.
-          - Updated Greek and Vietnamese translations.
-          - Preserved StreamBridge's metadata, ratings, integrations, addons, plugins, and personalization features.
+          - Updated core baseline to official NuvioMobile 0.5.2-beta.
+          - Upgraded Nuvio engine to 0.1.2 with binary fetch support.
+          - Added Simkl "More Like This" recommendations provider and tracking toggle.
+          - Added per-screen custom poster URL pattern controls with Profile Settings Sync v4 schema.
+          - Integrated PlaybackKey player lifecycle management and post-credits next episode timing.
+          - Added gesture percentage overlay for volume and brightness adjustments.
+          - Integrated NuvioMobile-Enhanced Profile Insights Taste DNA genre donut chart.
+          - Added password manager autofill support for login and registration.
+          - Added device-local appearance and bottom navigation configuration sheets.
+          - Updated iOS lifecycle, MPV bridge rendering, and dependency preparation scripts.
+          - Preserved StreamBridge branding, updater, metadata enrichment, avatars, addons, and CloudStream runtime.
           EOF
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${assets[@]}" --clobber
