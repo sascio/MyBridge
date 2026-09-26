@@ -66,6 +66,14 @@ data class CloudStreamLink(
     /** True for HLS/m3u8 (CloudStream `isM3u8` / type LINK vs M3U8). */
     val isM3u8: Boolean = false,
     val isDash: Boolean = false,
+    /**
+     * True for CloudStream `ExtractorLinkType.TORRENT` / `MAGNET`.
+     *
+     * These are real CloudStream link types. Reporting them as plain HTTP
+     * would hand a `magnet:` URI to the HTTP player; StreamBridge already
+     * routes torrent streams separately, so the distinction must survive.
+     */
+    val isTorrent: Boolean = false,
     val headers: Map<String, String> = emptyMap(),
     /** Raw Cookie pairs; folded into the request headers on conversion. */
     val cookies: Map<String, String> = emptyMap(),
@@ -159,7 +167,13 @@ internal object CloudStreamProviderAdapter {
 
         link.headers.forEach { (key, value) ->
             val name = key.trim()
-            if (name.isNotEmpty()) headers[name] = value
+            if (name.isEmpty()) return@forEach
+            // HTTP header names are case-insensitive. A provider that spells it
+            // "referer" must override the derived "Referer" rather than produce
+            // a second, conflicting header that some CDNs reject outright.
+            val existing = headers.keys.firstOrNull { it.equals(name, ignoreCase = true) }
+            if (existing != null) headers.remove(existing)
+            headers[name] = value
         }
 
         if (link.cookies.isNotEmpty()) {
@@ -188,6 +202,7 @@ internal object CloudStreamProviderAdapter {
     private fun streamType(link: CloudStreamLink): String = when {
         link.isM3u8 -> "hls"
         link.isDash -> "dash"
+        link.isTorrent -> "torrent"
         else -> "http"
     }
 

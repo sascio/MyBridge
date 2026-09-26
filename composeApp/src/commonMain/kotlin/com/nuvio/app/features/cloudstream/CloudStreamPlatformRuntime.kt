@@ -42,4 +42,15 @@ internal expect object CloudStreamPlatformRuntime {
      * contribute no streams, rather than fabricating any.
      */
     fun executor(): CloudStreamPluginExecutor?
+
+    /**
+     * Releases a loaded extension and everything it registered.
+     *
+     * CloudStream plugins register into process-global registries
+     * (`APIHolder.allProviders`, `extractorApis`). Without an unload, an update
+     * or reinstall leaves the previous registration in place and the next load
+     * legitimately observes that it registered nothing new. No-op where
+     * execution is unsupported.
+     */
+    fun unload(pluginId: String)
 }

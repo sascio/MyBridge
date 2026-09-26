@@ -73,6 +73,21 @@ internal fun List<AddonStreamGroup>.toEmptyStateReason(anyLoading: Boolean): Str
     }
 }
 
+/**
+ * The first concrete provider error behind a [StreamsEmptyStateReason.StreamFetchFailed].
+ *
+ * Returns null for every other outcome, so a "no streams found" result never
+ * borrows an unrelated error string.
+ */
+internal fun List<AddonStreamGroup>.toEmptyStateDetail(anyLoading: Boolean): String? {
+    if (toEmptyStateReason(anyLoading) != StreamsEmptyStateReason.StreamFetchFailed) return null
+    return mapNotNull { group ->
+        group.error?.trim()?.takeIf { it.isNotEmpty() }?.let { message ->
+            if (size == 1) message else "${group.addonName}: $message"
+        }
+    }.distinct().firstOrNull()
+}
+
 internal suspend fun <T> runCatchingUnlessCancelled(block: suspend () -> T): Result<T> =
     try {
         Result.success(block())
