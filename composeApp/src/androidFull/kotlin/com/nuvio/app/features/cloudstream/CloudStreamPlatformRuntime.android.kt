@@ -288,7 +288,13 @@ internal actual object CloudStreamPlatformRuntime {
         PluginManager.currentlyLoading = plugin.id
         if (manifest?.requiresResources == true) {
             runCatching { instance.attachResources(pluginContext, file) }
-                .onFailure { log.w(it) { "Resource attach failed for '${plugin.id}'" } }
+                .onFailure {
+                    // Do not turn an Activity ABI failure into a hidden
+                    // resource warning. The provider must see the real
+                    // ClassCastException if the host wiring is ever wrong.
+                    if (it is ClassCastException) throw it
+                    log.w(it) { "Resource attach failed for '${plugin.id}'" }
+                }
         }
 
         // --- gate 7: must register providers, else roll back --------------
@@ -464,7 +470,7 @@ internal actual object CloudStreamPlatformRuntime {
                         api.search(query, 1)?.items.orEmpty()
                     }
                 }.onFailure { error ->
-                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                     log.w(error) { "CloudStream search failed api=${api.name} query=$query" }
                 }.getOrDefault(emptyList()).map { response ->
                     CloudStreamSearchResult(
@@ -539,7 +545,7 @@ internal actual object CloudStreamPlatformRuntime {
                             )
                         }
                     }.onFailure { error ->
-                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                         log.w(error) { "CloudStream live homepage failed api=${api.name}" }
                     }.getOrNull() ?: return@flatMap emptyList()
 
@@ -557,7 +563,7 @@ internal actual object CloudStreamPlatformRuntime {
                                         api.load(url)
                                     }
                                 }.onFailure { error ->
-                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                                     log.w(error) {
                                         "CloudStream live catalog detail failed api=${api.name}"
                                     }
@@ -625,6 +631,7 @@ internal actual object CloudStreamPlatformRuntime {
                 ?: item.url
 
             val resolved = runCatching { collectLinks(api, target) }.getOrElse { error ->
+                if (error is ClassCastException) throw error
                 // A LiveStreamLoadResponse's dataUrl is itself an authoritative
                 // provider payload. If the provider returns it as a direct HLS,
                 // DASH or HTTP stream instead of asking loadLinks to resolve it,
@@ -735,7 +742,7 @@ internal actual object CloudStreamPlatformRuntime {
                         // A genuine cancellation (user left the screen, new
                         // request) must stay a cancellation and never be
                         // recorded as a provider failure.
-                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                         lastError = error.asDiagnosedFailure(api.name)
                         log.w(error) {
                             "CloudStream resolve failed api=${api.name} title=$title: " +
@@ -930,7 +937,7 @@ internal actual object CloudStreamPlatformRuntime {
                     )
                 }
             }.onFailure { error ->
-                if (error is kotlinx.coroutines.CancellationException) throw error
+                if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                 log.w(error) { "CloudStream extractor fallback failed api=${api.name}" }
             }
 
