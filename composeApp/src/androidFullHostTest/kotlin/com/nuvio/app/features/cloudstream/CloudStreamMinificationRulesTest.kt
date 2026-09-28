@@ -115,6 +115,19 @@ class CloudStreamMinificationRulesTest {
     }
 
     @Test
+    fun `the Activity boundary stays named for runtime hierarchy diagnostics`() {
+        val rules = repoFile("proguard-cloudstream-full.pro").readText()
+        assertTrue(
+            "-keep class com.nuvio.app.MainActivity { *; }" in rules,
+            "The AppCompat host Activity must remain identifiable across the dynamic CloudStream boundary.",
+        )
+        assertTrue(
+            "-keep class com.nuvio.app.launcher.** extends com.nuvio.app.MainActivity { *; }" in rules,
+            "Launcher Activity subclasses must retain the AppCompat host hierarchy.",
+        )
+    }
+
+    @Test
     fun `obfuscation of the CloudStream runtime itself stays disabled`() {
         assertTrue(
             Regex("""^\s*-keep\s+class\s+com\.lagradost\.\*\*\s*\{\s*\*;\s*}""", RegexOption.MULTILINE)

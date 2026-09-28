@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.res.AssetManager
 import android.content.res.Resources
+import androidx.appcompat.app.AppCompatActivity
 import co.touchlab.kermit.Logger
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.APIHolder
@@ -87,9 +88,51 @@ internal actual object CloudStreamPlatformRuntime {
      */
     private var activityReference: WeakReference<Activity>? = null
 
+    /**
+     * CloudStream providers are not given an arbitrary ContextWrapper. A number
+     * of upstream providers legitimately use AppCompat APIs, including casts in
+     * CloudStream's own extension UI helpers. Keep the actual host Activity so
+     * the object exposed through both `CommonActivity.activity` and CloudStream
+     *'s global `app` context is the same real AppCompatActivity instance.
+     */
+    private var appCompatActivityReference: WeakReference<AppCompatActivity>? = null
+
     actual fun initialize(context: Any?) {
-        (context as? Activity)?.let { activityReference = WeakReference(it) }
-        appContext = (context as? Context)?.applicationContext
+        val androidContext = context as? Context ?: return
+        val activity = context as? Activity
+        activityReference = activity?.let(::WeakReference)
+        appCompatActivityReference = when (activity) {
+            is AppCompatActivity -> WeakReference(activity)
+            null -> null
+            else -> {
+                val hierarchy = activity.cloudStreamActivityHierarchy()
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                    provider = "activity host",
+                    message = "CloudStream requires an AppCompatActivity host; received $hierarchy.",
+                )
+                null
+            }
+        }
+        appContext = androidContext.applicationContext
+        if (appCompatActivityReference == null) {
+            CommonActivity.setActivityInstance(null)
+        }
+
+        // Publish the real Activity immediately, not only when the first plugin
+        // is loaded. This also refreshes the reference after Activity recreation
+        // while a loaded provider remains cached.
+        appCompatActivityReference?.get()?.let { host ->
+            CommonActivity.setActivityInstance(host)
+            CloudStreamApp.context = host
+            setContext(WeakReference(host))
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                provider = "activity host",
+                message = "CloudStream host hierarchy: ${host.cloudStreamActivityHierarchy()}.",
+            )
+        }
+
         // The installer shares this distribution's execution boundary, so it is
         // initialised from the same call rather than from shared Android code
         // that also runs in the Play Store build.
@@ -224,8 +267,14 @@ internal actual object CloudStreamPlatformRuntime {
         file.setReadOnly()
 
         // --- gate 6: expected plugin type --------------------------------
-        val identityContext = CloudStreamIdentityContext(context)
-        prepareHostContext(identityContext)
+        // Providers must receive the actual AppCompatActivity object. Passing
+        // an obfuscated ContextWrapper here is not equivalent: a provider that
+        // uses `context as AppCompatActivity` will correctly reject the wrapper.
+        // The production StreamBridge host is MainActivity/AppIcon* ->
+        // AppCompatActivity; the fallback is retained only for non-UI host tests.
+        val pluginContext: Context = appCompatActivityReference?.get()
+            ?: CloudStreamIdentityContext(context)
+        prepareHostContext(pluginContext)
 
         val loader = PathClassLoader(file.absolutePath, context.classLoader)
         val pluginClass = loader.loadClass(pluginClassName)
@@ -238,7 +287,7 @@ internal actual object CloudStreamPlatformRuntime {
         instance.filename = file.absolutePath
         PluginManager.currentlyLoading = plugin.id
         if (manifest?.requiresResources == true) {
-            runCatching { instance.attachResources(identityContext, file) }
+            runCatching { instance.attachResources(pluginContext, file) }
                 .onFailure { log.w(it) { "Resource attach failed for '${plugin.id}'" } }
         }
 
@@ -246,7 +295,7 @@ internal actual object CloudStreamPlatformRuntime {
         val providersBefore = APIHolder.allProviders.toSet()
         val extractorsBefore = extractorApis.toSet()
         try {
-            if (instance is Plugin) instance.load(identityContext) else instance.load()
+            if (instance is Plugin) instance.load(pluginContext) else instance.load()
 
             val providers = APIHolder.allProviders
                 .filter { it !in providersBefore || it.sourcePlugin == file.absolutePath }
@@ -293,9 +342,23 @@ internal actual object CloudStreamPlatformRuntime {
     }
 
     private fun prepareHostContext(context: Context) {
-        activityReference?.get()?.let(CommonActivity::setActivityInstance)
-        CloudStreamApp.context = context
-        setContext(WeakReference(context))
+        // Keep CommonActivity and CloudStream's global `app` pointed at the
+        // same real AppCompatActivity. The identity wrapper is only used when
+        // there is no UI host at all; it must never shadow a live Activity.
+        val host = appCompatActivityReference?.get()
+        if (host != null) {
+            CommonActivity.setActivityInstance(host)
+            CloudStreamApp.context = host
+            setContext(WeakReference(host))
+        } else {
+            // Never publish a ComponentActivity/ordinary Activity as if it were
+            // an AppCompatActivity. A non-AppCompat host is a wiring defect and
+            // must remain visible to the provider instead of being disguised by
+            // an unsafe cast or an incompatible CommonActivity value.
+            CommonActivity.setActivityInstance(null)
+            CloudStreamApp.context = context
+            setContext(WeakReference(context))
+        }
     }
 
     private fun readArchiveManifest(file: File): CloudStreamPluginArchiveManifest? = runCatching {
@@ -933,10 +996,27 @@ internal class CloudStreamStageTimeoutException(
 ) : Exception(message, cause)
 
 /**
- * Presents CloudStream's own package name to loaded plugins.
+ * Returns the concrete Android hierarchy without retaining the Activity.
  *
- * Some providers key their stored preferences or resource lookups off the
- * host package name; without this they behave inconsistently or refuse to run.
+ * This is intentionally recorded in diagnostics because R8 names such as R81
+ * are otherwise impossible to distinguish from a genuinely incompatible host.
+ */
+private fun Activity.cloudStreamActivityHierarchy(): String {
+    val names = buildList {
+        var current: Class<*>? = javaClass
+        while (current != null && size < 12) {
+            add(current.name.substringAfterLast('.'))
+            current = current.superclass
+        }
+    }
+    return names.joinToString(" -> ")
+}
+
+/**
+ * Presents CloudStream's own package name to loaded plugins when no Activity is
+ * available (host tests/background-only callers). Production plugin execution
+ * uses the actual AppCompatActivity above, so this wrapper is never exposed to
+ * providers that require an Activity cast.
  */
 private class CloudStreamIdentityContext(base: Context) : ContextWrapper(base) {
     override fun getPackageName(): String = "com.lagradost.cloudstream3"

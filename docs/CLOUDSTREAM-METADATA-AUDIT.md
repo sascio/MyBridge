@@ -120,6 +120,42 @@ metadata: it is the response's own payload, and it prevents valid extensionless,
 redirecting, HLS or DASH URLs from being rejected. Link-provided headers and
 referer still take precedence when they exist.
 
+## Activity/Context compatibility audit
+
+A physical-device run identified the next failure after discovery: a provider
+reached `MainAPI.getMainPage()` and then attempted to use an
+`androidx.appcompat.app.AppCompatActivity`, but received an obfuscated runtime
+object reported as `R81`. The previous runtime retained the real Activity only
+for `CommonActivity.activity` while constructing and exposing a
+`CloudStreamIdentityContext` wrapper around the application context to plugin
+code and CloudStream's global `app` context. A ContextWrapper is not an
+AppCompatActivity, even when its base context ultimately belongs to one.
+
+The StreamBridge source host is `com.nuvio.app.MainActivity :
+AppCompatActivity`. Every manifest launcher alias (`AppIconDefault`,
+`AppIconArcticBlue`, `AppIconEmerald`, `AppIconRoseGold`, `AppIconCopper`, and
+`AppIconGraphite`) subclasses that host, so the source Activity hierarchy is
+AppCompat-compatible. R8 obfuscation can rename the concrete class to a name
+such as `R81`; it cannot change its superclass hierarchy. The full-build rules
+now keep the host and launcher names as well as the CloudStream ABI so a device
+report can identify the concrete hierarchy without confusing obfuscation with
+an incompatible superclass.
+
+The fix publishes the actual verified `AppCompatActivity` instance before any
+provider is loaded, assigns that same instance to `CommonActivity.activity`,
+sets CloudStream's global `app` context to that Activity, and passes the actual
+Activity to `Plugin.load(Context)`. The identity wrapper remains only as a
+non-UI fallback for host/background tests and is not used for production
+provider execution. Runtime diagnostics record the concrete class and
+superclass chain and reject no provider data or ClassCastException; the
+exception remains visible if a provider has another incompatible assumption.
+
+The source/runtime contract is covered by an AppCompat host test, minification
+keep-rule tests, and the existing full/Play Store boundary checks. The actual
+installed SKTechProvider still requires a fresh APK on a physical device to
+confirm that the R81 object now has the expected AppCompat superclass and that
+`getMainPage()` returns items.
+
 ## Persistence, failure visibility and audit corrections
 
 The previous device report exposed two observability defects: a catalog/runtime
