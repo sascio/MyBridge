@@ -53,6 +53,7 @@ data class CloudStreamEpisode(
     val posterUrl: String? = null,
     val description: String? = null,
     val rating: Int? = null,
+    val runTime: Int? = null,
 )
 
 /** A CloudStream `ExtractorLink`, normalised. */
@@ -89,6 +90,13 @@ data class CloudStreamSubtitleFile(
     val headers: Map<String, String> = emptyMap(),
 )
 
+/** Links plus subtitles and the normalized LoadResponse metadata returned by one plugin. */
+data class CloudStreamLinkResult(
+    val links: List<CloudStreamLink> = emptyList(),
+    val subtitles: List<CloudStreamSubtitleFile> = emptyList(),
+    val metadata: CloudStreamResponseMetadata? = null,
+)
+
 internal object CloudStreamProviderAdapter {
 
     /**
@@ -112,6 +120,7 @@ internal object CloudStreamProviderAdapter {
          * defaults to the plugin-derived id for standalone mapping/tests.
          */
         addonId: String? = null,
+        metadata: CloudStreamResponseMetadata? = null,
     ): List<StreamItem> {
         if (links.isEmpty()) return emptyList()
         val adaptedSubtitles = adaptSubtitles(subtitles)
@@ -125,11 +134,14 @@ internal object CloudStreamProviderAdapter {
                 title = buildTitle(link),
                 description = qualityLabel(link.quality),
                 url = url,
-                sourceName = link.source?.takeIf { it.isNotBlank() } ?: pluginName,
+                sourceName = link.source?.takeIf { it.isNotBlank() }
+                    ?: metadata?.providerName?.takeIf { it.isNotBlank() }
+                    ?: pluginName,
                 addonName = pluginName,
                 addonId = addonId ?: cloudStreamAddonId(pluginId),
                 addonLogo = pluginLogo,
                 streamType = streamType(link),
+                mediaMetadata = metadata?.toStreamMediaMetadata(),
                 behaviorHints = StreamBehaviorHints(
                     notWebReady = requestHeaders.isNotEmpty(),
                     proxyHeaders = requestHeaders

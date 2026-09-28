@@ -11,9 +11,11 @@ import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.actions.VideoClickActionHolder
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.PluginData
@@ -377,6 +379,7 @@ internal actual object CloudStreamPlatformRuntime {
                         posterUrl = response.posterUrl,
                         year = response.searchYear(),
                         type = response.type?.name,
+                        posterHeaders = response.posterHeaders.orEmpty(),
                     )
                 }
             }.distinctBy { it.url }
@@ -397,6 +400,10 @@ internal actual object CloudStreamPlatformRuntime {
                     url = ref.data,
                     season = ref.season,
                     episode = ref.episode,
+                    posterUrl = ref.posterUrl,
+                    description = ref.description,
+                    runTime = ref.runTime,
+                    rating = ref.rating?.toInt(),
                 )
             }
         }
@@ -408,6 +415,157 @@ internal actual object CloudStreamPlatformRuntime {
             val api = providersFor(plugin).firstOrNull()
                 ?: error("Extension exposes no CloudStream provider")
             collectLinks(api, query.url)
+        }
+
+        /**
+         * CloudStream live providers publish channels/events through their
+         * normal homepage contract. We deliberately use the API-declared
+         * capability and the returned SearchResponse fields; no provider or
+         * channel names are recognized here.
+         */
+        override suspend fun loadLiveCatalog(
+            plugin: CloudStreamPlugin,
+        ): List<CloudStreamLiveCatalogItem> = withContext(Dispatchers.IO) {
+            providersFor(plugin)
+                // A provider's homepage is the runtime capability we need.
+                // Do not gate this on manifest tvTypes or supportedTypes: both
+                // are frequently broader/incomplete than the actual
+                // SearchResponse/LoadResponse shape returned by the provider.
+                .filter { api -> api.hasMainPage }
+                .flatMap { api ->
+                    val response = runCatching {
+                        stage("getMainPage", api, SEARCH_TIMEOUT_MS, api.getMainPageTimeoutMs) {
+                            api.getMainPage(
+                                1,
+                                MainPageRequest(
+                                    name = api.name,
+                                    data = "",
+                                    horizontalImages = false,
+                                ),
+                            )
+                        }
+                    }.onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        log.w(error) { "CloudStream live homepage failed api=${api.name}" }
+                    }.getOrNull() ?: return@flatMap emptyList()
+
+                    response?.items.orEmpty().flatMap { section ->
+                        section.list.mapNotNull { item ->
+                            val url = item.url.trim().takeIf { it.isNotEmpty() }
+                                ?: return@mapNotNull null
+                            // A homepage item is a SearchResponse, not a
+                            // LoadResponse. Load the detail here so a provider
+                            // that leaves SearchResponse.type unset can still
+                            // be recognized by its actual LiveStreamLoadResponse.
+                            val detail = runCatching {
+                                stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) {
+                                    api.load(url)
+                                }
+                            }.onFailure { error ->
+                                if (error is kotlinx.coroutines.CancellationException) throw error
+                                log.w(error) {
+                                    "CloudStream live catalog detail failed api=${api.name} url=$url"
+                                }
+                            }.getOrNull()
+                            val isLive = when {
+                                detail == null -> item.type == TvType.Live
+                                detail is LiveStreamLoadResponse -> true
+                                else -> detail.type == TvType.Live
+                            }
+                            if (!isLive) return@mapNotNull null
+
+                            val detailMetadata = detail?.let(CloudStreamLoadResponseTargets::metadata)
+                            val title = detailMetadata?.title ?: item.name
+                            val metadata = detailMetadata ?: CloudStreamResponseMetadata(
+                                title = title,
+                                url = url,
+                                poster = item.posterUrl,
+                                posterHeaders = item.posterHeaders.orEmpty(),
+                                year = item.searchYear(),
+                                providerName = api.name,
+                                mediaType = item.type?.name ?: TvType.Live.name,
+                                isLive = true,
+                                liveStatus = "catalog",
+                                channelName = title,
+                            )
+                            CloudStreamLiveCatalogItem(
+                                title = title,
+                                url = url,
+                                poster = metadata.poster ?: item.posterUrl,
+                                posterHeaders = metadata.posterHeaders,
+                                year = metadata.year ?: item.searchYear(),
+                                mediaType = metadata.mediaType,
+                                category = section.name.takeIf { it.isNotBlank() },
+                                providerName = metadata.providerName ?: api.name,
+                                metadata = metadata,
+                            )
+                        }
+                    }
+                }
+                .distinctBy { listOf(it.providerName, it.url, it.title) }
+        }
+
+        override suspend fun resolveLive(
+            plugin: CloudStreamPlugin,
+            item: CloudStreamLiveCatalogItem,
+        ): CloudStreamLiveResolution = withContext(Dispatchers.IO) {
+            val api = providersFor(plugin).firstOrNull { it.name == item.providerName }
+                ?: providersFor(plugin).firstOrNull()
+                ?: error("Extension exposes no CloudStream provider")
+            val detail = stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) {
+                api.load(item.url)
+            } ?: error("Provider returned no live details for '${item.title}'")
+            val metadata = CloudStreamLoadResponseTargets.metadata(detail)
+            val target = CloudStreamLoadResponseTargets.movieTarget(detail)
+                ?.takeIf { it.isNotBlank() }
+                ?: item.url
+
+            val resolved = runCatching { collectLinks(api, target) }.getOrElse { error ->
+                // A LiveStreamLoadResponse's dataUrl is itself an authoritative
+                // provider payload. If the provider returns it as a direct HLS,
+                // DASH or HTTP stream instead of asking loadLinks to resolve it,
+                // retain it rather than rejecting a valid extension response.
+                if (detail is LiveStreamLoadResponse && metadata.dataUrl?.isNotBlank() == true && target.isHttpUrl()) {
+                    CloudStreamLinkResult(
+                        links = listOf(
+                            CloudStreamLink(
+                                name = metadata.title,
+                                url = target,
+                                isM3u8 = target.looksLikeM3u8(),
+                                isDash = target.looksLikeDash(),
+                                source = api.name,
+                            ),
+                        ),
+                    )
+                } else {
+                    throw error
+                }
+            }
+            val playable = if (
+                resolved.links.isEmpty() &&
+                    detail is LiveStreamLoadResponse &&
+                    metadata.dataUrl?.isNotBlank() == true &&
+                    target.isHttpUrl()
+            ) {
+                resolved.copy(
+                    links = listOf(
+                        CloudStreamLink(
+                            name = metadata.title,
+                            url = target,
+                            isM3u8 = target.looksLikeM3u8(),
+                            isDash = target.looksLikeDash(),
+                            source = api.name,
+                        ),
+                    ),
+                )
+            } else {
+                resolved
+            }
+            CloudStreamLiveResolution(
+                metadata = metadata,
+                links = playable.links,
+                subtitles = playable.subtitles,
+            )
         }
 
         /**
@@ -466,7 +624,9 @@ internal actual object CloudStreamPlatformRuntime {
                         } else {
                             CloudStreamLoadResponseTargets.movieTarget(detail) ?: match.url
                         }
-                        collectLinks(api, target)
+                        collectLinks(api, target).copy(
+                            metadata = CloudStreamLoadResponseTargets.metadata(detail),
+                        )
                     }.onFailure { error ->
                         // A genuine cancellation (user left the screen, new
                         // request) must stay a cancellation and never be
@@ -505,6 +665,7 @@ internal actual object CloudStreamPlatformRuntime {
                         posterUrl = response.posterUrl,
                         year = response.searchYear(),
                         type = response.type?.name,
+                        posterHeaders = response.posterHeaders.orEmpty(),
                     )
                 }
             if (results.isEmpty()) return null
@@ -753,3 +914,12 @@ private fun com.lagradost.cloudstream3.SearchResponse.searchYear(): Int? = when 
 /** Normalises a title for tolerant comparison between metadata and provider results. */
 private fun String.normalisedTitle(): String =
     lowercase().filter { it.isLetterOrDigit() || it == ' ' }.trim().replace(Regex("\\s+"), " ")
+
+private fun String.isHttpUrl(): Boolean =
+    startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String.looksLikeM3u8(): Boolean =
+    contains(".m3u8", ignoreCase = true) || contains("m3u8", ignoreCase = true)
+
+private fun String.looksLikeDash(): Boolean =
+    contains(".mpd", ignoreCase = true) || contains("dash", ignoreCase = true)

@@ -755,7 +755,18 @@ private fun LiveTvChannelCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                LiveTvCategoryLine(categoryName = categoryName)
+                LiveTvCategoryLine(
+                    categoryName = channel.providerName?.let { "$categoryName • $it" } ?: categoryName,
+                )
+                channel.description?.takeIf { it.isNotBlank() }?.let { description ->
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             IconButton(onClick = onFavoriteClick) {
                 Icon(

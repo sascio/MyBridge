@@ -464,6 +464,7 @@ internal object CloudStreamExtensionsRepository {
                 subtitles = resolved.subtitles,
                 pluginLogo = target.iconUrl,
                 addonId = target.addonId,
+                metadata = resolved.metadata,
             )
         }.onFailure { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
@@ -472,6 +473,65 @@ internal object CloudStreamExtensionsRepository {
                     "${error::class.simpleName}: ${error.message}"
             }
         }
+    }
+
+    /**
+     * Loads all enabled CloudStream Live providers' catalog entries.
+     *
+     * The result is deliberately a list of normalized catalog items, not raw
+     * AAR objects. A provider may publish several homepage sections and several
+     * providers may publish the same title; the provider/addon identity remains
+     * attached to every item so the normal Live TV source flow can keep them
+     * separate.
+     */
+    suspend fun loadLiveCatalog(): List<CloudStreamLiveCatalogItem> {
+        initialize()
+        val backend = activeExecutor() ?: return emptyList()
+        return CloudStreamAggregatorBridge
+            // Homepage catalogs are a capability of the loaded MainAPI, not a
+            // manifest content-type declaration. Some valid live providers
+            // publish only Movie/TvSeries in their repository metadata while
+            // returning Live items from getMainPage().
+            .resolveTargets(_uiState.value.extensions, "catalog")
+            .flatMap { target ->
+                val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
+                    ?: return@flatMap emptyList()
+                runCatching {
+                    backend.loadLiveCatalog(extension.plugin).map { item ->
+                        item.copy(
+                            extensionId = extension.id,
+                            sourceId = target.sourceId,
+                            addonId = target.addonId,
+                            providerName = item.providerName
+                                .takeIf { it.isNotBlank() }
+                                ?: target.addonName,
+                        )
+                    }
+                }.onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    log.w(error) { "CloudStream live catalog failed for ${target.addonId}" }
+                }.getOrDefault(emptyList())
+            }
+            .filter { it.title.isNotBlank() && it.url.isNotBlank() }
+            .distinctBy { listOf(it.addonId, it.url, it.title) }
+    }
+
+    /** Resolves a normalized live catalog item through its owning provider. */
+    suspend fun resolveLive(item: CloudStreamLiveCatalogItem): Result<CloudStreamLiveResolution> {
+        initialize()
+        val backend = activeExecutor() ?: return Result.failure(
+            IllegalStateException("This build cannot execute CloudStream extensions."),
+        )
+        val extension = _uiState.value.extensions.firstOrNull { it.id == item.extensionId }
+            ?: return Result.failure(IllegalStateException("CloudStream extension is no longer available."))
+        if (!extension.plugin.isExecutable || !extension.installStatus.isInstalled) {
+            return Result.failure(IllegalStateException("CloudStream extension is not installed."))
+        }
+        return runCatching { backend.resolveLive(extension.plugin, item) }
+            .onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                log.w(error) { "CloudStream live item failed for ${item.addonId}" }
+            }
     }
 
     // --- internals ---------------------------------------------------------
@@ -554,6 +614,12 @@ internal object CloudStreamExtensionsRepository {
         if (extensions.isEmpty()) return
         log.i { "Restored ${extensions.size} installed CloudStream extension(s) from cache" }
         _uiState.value = _uiState.value.copy(extensions = extensions)
+        // Older installs may predate persisted per-source activation state.
+        // Treat an installed source with no recorded preference like a fresh
+        // install, while preserving an explicit disabled preference.
+        extensions.forEach { extension ->
+            enableSourcesByDefault(extension.id)
+        }
     }
 
     /** Caches metadata for every installed extension so it survives restarts. */

@@ -293,7 +293,9 @@ private fun PlayerScreenRuntime.switchToPreparedLiveChannel(channel: LiveTvChann
     if (channel.streamUrl == activeSourceUrl) {
         InAppLogger.debug("Player/LiveTV", "selected current channel id=${channel.id} name=${channel.name}")
         activeStreamTitle = channel.name
-        activeStreamSubtitle = channel.group
+        activeStreamSubtitle = channel.description ?: channel.group
+        activeProviderName = channel.providerName ?: "Live TV"
+        externalSubtitles = channel.subtitles
         activeLogo = channel.logoUrl
         activeVideoId = channel.id
         showLiveChannelsPanel = false
@@ -310,8 +312,9 @@ private fun PlayerScreenRuntime.switchToPreparedLiveChannel(channel: LiveTvChann
     activeSourceHeaders = sanitizePlaybackHeaders(channel.headers)
     activeSourceResponseHeaders = emptyMap()
     activeStreamTitle = channel.name
-    activeStreamSubtitle = channel.group
-    activeProviderName = "Live TV"
+    activeStreamSubtitle = channel.description ?: channel.group
+    activeProviderName = channel.providerName ?: "Live TV"
+    externalSubtitles = channel.subtitles
     activeProviderAddonId = null
     activeLogo = channel.logoUrl
     currentStreamBingeGroup = null
