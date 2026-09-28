@@ -2,8 +2,11 @@ package com.nuvio.app.features.livetv
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpGetText
+import com.nuvio.app.features.cloudstream.CloudStreamDiagnosticStage
+import com.nuvio.app.features.cloudstream.CloudStreamDiagnostics
 import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
 import com.nuvio.app.features.cloudstream.CloudStreamProviderAdapter
+import com.nuvio.app.features.cloudstream.cloudStreamDiagnosticMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -379,6 +382,11 @@ object LiveTvRepository {
                     onSuccess = { loadedChannels += it },
                     onFailure = { error ->
                         if (error is CancellationException) throw error
+                        CloudStreamDiagnostics.error(
+                            CloudStreamDiagnosticStage.UI,
+                            provider = "Live TV",
+                            message = "Live catalog request failed: ${error.cloudStreamDiagnosticMessage()}",
+                        )
                         failedPlaylistNames += "CloudStream"
                         log.w(error) { "Failed to load CloudStream live catalog" }
                     },
@@ -386,12 +394,18 @@ object LiveTvRepository {
             }
 
             val channels = loadedChannels.distinctBy { it.id }
+            val cloudStreamFailure = if (channels.isEmpty() && hasCloudStream) {
+                CloudStreamDiagnostics.latestFailureSummary()
+            } else {
+                null
+            }
             _uiState.value = _uiState.value.copy(
                 playlistUrl = playlists.firstEnabledUrlSource(),
                 playlists = playlists,
                 channels = channels,
                 isLoading = false,
                 errorMessage = when {
+                    cloudStreamFailure != null -> "CloudStream: $cloudStreamFailure"
                     channels.isEmpty() && failedPlaylistNames.isNotEmpty() -> "Playlist could not be loaded."
                     channels.isEmpty() -> "No channels found in these playlists."
                     failedPlaylistNames.isNotEmpty() -> "Some playlists could not be loaded: ${failedPlaylistNames.joinToString()}"

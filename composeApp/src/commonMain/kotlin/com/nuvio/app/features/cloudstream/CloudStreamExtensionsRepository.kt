@@ -192,6 +192,11 @@ internal object CloudStreamExtensionsRepository {
 
             when (result) {
                 is CloudStreamInstallResult.Success -> {
+                    CloudStreamDiagnostics.info(
+                        CloudStreamDiagnosticStage.INSTALLATION,
+                        extension.name,
+                        "Package installed and verified (version ${result.version ?: "unknown"}).",
+                    )
                     updateInstallStatus(pluginId) {
                         CloudStreamInstallStatus(
                             state = CloudStreamInstallState.INSTALLED,
@@ -212,6 +217,11 @@ internal object CloudStreamExtensionsRepository {
                 }
 
                 is CloudStreamInstallResult.Failure -> {
+                    CloudStreamDiagnostics.error(
+                        CloudStreamDiagnosticStage.INSTALLATION,
+                        extension.name,
+                        result.message,
+                    )
                     // A failed *update* must not erase a working installation.
                     val stillInstalled = CloudStreamPackageInstaller.isInstalled(extension.plugin)
                     updateInstallStatus(pluginId) { current ->
@@ -417,9 +427,14 @@ internal object CloudStreamExtensionsRepository {
         // state drifted mid-request. Reporting that is honest; returning an
         // empty success would present a broken provider as "this title has no
         // sources here", which is a different and misleading statement.
-        val backend = activeExecutor() ?: return Result.failure(
-            IllegalStateException("This build cannot execute CloudStream extensions."),
-        )
+        val backend = activeExecutor() ?: run {
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.PLAYBACK,
+                target.addonName,
+                "No CloudStream execution backend is available.",
+            )
+            return Result.failure(IllegalStateException("This build cannot execute CloudStream extensions."))
+        }
         val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
             ?: return Result.failure(
                 IllegalStateException(
@@ -468,6 +483,11 @@ internal object CloudStreamExtensionsRepository {
             )
         }.onFailure { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.NORMALIZATION,
+                target.addonName,
+                error,
+            )
             log.w(error) {
                 "CloudStream provider '${target.addonId}' failed: " +
                     "${error::class.simpleName}: ${error.message}"
@@ -486,34 +506,63 @@ internal object CloudStreamExtensionsRepository {
      */
     suspend fun loadCatalog(): List<CloudStreamCatalogItem> {
         initialize()
-        val backend = activeExecutor() ?: return emptyList()
-        return CloudStreamAggregatorBridge
+        val backend = activeExecutor() ?: run {
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.CLASSLOADER,
+                provider = "runtime",
+                message = "No CloudStream execution backend is available in this build.",
+            )
+            return emptyList()
+        }
+        val targets = CloudStreamAggregatorBridge
             // Homepage catalogs are a capability of the loaded MainAPI, not a
             // manifest content-type declaration. Some valid live providers
             // publish only Movie/TvSeries in their repository metadata while
             // returning Live items from getMainPage().
             .resolveTargets(_uiState.value.extensions, "catalog")
-            .flatMap { target ->
-                val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
-                    ?: return@flatMap emptyList()
-                runCatching {
-                    backend.loadCatalog(extension.plugin).map { item ->
-                        item.copy(
-                            extensionId = extension.id,
-                            sourceId = target.sourceId,
-                            addonId = target.addonId,
-                            providerName = item.providerName
-                                .takeIf { it.isNotBlank() }
-                                ?: target.addonName,
-                        )
-                    }
-                }.onFailure { error ->
-                    if (error is kotlinx.coroutines.CancellationException) throw error
-                    log.w(error) { "CloudStream live catalog failed for ${target.addonId}" }
-                }.getOrDefault(emptyList())
-            }
+        if (targets.isEmpty() && _uiState.value.extensions.any { it.isActive }) {
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.UI,
+                provider = "catalog targets",
+                message = "Installed and enabled extensions produced no executable catalog targets.",
+            )
+        }
+
+        val rawItems = targets.flatMap { target ->
+            val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
+                ?: return@flatMap emptyList()
+            runCatching {
+                backend.loadCatalog(extension.plugin).map { item ->
+                    item.copy(
+                        extensionId = extension.id,
+                        sourceId = target.sourceId,
+                        addonId = target.addonId,
+                        providerName = item.providerName
+                            .takeIf { it.isNotBlank() }
+                            ?: target.addonName,
+                    )
+                }
+            }.onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.GET_MAIN_PAGE,
+                    target.addonName,
+                    error,
+                )
+                log.w(error) { "CloudStream catalog failed for ${target.addonId}" }
+            }.getOrDefault(emptyList())
+        }
+        val normalized = rawItems
             .filter { it.title.isNotBlank() && it.url.isNotBlank() }
             .distinctBy { listOf(it.addonId, it.url, it.title) }
+        if (normalized.size != rawItems.size) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.NORMALIZATION,
+                provider = "catalog",
+                message = "Dropped ${rawItems.size - normalized.size} catalog item(s) with missing identity or duplicate provider keys.",
+            )
+        }
+        return normalized
     }
 
     /** Resolves a normalized homepage catalog item through its owning provider. */
@@ -530,6 +579,11 @@ internal object CloudStreamExtensionsRepository {
         return runCatching { backend.resolveCatalog(extension.plugin, item) }
             .onFailure { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.LOAD_LINKS,
+                    item.providerName,
+                    error,
+                )
                 log.w(error) { "CloudStream catalog item failed for ${item.addonId}" }
             }
     }
@@ -557,6 +611,11 @@ internal object CloudStreamExtensionsRepository {
             )
         }.onFailure { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.LOAD_LINKS,
+                item.providerName,
+                error,
+            )
             log.w(error) { "CloudStream catalog item failed for ${item.addonId}" }
         }
     }
@@ -567,10 +626,20 @@ internal object CloudStreamExtensionsRepository {
 
     /** --- live projection ------------------------------------------------- */
 
-    suspend fun loadLiveCatalog(): List<CloudStreamLiveCatalogItem> =
-        loadCatalog().filter { item ->
+    suspend fun loadLiveCatalog(): List<CloudStreamLiveCatalogItem> {
+        val catalog = loadCatalog()
+        val live = catalog.filter { item ->
             item.metadata?.isLive == true || item.mediaType.equals("Live", ignoreCase = true)
         }
+        if (catalog.isNotEmpty() && live.isEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.NORMALIZATION,
+                provider = "live projection",
+                message = "Catalog returned ${catalog.size} item(s), but none normalized as LiveStreamLoadResponse/live.",
+            )
+        }
+        return live
+    }
 
     // --- internals ---------------------------------------------------------
 
@@ -579,7 +648,12 @@ internal object CloudStreamExtensionsRepository {
         val repositories = urls.map { url ->
             // Isolated: one bad repository cannot break discovery for the rest.
             runCatching { loader.load(url) }.getOrElse { error ->
-                log.w { "CloudStream repository '$url' failed: ${error.message}" }
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.DISCOVERY,
+                    provider = "repository",
+                    message = "Repository discovery failed: ${error.cloudStreamDiagnosticMessage()}",
+                )
+                log.w { "CloudStream repository discovery failed: ${error.message}" }
                 CloudStreamRepository(
                     url = url,
                     name = url,
@@ -590,11 +664,17 @@ internal object CloudStreamExtensionsRepository {
             }
         }
 
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.DISCOVERY,
+            provider = "repository",
+            message = "Discovered ${repositories.sumOf { it.plugins.size }} extension manifest(s) from ${repositories.size} repository(ies).",
+        )
+
         // Preserve in-flight install status across a refresh so a download
         // running while the user pulls to refresh is not reported as Available.
         val previousStatuses = _uiState.value.extensions.associate { it.id to it.installStatus }
 
-        val extensions = repositories.flatMap { repository ->
+        val discoveredExtensions = repositories.flatMap { repository ->
             repository.plugins.map { plugin ->
                 val mapped = CloudStreamExtensionMapping.toExtension(
                     plugin = plugin,
@@ -611,7 +691,26 @@ internal object CloudStreamExtensionsRepository {
                     },
                 )
             }
-        }.sortedBy { it.name.lowercase() }
+        }
+
+        // A transient repository outage must not turn a verified, installed
+        // extension into "No Active Addons" or erase its restart cache. The
+        // package and cached manifest are the authoritative offline discovery
+        // path until a repository refresh succeeds again.
+        val discoveredIds = discoveredExtensions.mapTo(mutableSetOf(), CloudStreamExtension::id)
+        val cachedInstalled = _uiState.value.extensions.filter { extension ->
+            extension.installStatus.isInstalled && extension.id !in discoveredIds
+        }
+        if (cachedInstalled.isNotEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.PERSISTENCE,
+                provider = "installed extensions",
+                message = "Repository refresh did not list ${cachedInstalled.size} installed extension(s); retained cached metadata and on-disk packages.",
+            )
+        }
+        val extensions = (discoveredExtensions + cachedInstalled)
+            .distinctBy(CloudStreamExtension::id)
+            .sortedBy { it.name.lowercase() }
 
         _uiState.value = CloudStreamUiState(
             isLoading = false,
@@ -621,6 +720,11 @@ internal object CloudStreamExtensionsRepository {
             extensions = extensions,
             errorMessage = null,
         )
+        // Compatibility with installs created before source preferences were
+        // persisted: a package that is already on disk is enabled by default,
+        // while an explicit disabled preference remains untouched.
+        extensions.filter { it.installStatus.isInstalled }
+            .forEach { extension -> enableSourcesByDefault(extension.id) }
         persistInstalledPlugins()
     }
 
@@ -649,7 +753,19 @@ internal object CloudStreamExtensionsRepository {
             ).copy(installStatus = installStatusFor(plugin))
         }.sortedBy { it.name.lowercase() }
 
-        if (extensions.isEmpty()) return
+        if (extensions.isEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.PERSISTENCE,
+                provider = "installed extensions",
+                message = "Persisted extension metadata was present, but no matching verified package was found on disk.",
+            )
+            return
+        }
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PERSISTENCE,
+            provider = "installed extensions",
+            message = "Restored ${extensions.size} installed extension(s) from private storage.",
+        )
         log.i { "Restored ${extensions.size} installed CloudStream extension(s) from cache" }
         _uiState.value = _uiState.value.copy(extensions = extensions)
         // Older installs may predate persisted per-source activation state.

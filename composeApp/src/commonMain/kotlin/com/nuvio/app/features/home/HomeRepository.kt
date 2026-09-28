@@ -7,8 +7,10 @@ import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
 import com.nuvio.app.features.cloudstream.CloudStreamCatalogItem
 import com.nuvio.app.features.cloudstream.CloudStreamCatalogStore
+import com.nuvio.app.features.cloudstream.CloudStreamDiagnostics
 import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
 import com.nuvio.app.features.cloudstream.catalogSourceKey
+import com.nuvio.app.features.cloudstream.cloudStreamDiagnosticMessage
 import com.nuvio.app.features.cloudstream.uiMediaType
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.poster.reapplyCustomPosterUrls
@@ -232,6 +234,11 @@ object HomeRepository {
             val items = runCatching { CloudStreamExtensionsRepository.loadCatalog() }
                 .getOrElse { error ->
                     if (error is kotlinx.coroutines.CancellationException) throw error
+                    CloudStreamDiagnostics.error(
+                        com.nuvio.app.features.cloudstream.CloudStreamDiagnosticStage.UI,
+                        provider = "Home",
+                        message = "Home catalog request failed: ${error.cloudStreamDiagnosticMessage()}",
+                    )
                     emptyList()
                 }
             cloudStreamCatalogLoading = false
@@ -317,6 +324,14 @@ object HomeRepository {
             }
         val cloudSections = cloudStreamSections()
         val sections = addonSections + cloudSections
+        val cloudStreamFailure = if (
+            cloudStreamCatalogItems.isEmpty() &&
+                CloudStreamExtensionsRepository.uiState.value.extensions.any { it.isActive }
+        ) {
+            CloudStreamDiagnostics.latestFailureSummary()
+        } else {
+            null
+        }
 
         val catalogHeroItems = if (snapshot.heroEnabled) {
             val heroRandom = Random((requestKey?.hashCode() ?: 0).absoluteValue + 1)
@@ -344,7 +359,11 @@ object HomeRepository {
             isLoading = isLoading || cloudStreamCatalogLoading,
             heroItems = heroItems,
             sections = sections,
-            errorMessage = if (sections.isEmpty()) lastErrorMessage else null,
+            errorMessage = if (sections.isEmpty()) {
+                lastErrorMessage ?: cloudStreamFailure
+            } else {
+                null
+            },
         )
     }
 

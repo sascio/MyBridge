@@ -168,8 +168,25 @@ internal actual object CloudStreamPlatformRuntime {
             synchronized(loaded) { loaded.remove(plugin.id) }
             cached.unload()
         }
-        val created = loadPluginLocked(plugin, packageFile)
+        val created = try {
+            loadPluginLocked(plugin, packageFile)
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            val stage = when (error) {
+                is ClassNotFoundException,
+                is LinkageError,
+                is SecurityException -> CloudStreamDiagnosticStage.CLASSLOADER
+                else -> CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION
+            }
+            CloudStreamDiagnostics.error(stage, plugin.displayName, error)
+            throw error
+        }
         synchronized(loaded) { loaded[plugin.id] = created }
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+            plugin.displayName,
+            "Loaded ${created.providers.size} provider(s) and ${created.extractors.size} extractor(s).",
+        )
         created
     }
 
@@ -352,11 +369,25 @@ internal actual object CloudStreamPlatformRuntime {
             return try {
                 withTimeout(budget) { block() }
             } catch (timeout: TimeoutCancellationException) {
-                throw CloudStreamStageTimeoutException(
-                    "CloudStream provider '${api.name}' timed out during $name after ${budget}ms",
+                val failure = CloudStreamStageTimeoutException(
+                    "CloudStream provider timed out during $name after ${budget}ms",
                     timeout,
                 )
+                CloudStreamDiagnostics.error(diagnosticStage(name), api.name, failure)
+                throw failure
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                CloudStreamDiagnostics.error(diagnosticStage(name), api.name, error)
+                throw error
             }
+        }
+
+        private fun diagnosticStage(name: String): CloudStreamDiagnosticStage = when (name) {
+            "getMainPage" -> CloudStreamDiagnosticStage.GET_MAIN_PAGE
+            "search" -> CloudStreamDiagnosticStage.SEARCH
+            "load" -> CloudStreamDiagnosticStage.LOAD
+            "loadLinks", "loadExtractor" -> CloudStreamDiagnosticStage.LOAD_LINKS
+            else -> CloudStreamDiagnosticStage.NORMALIZATION
         }
 
         override suspend fun search(
@@ -449,61 +480,68 @@ internal actual object CloudStreamPlatformRuntime {
                         log.w(error) { "CloudStream live homepage failed api=${api.name}" }
                     }.getOrNull() ?: return@flatMap emptyList()
 
-                    response?.items.orEmpty().flatMap { section ->
-                        section.list.mapNotNull { item ->
-                            val url = item.url.trim().takeIf { it.isNotEmpty() }
-                                ?: return@mapNotNull null
-                            // A homepage item is a SearchResponse, not a
-                            // LoadResponse. Load the detail here so a provider
-                            // that leaves SearchResponse.type unset can still
-                            // be recognized by its actual LiveStreamLoadResponse.
-                            val detail = runCatching {
-                                stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) {
-                                    api.load(url)
+                    val homepageItems = response?.items.orEmpty()
+                        .flatMap { section ->
+                            section.list.mapNotNull { item ->
+                                val url = item.url.trim().takeIf { it.isNotEmpty() }
+                                    ?: return@mapNotNull null
+                                // A homepage item is a SearchResponse, not a
+                                // LoadResponse. Load the detail here so a provider
+                                // that leaves SearchResponse.type unset can still
+                                // be recognized by its actual LiveStreamLoadResponse.
+                                val detail = runCatching {
+                                    stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) {
+                                        api.load(url)
+                                    }
+                                }.onFailure { error ->
+                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    log.w(error) {
+                                        "CloudStream live catalog detail failed api=${api.name}"
+                                    }
+                                }.getOrNull()
+                                val isLive = when {
+                                    detail == null -> item.type == TvType.Live
+                                    detail is LiveStreamLoadResponse -> true
+                                    else -> detail.type == TvType.Live
                                 }
-                            }.onFailure { error ->
-                                if (error is kotlinx.coroutines.CancellationException) throw error
-                                log.w(error) {
-                                    "CloudStream live catalog detail failed api=${api.name} url=$url"
-                                }
-                            }.getOrNull()
-                            val isLive = when {
-                                detail == null -> item.type == TvType.Live
-                                detail is LiveStreamLoadResponse -> true
-                                else -> detail.type == TvType.Live
-                            }
 
-                            val detailMetadata = detail?.let(CloudStreamLoadResponseTargets::metadata)
-                            val title = detailMetadata?.title ?: item.name
-                            val metadata = detailMetadata ?: CloudStreamResponseMetadata(
-                                title = title,
-                                url = url,
-                                poster = item.posterUrl,
-                                posterHeaders = item.posterHeaders.orEmpty(),
-                                year = item.searchYear(),
-                                providerName = api.name,
-                                mediaType = item.type?.name ?: TvType.Live.name,
-                                isLive = true,
-                                liveStatus = "catalog",
-                                channelName = title,
-                            )
-                            CloudStreamLiveCatalogItem(
-                                title = title,
-                                url = url,
-                                poster = metadata.poster ?: item.posterUrl,
-                                posterHeaders = metadata.posterHeaders,
-                                year = metadata.year ?: item.searchYear(),
-                                mediaType = metadata.mediaType,
-                                category = section.name.takeIf { it.isNotBlank() },
-                                // Keep the actual MainAPI identity separate
-                                // from LoadResponse.apiName so resolution can
-                                // select the same provider when an extension
-                                // registers several MainAPI instances.
-                                providerName = api.name,
-                                metadata = metadata,
-                            )
+                                val detailMetadata = detail?.let(CloudStreamLoadResponseTargets::metadata)
+                                val title = detailMetadata?.title ?: item.name
+                                val metadata = detailMetadata ?: CloudStreamResponseMetadata(
+                                    title = title,
+                                    url = url,
+                                    poster = item.posterUrl,
+                                    posterHeaders = item.posterHeaders.orEmpty(),
+                                    year = item.searchYear(),
+                                    providerName = api.name,
+                                    mediaType = item.type?.name ?: if (isLive) TvType.Live.name else TvType.Movie.name,
+                                    isLive = isLive,
+                                    liveStatus = if (isLive) "catalog" else null,
+                                    channelName = title.takeIf { isLive },
+                                )
+                                CloudStreamLiveCatalogItem(
+                                    title = title,
+                                    url = url,
+                                    poster = metadata.poster ?: item.posterUrl,
+                                    posterHeaders = metadata.posterHeaders,
+                                    year = metadata.year ?: item.searchYear(),
+                                    mediaType = metadata.mediaType,
+                                    category = section.name.takeIf { it.isNotBlank() },
+                                    // Keep the actual MainAPI identity separate
+                                    // from LoadResponse.apiName so resolution can
+                                    // select the same provider when an extension
+                                    // registers several MainAPI instances.
+                                    providerName = api.name,
+                                    metadata = metadata,
+                                )
+                            }
                         }
-                    }
+                    CloudStreamDiagnostics.info(
+                        CloudStreamDiagnosticStage.GET_MAIN_PAGE,
+                        api.name,
+                        "getMainPage returned ${homepageItems.size} catalog item(s).",
+                    )
+                    homepageItems
                 }
                 .distinctBy { listOf(it.providerName, it.url, it.title) }
         }
@@ -730,6 +768,11 @@ internal actual object CloudStreamPlatformRuntime {
 
             val linkSnapshot = synchronized(links) { links.toList() }
             val subtitleSnapshot = synchronized(subtitles) { subtitles.toList() }
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.LOAD_LINKS,
+                api.name,
+                "loadLinks produced ${linkSnapshot.size} link(s) and ${subtitleSnapshot.size} subtitle(s).",
+            )
             log.d {
                 "CloudStream links api=${api.name} links=${linkSnapshot.size} " +
                     "subtitles=${subtitleSnapshot.size} " +

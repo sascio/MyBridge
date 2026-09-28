@@ -1,6 +1,6 @@
 # CloudStream metadata and live-response audit
 
-Date: 2026-09-27
+Date: 2026-09-29
 
 ## Finding
 
@@ -120,15 +120,43 @@ metadata: it is the response's own payload, and it prevents valid extensionless,
 redirecting, HLS or DASH URLs from being rejected. Link-provided headers and
 referer still take precedence when they exist.
 
-## Validation
+## Persistence, failure visibility and audit corrections
 
-Host tests instantiate the actual AAR `MovieLoadResponse`,
-`TvSeriesLoadResponse`, `AnimeLoadResponse`, `LiveStreamLoadResponse` and
-`TorrentLoadResponse` classes. Common tests cover metadata attachment, multiple
-sources, HLS/DASH, extensionless URLs, headers, referer, cookies, subtitles,
-empty metadata and invalid URLs.
+The previous device report exposed two observability defects: a catalog/runtime
+exception was converted to an empty list before Home or Live TV could explain
+it, and a failed repository refresh replaced the installed-extension cache.
+The current implementation now:
 
-A physical device and a real CNCVerse/SKTechProvider session were not available
-in this environment. The runtime path is unchanged except for the generic
-catalog/metadata calls described above; no provider-specific test fixture or
-production branch was added.
+- restores verified packages from private storage before asynchronous discovery;
+- retains installed cached extensions when a repository is temporarily
+  unreachable or omits an already-installed entry;
+- records discovery, installation, classloader, provider-init,
+  `getMainPage`, `search`, `load`, `loadLinks`, normalization, UI and playback
+  outcomes in a bounded in-memory diagnostic journal;
+- redacts URLs and credential-shaped values before diagnostics are shown; and
+- shows the latest classified failure on Home/Live TV and the full recent
+  journal on the CloudStream Extensions screen instead of presenting an
+  unexplained empty success.
+
+The homepage fallback also now derives `isLive`, `mediaType`, `liveStatus`, and
+`channelName` from the actual response classification. A non-live item that
+lacks detail metadata is no longer mislabeled as a live channel.
+
+## Validation status
+
+Host/common tests cover response normalization, source identity, persistence
+policy, diagnostics redaction, multiple sources, HLS/DASH, extensionless URLs,
+headers, referer, cookies, subtitles, empty metadata and invalid URLs. The
+pinned AAR API surface and APK boundary tests remain in place. Local Android
+execution is unavailable in this environment because Java and `adb` are not
+installed.
+
+A real Android device has not yet been attached to this checkout, so discovery,
+restart restoration, provider construction, `getMainPage`, `load`,
+`loadLinks`, source-picker visibility and Media3/mpv playback remain **pending
+physical-device validation**. No provider or channel is hardcoded and no
+success is claimed from compilation, unit tests or CI alone. The diagnostic APK
+must be installed and exercised with multiple real extensions, including
+AllMovieLand, a movie/series/anime provider, CNCVerse, SKTechProvider and a
+second live provider where available; the resulting device diagnostics and
+playback observations are the acceptance evidence.
