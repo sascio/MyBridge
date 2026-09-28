@@ -495,7 +495,11 @@ internal actual object CloudStreamPlatformRuntime {
                                 year = metadata.year ?: item.searchYear(),
                                 mediaType = metadata.mediaType,
                                 category = section.name.takeIf { it.isNotBlank() },
-                                providerName = metadata.providerName ?: api.name,
+                                // Keep the actual MainAPI identity separate
+                                // from LoadResponse.apiName so resolution can
+                                // select the same provider when an extension
+                                // registers several MainAPI instances.
+                                providerName = api.name,
                                 metadata = metadata,
                             )
                         }
