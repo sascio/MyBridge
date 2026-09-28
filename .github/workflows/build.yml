@@ -188,6 +188,8 @@ jobs:
           name: Stream-Bridge-CI-full-release-APK-not-production
           path: |
             androidApp/build/outputs/apk/full/release/*.apk
+            androidApp/build/outputs/mapping/fullRelease/mapping.txt
+            androidApp/build/outputs/mapping/fullRelease/configuration.txt
             signing-status/CI-NOT-PRODUCTION.txt
           if-no-files-found: error
 
