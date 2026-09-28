@@ -40,6 +40,7 @@ import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.firstEnabledManifestError
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.CloudLibraryRepository
+import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
 import com.nuvio.app.features.cloud.findPlaybackTargetForProgress
 import com.nuvio.app.features.details.MetaDetails
@@ -139,6 +140,7 @@ fun HomeScreen(
     }
 
     val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
+    val cloudStreamUiState by CloudStreamExtensionsRepository.uiState.collectAsStateWithLifecycle()
     val homeUiState by HomeRepository.uiState.collectAsStateWithLifecycle()
     val homeSettingsUiState by remember {
         HomeCatalogSettingsRepository.snapshot()
@@ -851,6 +853,11 @@ fun HomeScreen(
     }
 
     val hasActiveAddons = enabledAddons.any { it.manifest != null }
+    val hasActiveCloudStreamSources = cloudStreamUiState.extensions.any { extension ->
+        extension.installStatus.isInstalled && extension.sources.any { source ->
+            source.enabled && source.canActivate
+        }
+    }
     val addonManifestsLoading = enabledAddons.any { it.isRefreshing }
     val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
     val isResolvingHeroSources = addonManifestsLoading || homeUiState.isLoading
@@ -1035,7 +1042,8 @@ fun HomeScreen(
                         }
                     }
 
-                    !hasActiveAddons && !hasRenderableCollectionRows && homeUiState.sections.isEmpty() -> {
+                    !hasActiveAddons && !hasActiveCloudStreamSources &&
+                        !hasRenderableCollectionRows && homeUiState.sections.isEmpty() -> {
                         homeContinueWatchingSections(
                             preferences = continueWatchingPreferences,
                             continueWatchingItems = continueWatchingItems,
