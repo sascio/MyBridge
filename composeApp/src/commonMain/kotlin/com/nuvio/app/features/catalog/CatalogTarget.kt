@@ -16,6 +16,13 @@ sealed interface CatalogTarget {
         override val supportsPagination: Boolean = false,
     ) : CatalogTarget
 
+    data class CloudStream(
+        val sourceKey: String,
+        override val contentType: String,
+        val providerName: String,
+        override val supportsPagination: Boolean = false,
+    ) : CatalogTarget
+
     data class Library(
         override val contentType: String,
         val sectionType: String,

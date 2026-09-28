@@ -476,15 +476,15 @@ internal object CloudStreamExtensionsRepository {
     }
 
     /**
-     * Loads all enabled CloudStream Live providers' catalog entries.
+     * Loads all enabled CloudStream homepage catalog entries.
      *
      * The result is deliberately a list of normalized catalog items, not raw
      * AAR objects. A provider may publish several homepage sections and several
      * providers may publish the same title; the provider/addon identity remains
-     * attached to every item so the normal Live TV source flow can keep them
-     * separate.
+     * attached to every item so the generic Home and Live TV projections keep
+     * them separate.
      */
-    suspend fun loadLiveCatalog(): List<CloudStreamLiveCatalogItem> {
+    suspend fun loadCatalog(): List<CloudStreamCatalogItem> {
         initialize()
         val backend = activeExecutor() ?: return emptyList()
         return CloudStreamAggregatorBridge
@@ -497,7 +497,7 @@ internal object CloudStreamExtensionsRepository {
                 val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
                     ?: return@flatMap emptyList()
                 runCatching {
-                    backend.loadLiveCatalog(extension.plugin).map { item ->
+                    backend.loadCatalog(extension.plugin).map { item ->
                         item.copy(
                             extensionId = extension.id,
                             sourceId = target.sourceId,
@@ -516,8 +516,8 @@ internal object CloudStreamExtensionsRepository {
             .distinctBy { listOf(it.addonId, it.url, it.title) }
     }
 
-    /** Resolves a normalized live catalog item through its owning provider. */
-    suspend fun resolveLive(item: CloudStreamLiveCatalogItem): Result<CloudStreamLiveResolution> {
+    /** Resolves a normalized homepage catalog item through its owning provider. */
+    suspend fun resolveCatalog(item: CloudStreamCatalogItem): Result<CloudStreamLiveResolution> {
         initialize()
         val backend = activeExecutor() ?: return Result.failure(
             IllegalStateException("This build cannot execute CloudStream extensions."),
@@ -527,12 +527,50 @@ internal object CloudStreamExtensionsRepository {
         if (!extension.plugin.isExecutable || !extension.installStatus.isInstalled) {
             return Result.failure(IllegalStateException("CloudStream extension is not installed."))
         }
-        return runCatching { backend.resolveLive(extension.plugin, item) }
+        return runCatching { backend.resolveCatalog(extension.plugin, item) }
             .onFailure { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                log.w(error) { "CloudStream live item failed for ${item.addonId}" }
+                log.w(error) { "CloudStream catalog item failed for ${item.addonId}" }
             }
     }
+
+    /** Resolves a catalog item directly for the existing movie/series player source picker. */
+    suspend fun resolveCatalogItem(item: CloudStreamCatalogItem): Result<List<StreamItem>> {
+        initialize()
+        val backend = activeExecutor() ?: return Result.failure(
+            IllegalStateException("This build cannot execute CloudStream extensions."),
+        )
+        val extension = _uiState.value.extensions.firstOrNull { it.id == item.extensionId }
+            ?: return Result.failure(IllegalStateException("CloudStream extension is no longer available."))
+        if (!extension.plugin.isExecutable || !extension.installStatus.isInstalled) {
+            return Result.failure(IllegalStateException("CloudStream extension is not installed."))
+        }
+        return runCatching {
+            val resolved = backend.resolveCatalog(extension.plugin, item)
+            CloudStreamProviderAdapter.adaptLinks(
+                links = resolved.links,
+                pluginName = item.providerName,
+                pluginId = extension.plugin.internalNameOrId(),
+                subtitles = resolved.subtitles,
+                addonId = item.addonId,
+                metadata = resolved.metadata,
+            )
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            log.w(error) { "CloudStream catalog item failed for ${item.addonId}" }
+        }
+    }
+
+    /** Compatibility entry point for Live TV resolution. */
+    suspend fun resolveLive(item: CloudStreamLiveCatalogItem): Result<CloudStreamLiveResolution> =
+        resolveCatalog(item)
+
+    /** --- live projection ------------------------------------------------- */
+
+    suspend fun loadLiveCatalog(): List<CloudStreamLiveCatalogItem> =
+        loadCatalog().filter { item ->
+            item.metadata?.isLive == true || item.mediaType.equals("Live", ignoreCase = true)
+        }
 
     // --- internals ---------------------------------------------------------
 

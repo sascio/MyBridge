@@ -5,6 +5,11 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
+import com.nuvio.app.features.cloudstream.CloudStreamCatalogItem
+import com.nuvio.app.features.cloudstream.CloudStreamCatalogStore
+import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
+import com.nuvio.app.features.cloudstream.catalogSourceKey
+import com.nuvio.app.features.cloudstream.uiMediaType
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.poster.reapplyCustomPosterUrls
 import com.nuvio.app.core.poster.withCustomPosterUrls
@@ -25,6 +30,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.math.absoluteValue
@@ -41,12 +47,21 @@ object HomeRepository {
     private var currentDefinitions: List<HomeCatalogDefinition> = emptyList()
     private var cachedSections: Map<String, HomeCatalogSection> = emptyMap()
     private var cachedCollectionHeroItems: List<MetaPreview> = emptyList()
+    private var cloudStreamCatalogItems: List<CloudStreamCatalogItem> = emptyList()
+    private var cloudStreamCatalogLoading = false
+    private var cloudStreamCatalogJob: Job? = null
+    private var cloudStreamCatalogRequestKey: String? = null
+    private var cloudStreamMonitorJob: Job? = null
+    private var cloudStreamMonitorStarted = false
     private var collectionHeroJob: Job? = null
     private var collectionHeroRequestKey: String? = null
     private var lastPublishedCatalogHeroEmpty: Boolean = true
     private var lastErrorMessage: String? = null
 
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
+        CloudStreamExtensionsRepository.initialize()
+        observeCloudStreamCatalog()
+        refreshCloudStreamCatalog(force)
         val activeAddons = addons.enabledAddons()
         val requests = buildHomeCatalogDefinitions(activeAddons)
         currentDefinitions = requests
@@ -162,6 +177,13 @@ object HomeRepository {
         currentDefinitions = emptyList()
         cachedSections = emptyMap()
         cachedCollectionHeroItems = emptyList()
+        cloudStreamCatalogJob?.cancel()
+        cloudStreamCatalogItems = emptyList()
+        cloudStreamCatalogLoading = false
+        cloudStreamCatalogRequestKey = null
+        cloudStreamMonitorJob?.cancel()
+        cloudStreamMonitorJob = null
+        cloudStreamMonitorStarted = false
         collectionHeroJob?.cancel()
         collectionHeroJob = null
         collectionHeroRequestKey = null
@@ -169,6 +191,99 @@ object HomeRepository {
         lastErrorMessage = null
         _uiState.value = HomeUiState()
     }
+
+    private fun observeCloudStreamCatalog() {
+        if (cloudStreamMonitorStarted) return
+        cloudStreamMonitorStarted = true
+        cloudStreamMonitorJob = scope.launch {
+            CloudStreamExtensionsRepository.uiState.collectLatest {
+                refreshCloudStreamCatalog(force = false)
+            }
+        }
+    }
+
+    private fun refreshCloudStreamCatalog(force: Boolean) {
+        val activeSources = CloudStreamExtensionsRepository.uiState.value.extensions
+            .filter { extension -> extension.installStatus.isInstalled }
+            .flatMap { extension ->
+                extension.sources.filter { source -> source.enabled && source.canActivate }
+                    .map { source -> "${extension.id}:${source.id}" }
+            }
+            .sorted()
+        val requestKey = activeSources.joinToString("|")
+        if (!force && requestKey == cloudStreamCatalogRequestKey && cloudStreamCatalogJob?.isActive == true) return
+        cloudStreamCatalogRequestKey = requestKey
+        cloudStreamCatalogJob?.cancel()
+        if (requestKey.isBlank()) {
+            cloudStreamCatalogItems = emptyList()
+            cloudStreamCatalogLoading = false
+            publishCurrentState(
+                isLoading = _uiState.value.isLoading,
+                requestKey = currentRequestKey,
+            )
+            return
+        }
+        cloudStreamCatalogLoading = true
+        publishCurrentState(
+            isLoading = _uiState.value.isLoading,
+            requestKey = currentRequestKey,
+        )
+        cloudStreamCatalogJob = scope.launch {
+            val items = runCatching { CloudStreamExtensionsRepository.loadCatalog() }
+                .getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    emptyList()
+                }
+            cloudStreamCatalogLoading = false
+            cloudStreamCatalogItems = items
+            publishCurrentState(
+                isLoading = _uiState.value.isLoading,
+                requestKey = currentRequestKey,
+            )
+        }
+    }
+
+    private fun cloudStreamSections(): List<HomeCatalogSection> =
+        cloudStreamCatalogItems
+            .groupBy { item ->
+                item.catalogSourceKey()
+            }
+            .map { (sourceKey, items) ->
+                val first = items.first()
+                val previews = items.map { item ->
+                    val metadata = item.metadata
+                    MetaPreview(
+                        id = CloudStreamCatalogStore.register(item),
+                        type = item.uiMediaType(),
+                        name = metadata?.title ?: item.title,
+                        poster = metadata?.poster ?: item.poster,
+                        banner = metadata?.backdrop,
+                        logo = metadata?.logo,
+                        description = metadata?.description,
+                        releaseInfo = (metadata?.year ?: item.year)?.toString(),
+                        imdbRating = metadata?.rating?.toString(),
+                        genres = metadata?.genres.orEmpty(),
+                    )
+                }.distinctBy(MetaPreview::stableKey)
+                HomeCatalogSection(
+                    key = "cloudstream:$sourceKey",
+                    title = first.category?.takeIf { it.isNotBlank() }
+                        ?: first.mediaType?.takeIf { it.isNotBlank() }
+                        ?: "CloudStream",
+                    subtitle = first.providerName,
+                    addonName = first.providerName,
+                    target = CatalogTarget.CloudStream(
+                        sourceKey = sourceKey,
+                        contentType = first.uiMediaType(),
+                        providerName = first.providerName,
+                    ),
+                    items = previews,
+                    availableItemCount = previews.size,
+                    hasMore = false,
+                )
+            }
+            .filter { it.items.isNotEmpty() }
+            .sortedWith(compareBy({ it.addonName }, { it.title }))
 
     private fun publishCurrentState(
         isLoading: Boolean,
@@ -184,7 +299,7 @@ object HomeRepository {
         fun HomeCatalogSection.withPosterOverlay(): HomeCatalogSection =
             copy(items = items.reapplyCustomPosterUrls(posterPattern))
 
-        val sections = currentDefinitions
+        val addonSections = currentDefinitions
             .sortedBy { definition -> preferences[definition.key]?.order ?: Int.MAX_VALUE }
             .mapNotNull { definition ->
                 val preference = preferences[definition.key]
@@ -200,6 +315,8 @@ object HomeRepository {
                     title = customTitle.ifBlank { definition.titleFor(snapshot.showCatalogType) },
                 )
             }
+        val cloudSections = cloudStreamSections()
+        val sections = addonSections + cloudSections
 
         val catalogHeroItems = if (snapshot.heroEnabled) {
             val heroRandom = Random((requestKey?.hashCode() ?: 0).absoluteValue + 1)
@@ -208,6 +325,8 @@ object HomeRepository {
                 .mapNotNull { definition -> cachedSections[definition.cacheKey] }
                 .map { section -> section.withPosterOverlay().withReleaseFilter() }
                 .flatMap { section -> section.items }
+                .distinctBy { item -> "${item.type}:${item.id}" }
+                .plus(cloudSections.flatMap { section -> section.items })
                 .distinctBy { item -> "${item.type}:${item.id}" }
                 .shuffled(heroRandom)
                 .take(HOME_HERO_ITEM_LIMIT)
@@ -222,7 +341,7 @@ object HomeRepository {
         }
 
         _uiState.value = HomeUiState(
-            isLoading = isLoading,
+            isLoading = isLoading || cloudStreamCatalogLoading,
             heroItems = heroItems,
             sections = sections,
             errorMessage = if (sections.isEmpty()) lastErrorMessage else null,

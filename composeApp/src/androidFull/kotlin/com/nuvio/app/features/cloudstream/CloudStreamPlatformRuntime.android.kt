@@ -423,9 +423,9 @@ internal actual object CloudStreamPlatformRuntime {
          * capability and the returned SearchResponse fields; no provider or
          * channel names are recognized here.
          */
-        override suspend fun loadLiveCatalog(
+        override suspend fun loadCatalog(
             plugin: CloudStreamPlugin,
-        ): List<CloudStreamLiveCatalogItem> = withContext(Dispatchers.IO) {
+        ): List<CloudStreamCatalogItem> = withContext(Dispatchers.IO) {
             providersFor(plugin)
                 // A provider's homepage is the runtime capability we need.
                 // Do not gate this on manifest tvTypes or supportedTypes: both
@@ -472,7 +472,6 @@ internal actual object CloudStreamPlatformRuntime {
                                 detail is LiveStreamLoadResponse -> true
                                 else -> detail.type == TvType.Live
                             }
-                            if (!isLive) return@mapNotNull null
 
                             val detailMetadata = detail?.let(CloudStreamLoadResponseTargets::metadata)
                             val title = detailMetadata?.title ?: item.name
@@ -505,9 +504,9 @@ internal actual object CloudStreamPlatformRuntime {
                 .distinctBy { listOf(it.providerName, it.url, it.title) }
         }
 
-        override suspend fun resolveLive(
+        override suspend fun resolveCatalog(
             plugin: CloudStreamPlugin,
-            item: CloudStreamLiveCatalogItem,
+            item: CloudStreamCatalogItem,
         ): CloudStreamLiveResolution = withContext(Dispatchers.IO) {
             val api = providersFor(plugin).firstOrNull { it.name == item.providerName }
                 ?: providersFor(plugin).firstOrNull()

@@ -9,10 +9,13 @@ runtime already called `MainAPI.load()` and `MainAPI.loadLinks()`, but the
 normalization seam only retained `dataUrl`/episode data and `ExtractorLink`
 fields. A `LiveStreamLoadResponse` was therefore reduced to a URL during
 resolution; its title, poster, logo, description, provider name, type and other
-`LoadResponse` fields never crossed into a StreamBridge model. There was also no CloudStream homepage/catalog path at all, so live providers
-could execute but could not contribute entries to the Live TV catalog. The
-runtime now adds a separate CloudStream-to-Live-TV path; it does not pretend
-that a CloudStream extension is a Nuvio/Stremio addon.
+`LoadResponse` fields never crossed into a StreamBridge model. There was also
+no CloudStream homepage/catalog path at all, so live providers could execute
+but could not contribute entries to the Live TV catalog. The runtime now adds
+separate CloudStream homepage-to-Home and CloudStream-to-Live-TV paths; it does
+not pretend that a CloudStream extension is a Nuvio/Stremio addon. Homepage
+items retain a process-local provider identity so the existing detail, source,
+and player routes can resolve the provider-owned URL directly.
 
 The loss points were:
 
@@ -80,6 +83,22 @@ metadata remains in `StreamItem.behaviorHints.proxyHeaders` and
 There is no special check for an extension, provider, channel name, URL host,
 or service. `LiveStreamLoadResponse` is selected by its actual response type
 and all generic fields are copied.
+
+## Catalog flow after the change
+
+```text
+Installed and enabled CloudStream MainAPI
+  -> MainAPI.getMainPage / HomePageResponse
+  -> MainAPI.load / LoadResponse metadata
+  -> CloudStreamCatalogItem
+  -> separate CloudStream Home rows and existing detail screen
+  -> CloudStream source adapter / direct provider URL
+  -> existing PlayerLaunch and Media3/mpv player
+```
+
+The Nuvio/Stremio Home empty state remains scoped to that addon domain. A
+CloudStream row is a separate, real UI boundary and is not inserted into addon
+settings or represented as a fake addon.
 
 ## Live flow after the change
 

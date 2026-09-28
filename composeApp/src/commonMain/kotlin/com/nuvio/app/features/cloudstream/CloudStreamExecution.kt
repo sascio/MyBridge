@@ -78,7 +78,13 @@ data class CloudStreamResponseMetadata(
      */
     fun toMetaDetails(id: String = uniqueUrl ?: url ?: title): MetaDetails = MetaDetails(
         id = id,
-        type = mediaType?.lowercase() ?: if (isLive) "live" else "movie",
+        type = when {
+            isLive -> "live"
+            mediaType.equals("TvSeries", ignoreCase = true) ||
+                mediaType.equals("Anime", ignoreCase = true) ||
+                mediaType.equals("Cartoon", ignoreCase = true) -> "series"
+            else -> "movie"
+        },
         name = title,
         poster = poster,
         background = backdrop,
@@ -204,8 +210,8 @@ data class CloudStreamEpisodeMetadata(
     val rating: Double? = null,
 )
 
-/** One item returned by a CloudStream provider's live homepage/catalog. */
-data class CloudStreamLiveCatalogItem(
+/** One item returned by a CloudStream provider's homepage/catalog. */
+data class CloudStreamCatalogItem(
     val title: String,
     val url: String,
     val poster: String? = null,
@@ -220,7 +226,21 @@ data class CloudStreamLiveCatalogItem(
     val metadata: CloudStreamResponseMetadata? = null,
 )
 
-/** Detail/links result for one live catalog item. */
+/** Compatibility name for the Live TV path. */
+typealias CloudStreamLiveCatalogItem = CloudStreamCatalogItem
+
+internal fun CloudStreamCatalogItem.catalogSourceKey(): String =
+    listOf(addonId, providerName, category.orEmpty(), uiMediaType()).joinToString("\u001f")
+
+internal fun CloudStreamCatalogItem.uiMediaType(): String = when {
+    mediaType.equals("TvSeries", ignoreCase = true) ||
+        mediaType.equals("Anime", ignoreCase = true) ||
+        mediaType.equals("Cartoon", ignoreCase = true) -> "series"
+    mediaType.equals("Live", ignoreCase = true) -> "live"
+    else -> "movie"
+}
+
+/** Detail/links result for one catalog item. */
 data class CloudStreamLiveResolution(
     val metadata: CloudStreamResponseMetadata,
     val links: List<CloudStreamLink> = emptyList(),
@@ -279,15 +299,27 @@ internal interface CloudStreamPluginExecutor {
     suspend fun resolve(request: CloudStreamResolveRequest): CloudStreamLinkResult
 
     /**
-     * Loads the provider's live homepage/catalog. Implementations that cannot
+     * Loads the provider's homepage/catalog. Implementations that cannot
      * execute CloudStream return the empty default; this keeps the Play Store
      * and iOS no-execution boundary explicit.
      */
-    suspend fun loadLiveCatalog(plugin: CloudStreamPlugin): List<CloudStreamLiveCatalogItem> = emptyList()
+    suspend fun loadCatalog(plugin: CloudStreamPlugin): List<CloudStreamCatalogItem> = emptyList()
 
-    /** Resolves one live catalog item through the same provider/runtime path. */
+    /** The Live TV projection is filtered from the same generic catalog seam. */
+    suspend fun loadLiveCatalog(plugin: CloudStreamPlugin): List<CloudStreamLiveCatalogItem> =
+        loadCatalog(plugin).filter { item ->
+            item.metadata?.isLive == true || item.mediaType.equals("Live", ignoreCase = true)
+        }
+
+    /** Resolves one catalog item through the same provider/runtime path. */
+    suspend fun resolveCatalog(
+        plugin: CloudStreamPlugin,
+        item: CloudStreamCatalogItem,
+    ): CloudStreamLiveResolution = error("This build cannot execute CloudStream providers.")
+
+    /** Compatibility entry point for the Live TV path. */
     suspend fun resolveLive(
         plugin: CloudStreamPlugin,
         item: CloudStreamLiveCatalogItem,
-    ): CloudStreamLiveResolution = error("This build cannot execute CloudStream live providers.")
+    ): CloudStreamLiveResolution = resolveCatalog(plugin, item)
 }
