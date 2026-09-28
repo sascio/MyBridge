@@ -151,10 +151,12 @@ diagnostics record the concrete class and superclass chain; a provider's
 `ClassCastException` remains visible if it has another incompatible assumption.
 
 The source/runtime contract is covered by an AppCompat host test, minification
-keep-rule tests, and the existing full/Play Store boundary checks. The actual
-installed SKTechProvider still requires a fresh APK on a physical device to
-confirm that the R81 object now has the expected AppCompat superclass and that
-`getMainPage()` returns items.
+keep-rule tests, and the existing full/Play Store boundary checks. CI run
+`36491658286` passed the unit tests, full debug/release APK assembly, runtime
+selection check, and minified host hierarchy inspection. The actual installed
+SKTechProvider still requires a physical-device run to confirm provider
+construction, `getMainPage()` visibility, and playback; CI does not replace
+that evidence.
 
 ## Persistence, failure visibility and audit corrections
 
@@ -182,10 +184,10 @@ lacks detail metadata is no longer mislabeled as a live channel.
 
 Host/common tests cover response normalization, source identity, persistence
 policy, diagnostics redaction, multiple sources, HLS/DASH, extensionless URLs,
-headers, referer, cookies, subtitles, empty metadata and invalid URLs. The
-pinned AAR API surface and APK boundary tests remain in place. Local Android
-execution is unavailable in this environment because Java and `adb` are not
-installed.
+headers, referer, cookies, subtitles, empty metadata and invalid URLs. CI run
+`36491658286` completed those tests and the full debug/release APK checks. Local
+Android execution is unavailable in this environment because Java and `adb` are
+not installed.
 
 A real Android device has not yet been attached to this checkout, so discovery,
 restart restoration, provider construction, `getMainPage`, `load`,

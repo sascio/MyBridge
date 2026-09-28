@@ -9,9 +9,9 @@ not a device or playback result.
 
 | Scope | Result | Evidence / blocker |
 | --- | --- | --- |
-| Discovery, repository parsing and identity deduplication | BLOCKED | Current-tree focused tests were not executed: this environment has no Java runtime. |
-| Safe install, package validation and class loading | BLOCKED | Current-tree Android host tests/build were not executed: no Java runtime. |
-| Verified Activity compatibility (`R81`/host hierarchy) | BLOCKED | Source confirms `com.nuvio.app.MainActivity : AppCompatActivity` and runtime now requires a live instance; no APK/device execution. |
+| Discovery, repository parsing and identity deduplication unit tests | PASS | CI run `36491658286`, job `109161458450`, completed the unit-test step successfully. |
+| Safe install/package validation unit tests | PASS | CI run `36491658286`, job `109161458450`, completed the unit-test and full APK steps successfully. Dynamic provider execution remains unvalidated. |
+| Verified Activity compatibility (`R81`/host hierarchy) in the minified APK | PASS | CI run `36491658286`, job `109161458450`, completed the dedicated superclass-hierarchy inspection successfully. Source host is `com.nuvio.app.MainActivity : AppCompatActivity`; no physical-device provider run. |
 | Provider initialization isolation | BLOCKED | Source implements per-`MainAPI` initialization and rollback; no loaded extension was executed. |
 | `getMainPage` / section hierarchy / catalog visibility | BLOCKED | Generic paginated `getMainPage` path is implemented; no provider request or UI observation was made. |
 | Search, movie details and metadata | BLOCKED | Generic normalization is implemented; no real provider search/detail response was observed. |
@@ -26,8 +26,8 @@ not a device or playback result.
 | Anime provider | BLOCKED | No real anime provider operation was run. |
 | Multiple extensions with isolation | BLOCKED | No multiple-extension APK/device run was performed. |
 | M3U, Xtream, Stalker, Nuvio, Stremio regressions | BLOCKED | No current-tree regression suite or device run was executed. |
-| Debug build | BLOCKED | `./gradlew` could not start: `JAVA_HOME` is unset and no `java` executable is installed. |
-| Release/minified build | BLOCKED | Same missing-Java blocker; no release APK or mapping was produced. |
+| Debug build | PASS | CI run `36491658286`, job `109161458450`, full debug APK assembly completed successfully. |
+| Release/minified build | PASS | CI run `36491658286`, job `109161458450`, full release APK assembly and minified hierarchy inspection completed successfully. This is a CI debug-signed artifact, not a production release. |
 | Real Android device validation | BLOCKED | No `adb` or physical Android device is available in this environment. |
 
 No provider, catalog, metadata, source, header, subtitle, playback or regression
