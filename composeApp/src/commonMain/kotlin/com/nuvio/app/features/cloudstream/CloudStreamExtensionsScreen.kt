@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -89,6 +90,7 @@ internal fun CloudStreamExtensionsPageContent(
     }
 
     val uiState by CloudStreamExtensionsRepository.uiState.collectAsStateWithLifecycle()
+    val diagnosticEvents by CloudStreamDiagnostics.events.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
     var repositoryUrl by rememberSaveable { mutableStateOf("") }
@@ -122,6 +124,14 @@ internal fun CloudStreamExtensionsPageContent(
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_overview))
         OverviewCard(overview = uiState.overview)
+
+        if (diagnosticEvents.isNotEmpty()) {
+            NuvioSectionLabel(text = "Runtime diagnostics")
+            CloudStreamDiagnosticCard(
+                events = diagnosticEvents,
+                onClear = CloudStreamDiagnostics::clear,
+            )
+        }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_repository))
         AddRepositoryCard(
@@ -342,6 +352,46 @@ private fun EmptyStateCard() {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun CloudStreamDiagnosticCard(
+    events: List<CloudStreamDiagnosticEvent>,
+    onClear: () -> Unit,
+) {
+    NuvioSurfaceCard {
+        events.takeLast(8).asReversed().forEachIndexed { index, event ->
+            if (index > 0) Spacer(modifier = Modifier.height(8.dp))
+            Column {
+                Text(
+                    text = buildString {
+                        append(event.level.name)
+                        append(" · ")
+                        append(event.stage.name.replace('_', ' '))
+                        event.provider?.takeIf(String::isNotBlank)?.let {
+                            append(" · ")
+                            append(it)
+                        }
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (event.level == CloudStreamDiagnosticLevel.ERROR) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Text(
+                    text = event.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        TextButton(onClick = onClear) { Text("Clear diagnostics") }
     }
 }
 

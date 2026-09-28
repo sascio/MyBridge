@@ -282,7 +282,30 @@ internal fun PlayerScreenRuntime.switchToP2pEpisodeStream(
 
 internal fun PlayerScreenRuntime.switchToLiveChannel(channel: LiveTvChannel) {
     scope.launch {
-        val playableChannel = runCatching { LiveTvRepository.prepareForPlayback(channel) }.getOrDefault(channel)
+        val playableChannel = runCatching { LiveTvRepository.prepareForPlayback(channel) }
+            .fold(
+                onSuccess = { it },
+                onFailure = { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    val message = error.message?.takeIf { it.isNotBlank() }
+                        ?: "Unable to resolve this live channel."
+                    InAppLogger.warn(
+                        "Player/LiveTV",
+                        "live channel resolution failed id=${channel.id} " +
+                            "provider=${channel.providerName.orEmpty()} " +
+                            "error=${InAppLogger.throwableSummary(error)}",
+                    )
+                    // A CloudStream catalog URL is a detail page, not a playable
+                    // fallback. Never send it to Media3 after resolution fails:
+                    // surface the provider failure instead of turning a genuine
+                    // loadLinks error into a misleading playback error.
+                    errorMessage = message
+                    shouldPlay = false
+                    controlsVisible = true
+                    NuvioToastController.show(message)
+                    null
+                },
+            ) ?: return@launch
         switchToPreparedLiveChannel(playableChannel)
     }
 }
@@ -293,7 +316,9 @@ private fun PlayerScreenRuntime.switchToPreparedLiveChannel(channel: LiveTvChann
     if (channel.streamUrl == activeSourceUrl) {
         InAppLogger.debug("Player/LiveTV", "selected current channel id=${channel.id} name=${channel.name}")
         activeStreamTitle = channel.name
-        activeStreamSubtitle = channel.group
+        activeStreamSubtitle = channel.description ?: channel.group
+        activeProviderName = channel.providerName ?: "Live TV"
+        externalSubtitles = channel.subtitles
         activeLogo = channel.logoUrl
         activeVideoId = channel.id
         showLiveChannelsPanel = false
@@ -310,8 +335,9 @@ private fun PlayerScreenRuntime.switchToPreparedLiveChannel(channel: LiveTvChann
     activeSourceHeaders = sanitizePlaybackHeaders(channel.headers)
     activeSourceResponseHeaders = emptyMap()
     activeStreamTitle = channel.name
-    activeStreamSubtitle = channel.group
-    activeProviderName = "Live TV"
+    activeStreamSubtitle = channel.description ?: channel.group
+    activeProviderName = channel.providerName ?: "Live TV"
+    externalSubtitles = channel.subtitles
     activeProviderAddonId = null
     activeLogo = channel.logoUrl
     currentStreamBingeGroup = null

@@ -21,6 +21,14 @@
 # Host compatibility shims resolved by name from plugin bytecode.
 -keep class com.lagradost.cloudstream3.** { *; }
 
+# The Activity is passed across the dynamically loaded CloudStream boundary.
+# Keep the host entry point and launcher subclasses named and structurally
+# intact. This does not make an incompatible Activity compatible; it prevents
+# R8 from obscuring which concrete class was handed to a provider while the
+# runtime verifies the actual AppCompatActivity hierarchy.
+-keep class com.nuvio.app.MainActivity { *; }
+-keep class com.nuvio.app.launcher.** extends com.nuvio.app.MainActivity { *; }
+
 # Some CloudStream providers are compiled against fuzzywuzzy and resolve this
 # package by its original JVM name from dynamically loaded .cs3 dex files.
 -keep class me.xdrop.fuzzywuzzy.** { *; }

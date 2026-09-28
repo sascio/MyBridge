@@ -192,6 +192,11 @@ internal object CloudStreamExtensionsRepository {
 
             when (result) {
                 is CloudStreamInstallResult.Success -> {
+                    CloudStreamDiagnostics.info(
+                        CloudStreamDiagnosticStage.INSTALLATION,
+                        extension.name,
+                        "Package installed and verified (version ${result.version ?: "unknown"}).",
+                    )
                     updateInstallStatus(pluginId) {
                         CloudStreamInstallStatus(
                             state = CloudStreamInstallState.INSTALLED,
@@ -212,6 +217,11 @@ internal object CloudStreamExtensionsRepository {
                 }
 
                 is CloudStreamInstallResult.Failure -> {
+                    CloudStreamDiagnostics.error(
+                        CloudStreamDiagnosticStage.INSTALLATION,
+                        extension.name,
+                        result.message,
+                    )
                     // A failed *update* must not erase a working installation.
                     val stillInstalled = CloudStreamPackageInstaller.isInstalled(extension.plugin)
                     updateInstallStatus(pluginId) { current ->
@@ -417,9 +427,14 @@ internal object CloudStreamExtensionsRepository {
         // state drifted mid-request. Reporting that is honest; returning an
         // empty success would present a broken provider as "this title has no
         // sources here", which is a different and misleading statement.
-        val backend = activeExecutor() ?: return Result.failure(
-            IllegalStateException("This build cannot execute CloudStream extensions."),
-        )
+        val backend = activeExecutor() ?: run {
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.PLAYBACK,
+                target.addonName,
+                "No CloudStream execution backend is available.",
+            )
+            return Result.failure(IllegalStateException("This build cannot execute CloudStream extensions."))
+        }
         val extension = _uiState.value.extensions.firstOrNull { it.id == target.extensionId }
             ?: return Result.failure(
                 IllegalStateException(
@@ -457,16 +472,33 @@ internal object CloudStreamExtensionsRepository {
                 episode = episode,
             )
             val resolved = backend.resolve(request)
+            // Preserve the selected MainAPI identity even when CloudStream's
+            // ExtractorLink omitted its source label. The extension/addon is
+            // still the source-picker group; this name is the provider within
+            // that group and is useful for diagnostics and link attribution.
+            val attributedLinks = resolved.links.map { link ->
+                if (link.source.isNullOrBlank() && !resolved.providerName.isNullOrBlank()) {
+                    link.copy(source = resolved.providerName)
+                } else {
+                    link
+                }
+            }
             CloudStreamProviderAdapter.adaptLinks(
-                links = resolved.links,
+                links = attributedLinks,
                 pluginName = target.addonName,
                 pluginId = extension.plugin.internalNameOrId(),
                 subtitles = resolved.subtitles,
                 pluginLogo = target.iconUrl,
                 addonId = target.addonId,
+                metadata = resolved.metadata,
             )
         }.onFailure { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.NORMALIZATION,
+                target.addonName,
+                error,
+            )
             log.w(error) {
                 "CloudStream provider '${target.addonId}' failed: " +
                     "${error::class.simpleName}: ${error.message}"
@@ -474,14 +506,196 @@ internal object CloudStreamExtensionsRepository {
         }
     }
 
+    /**
+     * Loads all enabled CloudStream homepage catalog entries.
+     *
+     * The result is deliberately a list of normalized catalog items, not raw
+     * AAR objects. A provider may publish several homepage sections and several
+     * providers may publish the same title; the provider/addon identity remains
+     * attached to every item so the generic Home and Live TV projections keep
+     * them separate.
+     */
+    suspend fun loadCatalog(): List<CloudStreamCatalogItem> {
+        initialize()
+        val backend = activeExecutor() ?: run {
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.CLASSLOADER,
+                provider = "runtime",
+                message = "No CloudStream execution backend is available in this build.",
+            )
+            return emptyList()
+        }
+        val targets = CloudStreamAggregatorBridge
+            // Homepage catalogs are a capability of the loaded MainAPI, not a
+            // manifest content-type declaration. Some valid live providers
+            // publish only Movie/TvSeries in their repository metadata while
+            // returning Live items from getMainPage().
+            .resolveTargets(_uiState.value.extensions, "catalog")
+        if (targets.isEmpty() && _uiState.value.extensions.any { it.isActive }) {
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.UI,
+                provider = "catalog targets",
+                message = "Installed and enabled extensions produced no executable catalog targets.",
+            )
+        }
+
+        // One extension can declare several tvTypes. Execute its homepage once
+        // and project the returned items onto only the compatible source types;
+        // invoking getMainPage once per tvType duplicated every section and made
+        // one MainAPI appear to overwrite another provider's catalog.
+        val rawItems = targets.groupBy { it.extensionId }.flatMap { (extensionId, extensionTargets) ->
+            val extension = _uiState.value.extensions.firstOrNull { it.id == extensionId }
+                ?: return@flatMap emptyList()
+            runCatching { backend.loadCatalog(extension.plugin) }
+                .onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    CloudStreamDiagnostics.error(
+                        CloudStreamDiagnosticStage.GET_MAIN_PAGE,
+                        extension.name,
+                        error,
+                    )
+                    log.w(error) { "CloudStream catalog failed for ${extension.name}" }
+                }
+                .getOrDefault(emptyList())
+                .flatMap { item ->
+                    val matchingTargets = extensionTargets.filter { target ->
+                        catalogItemMatchesSource(item, target.contentType)
+                    }
+                    matchingTargets.map { target ->
+                        item.copy(
+                            extensionId = extension.id,
+                            sourceId = target.sourceId,
+                            addonId = target.addonId,
+                            providerName = item.providerName
+                                .takeIf { it.isNotBlank() }
+                                ?: target.addonName,
+                        )
+                    }
+                }
+        }
+        val normalized = rawItems
+            .filter { it.title.isNotBlank() && it.url.isNotBlank() }
+            // Keep the provider section/source identity in the key. The same
+            // title may intentionally appear in two homepage rails, and
+            // flattening those rails loses the hierarchy the provider exposed.
+            .distinctBy { listOf(it.catalogSourceKey(), it.url, it.title) }
+        if (normalized.size != rawItems.size) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.NORMALIZATION,
+                provider = "catalog",
+                message = "Dropped ${rawItems.size - normalized.size} catalog item(s) with missing identity or duplicate provider keys.",
+            )
+        }
+        return normalized
+    }
+
+    /** Resolves a normalized homepage catalog item through its owning provider. */
+    suspend fun resolveCatalog(item: CloudStreamCatalogItem): Result<CloudStreamLiveResolution> {
+        initialize()
+        val backend = activeExecutor() ?: return Result.failure(
+            IllegalStateException("This build cannot execute CloudStream extensions."),
+        )
+        val extension = _uiState.value.extensions.firstOrNull { it.id == item.extensionId }
+            ?: return Result.failure(IllegalStateException("CloudStream extension is no longer available."))
+        if (!extension.plugin.isExecutable || !extension.installStatus.isInstalled) {
+            return Result.failure(IllegalStateException("CloudStream extension is not installed."))
+        }
+        return runCatching { backend.resolveCatalog(extension.plugin, item) }
+            .onFailure { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.LOAD_LINKS,
+                    item.providerName,
+                    error,
+                )
+                log.w(error) { "CloudStream catalog item failed for ${item.addonId}" }
+            }
+    }
+
+    /** Resolves a catalog item directly for the existing movie/series player source picker. */
+    suspend fun resolveCatalogItem(item: CloudStreamCatalogItem): Result<List<StreamItem>> {
+        initialize()
+        val backend = activeExecutor() ?: return Result.failure(
+            IllegalStateException("This build cannot execute CloudStream extensions."),
+        )
+        val extension = _uiState.value.extensions.firstOrNull { it.id == item.extensionId }
+            ?: return Result.failure(IllegalStateException("CloudStream extension is no longer available."))
+        if (!extension.plugin.isExecutable || !extension.installStatus.isInstalled) {
+            return Result.failure(IllegalStateException("CloudStream extension is not installed."))
+        }
+        return runCatching {
+            val resolved = backend.resolveCatalog(extension.plugin, item)
+            CloudStreamProviderAdapter.adaptLinks(
+                links = resolved.links,
+                pluginName = item.providerName,
+                pluginId = extension.plugin.internalNameOrId(),
+                subtitles = resolved.subtitles,
+                addonId = item.addonId,
+                metadata = resolved.metadata,
+            )
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.LOAD_LINKS,
+                item.providerName,
+                error,
+            )
+            log.w(error) { "CloudStream catalog item failed for ${item.addonId}" }
+        }
+    }
+
+    /** Compatibility entry point for Live TV resolution. */
+    suspend fun resolveLive(item: CloudStreamLiveCatalogItem): Result<CloudStreamLiveResolution> =
+        resolveCatalog(item)
+
+    /** --- live projection ------------------------------------------------- */
+
+    suspend fun loadLiveCatalog(): List<CloudStreamLiveCatalogItem> {
+        val catalog = loadCatalog()
+        val live = catalog.filter { item ->
+            item.metadata?.isLive == true || item.mediaType.equals("Live", ignoreCase = true)
+        }
+        if (catalog.isNotEmpty() && live.isEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.NORMALIZATION,
+                provider = "live projection",
+                message = "Catalog returned ${catalog.size} item(s), but none normalized as LiveStreamLoadResponse/live.",
+            )
+        }
+        return live
+    }
+
     // --- internals ---------------------------------------------------------
+
+    /**
+     * Matches a real LoadResponse/SearchResponse type to a declared source.
+     * Unknown/blank provider types remain visible under every declared source:
+     * dropping them would be worse than a duplicate because CloudStream
+     * repositories frequently omit tvTypes on older providers.
+     */
+    private fun catalogItemMatchesSource(item: CloudStreamCatalogItem, sourceType: String?): Boolean {
+        val actual = (item.metadata?.mediaType ?: item.mediaType)?.trim().orEmpty()
+        val declared = sourceType?.trim().orEmpty()
+        if (declared.isBlank() || actual.isBlank()) return true
+        // Homepage capability is intentionally broader than manifest tvTypes:
+        // a LiveStreamLoadResponse is frequently emitted by providers whose
+        // repository entry only declares Movie/TvSeries. Do not make that
+        // provider invisible merely because the metadata was incomplete.
+        if (actual.equals("Live", ignoreCase = true)) return true
+        return actual.equals(declared, ignoreCase = true)
+    }
 
     private suspend fun reload() {
         val urls = repositoryUrls
         val repositories = urls.map { url ->
             // Isolated: one bad repository cannot break discovery for the rest.
             runCatching { loader.load(url) }.getOrElse { error ->
-                log.w { "CloudStream repository '$url' failed: ${error.message}" }
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.DISCOVERY,
+                    provider = "repository",
+                    message = "Repository discovery failed: ${error.cloudStreamDiagnosticMessage()}",
+                )
+                log.w { "CloudStream repository discovery failed: ${error.message}" }
                 CloudStreamRepository(
                     url = url,
                     name = url,
@@ -492,11 +706,17 @@ internal object CloudStreamExtensionsRepository {
             }
         }
 
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.DISCOVERY,
+            provider = "repository",
+            message = "Discovered ${repositories.sumOf { it.plugins.size }} extension manifest(s) from ${repositories.size} repository(ies).",
+        )
+
         // Preserve in-flight install status across a refresh so a download
         // running while the user pulls to refresh is not reported as Available.
         val previousStatuses = _uiState.value.extensions.associate { it.id to it.installStatus }
 
-        val extensions = repositories.flatMap { repository ->
+        val discoveredExtensions = repositories.flatMap { repository ->
             repository.plugins.map { plugin ->
                 val mapped = CloudStreamExtensionMapping.toExtension(
                     plugin = plugin,
@@ -513,7 +733,35 @@ internal object CloudStreamExtensionsRepository {
                     },
                 )
             }
-        }.sortedBy { it.name.lowercase() }
+        }
+
+        // A transient repository outage must not turn a verified, installed
+        // extension into "No Active Addons" or erase its restart cache. The
+        // package and cached manifest are the authoritative offline discovery
+        // path until a repository refresh succeeds again.
+        // Collapse mirror entries before applying install/source state. The
+        // aggregator also deduplicates defensively, but doing it here keeps the
+        // UI, on-disk package identity and provider target selection aligned on
+        // the same highest-version extension.
+        val deduplicatedDiscovered = CloudStreamProviderIdentity.deduplicate(discoveredExtensions)
+        val discoveredIds = deduplicatedDiscovered.mapTo(mutableSetOf(), CloudStreamExtension::id)
+        val discoveredKeys = deduplicatedDiscovered
+            .mapTo(mutableSetOf()) { CloudStreamProviderIdentity.extensionKey(it.plugin) }
+        val cachedInstalled = _uiState.value.extensions.filter { extension ->
+            extension.installStatus.isInstalled &&
+                extension.id !in discoveredIds &&
+                CloudStreamProviderIdentity.extensionKey(extension.plugin) !in discoveredKeys
+        }
+        if (cachedInstalled.isNotEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.PERSISTENCE,
+                provider = "installed extensions",
+                message = "Repository refresh did not list ${cachedInstalled.size} installed extension(s); retained cached metadata and on-disk packages.",
+            )
+        }
+        val extensions = (deduplicatedDiscovered + cachedInstalled)
+            .distinctBy { CloudStreamProviderIdentity.extensionKey(it.plugin) }
+            .sortedBy { it.name.lowercase() }
 
         _uiState.value = CloudStreamUiState(
             isLoading = false,
@@ -523,6 +771,11 @@ internal object CloudStreamExtensionsRepository {
             extensions = extensions,
             errorMessage = null,
         )
+        // Compatibility with installs created before source preferences were
+        // persisted: a package that is already on disk is enabled by default,
+        // while an explicit disabled preference remains untouched.
+        extensions.filter { it.installStatus.isInstalled }
+            .forEach { extension -> enableSourcesByDefault(extension.id) }
         persistInstalledPlugins()
     }
 
@@ -551,9 +804,27 @@ internal object CloudStreamExtensionsRepository {
             ).copy(installStatus = installStatusFor(plugin))
         }.sortedBy { it.name.lowercase() }
 
-        if (extensions.isEmpty()) return
+        if (extensions.isEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.PERSISTENCE,
+                provider = "installed extensions",
+                message = "Persisted extension metadata was present, but no matching verified package was found on disk.",
+            )
+            return
+        }
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PERSISTENCE,
+            provider = "installed extensions",
+            message = "Restored ${extensions.size} installed extension(s) from private storage.",
+        )
         log.i { "Restored ${extensions.size} installed CloudStream extension(s) from cache" }
         _uiState.value = _uiState.value.copy(extensions = extensions)
+        // Older installs may predate persisted per-source activation state.
+        // Treat an installed source with no recorded preference like a fresh
+        // install, while preserving an explicit disabled preference.
+        extensions.forEach { extension ->
+            enableSourcesByDefault(extension.id)
+        }
     }
 
     /** Caches metadata for every installed extension so it survives restarts. */

@@ -1,16 +1,30 @@
 package com.nuvio.app.features.livetv
 
+import com.nuvio.app.features.cloudstream.CloudStreamLiveCatalogItem
+import com.nuvio.app.features.streams.StreamMediaMetadata
+import com.nuvio.app.features.streams.StreamSubtitle
+
 data class LiveTvChannel(
     val id: String,
     val name: String,
     val streamUrl: String,
     val logoUrl: String? = null,
     val group: String? = null,
+    /** Provider/category path supplied by a CloudStream homepage section. */
+    val hierarchy: List<String> = emptyList(),
     val playlistId: String? = null,
     val playlistName: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val streamType: String? = null,
     val stalkerCommand: String? = null,
+    /** Provider/source attribution for generic live catalogs. */
+    val providerName: String? = null,
+    /** LoadResponse metadata retained for the live item/player. */
+    val metadata: StreamMediaMetadata? = null,
+    val subtitles: List<StreamSubtitle> = emptyList(),
+    /** Non-null only for a CloudStream homepage item awaiting resolution. */
+    val cloudStreamItem: CloudStreamLiveCatalogItem? = null,
+    val description: String? = null,
 )
 
 data class LiveTvStalkerSettings(
@@ -45,11 +59,36 @@ data class LiveTvPlaylist(
     val isEnabled: Boolean = true,
 )
 
+internal fun CloudStreamLiveCatalogItem.toLiveTvChannel(): LiveTvChannel {
+    val channelId = "cloudstream:${addonId}:${url.hashCode().toUInt().toString(16)}"
+    val normalizedMetadata = metadata?.toStreamMediaMetadata()
+    return LiveTvChannel(
+        id = channelId,
+        name = title,
+        // Homepage URLs are detail URLs, not claimed playable URLs. The
+        // CloudStream item stays attached until prepareForPlayback loads the
+        // actual links.
+        streamUrl = url,
+        logoUrl = normalizedMetadata?.logo ?: normalizedMetadata?.poster ?: poster,
+        group = sectionPath.drop(1).joinToString(" / ").takeIf { it.isNotBlank() }
+            ?: category
+            ?: providerName,
+        hierarchy = sectionPath,
+        playlistId = addonId,
+        playlistName = providerName,
+        providerName = providerName,
+        metadata = normalizedMetadata,
+        description = normalizedMetadata?.description,
+        cloudStreamItem = this,
+    )
+}
+
 data class LiveTvUiState(
     val playlistUrl: String = "",
     val playlists: List<LiveTvPlaylist> = emptyList(),
     val stalkerSettings: LiveTvStalkerSettings = LiveTvStalkerSettings(),
     val xtreamSettings: LiveTvXtreamSettings = LiveTvXtreamSettings(),
+    val hasCloudStreamLiveSources: Boolean = false,
     val channels: List<LiveTvChannel> = emptyList(),
     val favoriteChannelIds: Set<String> = emptySet(),
     val lastWatchedChannelId: String? = null,
@@ -59,7 +98,8 @@ data class LiveTvUiState(
 ) {
     val hasPlaylist: Boolean
         get() = playlists.isNotEmpty() || playlistUrl.isNotBlank() ||
-            stalkerSettings.isConfigured || xtreamSettings.isConfigured
+            stalkerSettings.isConfigured || xtreamSettings.isConfigured ||
+            hasCloudStreamLiveSources
 
     val showInNavigation: Boolean
         get() = hasPlaylist && isNavigationEnabled

@@ -40,6 +40,7 @@ import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.firstEnabledManifestError
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.CloudLibraryRepository
+import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
 import com.nuvio.app.features.cloud.findPlaybackTargetForProgress
 import com.nuvio.app.features.details.MetaDetails
@@ -139,6 +140,7 @@ fun HomeScreen(
     }
 
     val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
+    val cloudStreamUiState by CloudStreamExtensionsRepository.uiState.collectAsStateWithLifecycle()
     val homeUiState by HomeRepository.uiState.collectAsStateWithLifecycle()
     val homeSettingsUiState by remember {
         HomeCatalogSettingsRepository.snapshot()
@@ -851,6 +853,11 @@ fun HomeScreen(
     }
 
     val hasActiveAddons = enabledAddons.any { it.manifest != null }
+    val hasActiveCloudStreamSources = cloudStreamUiState.extensions.any { extension ->
+        extension.installStatus.isInstalled && extension.sources.any { source ->
+            source.enabled && source.canActivate
+        }
+    }
     val addonManifestsLoading = enabledAddons.any { it.isRefreshing }
     val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
     val isResolvingHeroSources = addonManifestsLoading || homeUiState.isLoading
@@ -1035,7 +1042,8 @@ fun HomeScreen(
                         }
                     }
 
-                    !hasActiveAddons && !hasRenderableCollectionRows -> {
+                    !hasActiveAddons && !hasActiveCloudStreamSources &&
+                        !hasRenderableCollectionRows && homeUiState.sections.isEmpty() -> {
                         homeContinueWatchingSections(
                             preferences = continueWatchingPreferences,
                             continueWatchingItems = continueWatchingItems,
@@ -1179,6 +1187,33 @@ fun HomeScreen(
                                 }
                             }
                         }
+
+                        // CloudStream is a separate provider domain, so its
+                        // homepage rows are not inserted into Nuvio addon
+                        // settings. They still use the same Home row/detail
+                        // navigation and are rendered when no Stremio addon is
+                        // active.
+                        homeUiState.sections
+                            .filter { section -> section.key.startsWith("cloudstream:") }
+                            .forEach { section ->
+                                item(key = section.key) {
+                                    HomeCatalogRowSection(
+                                        section = section,
+                                        entries = section.items.take(HOME_CATALOG_PREVIEW_LIMIT),
+                                        modifier = Modifier.padding(bottom = 12.dp),
+                                        sectionPadding = homeSectionPadding,
+                                        onViewAllClick = if (section.canOpenCatalog(HOME_CATALOG_PREVIEW_LIMIT)) {
+                                            onCatalogClick?.let { { it(section) } }
+                                        } else {
+                                            null
+                                        },
+                                        watchedKeys = watchedUiState.watchedKeys,
+                                        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                        onPosterClick = onPosterClick,
+                                        onPosterLongClick = onPosterLongClick,
+                                    )
+                                }
+                            }
                     }
                 }
             }

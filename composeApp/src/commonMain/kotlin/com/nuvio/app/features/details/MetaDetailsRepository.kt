@@ -10,6 +10,8 @@ import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
+import com.nuvio.app.features.cloudstream.CloudStreamCatalogStore
+import com.nuvio.app.features.cloudstream.CloudStreamResponseMetadata
 import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.tmdb.TmdbMetadataService
@@ -55,6 +57,20 @@ object MetaDetailsRepository {
         log.d { "load() called — type=$type id=$id" }
         InAppLogger.info("Metadata/MetaDetailsRepository", "Loading meta type=$type id=$id")
         val requestKey = "$type:$id"
+        CloudStreamCatalogStore.get(id)?.let { item ->
+            val meta = item.metadata?.toMetaDetails(id) ?: CloudStreamResponseMetadata(
+                title = item.title,
+                url = item.url,
+                poster = item.poster,
+                year = item.year,
+                mediaType = item.mediaType,
+                providerName = item.providerName,
+            ).toMetaDetails(id)
+            cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = meta)
+            _uiState.value = MetaDetailsUiState(meta = meta)
+            activeRequestKey = requestKey
+            return
+        }
         val currentState = _uiState.value
         val mdbListSettings = MdbListSettingsRepository.snapshot()
         val metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(mdbListSettings)
@@ -189,6 +205,16 @@ object MetaDetailsRepository {
     }
 
     fun peek(type: String, id: String): MetaDetails? {
+        CloudStreamCatalogStore.get(id)?.let { item ->
+            return item.metadata?.toMetaDetails(id) ?: CloudStreamResponseMetadata(
+                title = item.title,
+                url = item.url,
+                poster = item.poster,
+                year = item.year,
+                mediaType = item.mediaType,
+                providerName = item.providerName,
+            ).toMetaDetails(id)
+        }
         val requestKey = "$type:$id"
         val currentMeta = _uiState.value.meta?.takeIf { it.type == type && it.id == id }
         if (currentMeta != null) return currentMeta
@@ -207,6 +233,16 @@ object MetaDetailsRepository {
     }
 
     suspend fun fetch(type: String, id: String, cacheResult: Boolean = true): MetaDetails? {
+        CloudStreamCatalogStore.get(id)?.let { item ->
+            return item.metadata?.toMetaDetails(id) ?: CloudStreamResponseMetadata(
+                title = item.title,
+                url = item.url,
+                poster = item.poster,
+                year = item.year,
+                mediaType = item.mediaType,
+                providerName = item.providerName,
+            ).toMetaDetails(id)
+        }
         val requestKey = "$type:$id"
         cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
 
