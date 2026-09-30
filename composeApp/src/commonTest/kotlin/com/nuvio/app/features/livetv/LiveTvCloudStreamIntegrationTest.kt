@@ -37,13 +37,46 @@ class LiveTvCloudStreamIntegrationTest {
         assertEquals("Provider channel", channel.name)
         assertEquals("https://provider.example/channel/detail", channel.streamUrl)
         assertEquals("https://cdn.example/poster.png", channel.logoUrl)
-        assertEquals("News", channel.group)
+        assertEquals("Generic CloudStream provider / News", channel.group)
         assertEquals(listOf("Generic CloudStream provider", "News"), channel.hierarchy)
         assertEquals("Generic CloudStream provider", channel.providerName)
         assertEquals("Provider supplied channel description", channel.description)
         assertEquals("https://cdn.example/live.m3u8?token=opaque", channel.metadata?.dataUrl)
         assertEquals(true, channel.metadata?.isLive)
         assertNotNull(channel.cloudStreamItem)
+    }
+
+    @Test
+    fun `provider root and section remain distinct when two providers use the same section`() {
+        val first = CloudStreamLiveCatalogItem(
+            title = "Same channel",
+            url = "https://one.example/channel",
+            sectionPath = listOf("Provider One", "Live Events", "Football"),
+            providerName = "Provider One",
+            addonId = "cloudstream:one::Live",
+            metadata = CloudStreamResponseMetadata(
+                title = "Same channel",
+                mediaType = "Live",
+                isLive = true,
+            ),
+        ).toLiveTvChannel()
+        val second = CloudStreamLiveCatalogItem(
+            title = "Same channel",
+            url = "https://two.example/channel",
+            sectionPath = listOf("Provider Two", "Live Events", "Football"),
+            providerName = "Provider Two",
+            addonId = "cloudstream:two::Live",
+            metadata = CloudStreamResponseMetadata(
+                title = "Same channel",
+                mediaType = "Live",
+                isLive = true,
+            ),
+        ).toLiveTvChannel()
+
+        assertEquals("Provider One / Live Events / Football", first.group)
+        assertEquals("Provider Two / Live Events / Football", second.group)
+        assertEquals(false, first.id == second.id)
+
     }
 
     @Test

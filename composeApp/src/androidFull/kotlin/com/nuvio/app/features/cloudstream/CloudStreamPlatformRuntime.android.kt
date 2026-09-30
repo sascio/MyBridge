@@ -354,9 +354,15 @@ internal actual object CloudStreamPlatformRuntime {
                 ),
                 instance,
             )
+            val providerNames = initializedProviders.map { it.name }.filter(String::isNotBlank)
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                plugin.displayName,
+                "Loaded ${providerNames.size} provider(s): ${providerNames.joinToString(", ")}",
+            )
             log.i {
                 "Loaded CloudStream plugin '${plugin.id}': " +
-                    "${providers.size} provider(s), ${registered.size} extractor(s)"
+                    "${initializedProviders.size} provider(s), ${registered.size} extractor(s)"
             }
             return LoadedPlugin(file.absolutePath, instance, initializedProviders, registered)
         } catch (error: Throwable) {
@@ -709,10 +715,15 @@ internal actual object CloudStreamPlatformRuntime {
                             }
                         }
                     }
+                    val sectionNames = homepageItems
+                        .map { it.sectionPath.drop(1).joinToString(" / ") }
+                        .filter(String::isNotBlank)
+                        .distinct()
                     CloudStreamDiagnostics.info(
                         CloudStreamDiagnosticStage.GET_MAIN_PAGE,
                         api.name,
-                        "getMainPage returned ${homepageItems.size} catalog item(s).",
+                        "getMainPage returned ${homepageItems.size} catalog item(s) across " +
+                            "${sectionNames.size} section(s): ${sectionNames.joinToString(", ")}",
                     )
                     homepageItems
                 }

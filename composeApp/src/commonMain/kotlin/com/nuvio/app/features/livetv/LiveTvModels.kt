@@ -60,7 +60,19 @@ data class LiveTvPlaylist(
 )
 
 internal fun CloudStreamLiveCatalogItem.toLiveTvChannel(): LiveTvChannel {
-    val channelId = "cloudstream:${addonId}:${url.hashCode().toUInt().toString(16)}"
+    // Keep the provider as the root of the visible path. Live TV merges M3U,
+    // Xtream, Stalker and CloudStream channels into one list; dropping that
+    // root made equal section names from different extensions collide and made
+    // a multi-section provider look like one flat "Live Events" category.
+    val visibleHierarchy = (sectionPath.ifEmpty {
+        listOfNotNull(providerName.takeIf(String::isNotBlank), category?.takeIf(String::isNotBlank))
+    })
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .ifEmpty { listOf(providerName.ifBlank { "CloudStream" }) }
+    val channelIdentity = listOf(addonId, providerName, visibleHierarchy.joinToString("\u001e"), url)
+        .joinToString("\u001f")
+    val channelId = "cloudstream:${channelIdentity.hashCode().toUInt().toString(16)}"
     val normalizedMetadata = metadata?.toStreamMediaMetadata()
     return LiveTvChannel(
         id = channelId,
@@ -70,10 +82,8 @@ internal fun CloudStreamLiveCatalogItem.toLiveTvChannel(): LiveTvChannel {
         // actual links.
         streamUrl = url,
         logoUrl = normalizedMetadata?.logo ?: normalizedMetadata?.poster ?: poster,
-        group = sectionPath.drop(1).joinToString(" / ").takeIf { it.isNotBlank() }
-            ?: category
-            ?: providerName,
-        hierarchy = sectionPath,
+        group = visibleHierarchy.joinToString(" / "),
+        hierarchy = visibleHierarchy,
         playlistId = addonId,
         playlistName = providerName,
         providerName = providerName,
