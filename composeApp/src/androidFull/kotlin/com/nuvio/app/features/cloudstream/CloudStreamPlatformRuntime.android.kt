@@ -281,9 +281,14 @@ internal actual object CloudStreamPlatformRuntime {
             return true
         } catch (error: Throwable) {
             watcher.cancel()
+            val requestingClassName = requestingPluginClass(
+                error = error,
+                pluginClassLoader = pluginInstance.javaClass.classLoader,
+                fallback = pluginInstance.javaClass.name,
+            )
             val diagnosed = error.asDiagnosedFailure(
                 providerName = pluginId,
-                requestingClassName = pluginInstance.javaClass.name,
+                requestingClassName = requestingClassName,
                 pluginClassLoader = pluginInstance.javaClass.classLoader,
             )
             val diagnosis = CloudStreamRuntimeFailure.describe(
@@ -297,7 +302,7 @@ internal actual object CloudStreamPlatformRuntime {
                     CloudStreamDiagnosticStage.CLASSLOADER,
                     pluginId,
                     "settings hook class resolution failed missingClass=${missingClass.orEmpty()} " +
-                        "requestingClass=${pluginInstance.javaClass.name} " +
+                        "requestingClass=$requestingClassName " +
                         "pluginClassLoader=${CloudStreamRuntimeDependencyProbe.describe(pluginInstance.javaClass.classLoader)} " +
                         "parentClassLoader=${CloudStreamRuntimeDependencyProbe.describe(pluginInstance.javaClass.classLoader?.parent)} " +
                         "availableThroughPluginLoader=${missingClass?.let { isClassAvailable(it, pluginInstance.javaClass.classLoader) } ?: false} " +
@@ -718,11 +723,16 @@ internal actual object CloudStreamPlatformRuntime {
                 providerName = plugin.id,
             )
             if (diagnosis.isHostRuntimeGap) {
+                val requestingClassName = requestingPluginClass(
+                    error = error,
+                    pluginClassLoader = loader,
+                    fallback = instance.javaClass.name,
+                )
                 CloudStreamDiagnostics.error(
                     CloudStreamDiagnosticStage.CLASSLOADER,
                     plugin.id,
                     "plugin load class resolution failed missingClass=${diagnosis.symbol.orEmpty()} " +
-                        "requestingClass=${instance.javaClass.name} " +
+                        "requestingClass=$requestingClassName " +
                         "pluginClassLoader=${CloudStreamRuntimeDependencyProbe.describe(loader)} " +
                         "parentClassLoader=${CloudStreamRuntimeDependencyProbe.describe(loader.parent)} " +
                         "availableThroughPluginLoader=${diagnosis.symbol?.let { isClassAvailable(it, loader) } ?: false} " +
@@ -1534,6 +1544,29 @@ internal actual object CloudStreamPlatformRuntime {
             }
         }
     }
+}
+
+/**
+ * Finds the first stack frame whose class is actually defined by the plugin
+ * loader. This is more precise than assuming the entry Plugin class requested
+ * the missing symbol: settings fragments and nested lambdas often make the
+ * resolution request while the hook is executing.
+ */
+private fun requestingPluginClass(
+    error: Throwable,
+    pluginClassLoader: ClassLoader?,
+    fallback: String,
+): String {
+    if (pluginClassLoader == null) return fallback
+    return error.stackTrace.asSequence()
+        .map { it.className }
+        .distinct()
+        .firstOrNull { className ->
+            runCatching {
+                Class.forName(className, false, pluginClassLoader).classLoader === pluginClassLoader
+            }.getOrDefault(false)
+        }
+        ?: fallback
 }
 
 /**
