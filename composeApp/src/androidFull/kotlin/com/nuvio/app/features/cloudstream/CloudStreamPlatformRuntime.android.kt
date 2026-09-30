@@ -266,6 +266,15 @@ internal actual object CloudStreamPlatformRuntime {
         created
     }
 
+    private fun providerId(plugin: CloudStreamPlugin, api: MainAPI): String =
+        CloudStreamLiveIdentity.providerId(
+            repositoryId = plugin.repositoryUrl.orEmpty().ifBlank { "plugin:${plugin.id}" },
+            extensionId = plugin.id,
+            className = api.javaClass.name,
+            name = api.name,
+            mainUrl = api.mainUrl,
+        )
+
     private fun loadPluginLocked(plugin: CloudStreamPlugin, file: File): LoadedPlugin {
         val context = requireNotNull(appContext) { "CloudStream runtime is not initialized" }
         require(file.isFile) { "CloudStream package is missing" }
@@ -633,7 +642,7 @@ internal actual object CloudStreamPlatformRuntime {
             if (providers.isEmpty()) error("Extension exposes no CloudStream provider")
             var lastFailure: Throwable? = null
             val results = providers.mapNotNull { api ->
-                runCatching { collectLinks(api, query.url) }
+                runCatching { collectLinks(plugin, api, query.url) }
                     .onFailure { error ->
                         if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                         lastFailure = error
@@ -853,7 +862,7 @@ internal actual object CloudStreamPlatformRuntime {
                 ?.takeIf { it.isNotBlank() }
                 ?: item.url
 
-            val resolved = runCatching { collectLinks(api, target) }.getOrElse { error ->
+            val resolved = runCatching { collectLinks(plugin, api, target) }.getOrElse { error ->
                 if (error is ClassCastException) throw error
                 // A LiveStreamLoadResponse's dataUrl is itself an authoritative
                 // provider payload. If the provider returns it as a direct HLS,
@@ -959,7 +968,7 @@ internal actual object CloudStreamPlatformRuntime {
                         } else {
                             CloudStreamLoadResponseTargets.movieTarget(detail) ?: match.url
                         }
-                        collectLinks(api, target).copy(
+                        collectLinks(plugin, api, target).copy(
                             metadata = CloudStreamLoadResponseTargets.metadata(detail).copy(
                                 providerName = api.name,
                             ),
@@ -1039,7 +1048,11 @@ internal actual object CloudStreamPlatformRuntime {
          * the URL. This is registry-driven, so no per-provider or
          * per-extractor special-casing is involved.
          */
-        private suspend fun collectLinks(api: MainAPI, data: String): CloudStreamLinkResult {
+        private suspend fun collectLinks(
+            plugin: CloudStreamPlugin,
+            api: MainAPI,
+            data: String,
+        ): CloudStreamLinkResult {
             val links = Collections.synchronizedList(mutableListOf<ExtractorLink>())
             val subtitles = Collections.synchronizedList(mutableListOf<SubtitleFile>())
 
@@ -1075,7 +1088,7 @@ internal actual object CloudStreamPlatformRuntime {
                 CloudStreamDiagnosticStage.LOAD_LINKS,
                 api.name,
                 "operation=loadLinks providerId=${providerId(plugin, api)} " +
-                    "inputType=${if (query.url.startsWith("http", ignoreCase = true)) "url" else "opaque-payload"} " +
+                    "inputType=${if (data.startsWith("http", ignoreCase = true)) "url" else "opaque-payload"} " +
                     "linkCount=${linkSnapshot.size} subtitleCount=${subtitleSnapshot.size} " +
                     "types=${linkSnapshot.map { it.type.name }.distinct()}",
             )
