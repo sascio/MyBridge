@@ -968,7 +968,7 @@ internal actual object CloudStreamPlatformRuntime {
                         } else {
                             CloudStreamLoadResponseTargets.movieTarget(detail) ?: match.url
                         }
-                        collectLinks(plugin, api, target).copy(
+                        collectLinks(request.plugin, api, target).copy(
                             metadata = CloudStreamLoadResponseTargets.metadata(detail).copy(
                                 providerName = api.name,
                             ),
