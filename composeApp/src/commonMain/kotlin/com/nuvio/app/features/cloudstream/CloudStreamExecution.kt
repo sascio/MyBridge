@@ -1,5 +1,16 @@
 package com.nuvio.app.features.cloudstream
 
+import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.details.MetaPerson
+import com.nuvio.app.features.details.MetaTrailer
+import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.streams.StreamCastMember
+import com.nuvio.app.features.streams.StreamEpisodeMetadata
+import com.nuvio.app.features.streams.StreamMediaMetadata
+import com.nuvio.app.features.streams.StreamRelatedMedia
+import com.nuvio.app.features.streams.StreamTrailer
+
 /**
  * The CloudStream execution seam.
  *
@@ -22,8 +33,254 @@ data class CloudStreamStreamQuery(
     val episode: Int? = null,
 )
 
-/** Links plus subtitles returned by one plugin. */
-data class CloudStreamLinkResult(
+/**
+ * Metadata common to every CloudStream [com.lagradost.cloudstream3.LoadResponse].
+ *
+ * This is intentionally a host model rather than a CloudStream class. It keeps
+ * the AAR boundary in the Android execution source set and gives the catalog,
+ * source picker and player one stable representation of the response hierarchy.
+ */
+data class CloudStreamResponseMetadata(
+    val title: String,
+    val originalTitle: String? = null,
+    val url: String? = null,
+    val dataUrl: String? = null,
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val logo: String? = null,
+    val posterHeaders: Map<String, String> = emptyMap(),
+    val description: String? = null,
+    val year: Int? = null,
+    /** CloudStream's score normalised to the conventional 0..10 range. */
+    val rating: Double? = null,
+    /** CloudStream duration is expressed in minutes. */
+    val durationMinutes: Int? = null,
+    val genres: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
+    val cast: List<StreamCastMember> = emptyList(),
+    val providerName: String? = null,
+    val mediaType: String? = null,
+    val isLive: Boolean = false,
+    val liveStatus: String? = null,
+    val channelName: String? = null,
+    val contentRating: String? = null,
+    val comingSoon: Boolean = false,
+    val uniqueUrl: String? = null,
+    val syncData: Map<String, String> = emptyMap(),
+    val trailers: List<CloudStreamTrailer> = emptyList(),
+    val recommendations: List<CloudStreamRelatedItem> = emptyList(),
+    val episodes: List<CloudStreamEpisodeMetadata> = emptyList(),
+) {
+    /**
+     * Adapts the normalized CloudStream response to StreamBridge's detail model.
+     * Live entries use the same model as movies/series; the `isLive` flag and
+     * type remain available to the caller instead of being discarded.
+     */
+    fun toMetaDetails(id: String = uniqueUrl ?: url ?: title): MetaDetails = MetaDetails(
+        id = id,
+        type = when {
+            isLive -> "live"
+            mediaType.equals("TvSeries", ignoreCase = true) ||
+                mediaType.equals("Anime", ignoreCase = true) ||
+                mediaType.equals("Cartoon", ignoreCase = true) -> "series"
+            else -> "movie"
+        },
+        name = title,
+        poster = poster,
+        background = backdrop,
+        logo = logo,
+        description = description,
+        releaseInfo = year?.toString(),
+        status = liveStatus,
+        ageRating = contentRating,
+        imdbRating = rating?.toString(),
+        runtime = durationMinutes?.toString(),
+        genres = genres,
+        cast = cast.map { person ->
+            MetaPerson(name = person.name, role = person.role, photo = person.image)
+        },
+        moreLikeThis = recommendations.map { related ->
+            MetaPreview(
+                id = related.url,
+                type = related.mediaType?.lowercase() ?: "movie",
+                name = related.title,
+                poster = related.poster,
+            )
+        },
+        trailers = trailers.map { trailer ->
+            MetaTrailer(
+                id = trailer.url,
+                key = trailer.url,
+                name = trailer.url,
+                site = "CloudStream",
+            )
+        },
+        videos = episodes.map { episode ->
+            MetaVideo(
+                id = episode.data,
+                title = episode.title ?: episode.data,
+                thumbnail = episode.poster,
+                season = episode.season,
+                episode = episode.episode,
+                overview = episode.description,
+                runtime = episode.durationSeconds?.div(60),
+                rating = episode.rating,
+            )
+        },
+    )
+
+    fun toStreamMediaMetadata(): StreamMediaMetadata = StreamMediaMetadata(
+        title = title,
+        originalTitle = originalTitle,
+        poster = poster,
+        backdrop = backdrop,
+        logo = logo,
+        posterHeaders = posterHeaders,
+        description = description,
+        year = year,
+        rating = rating,
+        durationMinutes = durationMinutes,
+        genres = genres,
+        tags = tags,
+        cast = cast,
+        providerName = providerName,
+        url = url,
+        dataUrl = dataUrl,
+        mediaType = mediaType,
+        isLive = isLive,
+        liveStatus = liveStatus,
+        channelName = channelName,
+        contentRating = contentRating,
+        comingSoon = comingSoon,
+        uniqueUrl = uniqueUrl,
+        syncData = syncData,
+        trailers = trailers.map { trailer ->
+            StreamTrailer(
+                url = trailer.url,
+                referer = trailer.referer,
+                raw = trailer.raw,
+                headers = trailer.headers,
+            )
+        },
+        recommendations = recommendations.map { related ->
+            StreamRelatedMedia(
+                title = related.title,
+                url = related.url,
+                poster = related.poster,
+                mediaType = related.mediaType,
+            )
+        },
+        episodes = episodes.map { episode ->
+            StreamEpisodeMetadata(
+                data = episode.data,
+                title = episode.title,
+                season = episode.season,
+                episode = episode.episode,
+                poster = episode.poster,
+                description = episode.description,
+                durationSeconds = episode.durationSeconds,
+                rating = episode.rating,
+            )
+        },
+    )
+}
+
+data class CloudStreamTrailer(
+    val url: String,
+    val referer: String? = null,
+    val raw: Boolean = false,
+    val headers: Map<String, String> = emptyMap(),
+)
+
+data class CloudStreamRelatedItem(
+    val title: String,
+    val url: String,
+    val poster: String? = null,
+    val mediaType: String? = null,
+)
+
+data class CloudStreamEpisodeMetadata(
+    val data: String,
+    val title: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val poster: String? = null,
+    val description: String? = null,
+    val durationSeconds: Int? = null,
+    val rating: Double? = null,
+)
+
+/** One item returned by a CloudStream provider's homepage/catalog. */
+data class CloudStreamCatalogItem(
+    val title: String,
+    val url: String,
+    val poster: String? = null,
+    val posterHeaders: Map<String, String> = emptyMap(),
+    val year: Int? = null,
+    val mediaType: String? = null,
+    val category: String? = null,
+    /** Actual CloudStream homepage section path, outermost first. */
+    val sectionPath: List<String> = emptyList(),
+    val providerName: String,
+    /** Stable identity of the registered MainAPI, never a display label. */
+    val providerId: String = "",
+    /** Repository identity that contributed the extension. */
+    val repositoryId: String = "",
+    /** Display-only label; never used as an identity key. */
+    val extensionName: String = "",
+    val extensionId: String = "",
+    val sourceId: String = "",
+    val addonId: String = "",
+    val metadata: CloudStreamResponseMetadata? = null,
+)
+
+data class CloudStreamCatalogFailure(
+    val providerId: String,
+    val providerName: String,
+    val stage: String,
+    val cause: Throwable,
+)
+
+/**
+ * A catalog request can return useful partial data while one registered
+ * provider fails. The failure remains attached instead of becoming an empty
+ * "no providers" result; callers decide how to show the partial result.
+ */
+class CloudStreamCatalogExecutionException(
+    val partialItems: List<CloudStreamCatalogItem>,
+    val failures: List<CloudStreamCatalogFailure>,
+) : IllegalStateException(
+    "${failures.size} CloudStream catalog provider(s) failed: " +
+        failures.joinToString { it.providerName },
+    failures.firstOrNull()?.cause,
+)
+
+/** Compatibility name for the Live TV path. */
+typealias CloudStreamLiveCatalogItem = CloudStreamCatalogItem
+
+internal fun CloudStreamCatalogItem.catalogSourceKey(): String =
+    listOf(
+        repositoryId,
+        extensionId,
+        sourceId,
+        addonId,
+        providerId.ifBlank { providerName },
+        sectionPath.joinToString("\u001e"),
+        category.orEmpty(),
+        uiMediaType(),
+    ).joinToString("\u001f")
+
+internal fun CloudStreamCatalogItem.uiMediaType(): String = when {
+    mediaType.equals("TvSeries", ignoreCase = true) ||
+        mediaType.equals("Anime", ignoreCase = true) ||
+        mediaType.equals("Cartoon", ignoreCase = true) -> "series"
+    mediaType.equals("Live", ignoreCase = true) -> "live"
+    else -> "movie"
+}
+
+/** Detail/links result for one catalog item. */
+data class CloudStreamLiveResolution(
+    val metadata: CloudStreamResponseMetadata,
     val links: List<CloudStreamLink> = emptyList(),
     val subtitles: List<CloudStreamSubtitleFile> = emptyList(),
 )
@@ -78,4 +335,37 @@ internal interface CloudStreamPluginExecutor {
      * thrown so the aggregator can report it against this provider only.
      */
     suspend fun resolve(request: CloudStreamResolveRequest): CloudStreamLinkResult
+
+    /**
+     * Loads the provider's homepage/catalog. Implementations that cannot
+     * execute CloudStream return the empty default; this keeps the Play Store
+     * and iOS no-execution boundary explicit.
+     */
+    suspend fun loadCatalog(plugin: CloudStreamPlugin): List<CloudStreamCatalogItem> = emptyList()
+
+    /** The Live TV projection is filtered from the same generic catalog seam. */
+    suspend fun loadLiveCatalog(plugin: CloudStreamPlugin): List<CloudStreamLiveCatalogItem> =
+        loadCatalog(plugin).filter { item ->
+            item.metadata?.isLive == true || item.mediaType.equals("Live", ignoreCase = true)
+        }
+
+    /**
+     * Returns the navigable live tree. The default keeps older test backends
+     * source-compatible while preserving the provider boundary whenever they
+     * can return normalized catalog items.
+     */
+    suspend fun loadLiveHierarchy(plugin: CloudStreamPlugin): CloudStreamLiveHierarchy =
+        CloudStreamLiveHierarchy.fromCatalog(loadLiveCatalog(plugin))
+
+    /** Resolves one catalog item through the same provider/runtime path. */
+    suspend fun resolveCatalog(
+        plugin: CloudStreamPlugin,
+        item: CloudStreamCatalogItem,
+    ): CloudStreamLiveResolution = error("This build cannot execute CloudStream providers.")
+
+    /** Compatibility entry point for the Live TV path. */
+    suspend fun resolveLive(
+        plugin: CloudStreamPlugin,
+        item: CloudStreamLiveCatalogItem,
+    ): CloudStreamLiveResolution = resolveCatalog(plugin, item)
 }

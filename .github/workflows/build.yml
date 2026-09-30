@@ -132,6 +132,22 @@ jobs:
             python3 .github/verify-cloudstream-apk.py --apk "$APK" --expect-runtime
           done
 
+      - name: Inspect minified host Activity superclass hierarchy
+        run: |
+          set -euo pipefail
+          APK=$(find androidApp/build/outputs/apk/full/release -name '*.apk' | head -1)
+          MAPPING=androidApp/build/outputs/mapping/fullRelease/mapping.txt
+          python3 .github/inspect-android-hierarchy.py \
+            --apk "$APK" \
+            --mapping "$MAPPING" \
+            --class com.nuvio.app.MainActivity \
+            --class com.nuvio.app.launcher.AppIconDefault \
+            --class com.nuvio.app.launcher.AppIconArcticBlue \
+            --class com.nuvio.app.launcher.AppIconEmerald \
+            --class com.nuvio.app.launcher.AppIconRoseGold \
+            --class com.nuvio.app.launcher.AppIconCopper \
+            --class com.nuvio.app.launcher.AppIconGraphite
+
       - name: Verify Play Store distribution excludes the CloudStream runtime
         env:
           NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
@@ -188,6 +204,8 @@ jobs:
           name: Stream-Bridge-CI-full-release-APK-not-production
           path: |
             androidApp/build/outputs/apk/full/release/*.apk
+            androidApp/build/outputs/mapping/fullRelease/mapping.txt
+            androidApp/build/outputs/mapping/fullRelease/configuration.txt
             signing-status/CI-NOT-PRODUCTION.txt
           if-no-files-found: error
 

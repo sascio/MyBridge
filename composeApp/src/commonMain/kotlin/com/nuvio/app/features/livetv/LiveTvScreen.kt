@@ -78,6 +78,9 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding
+import com.nuvio.app.features.cloudstream.CloudStreamLiveHierarchy
+import com.nuvio.app.features.cloudstream.CloudStreamLiveIdentity
+import com.nuvio.app.features.cloudstream.CloudStreamLiveNode
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -129,14 +132,37 @@ fun LiveTvScreen(
     val uncategorizedLabel = stringResource(Res.string.live_tv_group_uncategorized)
     val chooseCategoryLabel = stringResource(Res.string.live_tv_filter_choose_category)
 
-    val categoryOptions = remember(
+    val selectedHierarchyNode = remember(
+        uiState.cloudStreamHierarchy,
+        uiState.cloudStreamSelectedNodeId,
+    ) {
+        uiState.cloudStreamHierarchy.node(uiState.cloudStreamSelectedNodeId)
+    }
+    val hierarchyScopedChannels = remember(
         uiState.channels,
+        selectedHierarchyNode,
+    ) {
+        val selectedCloudChannelIds = selectedHierarchyNode
+            ?.channels
+            ?.mapNotNull { it.catalogItem?.let { item -> CloudStreamLiveIdentity.channelNodeId(item) } }
+            ?.toSet()
+        if (selectedCloudChannelIds == null) {
+            uiState.channels
+        } else {
+            uiState.channels.filter { channel ->
+                channel.cloudStreamItem == null || channel.id in selectedCloudChannelIds
+            }
+        }
+    }
+
+    val categoryOptions = remember(
+        hierarchyScopedChannels,
         allChannelsLabel,
         favoritesLabel,
         uncategorizedLabel,
     ) {
         buildLiveTvCategoryFilterOptions(
-            channels = uiState.channels,
+            channels = hierarchyScopedChannels,
             allChannelsLabel = allChannelsLabel,
             favoritesLabel = favoritesLabel,
             uncategorizedLabel = uncategorizedLabel,
@@ -144,7 +170,7 @@ fun LiveTvScreen(
     }
 
     val visibleChannels = remember(
-        uiState.channels,
+        hierarchyScopedChannels,
         uiState.favoriteChannelIds,
         filterMode,
         selectedCategoryName,
@@ -152,7 +178,7 @@ fun LiveTvScreen(
         uncategorizedLabel,
     ) {
         filterLiveTvChannels(
-            channels = uiState.channels,
+            channels = hierarchyScopedChannels,
             favoriteChannelIds = uiState.favoriteChannelIds,
             filterMode = filterMode,
             selectedCategoryName = selectedCategoryName,
@@ -296,6 +322,16 @@ fun LiveTvScreen(
                         }
                     }
 
+                    if (uiState.cloudStreamHierarchy.roots.isNotEmpty()) {
+                        item(key = CloudStreamHierarchyKey) {
+                            CloudStreamHierarchyNavigator(
+                                hierarchy = uiState.cloudStreamHierarchy,
+                                selectedNode = selectedHierarchyNode,
+                                onSelectNode = LiveTvRepository::selectCloudStreamNode,
+                            )
+                        }
+                    }
+
                     stickyHeader(key = ChannelControlsKey) {
                         LiveTvChannelControls(
                             topPadding = controlsTopPadding,
@@ -372,8 +408,101 @@ fun LiveTvScreen(
 }
 
 private const val ChannelControlsKey = "channel-controls"
+private const val CloudStreamHierarchyKey = "cloudstream-hierarchy"
 
 private val LiveTvScreenHorizontalPadding = 16.dp
+
+@Composable
+private fun CloudStreamHierarchyNavigator(
+    hierarchy: CloudStreamLiveHierarchy,
+    selectedNode: CloudStreamLiveNode?,
+    onSelectNode: (String?) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val options = (selectedNode?.children ?: hierarchy.roots)
+        .filter { it.nodeType != com.nuvio.app.features.cloudstream.CloudStreamLiveNodeType.CHANNEL }
+    val trail = buildList {
+        var current = selectedNode
+        while (current != null) {
+            add(current)
+            current = hierarchy.node(current.parentNodeId)
+        }
+    }.asReversed()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "CloudStream",
+                color = tokens.colors.textMuted,
+                style = MaterialTheme.typography.labelMedium,
+            )
+            Text(
+                text = if (trail.isEmpty()) "All providers" else trail.joinToString(" / ") { it.title },
+                color = tokens.colors.textPrimary,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (selectedNode != null) {
+            Text(
+                text = "All providers",
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onSelectNode(null) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                color = tokens.colors.accent,
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+        if (options.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                options.forEach { node ->
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onSelectNode(node.nodeId) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = tokens.colors.surfaceCard,
+                        border = BorderStroke(1.dp, tokens.colors.borderSubtle),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = node.title,
+                                color = tokens.colors.textPrimary,
+                                style = MaterialTheme.typography.labelMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = "${node.channels.size} channel${if (node.channels.size == 1) "" else "s"}",
+                                color = tokens.colors.textMuted,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun LiveTvChannelControls(
@@ -755,7 +884,18 @@ private fun LiveTvChannelCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                LiveTvCategoryLine(categoryName = categoryName)
+                LiveTvCategoryLine(
+                    categoryName = channel.providerName?.let { "$categoryName • $it" } ?: categoryName,
+                )
+                channel.description?.takeIf { it.isNotBlank() }?.let { description ->
+                    Text(
+                        text = description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tokens.colors.textMuted,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
             IconButton(onClick = onFavoriteClick) {
                 Icon(

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.cloudstream
 
+import com.lagradost.cloudstream3.Actor
+import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.Episode
@@ -148,6 +150,69 @@ class CloudStreamLoadResponseTargetsTest {
         )
         assertNull(CloudStreamLoadResponseTargets.movieTarget(detail))
         assertTrue(CloudStreamLoadResponseTargets.episodes(detail).isEmpty())
+    }
+
+    @Test
+    fun `live response preserves its generic metadata contract`() {
+        val detail = LiveStreamLoadResponse(
+            name = "Example Channel",
+            url = "https://provider.example/channel",
+            apiName = "Generic live provider",
+            dataUrl = "https://cdn.example/live/index.m3u8?token=redacted",
+            posterUrl = "https://cdn.example/poster.png",
+            year = 2026,
+            plot = "A provider-supplied channel description.",
+            tags = listOf("news", "live"),
+            duration = 0,
+            posterHeaders = mapOf("Referer" to "https://provider.example/"),
+            backgroundPosterUrl = "https://cdn.example/backdrop.jpg",
+            logoUrl = "https://cdn.example/logo.png",
+            contentRating = "TV-G",
+        )
+
+        val metadata = CloudStreamLoadResponseTargets.metadata(detail)
+        assertEquals("Example Channel", metadata.title)
+        assertEquals("Generic live provider", metadata.providerName)
+        assertEquals("https://cdn.example/live/index.m3u8?token=redacted", metadata.dataUrl)
+        assertEquals("https://cdn.example/poster.png", metadata.poster)
+        assertEquals("https://cdn.example/backdrop.jpg", metadata.backdrop)
+        assertEquals("https://cdn.example/logo.png", metadata.logo)
+        assertEquals("A provider-supplied channel description.", metadata.description)
+        assertEquals(listOf("news", "live"), metadata.tags)
+        assertEquals(mapOf("Referer" to "https://provider.example/"), metadata.posterHeaders)
+        assertTrue(metadata.isLive)
+        assertEquals("live", metadata.liveStatus)
+    }
+
+    @Test
+    fun `anime metadata preserves titles cast and episode fields`() {
+        val episode = episode("episode-data", season = 1, number = 3).apply {
+            posterUrl = "https://cdn.example/episode.jpg"
+            description = "Episode description"
+            runTime = 1_500
+        }
+        val detail = AnimeLoadResponse(
+            engName = "English Title",
+            japName = "日本語タイトル",
+            name = "Display Title",
+            url = "https://provider.example/anime/metadata",
+            apiName = "Generic Anime Provider",
+            type = TvType.Anime,
+            actors = listOf(ActorData(Actor("A. Actor"), roleString = "Lead")),
+            episodes = mutableMapOf(DubStatus.Subbed to listOf(episode)),
+        )
+
+        val metadata = CloudStreamLoadResponseTargets.metadata(detail)
+        assertEquals("Display Title", metadata.title)
+        assertEquals("English Title", metadata.originalTitle)
+        assertEquals("Generic Anime Provider", metadata.providerName)
+        assertEquals("A. Actor", metadata.cast.single().name)
+        assertEquals("Lead", metadata.cast.single().role)
+        assertEquals("episode-data", metadata.episodes.single().data)
+        assertEquals(1, metadata.episodes.single().season)
+        assertEquals(3, metadata.episodes.single().episode)
+        assertEquals("https://cdn.example/episode.jpg", metadata.episodes.single().poster)
+        assertEquals(1_500, metadata.episodes.single().durationSeconds)
     }
 
     @Test
