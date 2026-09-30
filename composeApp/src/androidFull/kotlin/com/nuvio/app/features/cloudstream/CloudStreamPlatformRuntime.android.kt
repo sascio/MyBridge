@@ -561,16 +561,32 @@ internal actual object CloudStreamPlatformRuntime {
         val instance = (pluginClass as Class<out BasePlugin>).getDeclaredConstructor().newInstance()
         instance.filename = file.absolutePath
         PluginManager.currentlyLoading = plugin.id
-        if (manifest?.requiresResources == true) {
-            runCatching { instance.attachResources(pluginContext, file) }
-                .onFailure {
-                    // Do not turn an Activity ABI failure into a hidden
-                    // resource warning. The provider must see the real
-                    // ClassCastException if the host wiring is ever wrong.
-                    if (it is ClassCastException) throw it
-                    log.w(it) { "Resource attach failed for '${plugin.id}'" }
-                }
-        }
+        // Build the plugin-owned resource environment for every package. The
+        // archive flag is only advisory and older CloudStream packages omit it;
+        // deferring this solely to `requiresResources=true` leaves those
+        // providers with host resources and can make their real settings UI
+        // fail while resolving plugin strings/layouts/styles.
+        runCatching { instance.attachResources(pluginContext, file) }
+            .onSuccess {
+                CloudStreamDiagnostics.info(
+                    CloudStreamDiagnosticStage.CLASSLOADER,
+                    plugin.id,
+                    "plugin resource environment attached=true package=${file.name}",
+                )
+            }
+            .onFailure {
+                // Do not turn an Activity ABI failure into a hidden resource
+                // warning. The provider must see the real ClassCastException if
+                // the host wiring is ever wrong.
+                if (it is ClassCastException) throw it
+                log.w(it) { "Resource attach failed for '${plugin.id}'" }
+                CloudStreamDiagnostics.warning(
+                    CloudStreamDiagnosticStage.CLASSLOADER,
+                    plugin.id,
+                    "plugin resource environment attached=false exception=" +
+                        "${it::class.java.name}: ${it.message.orEmpty()}",
+                )
+            }
 
         // --- gate 7: must register providers, else roll back --------------
         val providersBefore = APIHolder.allProviders.toSet()
