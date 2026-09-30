@@ -1,6 +1,6 @@
 # CloudStream end-to-end integration audit
 
-Date: 2026-09-29
+Date: 2026-09-30
 Branch: `arena/01a0e422-mybridge`
 
 This is the source-level audit for the full Android CloudStream path. It is
