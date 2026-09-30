@@ -60,6 +60,7 @@ internal fun CloudStreamExtensionDetail(
     onBack: () -> Unit,
 ) {
     val coroutineScope = rememberCoroutineScope()
+    var configurationError by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = modifier,
@@ -85,10 +86,19 @@ internal fun CloudStreamExtensionDetail(
             extension = extension,
             onOpenSettings = {
                 coroutineScope.launch {
-                    CloudStreamExtensionsRepository.openSettings(extension.id)
+                    val result = CloudStreamExtensionsRepository.openSettings(extension.id)
+                    configurationError = result.exceptionOrNull()?.message
+                        ?: result.exceptionOrNull()?.javaClass?.simpleName
                 }
             },
         )
+        configurationError?.let { message ->
+            Text(
+                text = "Configure failed: $message",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_sources))
         extension.sources.forEach { source ->

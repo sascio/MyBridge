@@ -54,6 +54,15 @@ internal expect object CloudStreamPlatformRuntime {
      */
     fun unload(pluginId: String)
 
-    /** Opens the extension's own CloudStream settings through its runtime hook. */
-    suspend fun openSettings(plugin: CloudStreamPlugin): Boolean
+    /** Detects whether the loaded extension exposes a real configuration entry point. */
+    suspend fun inspectConfiguration(plugin: CloudStreamPlugin): CloudStreamConfigurationCapability
+
+    /**
+     * Opens the extension's own CloudStream settings through its runtime hook.
+     * [onClosed] is invoked after a detected settings UI has been dismissed.
+     */
+    suspend fun openSettings(plugin: CloudStreamPlugin, onClosed: () -> Unit): Boolean
+
+    /** Reloads the plugin after its settings UI has changed extension-owned state. */
+    suspend fun reload(plugin: CloudStreamPlugin): Boolean
 }

@@ -64,6 +64,11 @@ object LiveTvRepository {
                     }
                 }
             }
+            scope.launch {
+                CloudStreamExtensionsRepository.configurationRevision.collectLatest { revision ->
+                    if (revision > 0L) refresh()
+                }
+            }
         }
         if (_uiState.value.hasPlaylist) {
             refresh()

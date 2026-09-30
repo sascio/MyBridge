@@ -434,6 +434,7 @@ private fun CloudStreamHierarchyNavigator(
     val selectedExtensionId = selectedNode
         ?.takeIf { it.nodeType == com.nuvio.app.features.cloudstream.CloudStreamLiveNodeType.EXTENSION }
         ?.extensionId
+    var configurationError by remember(selectedExtensionId) { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -466,13 +467,22 @@ private fun CloudStreamHierarchyNavigator(
                     .clip(RoundedCornerShape(10.dp))
                     .clickable {
                         coroutineScope.launch {
-                            CloudStreamExtensionsRepository.openSettings(selectedExtensionId)
+                            val result = CloudStreamExtensionsRepository.openSettings(selectedExtensionId)
+                            configurationError = result.exceptionOrNull()?.message
+                                ?: result.exceptionOrNull()?.javaClass?.simpleName
                         }
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 color = tokens.colors.accent,
                 style = MaterialTheme.typography.labelMedium,
             )
+            configurationError?.let { message ->
+                Text(
+                    text = "Configure failed: $message",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
         if (selectedNode != null) {
             Text(

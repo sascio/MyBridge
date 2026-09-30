@@ -41,6 +41,10 @@ internal object CloudStreamExtensionsRepository {
     private val _uiState = MutableStateFlow(CloudStreamUiState())
     val uiState: StateFlow<CloudStreamUiState> = _uiState.asStateFlow()
 
+    private val _configurationRevision = MutableStateFlow(0L)
+    /** Increments after a real plugin settings UI closes and reload completes. */
+    val configurationRevision: StateFlow<Long> = _configurationRevision.asStateFlow()
+
     private var repositoryUrls: List<String> = emptyList()
     private var sourceStates: MutableMap<String, CloudStreamSourceState> = mutableMapOf()
     private var configuration: MutableMap<String, String> = mutableMapOf()
@@ -415,16 +419,69 @@ internal object CloudStreamExtensionsRepository {
         if (!extension.plugin.isExecutable || !extension.installStatus.isInstalled) {
             return Result.failure(IllegalStateException("CloudStream extension is not installed."))
         }
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.UI,
+            extension.name,
+            "configure clickReceived=true extensionId=${extension.id} pluginId=${extension.plugin.id}",
+        )
         return try {
-            check(CloudStreamPlatformRuntime.openSettings(extension.plugin)) {
-                "This extension does not expose a CloudStream settings hook."
+            val capability = CloudStreamPlatformRuntime.inspectConfiguration(extension.plugin)
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                extension.name,
+                "configure providerId=$pluginId status=${capability.status} " +
+                    "configurationType=${capability.configurationType.orEmpty()} " +
+                    "requiredActivityType=${capability.requiredActivityType.orEmpty()}",
+            )
+            check(capability.isConfigurable) {
+                capability.message ?: "This extension does not expose a CloudStream configuration UI."
+            }
+            check(
+                CloudStreamPlatformRuntime.openSettings(extension.plugin) {
+                    scope.launch { onSettingsUiClosed(extension) }
+                },
+            ) {
+                "The CloudStream configuration hook did not launch."
             }
             Result.success(Unit)
         } catch (error: Throwable) {
             if (error is kotlinx.coroutines.CancellationException) throw error
-            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, extension.name, error)
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.UI,
+                extension.name,
+                "configure providerId=$pluginId launchResult=failed exception=" +
+                    "${error::class.java.name}: ${error.message.orEmpty()}",
+            )
             log.w(error) { "Could not open CloudStream settings for ${extension.name}" }
             Result.failure(error)
+        }
+    }
+
+    private suspend fun onSettingsUiClosed(extension: CloudStreamExtension) {
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.UI,
+            extension.name,
+            "configuration UI closed; reloadRequired=true reloadStarted=true",
+        )
+        val result = runCatching { CloudStreamPlatformRuntime.reload(extension.plugin) }
+        result.onSuccess {
+            _configurationRevision.value += 1
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                extension.name,
+                "configuration reloadCompleted=true; requesting provider graph refresh",
+            )
+            refresh()
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                extension.name,
+                "configuration reloadCompleted=false exception=" +
+                    "${error::class.java.name}: ${error.message.orEmpty()}",
+            )
+            _configurationRevision.value += 1
+            refresh()
         }
     }
 

@@ -21,5 +21,14 @@ internal actual object CloudStreamPlatformRuntime {
 
     actual fun unload(pluginId: String) = Unit
 
-    actual suspend fun openSettings(plugin: CloudStreamPlugin): Boolean = false
+    actual suspend fun inspectConfiguration(plugin: CloudStreamPlugin): CloudStreamConfigurationCapability =
+        CloudStreamConfigurationCapability(
+            status = CloudStreamConfigurationStatus.CONFIGURATION_UNAVAILABLE,
+            pluginId = plugin.id,
+            message = "CloudStream extension execution is unavailable in this distribution.",
+        )
+
+    actual suspend fun openSettings(plugin: CloudStreamPlugin, onClosed: () -> Unit): Boolean = false
+
+    actual suspend fun reload(plugin: CloudStreamPlugin): Boolean = false
 }

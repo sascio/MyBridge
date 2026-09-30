@@ -1,10 +1,14 @@
 package com.nuvio.app.features.cloudstream
 
 import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.res.AssetManager
 import android.content.res.Resources
+import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import co.touchlab.kermit.Logger
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.APIHolder
@@ -156,37 +160,172 @@ internal actual object CloudStreamPlatformRuntime {
         log.i { "Unloaded CloudStream plugin '$pluginId'" }
     }
 
+    /** Detects and records the real configuration entry point exposed by a plugin. */
+    actual suspend fun inspectConfiguration(
+        plugin: CloudStreamPlugin,
+    ): CloudStreamConfigurationCapability {
+        val host = appCompatActivityReference?.get()
+        if (host == null) {
+            val message = "A live AppCompatActivity is required by the CloudStream settings hook."
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, message)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.CONFIGURATION_UNAVAILABLE,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = "live Activity context",
+                message = message,
+            )
+        }
+        prepareHostContext(host)
+        val loadedState = try {
+            loadedPluginForConfiguration(plugin)
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, error)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.CONFIGURATION_FAILED,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = host.javaClass.name,
+                message = error.message ?: error::class.simpleName,
+            )
+        }
+        if (loadedState == null) {
+            val message = "The verified CloudStream package is not available."
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, message)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.CONFIGURATION_UNAVAILABLE,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = host.javaClass.name,
+                message = message,
+            )
+        }
+        val pluginInstance = loadedState.instance as? Plugin
+        if (pluginInstance == null) {
+            val message = "The loaded extension does not implement CloudStream Plugin settings."
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, message)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.NOT_CONFIGURABLE,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = host.javaClass.name,
+                message = message,
+            )
+        }
+        val settingsAvailable = pluginInstance.openSettings != null
+        val capability = CloudStreamConfigurationCapability(
+            status = if (settingsAvailable) {
+                CloudStreamConfigurationStatus.CONFIGURABLE
+            } else {
+                CloudStreamConfigurationStatus.NOT_CONFIGURABLE
+            },
+            configurationType = "Plugin.openSettings(Context)",
+            pluginId = plugin.id,
+            requiredActivityType = AppCompatActivity::class.java.name,
+            requiredContext = host.javaClass.name,
+            message = if (settingsAvailable) null else "The extension exposes no Plugin.openSettings hook.",
+        )
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.UI,
+            plugin.id,
+            "configure capability status=${capability.status} type=${capability.configurationType} " +
+                "pluginClass=${loadedState.instance.javaClass.name} " +
+                "pluginClassLoader=${loadedState.instance.javaClass.classLoader?.javaClass?.name} " +
+                "providerCount=${loadedState.providers.size} " +
+                "providerIds=${loadedState.providers.joinToString(",") { providerId(plugin, it) }} " +
+                "activityClass=${host.javaClass.name} settingsAvailable=$settingsAvailable",
+        )
+        return capability
+    }
+
     /**
      * Runs the plugin-provided settings hook with the real host Activity.
      *
      * This is the supported CloudStream path for extensions whose child
      * providers are preference-gated. The host must not infer or recreate those
-     * provider definitions: the plugin owns their configuration and registers
-     * the corresponding MainAPI instances on its next load.
+     * provider definitions: the plugin owns its configuration and registers the
+     * corresponding MainAPI instances on reload.
      */
-    actual suspend fun openSettings(plugin: CloudStreamPlugin): Boolean {
+    actual suspend fun openSettings(
+        plugin: CloudStreamPlugin,
+        onClosed: () -> Unit,
+    ): Boolean {
         val host = requireAppCompatHost()
         prepareHostContext(host)
         val pluginId = plugin.id
-        val loadedState = withContext(Dispatchers.IO) {
-            synchronized(loaded) { loaded[pluginId] } ?: run {
-                val packageFile = CloudStreamPackageStorage.packageFile(appContext ?: return@withContext null, plugin)
-                    ?: return@withContext null
-                loadedPlugin(plugin, packageFile)
-            }
-        } ?: return false
+        val loadedState = loadedPluginForConfiguration(plugin)
+            ?: return false
         val pluginInstance = loadedState.instance as? Plugin ?: return false
         val settings = pluginInstance.openSettings ?: return false
+        val watcher = CloudStreamSettingsUiWatcher(host, pluginId, onClosed)
         CloudStreamDiagnostics.info(
             CloudStreamDiagnosticStage.UI,
             pluginId,
-            "Opening the extension-provided CloudStream settings hook.",
+            "configure launchStarted=true providerCountBefore=${loadedState.providers.size} " +
+                "pluginClass=${loadedState.instance.javaClass.name} " +
+                "pluginClassLoader=${loadedState.instance.javaClass.classLoader?.javaClass?.name} " +
+                "activityClass=${host.javaClass.name} settingsAvailable=true",
         )
-        // Deliberately do not catch ClassCastException or other Activity ABI
-        // failures: the extension must receive the real AppCompatActivity and
-        // an incompatible hook is a runtime defect, not an empty hierarchy.
-        settings(host)
+        try {
+            watcher.install()
+            // Deliberately do not catch ClassCastException or other Activity ABI
+            // failures: the extension must receive the real AppCompatActivity.
+            settings(host)
+            watcher.hookReturned()
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configure launchCompleted=true hookReturned=true",
+            )
+            return true
+        } catch (error: Throwable) {
+            watcher.cancel()
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configure launchCompleted=false exception=${error::class.java.name}: ${error.message.orEmpty()}",
+            )
+            throw error
+        }
+    }
+
+    /** Reloads the plugin so preference-gated MainAPI registrations are rebuilt. */
+    actual suspend fun reload(plugin: CloudStreamPlugin): Boolean {
+        val host = requireAppCompatHost()
+        prepareHostContext(host)
+        val pluginId = plugin.id
+        val before = synchronized(loaded) { loaded[pluginId]?.providers.orEmpty() }
+        val removed = synchronized(loaded) { loaded.remove(pluginId) }
+        removed?.unload()
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+            pluginId,
+            "configuration reloadStarted=true registeredProvidersBefore=${before.size} " +
+                "providerIdsBefore=${before.joinToString(",") { providerId(plugin, it) }}",
+        )
+        val reloaded = loadedPluginForConfiguration(plugin)
+            ?: error("The verified CloudStream package is not available for reload.")
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+            pluginId,
+            "configuration reloadCompleted=true registeredProvidersAfter=${reloaded.providers.size} " +
+                "providerIdsAfter=${reloaded.providers.joinToString(",") { providerId(plugin, it) }}",
+        )
         return true
+    }
+
+    private suspend fun loadedPluginForConfiguration(plugin: CloudStreamPlugin): LoadedPlugin? {
+        val pluginId = plugin.id
+        return withContext(Dispatchers.IO) {
+            synchronized(loaded) { loaded[pluginId] } ?: run {
+                val packageFile = CloudStreamPackageStorage.packageFile(
+                    appContext ?: return@withContext null,
+                    plugin,
+                ) ?: return@withContext null
+                loadedPlugin(plugin, packageFile)
+            }
+        }
     }
 
     // Upper bound for one provider stage, so a hung provider cannot stall
@@ -221,6 +360,98 @@ internal actual object CloudStreamPlatformRuntime {
             extractorApis.removeAll(extractors.toSet())
             VideoClickActionHolder.allVideoClickActions.removeAll { it.sourcePlugin == path }
             PluginManager.unregister(path)
+        }
+    }
+
+    /** Watches the actual Fragment/Dialog or Activity launched by Plugin.openSettings. */
+    private class CloudStreamSettingsUiWatcher(
+        private val host: AppCompatActivity,
+        private val pluginId: String,
+        private val onClosed: () -> Unit,
+    ) {
+        private val fragmentManager = host.supportFragmentManager
+        private val fragmentsBefore = fragmentManager.fragments.toSet()
+        private var fragmentCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
+        private var activityCallbacks: Application.ActivityLifecycleCallbacks? = null
+        private var launchedActivity: Activity? = null
+        private var completed = false
+
+        fun install() {
+            val callbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentDetached(manager: FragmentManager, fragment: Fragment) {
+                    if (fragment !in fragmentsBefore) {
+                        complete("fragmentDetached:${fragment.javaClass.name}")
+                    }
+                }
+
+            }
+            fragmentCallbacks = callbacks
+            fragmentManager.registerFragmentLifecycleCallbacks(callbacks, false)
+
+            val callbacksForActivity = object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                    if (activity !== host) {
+                        launchedActivity = activity
+                        CloudStreamDiagnostics.info(
+                            CloudStreamDiagnosticStage.UI,
+                            pluginId,
+                            "configuration UI created activityClass=${activity.javaClass.name}",
+                        )
+                    }
+                }
+
+                override fun onActivityDestroyed(activity: Activity) {
+                    if (activity === launchedActivity) {
+                        complete("activityDestroyed:${activity.javaClass.name}")
+                    }
+                }
+
+                override fun onActivityStarted(activity: Activity) = Unit
+                override fun onActivityResumed(activity: Activity) = Unit
+                override fun onActivityPaused(activity: Activity) = Unit
+                override fun onActivityStopped(activity: Activity) = Unit
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            }
+            activityCallbacks = callbacksForActivity
+            host.application.registerActivityLifecycleCallbacks(callbacksForActivity)
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configuration UI watcher installed existingFragments=${fragmentsBefore.size}",
+            )
+        }
+
+        fun hookReturned() {
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configuration hook returned; waiting for actual settings UI dismissal",
+            )
+        }
+
+        fun cancel() {
+            if (completed) return
+            completed = true
+            unregister()
+        }
+
+        private fun complete(reason: String) {
+            if (completed) return
+            completed = true
+            unregister()
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configuration UI closed reason=$reason reloadRequired=true",
+            )
+            onClosed()
+        }
+
+        private fun unregister() {
+            fragmentCallbacks?.let { fragmentManager.unregisterFragmentLifecycleCallbacks(it) }
+            activityCallbacks?.let { host.application.unregisterActivityLifecycleCallbacks(it) }
+            fragmentCallbacks = null
+            activityCallbacks = null
         }
     }
 
