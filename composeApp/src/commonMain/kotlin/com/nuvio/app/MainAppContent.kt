@@ -1429,18 +1429,38 @@ internal fun MainAppContent(
             coroutineScope.launch {
                 val playableChannel = runCatching {
                     LiveTvRepository.prepareForPlayback(channel)
-                }.getOrDefault(channel)
+                }.fold(
+                    onSuccess = { it },
+                    onFailure = { error ->
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        InAppLogger.warn(
+                            "Player/LiveTV",
+                            "live channel launch failed id=${channel.id} " +
+                                "provider=${channel.providerName.orEmpty()} " +
+                                "error=${InAppLogger.throwableSummary(error)}",
+                        )
+                        // A CloudStream catalog/detail URL is never a playable
+                        // fallback. Stop here and show the provider failure
+                        // instead of handing an opaque URL to Media3.
+                        NuvioToastController.show(
+                            error.message?.takeIf { it.isNotBlank() }
+                                ?: "Unable to resolve this live channel.",
+                        )
+                        null
+                    },
+                ) ?: return@launch
                 val launchId = PlayerLaunchStore.put(
                     PlayerLaunch(
                         profileId = activePlaybackProfileId,
                         title = playableChannel.name,
                         sourceUrl = playableChannel.streamUrl,
                         sourceHeaders = playableChannel.headers,
+                        externalSubtitles = playableChannel.subtitles,
                         streamType = playableChannel.streamType,
                         logo = playableChannel.logoUrl,
                         streamTitle = playableChannel.name,
-                        streamSubtitle = playableChannel.group,
-                        providerName = "Live TV",
+                        streamSubtitle = playableChannel.description ?: playableChannel.group,
+                        providerName = playableChannel.providerName ?: "Live TV",
                         providerAddonId = "live-tv",
                         contentType = "live",
                         videoId = playableChannel.id,

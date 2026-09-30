@@ -14,7 +14,13 @@ import com.nuvio.app.features.collection.TmdbCollectionSourceResolver
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.filterReleasedItems
+import com.nuvio.app.features.cloudstream.CloudStreamCatalogItem
+import com.nuvio.app.features.cloudstream.CloudStreamCatalogStore
+import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
+import com.nuvio.app.features.cloudstream.catalogSourceKey
+import com.nuvio.app.features.cloudstream.uiMediaType
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
@@ -155,6 +161,8 @@ object CatalogRepository {
                         page = requestedSkip.takeIf { it > 0 } ?: 1,
                     )
 
+                    is CatalogTarget.CloudStream -> fetchCloudStreamPage(target)
+
                     is CatalogTarget.MoreLikeThis -> fetchMoreLikeThisCatalogPage(
                         target = target,
                         page = requestedSkip.takeIf { it > 0 } ?: 1,
@@ -215,6 +223,33 @@ private fun CatalogPage.withUnreleasedFilter(hideUnreleasedContent: Boolean): Ca
     if (!hideUnreleasedContent) return this
     val filteredItems = items.filterReleasedItems(CurrentDateProvider.todayIsoDate())
     return if (filteredItems.size == items.size) this else copy(items = filteredItems)
+}
+
+private suspend fun fetchCloudStreamPage(target: CatalogTarget.CloudStream): CatalogPage {
+    val items = CloudStreamExtensionsRepository.loadCatalog()
+        .filter { item -> item.catalogSourceKey() == target.sourceKey }
+        .map { item -> item.toMetaPreview() }
+    return CatalogPage(
+        items = items,
+        rawItemCount = items.size,
+        nextSkip = null,
+    )
+}
+
+private fun CloudStreamCatalogItem.toMetaPreview(): MetaPreview {
+    val responseMetadata = metadata
+    return MetaPreview(
+        id = CloudStreamCatalogStore.register(this),
+        type = uiMediaType(),
+        name = responseMetadata?.title ?: title,
+        poster = responseMetadata?.poster ?: poster,
+        banner = responseMetadata?.backdrop,
+        logo = responseMetadata?.logo,
+        description = responseMetadata?.description,
+        releaseInfo = (responseMetadata?.year ?: year)?.toString(),
+        imdbRating = responseMetadata?.rating?.toString(),
+        genres = responseMetadata?.genres.orEmpty(),
+    )
 }
 
 private suspend fun fetchCollectionSourcePage(

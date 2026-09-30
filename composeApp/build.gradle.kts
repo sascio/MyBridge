@@ -682,7 +682,25 @@ kotlin {
                     // present in the installed APK, not merely on the compile classpath,
                     // because the classes are resolved by dynamically loaded bytecode
                     // that the build system cannot see.
+                    // CloudStream 4.8.0's pinned runtime is built from
+                    // recloudstream/cloudstream @ 3496e5f8d2ebae4c1b5bdf264782f58375c1eb06.
+                    // Keep its Android UI ABI on the full variant's exported
+                    // runtime classpath: dynamically loaded .cs3 code resolves
+                    // these classes through the parent application loader.
+                    // Versions are copied from that exact upstream commit, not
+                    // selected ad hoc for the missing symbol.
+                    api("androidx.core:core-ktx:1.18.0")
+                    api("androidx.activity:activity-ktx:1.13.0")
                     api("androidx.annotation:annotation:1.10.0")
+                    api("androidx.fragment:fragment-ktx:1.8.9")
+                    api("androidx.lifecycle:lifecycle-livedata-ktx:2.10.0")
+                    api("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
+                    api("androidx.navigation:navigation-fragment-ktx:2.9.8")
+                    api("androidx.navigation:navigation-ui-ktx:2.9.8")
+                    api("androidx.preference:preference-ktx:1.2.1")
+                    api("androidx.constraintlayout:constraintlayout:2.2.1")
+                    api("com.google.android.material:material:1.14.0")
+                    api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
                     api("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
                     api("org.jsoup:jsoup:1.22.1")
                     api("org.jetbrains.kotlinx:kotlinx-datetime:0.8.0")

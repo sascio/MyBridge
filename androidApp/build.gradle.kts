@@ -239,6 +239,22 @@ dependencies {
     // the no-DEX boundary is unchanged. Integrity is still enforced by
     // :composeApp:verifyCloudStreamRuntime against the pinned SHA-256.
     "fullImplementation"(files("../composeApp/libs/cloudstream-runtime-api-4.8.0-3496e5f.aar"))
+    // CloudStream 4.8.0's exact Android UI dependency graph, taken from
+    // recloudstream/cloudstream @ 3496e5f8d2ebae4c1b5bdf264782f58375c1eb06.
+    // These are full-variant-only because they are part of the dynamically
+    // loaded .cs3 runtime ABI and must be present in the APK parent loader.
+    "fullImplementation"("androidx.core:core-ktx:1.18.0")
+    "fullImplementation"("androidx.activity:activity-ktx:1.13.0")
+    "fullImplementation"("androidx.annotation:annotation:1.10.0")
+    "fullImplementation"("androidx.fragment:fragment-ktx:1.8.9")
+    "fullImplementation"("androidx.lifecycle:lifecycle-livedata-ktx:2.10.0")
+    "fullImplementation"("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
+    "fullImplementation"("androidx.navigation:navigation-fragment-ktx:2.9.8")
+    "fullImplementation"("androidx.navigation:navigation-ui-ktx:2.9.8")
+    "fullImplementation"("androidx.preference:preference-ktx:1.2.1")
+    "fullImplementation"("androidx.constraintlayout:constraintlayout:2.2.1")
+    "fullImplementation"("com.google.android.material:material:1.14.0")
+    "fullImplementation"("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     // Libraries that dynamically loaded plugin bytecode resolves by its
     // original JVM names; unreachable to R8's static analysis.
     "fullImplementation"("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")

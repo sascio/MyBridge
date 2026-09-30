@@ -19,4 +19,15 @@ internal actual object CloudStreamPlatformRuntime {
     actual fun executor(): CloudStreamPluginExecutor? = null
 
     actual fun unload(pluginId: String) = Unit
+
+    actual suspend fun inspectConfiguration(plugin: CloudStreamPlugin): CloudStreamConfigurationCapability =
+        CloudStreamConfigurationCapability(
+            status = CloudStreamConfigurationStatus.CONFIGURATION_UNAVAILABLE,
+            pluginId = plugin.id,
+            message = "CloudStream extension execution is unavailable on iOS.",
+        )
+
+    actual suspend fun openSettings(plugin: CloudStreamPlugin, onClosed: () -> Unit): Boolean = false
+
+    actual suspend fun reload(plugin: CloudStreamPlugin): Boolean = false
 }

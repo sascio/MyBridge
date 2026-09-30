@@ -2,6 +2,12 @@ package com.nuvio.app.features.livetv
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpGetText
+import com.nuvio.app.features.cloudstream.CloudStreamDiagnosticStage
+import com.nuvio.app.features.cloudstream.CloudStreamDiagnostics
+import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
+import com.nuvio.app.features.cloudstream.CloudStreamLiveHierarchy
+import com.nuvio.app.features.cloudstream.CloudStreamProviderAdapter
+import com.nuvio.app.features.cloudstream.cloudStreamDiagnosticMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.random.Random
@@ -20,21 +27,49 @@ object LiveTvRepository {
     val uiState: StateFlow<LiveTvUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private var cloudStreamMonitorStarted = false
 
     fun ensureLoaded() {
         if (hasLoaded) return
         hasLoaded = true
+        // CloudStream live providers use the same channel/player surface as
+        // M3U, Xtream and Stalker. Initializing here makes the Live TV tab
+        // discoverable after an extension was installed while the app was not
+        // on the Extensions screen.
+        CloudStreamExtensionsRepository.initialize()
         val playlists = loadSavedPlaylists()
         _uiState.value = LiveTvUiState(
             playlistUrl = playlists.firstEnabledUrlSource(),
             playlists = playlists,
             stalkerSettings = LiveTvStorage.loadStalkerSettings(),
             xtreamSettings = LiveTvStorage.loadXtreamSettings(),
+            hasCloudStreamLiveSources = hasEnabledCloudStreamLiveSources(),
             favoriteChannelIds = loadFavoriteChannelIds(),
             lastWatchedChannelId = LiveTvStorage.loadLastWatchedChannelId(),
             isNavigationEnabled = LiveTvStorage.loadNavigationEnabled() ?: true,
         )
         publishNavigationVisibility()
+        if (!cloudStreamMonitorStarted) {
+            cloudStreamMonitorStarted = true
+            scope.launch {
+                CloudStreamExtensionsRepository.uiState.collectLatest {
+                    val hasLive = hasEnabledCloudStreamLiveSources()
+                    if (hasLive != _uiState.value.hasCloudStreamLiveSources) {
+                        _uiState.value = _uiState.value.copy(
+                            hasCloudStreamLiveSources = hasLive,
+                            channels = _uiState.value.channels.filter { it.cloudStreamItem == null },
+                        )
+                        publishNavigationVisibility()
+                        refresh()
+                    }
+                }
+            }
+            scope.launch {
+                CloudStreamExtensionsRepository.configurationRevision.collectLatest { revision ->
+                    if (revision > 0L) refresh()
+                }
+            }
+        }
         if (_uiState.value.hasPlaylist) {
             refresh()
         }
@@ -238,9 +273,38 @@ object LiveTvRepository {
     fun removeStalker() = saveStalkerSettings(LiveTvStalkerSettings())
     fun removeXtream() = saveXtreamSettings(LiveTvXtreamSettings())
 
-    suspend fun prepareForPlayback(channel: LiveTvChannel): LiveTvChannel =
-        if (channel.stalkerCommand.isNullOrBlank()) channel
-        else preparePortalChannelForPlayback(channel, _uiState.value.stalkerSettings)
+    suspend fun prepareForPlayback(channel: LiveTvChannel): LiveTvChannel {
+        val cloudStreamItem = channel.cloudStreamItem
+        if (cloudStreamItem != null) {
+            val resolution = CloudStreamExtensionsRepository
+                .resolveLive(cloudStreamItem)
+                .getOrThrow()
+            val link = resolution.links.firstOrNull()
+                ?: error("CloudStream live provider returned no playable links")
+            val metadata = resolution.metadata.toStreamMediaMetadata()
+            return channel.copy(
+                name = metadata.title.ifBlank { channel.name },
+                streamUrl = link.url,
+                logoUrl = metadata.logo ?: metadata.poster ?: channel.logoUrl,
+                headers = CloudStreamProviderAdapter.buildRequestHeaders(link),
+                streamType = when {
+                    link.isM3u8 -> "hls"
+                    link.isDash -> "dash"
+                    link.isTorrent -> "torrent"
+                    else -> "http"
+                },
+                providerName = metadata.providerName ?: channel.providerName,
+                metadata = metadata,
+                subtitles = CloudStreamProviderAdapter.adaptSubtitles(resolution.subtitles),
+                description = metadata.description,
+            )
+        }
+        return if (channel.stalkerCommand.isNullOrBlank()) {
+            channel
+        } else {
+            preparePortalChannelForPlayback(channel, _uiState.value.stalkerSettings)
+        }
+    }
 
     fun refresh() {
         ensureLoaded()
@@ -261,7 +325,8 @@ object LiveTvRepository {
         val enabledPlaylists = playlists.filter { it.isEnabled }
         val hasEnabledPortal = (currentState.xtreamSettings.isConfigured && currentState.xtreamSettings.isEnabled) ||
             (currentState.stalkerSettings.isConfigured && currentState.stalkerSettings.isEnabled)
-        if (enabledPlaylists.isEmpty() && !hasEnabledPortal) {
+        val hasCloudStream = currentState.hasCloudStreamLiveSources
+        if (enabledPlaylists.isEmpty() && !hasEnabledPortal && !hasCloudStream) {
             _uiState.value = _uiState.value.copy(
                 playlistUrl = "",
                 playlists = playlists,
@@ -275,6 +340,7 @@ object LiveTvRepository {
         _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
         scope.launch {
             val loadedChannels = mutableListOf<LiveTvChannel>()
+            var cloudStreamHierarchy = CloudStreamLiveHierarchy()
             val failedPlaylistNames = mutableListOf<String>()
 
             enabledPlaylists.forEach { playlist ->
@@ -316,14 +382,43 @@ object LiveTvRepository {
                     },
                 )
             }
+            if (hasCloudStream) {
+                runCatching {
+                    val liveItems = CloudStreamExtensionsRepository.loadLiveCatalog()
+                    cloudStreamHierarchy = CloudStreamLiveHierarchy.fromCatalog(liveItems)
+                    liveItems.map { it.toLiveTvChannel() }
+                }.fold(
+                    onSuccess = { loadedChannels += it },
+                    onFailure = { error ->
+                        if (error is CancellationException) throw error
+                        CloudStreamDiagnostics.error(
+                            CloudStreamDiagnosticStage.UI,
+                            provider = "Live TV",
+                            message = "Live catalog request failed: ${error.cloudStreamDiagnosticMessage()}",
+                        )
+                        failedPlaylistNames += "CloudStream"
+                        log.w(error) { "Failed to load CloudStream live catalog" }
+                    },
+                )
+            }
 
-            val channels = loadedChannels.distinctBy { it.streamUrl }
+            val channels = loadedChannels.distinctBy { it.id }
+            val selectedCloudStreamNodeId = currentState.cloudStreamSelectedNodeId
+                ?.takeIf { cloudStreamHierarchy.node(it) != null }
+            val cloudStreamFailure = if (channels.isEmpty() && hasCloudStream) {
+                CloudStreamDiagnostics.latestFailureSummary()
+            } else {
+                null
+            }
             _uiState.value = _uiState.value.copy(
                 playlistUrl = playlists.firstEnabledUrlSource(),
                 playlists = playlists,
+                cloudStreamHierarchy = cloudStreamHierarchy,
+                cloudStreamSelectedNodeId = selectedCloudStreamNodeId,
                 channels = channels,
                 isLoading = false,
                 errorMessage = when {
+                    cloudStreamFailure != null -> "CloudStream: $cloudStreamFailure"
                     channels.isEmpty() && failedPlaylistNames.isNotEmpty() -> "Playlist could not be loaded."
                     channels.isEmpty() -> "No channels found in these playlists."
                     failedPlaylistNames.isNotEmpty() -> "Some playlists could not be loaded: ${failedPlaylistNames.joinToString()}"
@@ -351,6 +446,14 @@ object LiveTvRepository {
         ensureLoaded()
         LiveTvStorage.saveLastWatchedChannelId(channel.id)
         _uiState.value = _uiState.value.copy(lastWatchedChannelId = channel.id)
+    }
+
+    /** Selects a runtime-discovered CloudStream node, or null for all providers. */
+    fun selectCloudStreamNode(nodeId: String?) {
+        ensureLoaded()
+        val hierarchy = _uiState.value.cloudStreamHierarchy
+        if (nodeId != null && hierarchy.node(nodeId) == null) return
+        _uiState.value = _uiState.value.copy(cloudStreamSelectedNodeId = nodeId)
     }
 
     private fun publishNavigationVisibility() {
@@ -381,6 +484,17 @@ object LiveTvRepository {
     private fun persistFavoriteChannelIds(channelIds: Set<String>) {
         LiveTvStorage.saveFavoriteChannelIdsBlob(channelIds.sorted().joinToString("\n"))
     }
+
+    private fun hasEnabledCloudStreamLiveSources(): Boolean =
+        // MainAPI.getMainPage() is the authoritative catalog capability. The
+        // repository manifest's tvTypes are not sufficient here: a provider
+        // can advertise a general type while returning Live SearchResponses
+        // and LiveStreamLoadResponses from its homepage.
+        CloudStreamExtensionsRepository.uiState.value.extensions.any { extension ->
+            extension.installStatus.isInstalled && extension.sources.any { source ->
+                source.enabled && source.canActivate
+            }
+        }
 }
 
 internal fun parseM3uPlaylist(

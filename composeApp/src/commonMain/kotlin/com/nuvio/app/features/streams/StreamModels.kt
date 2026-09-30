@@ -11,6 +11,67 @@ data class StreamSubtitle(
     val headers: Map<String, String>? = null
 )
 
+data class StreamCastMember(
+    val name: String,
+    val role: String? = null,
+    val image: String? = null,
+)
+
+data class StreamTrailer(
+    val url: String,
+    val referer: String? = null,
+    val raw: Boolean = false,
+    val headers: Map<String, String> = emptyMap(),
+)
+
+data class StreamRelatedMedia(
+    val title: String,
+    val url: String,
+    val poster: String? = null,
+    val mediaType: String? = null,
+)
+
+data class StreamEpisodeMetadata(
+    val data: String,
+    val title: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val poster: String? = null,
+    val description: String? = null,
+    val durationSeconds: Int? = null,
+    val rating: Double? = null,
+)
+
+data class StreamMediaMetadata(
+    val title: String,
+    val originalTitle: String? = null,
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val logo: String? = null,
+    val posterHeaders: Map<String, String> = emptyMap(),
+    val description: String? = null,
+    val year: Int? = null,
+    val rating: Double? = null,
+    val durationMinutes: Int? = null,
+    val genres: List<String> = emptyList(),
+    val tags: List<String> = emptyList(),
+    val cast: List<StreamCastMember> = emptyList(),
+    val providerName: String? = null,
+    val url: String? = null,
+    val dataUrl: String? = null,
+    val mediaType: String? = null,
+    val isLive: Boolean = false,
+    val liveStatus: String? = null,
+    val channelName: String? = null,
+    val contentRating: String? = null,
+    val comingSoon: Boolean = false,
+    val uniqueUrl: String? = null,
+    val syncData: Map<String, String> = emptyMap(),
+    val trailers: List<StreamTrailer> = emptyList(),
+    val recommendations: List<StreamRelatedMedia> = emptyList(),
+    val episodes: List<StreamEpisodeMetadata> = emptyList(),
+)
+
 data class StreamItem(
     val name: String? = null,
     val title: String? = null,
@@ -25,6 +86,8 @@ data class StreamItem(
     val addonId: String,
     val addonLogo: String? = null,
     val streamType: String? = null,
+    /** LoadResponse metadata retained alongside the playable source. */
+    val mediaMetadata: StreamMediaMetadata? = null,
     val behaviorHints: StreamBehaviorHints = StreamBehaviorHints(),
     val clientResolve: StreamClientResolve? = null,
     val debridCacheStatus: StreamDebridCacheStatus? = null,

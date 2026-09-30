@@ -1,19 +1,25 @@
 package com.nuvio.app.features.cloudstream
 
 import android.app.Activity
+import android.app.Application
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.res.AssetManager
 import android.content.res.Resources
+import android.os.Bundle
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import co.touchlab.kermit.Logger
 import com.lagradost.api.setContext
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.MainAPI
+import com.lagradost.cloudstream3.MainPageRequest
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.actions.VideoClickActionHolder
 import com.lagradost.cloudstream3.SubtitleFile
-import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.plugins.BasePlugin
 import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.PluginData
@@ -85,9 +91,51 @@ internal actual object CloudStreamPlatformRuntime {
      */
     private var activityReference: WeakReference<Activity>? = null
 
+    /**
+     * CloudStream providers are not given an arbitrary ContextWrapper. A number
+     * of upstream providers legitimately use AppCompat APIs, including casts in
+     * CloudStream's own extension UI helpers. Keep the actual host Activity so
+     * the object exposed through both `CommonActivity.activity` and CloudStream
+     *'s global `app` context is the same real AppCompatActivity instance.
+     */
+    private var appCompatActivityReference: WeakReference<AppCompatActivity>? = null
+
     actual fun initialize(context: Any?) {
-        (context as? Activity)?.let { activityReference = WeakReference(it) }
-        appContext = (context as? Context)?.applicationContext
+        val androidContext = context as? Context ?: return
+        val activity = context as? Activity
+        activityReference = activity?.let(::WeakReference)
+        appCompatActivityReference = when (activity) {
+            is AppCompatActivity -> WeakReference(activity)
+            null -> null
+            else -> {
+                val hierarchy = activity.cloudStreamActivityHierarchy()
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                    provider = "activity host",
+                    message = "CloudStream requires an AppCompatActivity host; received $hierarchy.",
+                )
+                null
+            }
+        }
+        appContext = androidContext.applicationContext
+        if (appCompatActivityReference == null) {
+            CommonActivity.setActivityInstance(null)
+        }
+
+        // Publish the real Activity immediately, not only when the first plugin
+        // is loaded. This also refreshes the reference after Activity recreation
+        // while a loaded provider remains cached.
+        appCompatActivityReference?.get()?.let { host ->
+            CommonActivity.setActivityInstance(host)
+            CloudStreamApp.context = host
+            setContext(WeakReference(host))
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                provider = "activity host",
+                message = "CloudStream host hierarchy: ${host.cloudStreamActivityHierarchy()}.",
+            )
+        }
+
         // The installer shares this distribution's execution boundary, so it is
         // initialised from the same call rather than from shared Android code
         // that also runs in the Play Store build.
@@ -112,6 +160,198 @@ internal actual object CloudStreamPlatformRuntime {
         log.i { "Unloaded CloudStream plugin '$pluginId'" }
     }
 
+    /** Detects and records the real configuration entry point exposed by a plugin. */
+    actual suspend fun inspectConfiguration(
+        plugin: CloudStreamPlugin,
+    ): CloudStreamConfigurationCapability {
+        val host = appCompatActivityReference?.get()
+        if (host == null) {
+            val message = "A live AppCompatActivity is required by the CloudStream settings hook."
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, message)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.CONFIGURATION_UNAVAILABLE,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = "live Activity context",
+                message = message,
+            )
+        }
+        prepareHostContext(host)
+        val loadedState = try {
+            loadedPluginForConfiguration(plugin)
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, error)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.CONFIGURATION_FAILED,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = host.javaClass.name,
+                message = error.message ?: error::class.simpleName,
+            )
+        }
+        if (loadedState == null) {
+            val message = "The verified CloudStream package is not available."
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, message)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.CONFIGURATION_UNAVAILABLE,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = host.javaClass.name,
+                message = message,
+            )
+        }
+        val pluginInstance = loadedState.instance as? Plugin
+        if (pluginInstance == null) {
+            val message = "The loaded extension does not implement CloudStream Plugin settings."
+            CloudStreamDiagnostics.error(CloudStreamDiagnosticStage.UI, plugin.id, message)
+            return CloudStreamConfigurationCapability(
+                status = CloudStreamConfigurationStatus.NOT_CONFIGURABLE,
+                pluginId = plugin.id,
+                requiredActivityType = AppCompatActivity::class.java.name,
+                requiredContext = host.javaClass.name,
+                message = message,
+            )
+        }
+        val settingsAvailable = pluginInstance.openSettings != null
+        val capability = CloudStreamConfigurationCapability(
+            status = if (settingsAvailable) {
+                CloudStreamConfigurationStatus.CONFIGURABLE
+            } else {
+                CloudStreamConfigurationStatus.NOT_CONFIGURABLE
+            },
+            configurationType = "Plugin.openSettings(Context)",
+            pluginId = plugin.id,
+            requiredActivityType = AppCompatActivity::class.java.name,
+            requiredContext = host.javaClass.name,
+            message = if (settingsAvailable) null else "The extension exposes no Plugin.openSettings hook.",
+        )
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.UI,
+            plugin.id,
+            "configure capability status=${capability.status} type=${capability.configurationType} " +
+                "pluginClass=${loadedState.instance.javaClass.name} " +
+                "pluginClassLoader=${loadedState.instance.javaClass.classLoader?.javaClass?.name} " +
+                "providerCount=${loadedState.providers.size} " +
+                "providerIds=${loadedState.providers.joinToString(",") { providerId(plugin, it) }} " +
+                "activityClass=${host.javaClass.name} settingsAvailable=$settingsAvailable",
+        )
+        return capability
+    }
+
+    /**
+     * Runs the plugin-provided settings hook with the real host Activity.
+     *
+     * This is the supported CloudStream path for extensions whose child
+     * providers are preference-gated. The host must not infer or recreate those
+     * provider definitions: the plugin owns its configuration and registers the
+     * corresponding MainAPI instances on reload.
+     */
+    actual suspend fun openSettings(
+        plugin: CloudStreamPlugin,
+        onClosed: () -> Unit,
+    ): Boolean {
+        val host = requireAppCompatHost()
+        prepareHostContext(host)
+        val pluginId = plugin.id
+        val loadedState = loadedPluginForConfiguration(plugin)
+            ?: return false
+        val pluginInstance = loadedState.instance as? Plugin ?: return false
+        val settings = pluginInstance.openSettings ?: return false
+        val watcher = CloudStreamSettingsUiWatcher(host, pluginId, onClosed)
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.UI,
+            pluginId,
+            "configure launchStarted=true providerCountBefore=${loadedState.providers.size} " +
+                "pluginClass=${loadedState.instance.javaClass.name} " +
+                "pluginClassLoader=${loadedState.instance.javaClass.classLoader?.javaClass?.name} " +
+                "activityClass=${host.javaClass.name} settingsAvailable=true",
+        )
+        try {
+            watcher.install()
+            // Deliberately do not catch ClassCastException or other Activity ABI
+            // failures: the extension must receive the real AppCompatActivity.
+            settings(host)
+            watcher.hookReturned()
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configure launchCompleted=true hookReturned=true",
+            )
+            return true
+        } catch (error: Throwable) {
+            watcher.cancel()
+            val diagnosed = error.asDiagnosedFailure(
+                providerName = pluginId,
+                requestingClassName = pluginInstance.javaClass.name,
+                pluginClassLoader = pluginInstance.javaClass.classLoader,
+            )
+            val diagnosis = CloudStreamRuntimeFailure.describe(
+                throwableTypeName = error::class.java.name,
+                rawMessage = error.message,
+                providerName = pluginId,
+            )
+            if (diagnosis.isHostRuntimeGap) {
+                val missingClass = diagnosis.symbol
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.CLASSLOADER,
+                    pluginId,
+                    "settings hook class resolution failed missingClass=${missingClass.orEmpty()} " +
+                        "requestingClass=${pluginInstance.javaClass.name} " +
+                        "pluginClassLoader=${CloudStreamRuntimeDependencyProbe.describe(pluginInstance.javaClass.classLoader)} " +
+                        "parentClassLoader=${CloudStreamRuntimeDependencyProbe.describe(pluginInstance.javaClass.classLoader?.parent)} " +
+                        "availableThroughPluginLoader=${missingClass?.let { isClassAvailable(it, pluginInstance.javaClass.classLoader) } ?: false} " +
+                        "availableThroughParent=${missingClass?.let { isClassAvailable(it, pluginInstance.javaClass.classLoader?.parent) } ?: false} " +
+                        "exception=${error::class.java.name}: ${error.message.orEmpty()}",
+                )
+            }
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configure launchCompleted=false exception=${diagnosed::class.java.name}: ${diagnosed.message.orEmpty()}",
+            )
+            throw diagnosed
+        }
+    }
+
+    /** Reloads the plugin so preference-gated MainAPI registrations are rebuilt. */
+    actual suspend fun reload(plugin: CloudStreamPlugin): Boolean {
+        val host = requireAppCompatHost()
+        prepareHostContext(host)
+        val pluginId = plugin.id
+        val before = synchronized(loaded) { loaded[pluginId]?.providers.orEmpty() }
+        val removed = synchronized(loaded) { loaded.remove(pluginId) }
+        removed?.unload()
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+            pluginId,
+            "configuration reloadStarted=true registeredProvidersBefore=${before.size} " +
+                "providerIdsBefore=${before.joinToString(",") { providerId(plugin, it) }}",
+        )
+        val reloaded = loadedPluginForConfiguration(plugin)
+            ?: error("The verified CloudStream package is not available for reload.")
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+            pluginId,
+            "configuration reloadCompleted=true registeredProvidersAfter=${reloaded.providers.size} " +
+                "providerIdsAfter=${reloaded.providers.joinToString(",") { providerId(plugin, it) }}",
+        )
+        return true
+    }
+
+    private suspend fun loadedPluginForConfiguration(plugin: CloudStreamPlugin): LoadedPlugin? {
+        val pluginId = plugin.id
+        return withContext(Dispatchers.IO) {
+            synchronized(loaded) { loaded[pluginId] } ?: run {
+                val packageFile = CloudStreamPackageStorage.packageFile(
+                    appContext ?: return@withContext null,
+                    plugin,
+                ) ?: return@withContext null
+                loadedPlugin(plugin, packageFile)
+            }
+        }
+    }
+
     // Upper bound for one provider stage, so a hung provider cannot stall
     // aggregation. A provider may ask for *less* than this through the
     // `MainAPI.*TimeoutMs` fields it declares (see `stageBudget`); it can never
@@ -119,6 +359,7 @@ internal actual object CloudStreamPlatformRuntime {
     private const val SEARCH_TIMEOUT_MS = 20_000L
     private const val LOAD_TIMEOUT_MS = 30_000L
     private const val LINK_TIMEOUT_MS = 90_000L
+    private const val CATALOG_MAX_PAGES = 3
 
 
 
@@ -146,6 +387,98 @@ internal actual object CloudStreamPlatformRuntime {
         }
     }
 
+    /** Watches the actual Fragment/Dialog or Activity launched by Plugin.openSettings. */
+    private class CloudStreamSettingsUiWatcher(
+        private val host: AppCompatActivity,
+        private val pluginId: String,
+        private val onClosed: () -> Unit,
+    ) {
+        private val fragmentManager = host.supportFragmentManager
+        private val fragmentsBefore = fragmentManager.fragments.toSet()
+        private var fragmentCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
+        private var activityCallbacks: Application.ActivityLifecycleCallbacks? = null
+        private var launchedActivity: Activity? = null
+        private var completed = false
+
+        fun install() {
+            val callbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentDetached(manager: FragmentManager, fragment: Fragment) {
+                    if (fragment !in fragmentsBefore) {
+                        complete("fragmentDetached:${fragment.javaClass.name}")
+                    }
+                }
+
+            }
+            fragmentCallbacks = callbacks
+            fragmentManager.registerFragmentLifecycleCallbacks(callbacks, false)
+
+            val callbacksForActivity = object : Application.ActivityLifecycleCallbacks {
+                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+                    if (activity !== host) {
+                        launchedActivity = activity
+                        CloudStreamDiagnostics.info(
+                            CloudStreamDiagnosticStage.UI,
+                            pluginId,
+                            "configuration UI created activityClass=${activity.javaClass.name}",
+                        )
+                    }
+                }
+
+                override fun onActivityDestroyed(activity: Activity) {
+                    if (activity === launchedActivity) {
+                        complete("activityDestroyed:${activity.javaClass.name}")
+                    }
+                }
+
+                override fun onActivityStarted(activity: Activity) = Unit
+                override fun onActivityResumed(activity: Activity) = Unit
+                override fun onActivityPaused(activity: Activity) = Unit
+                override fun onActivityStopped(activity: Activity) = Unit
+                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            }
+            activityCallbacks = callbacksForActivity
+            host.application.registerActivityLifecycleCallbacks(callbacksForActivity)
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configuration UI watcher installed existingFragments=${fragmentsBefore.size}",
+            )
+        }
+
+        fun hookReturned() {
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configuration hook returned; waiting for actual settings UI dismissal",
+            )
+        }
+
+        fun cancel() {
+            if (completed) return
+            completed = true
+            unregister()
+        }
+
+        private fun complete(reason: String) {
+            if (completed) return
+            completed = true
+            unregister()
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.UI,
+                pluginId,
+                "configuration UI closed reason=$reason reloadRequired=true",
+            )
+            onClosed()
+        }
+
+        private fun unregister() {
+            fragmentCallbacks?.let { fragmentManager.unregisterFragmentLifecycleCallbacks(it) }
+            activityCallbacks?.let { host.application.unregisterActivityLifecycleCallbacks(it) }
+            fragmentCallbacks = null
+            activityCallbacks = null
+        }
+    }
+
     /**
      * Loads a plugin once and caches it.
      *
@@ -166,10 +499,36 @@ internal actual object CloudStreamPlatformRuntime {
             synchronized(loaded) { loaded.remove(plugin.id) }
             cached.unload()
         }
-        val created = loadPluginLocked(plugin, packageFile)
+        val created = try {
+            loadPluginLocked(plugin, packageFile)
+        } catch (error: Throwable) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            val stage = when (error) {
+                is ClassNotFoundException,
+                is LinkageError,
+                is SecurityException -> CloudStreamDiagnosticStage.CLASSLOADER
+                else -> CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION
+            }
+            CloudStreamDiagnostics.error(stage, plugin.displayName, error)
+            throw error
+        }
         synchronized(loaded) { loaded[plugin.id] = created }
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+            plugin.displayName,
+            "Loaded ${created.providers.size} provider(s) and ${created.extractors.size} extractor(s).",
+        )
         created
     }
+
+    private fun providerId(plugin: CloudStreamPlugin, api: MainAPI): String =
+        CloudStreamLiveIdentity.providerId(
+            repositoryId = plugin.repositoryUrl.orEmpty().ifBlank { "plugin:${plugin.id}" },
+            extensionId = plugin.id,
+            className = api.javaClass.name,
+            name = api.name,
+            mainUrl = api.mainUrl,
+        )
 
     private fun loadPluginLocked(plugin: CloudStreamPlugin, file: File): LoadedPlugin {
         val context = requireNotNull(appContext) { "CloudStream runtime is not initialized" }
@@ -205,10 +564,35 @@ internal actual object CloudStreamPlatformRuntime {
         file.setReadOnly()
 
         // --- gate 6: expected plugin type --------------------------------
-        val identityContext = CloudStreamIdentityContext(context)
-        prepareHostContext(identityContext)
+        // Providers must receive the actual AppCompatActivity object. Passing
+        // an obfuscated ContextWrapper here is not equivalent: a provider that
+        // uses `context as AppCompatActivity` will correctly reject the wrapper.
+        // The production StreamBridge host is MainActivity ->
+        // AppCompatActivity; non-UI callers fail explicitly at this gate.
+        // A loaded provider may use AppCompat APIs during any lifecycle stage,
+        // not just during Plugin.load(). Never let a cached provider run after
+        // its Activity has been destroyed or replace the host with a wrapper.
+        val pluginContext: AppCompatActivity = requireAppCompatHost()
+        prepareHostContext(pluginContext)
 
         val loader = PathClassLoader(file.absolutePath, context.classLoader)
+        val dependencyProbe = CloudStreamRuntimeDependencyProbe.inspect(loader)
+        val missingDependencies = dependencyProbe.filterNot { it.resolved }
+        CloudStreamDiagnostics.info(
+            CloudStreamDiagnosticStage.CLASSLOADER,
+            plugin.id,
+            "plugin dependency probe pluginClassLoader=${CloudStreamRuntimeDependencyProbe.describe(loader)} " +
+                "parentClassLoader=${CloudStreamRuntimeDependencyProbe.describe(loader.parent)} " +
+                "results=${CloudStreamRuntimeDependencyProbe.format(dependencyProbe)}",
+        )
+        if (missingDependencies.isNotEmpty()) {
+            CloudStreamDiagnostics.warning(
+                CloudStreamDiagnosticStage.CLASSLOADER,
+                plugin.id,
+                "plugin dependency probe missing=${missingDependencies.joinToString(",") { it.binaryName }} " +
+                    "dependency may be absent from the host APK or incompatible with this plugin.",
+            )
+        }
         val pluginClass = loader.loadClass(pluginClassName)
         require(BasePlugin::class.java.isAssignableFrom(pluginClass)) {
             "CloudStream entry point '$pluginClassName' does not extend BasePlugin"
@@ -218,16 +602,39 @@ internal actual object CloudStreamPlatformRuntime {
         val instance = (pluginClass as Class<out BasePlugin>).getDeclaredConstructor().newInstance()
         instance.filename = file.absolutePath
         PluginManager.currentlyLoading = plugin.id
-        if (manifest?.requiresResources == true) {
-            runCatching { instance.attachResources(identityContext, file) }
-                .onFailure { log.w(it) { "Resource attach failed for '${plugin.id}'" } }
-        }
+        // Build the plugin-owned resource environment for every package. The
+        // archive flag is only advisory and older CloudStream packages omit it;
+        // deferring this solely to `requiresResources=true` leaves those
+        // providers with host resources and can make their real settings UI
+        // fail while resolving plugin strings/layouts/styles.
+        runCatching { instance.attachResources(pluginContext, file) }
+            .onSuccess { cookie ->
+                CloudStreamDiagnostics.info(
+                    CloudStreamDiagnosticStage.CLASSLOADER,
+                    plugin.id,
+                    "plugin resource environment attached=${cookie != null && cookie != 0} " +
+                        "assetCookie=${cookie ?: 0} package=${file.name}",
+                )
+            }
+            .onFailure {
+                // Do not turn an Activity ABI failure into a hidden resource
+                // warning. The provider must see the real ClassCastException if
+                // the host wiring is ever wrong.
+                if (it is ClassCastException) throw it
+                log.w(it) { "Resource attach failed for '${plugin.id}'" }
+                CloudStreamDiagnostics.warning(
+                    CloudStreamDiagnosticStage.CLASSLOADER,
+                    plugin.id,
+                    "plugin resource environment attached=false exception=" +
+                        "${it::class.java.name}: ${it.message.orEmpty()}",
+                )
+            }
 
         // --- gate 7: must register providers, else roll back --------------
         val providersBefore = APIHolder.allProviders.toSet()
         val extractorsBefore = extractorApis.toSet()
         try {
-            if (instance is Plugin) instance.load(identityContext) else instance.load()
+            if (instance is Plugin) instance.load(pluginContext) else instance.load()
 
             val providers = APIHolder.allProviders
                 .filter { it !in providersBefore || it.sourcePlugin == file.absolutePath }
@@ -235,7 +642,34 @@ internal actual object CloudStreamPlatformRuntime {
             require(providers.isNotEmpty()) {
                 "Plugin loaded but registered no providers; it may reject this host runtime."
             }
-            providers.forEach(MainAPI::init)
+
+            // A plugin may register several MainAPI instances. Init them
+            // independently: one malformed provider must not make unrelated
+            // providers from the same extension disappear. Failed providers are
+            // removed from the global registry immediately and are not retained
+            // in LoadedPlugin, so later unload cannot touch another plugin.
+            val initializedProviders = providers.mapNotNull { api ->
+                runCatching { api.init() }
+                    .onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
+                        APIHolder.allProviders.remove(api)
+                        runCatching { APIHolder.removePluginMapping(api) }
+                        CloudStreamDiagnostics.error(
+                            CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                            api.name,
+                            error,
+                        )
+                        log.w(error) {
+                            "CloudStream provider initialization failed api=${api.name}; " +
+                                "continuing with the remaining providers"
+                        }
+                    }
+                    .getOrNull()
+                    ?.let { api }
+            }
+            require(initializedProviders.isNotEmpty()) {
+                "All providers registered by '${plugin.id}' failed initialization."
+            }
 
             val registered = extractorApis
                 .filter { it !in extractorsBefore || it.sourcePlugin == file.absolutePath }
@@ -251,11 +685,26 @@ internal actual object CloudStreamPlatformRuntime {
                 ),
                 instance,
             )
+            initializedProviders.forEach { api ->
+                CloudStreamDiagnostics.info(
+                    CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                    api.name,
+                    "extensionId=${plugin.id} repositoryId=${plugin.repositoryUrl.orEmpty()} " +
+                        "providerId=${providerId(plugin, api)} class=${api.javaClass.name} " +
+                        "mainUrl=${api.mainUrl} sourcePlugin=${api.sourcePlugin.orEmpty()}",
+                )
+            }
+            val providerNames = initializedProviders.map { it.name }.filter(String::isNotBlank)
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                plugin.displayName,
+                "Loaded ${providerNames.size} provider(s): ${providerNames.joinToString(", ")}",
+            )
             log.i {
                 "Loaded CloudStream plugin '${plugin.id}': " +
-                    "${providers.size} provider(s), ${registered.size} extractor(s)"
+                    "${initializedProviders.size} provider(s), ${registered.size} extractor(s)"
             }
-            return LoadedPlugin(file.absolutePath, instance, providers, registered)
+            return LoadedPlugin(file.absolutePath, instance, initializedProviders, registered)
         } catch (error: Throwable) {
             // Never leave half-registered providers behind for another plugin
             // to pick up: undo everything this load added.
@@ -263,6 +712,24 @@ internal actual object CloudStreamPlatformRuntime {
                 it !in providersBefore && it.sourcePlugin == file.absolutePath
             }
             extractorApis.removeAll { it !in extractorsBefore && it.sourcePlugin == file.absolutePath }
+            val diagnosis = CloudStreamRuntimeFailure.describe(
+                throwableTypeName = error::class.java.name,
+                rawMessage = error.message,
+                providerName = plugin.id,
+            )
+            if (diagnosis.isHostRuntimeGap) {
+                CloudStreamDiagnostics.error(
+                    CloudStreamDiagnosticStage.CLASSLOADER,
+                    plugin.id,
+                    "plugin load class resolution failed missingClass=${diagnosis.symbol.orEmpty()} " +
+                        "requestingClass=${instance.javaClass.name} " +
+                        "pluginClassLoader=${CloudStreamRuntimeDependencyProbe.describe(loader)} " +
+                        "parentClassLoader=${CloudStreamRuntimeDependencyProbe.describe(loader.parent)} " +
+                        "availableThroughPluginLoader=${diagnosis.symbol?.let { isClassAvailable(it, loader) } ?: false} " +
+                        "availableThroughParent=${diagnosis.symbol?.let { isClassAvailable(it, loader.parent) } ?: false} " +
+                        "exception=${error::class.java.name}: ${error.message.orEmpty()}",
+                )
+            }
             log.e(error) { "Failed to load CloudStream plugin '${plugin.id}'" }
             // A NoClassDefFoundError here means the host APK is missing part of
             // the ABI the plugin links against; say that rather than leaking a
@@ -273,10 +740,33 @@ internal actual object CloudStreamPlatformRuntime {
         }
     }
 
-    private fun prepareHostContext(context: Context) {
-        activityReference?.get()?.let(CommonActivity::setActivityInstance)
-        CloudStreamApp.context = context
-        setContext(WeakReference(context))
+    /**
+     * Returns the current UI host required by CloudStream providers.
+     *
+     * The weak reference is intentional: a destroyed Activity must not be kept
+     * alive by a provider. The trade-off is explicit — background callers wait
+     * for the next real AppCompat host instead of receiving a ContextWrapper
+     * that can pass through discovery and fail later in an opaque cast.
+     */
+    private fun requireAppCompatHost(): AppCompatActivity =
+        appCompatActivityReference?.get() ?: run {
+            val message = "CloudStream provider execution requires a live AppCompatActivity host."
+            CloudStreamDiagnostics.error(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                provider = "activity host",
+                message = message,
+            )
+            throw CloudStreamActivityRequiredException(message)
+        }
+
+    private fun prepareHostContext(host: AppCompatActivity) {
+        // Keep CommonActivity and CloudStream's global `app` pointed at the
+        // same real AppCompatActivity. This is performed immediately before a
+        // cached or newly loaded provider is invoked, so Activity recreation is
+        // handled without retaining the old instance.
+        CommonActivity.setActivityInstance(host)
+        CloudStreamApp.context = host
+        setContext(WeakReference(host))
     }
 
     private fun readArchiveManifest(file: File): CloudStreamPluginArchiveManifest? = runCatching {
@@ -303,16 +793,17 @@ internal actual object CloudStreamPlatformRuntime {
     }
 
     @Suppress("DEPRECATION")
-    private fun BasePlugin.attachResources(context: Context, file: File) {
-        val plugin = this as? Plugin ?: return
+    private fun BasePlugin.attachResources(context: Context, file: File): Int? {
+        val plugin = this as? Plugin ?: return null
         val assets = AssetManager::class.java.getDeclaredConstructor().newInstance()
-        AssetManager::class.java.getMethod("addAssetPath", String::class.java)
-            .invoke(assets, file.absolutePath)
+        val cookie = AssetManager::class.java.getMethod("addAssetPath", String::class.java)
+            .invoke(assets, file.absolutePath) as? Int
         plugin.resources = Resources(
             assets,
             context.resources.displayMetrics,
             context.resources.configuration,
         )
+        return cookie
     }
 
     /**
@@ -350,11 +841,25 @@ internal actual object CloudStreamPlatformRuntime {
             return try {
                 withTimeout(budget) { block() }
             } catch (timeout: TimeoutCancellationException) {
-                throw CloudStreamStageTimeoutException(
-                    "CloudStream provider '${api.name}' timed out during $name after ${budget}ms",
+                val failure = CloudStreamStageTimeoutException(
+                    "CloudStream provider timed out during $name after ${budget}ms",
                     timeout,
                 )
+                CloudStreamDiagnostics.error(diagnosticStage(name), api.name, failure)
+                throw failure
+            } catch (error: Throwable) {
+                if (error is kotlinx.coroutines.CancellationException) throw error
+                CloudStreamDiagnostics.error(diagnosticStage(name), api.name, error)
+                throw error
             }
+        }
+
+        private fun diagnosticStage(name: String): CloudStreamDiagnosticStage = when (name) {
+            "getMainPage" -> CloudStreamDiagnosticStage.GET_MAIN_PAGE
+            "search" -> CloudStreamDiagnosticStage.SEARCH
+            "load" -> CloudStreamDiagnosticStage.LOAD
+            "loadLinks", "loadExtractor" -> CloudStreamDiagnosticStage.LOAD_LINKS
+            else -> CloudStreamDiagnosticStage.NORMALIZATION
         }
 
         override suspend fun search(
@@ -362,13 +867,13 @@ internal actual object CloudStreamPlatformRuntime {
             query: String,
         ): List<CloudStreamSearchResult> = withContext(Dispatchers.IO) {
             val apis = providersFor(plugin)
-            apis.flatMap { api ->
+            val results = apis.flatMap { api ->
                 runCatching {
                     stage("search", api, SEARCH_TIMEOUT_MS, api.searchTimeoutMs) {
                         api.search(query, 1)?.items.orEmpty()
                     }
                 }.onFailure { error ->
-                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                     log.w(error) { "CloudStream search failed api=${api.name} query=$query" }
                 }.getOrDefault(emptyList()).map { response ->
                     CloudStreamSearchResult(
@@ -377,37 +882,342 @@ internal actual object CloudStreamPlatformRuntime {
                         posterUrl = response.posterUrl,
                         year = response.searchYear(),
                         type = response.type?.name,
+                        posterHeaders = response.posterHeaders.orEmpty(),
                     )
                 }
             }.distinctBy { it.url }
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.SEARCH,
+                plugin.displayName,
+                "operation=search providerCount=${apis.size} resultCount=${results.size}",
+            )
+            results
         }
 
         override suspend fun loadEpisodes(
             plugin: CloudStreamPlugin,
             url: String,
         ): List<CloudStreamEpisode> = withContext(Dispatchers.IO) {
-            val api = providersFor(plugin).firstOrNull() ?: return@withContext emptyList()
-            val response = stage("loadEpisodes", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) { api.load(url) }
-                ?: return@withContext emptyList()
-            // Episode lists live in a different field per LoadResponse shape;
-            // CloudStreamLoadResponseTargets knows all of them.
-            CloudStreamLoadResponseTargets.episodes(response).map { ref ->
-                CloudStreamEpisode(
-                    name = ref.name,
-                    url = ref.data,
-                    season = ref.season,
-                    episode = ref.episode,
-                )
-            }
+            val providers = providersFor(plugin)
+            var lastFailure: Throwable? = null
+            providers.flatMap { api ->
+                val response = runCatching {
+                    stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) { api.load(url) }
+                }.onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
+                    lastFailure = error
+                    log.w(error) {
+                        "CloudStream episode detail failed api=${api.name}; " +
+                            "trying the remaining providers"
+                    }
+                }.getOrNull() ?: return@flatMap emptyList()
+                // Episode lists live in a different field per LoadResponse shape;
+                // CloudStreamLoadResponseTargets knows all of them.
+                CloudStreamLoadResponseTargets.episodes(response).map { ref ->
+                    CloudStreamEpisode(
+                        name = ref.name,
+                        url = ref.data,
+                        season = ref.season,
+                        episode = ref.episode,
+                        posterUrl = ref.posterUrl,
+                        description = ref.description,
+                        runTime = ref.runTime,
+                        rating = ref.rating?.toInt(),
+                    )
+                }
+            }.distinctBy { listOf(it.season, it.episode, it.url, it.name) }
+                .also { episodes ->
+                    CloudStreamDiagnostics.info(
+                        CloudStreamDiagnosticStage.LOAD,
+                        plugin.displayName,
+                        "operation=load episodeResultCount=${episodes.size} providerCount=${providers.size}",
+                    )
+                    if (episodes.isEmpty() && lastFailure != null) {
+                        CloudStreamDiagnostics.error(
+                            CloudStreamDiagnosticStage.LOAD,
+                            provider = plugin.displayName,
+                            throwable = lastFailure!!,
+                        )
+                    }
+                }
         }
 
         override suspend fun loadLinks(
             plugin: CloudStreamPlugin,
             query: CloudStreamStreamQuery,
         ): CloudStreamLinkResult = withContext(Dispatchers.IO) {
-            val api = providersFor(plugin).firstOrNull()
-                ?: error("Extension exposes no CloudStream provider")
-            collectLinks(api, query.url)
+            val providers = providersFor(plugin)
+            if (providers.isEmpty()) error("Extension exposes no CloudStream provider")
+            var lastFailure: Throwable? = null
+            val results = providers.mapNotNull { api ->
+                runCatching { collectLinks(plugin, api, query.url) }
+                    .onFailure { error ->
+                        if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
+                        lastFailure = error
+                        log.w(error) {
+                            "CloudStream links failed api=${api.name}; " +
+                                "trying the remaining providers"
+                        }
+                    }
+                    .getOrNull()
+            }
+            if (results.isEmpty()) {
+                lastFailure?.let { throw it }
+                error("No CloudStream provider resolved '${query.url}'")
+            }
+            CloudStreamLinkResult(
+                links = results.flatMap { it.links }
+                    .distinctBy {
+                        listOf(it.url, it.quality, it.isM3u8, it.isDash, it.isTorrent, it.referer, it.headers)
+                    },
+                subtitles = results.flatMap { it.subtitles }
+                    .distinctBy { listOf(it.url, it.language, it.headers) },
+                providerName = results.firstNotNullOfOrNull { it.providerName },
+            )
+        }
+
+        /**
+         * CloudStream live providers publish channels/events through their
+         * normal homepage contract. We deliberately use the API-declared
+         * capability and the returned SearchResponse fields; no provider or
+         * channel names are recognized here.
+         */
+        override suspend fun loadCatalog(
+            plugin: CloudStreamPlugin,
+        ): List<CloudStreamCatalogItem> = withContext(Dispatchers.IO) {
+            val failures = mutableListOf<CloudStreamCatalogFailure>()
+            val catalogItems = providersFor(plugin)
+                // A provider's homepage is the runtime capability we need.
+                // Do not gate this on manifest tvTypes or supportedTypes: both
+                // are frequently broader/incomplete than the actual
+                // SearchResponse/LoadResponse shape returned by the provider.
+                .filter { api -> api.hasMainPage }
+                .flatMap { api ->
+                    val providerId = providerId(plugin, api)
+                    CloudStreamDiagnostics.info(
+                        CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                        api.name,
+                        "providerId=$providerId hasMainPage=${api.hasMainPage} supportedTypes=${api.supportedTypes.map { it.name }}",
+                    )
+                    // MainAPI does not expose a universal "has next page" bit.
+                    // Request a small bounded page window and stop on an empty
+                    // page; duplicate page results are removed below. This keeps
+                    // providers that paginate their HomePageResponse usable
+                    // without allowing a broken provider to loop forever.
+                    val responses = buildList {
+                        for (page in 1..CATALOG_MAX_PAGES) {
+                            val response = try {
+                                stage("getMainPage", api, SEARCH_TIMEOUT_MS, api.getMainPageTimeoutMs) {
+                                    api.getMainPage(
+                                        page,
+                                        MainPageRequest(
+                                            name = api.name,
+                                            data = "",
+                                            horizontalImages = false,
+                                        ),
+                                    )
+                                }
+                            } catch (error: Throwable) {
+                                if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
+                                failures += CloudStreamCatalogFailure(
+                                    providerId = providerId,
+                                    providerName = api.name,
+                                    stage = "getMainPage",
+                                    cause = error,
+                                )
+                                log.w(error) {
+                                    "CloudStream homepage page=$page failed api=${api.name}; " +
+                                        "retaining earlier pages"
+                                }
+                                break
+                            }
+                            if (response == null || response.items.orEmpty().isEmpty()) break
+                            CloudStreamDiagnostics.info(
+                                CloudStreamDiagnosticStage.GET_MAIN_PAGE,
+                                api.name,
+                                "operation=getMainPage providerId=$providerId page=$page " +
+                                    "output=HomePageResponse sectionCount=${response.items.size} " +
+                                    "itemCount=${response.items.sumOf { it.list.size }} " +
+                                    "itemTypes=${response.items.flatMap { section -> section.list }.mapNotNull { it.type?.name }.distinct()}",
+                            )
+                            add(response)
+                        }
+                    }
+                    if (responses.isEmpty()) return@flatMap emptyList()
+
+                    val homepageItems = responses.flatMap { response ->
+                        response.items.orEmpty()
+                        .flatMap { section ->
+                            section.list.mapNotNull { item ->
+                                val url = item.url.trim().takeIf { it.isNotEmpty() }
+                                    ?: return@mapNotNull null
+                                // A homepage item is a SearchResponse, not a
+                                // LoadResponse. Load the detail here so a provider
+                                // that leaves SearchResponse.type unset can still
+                                // be recognized by its actual LiveStreamLoadResponse.
+                                val detail = runCatching {
+                                    stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) {
+                                        api.load(url)
+                                    }
+                                }.onFailure { error ->
+                                    if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
+                                    failures += CloudStreamCatalogFailure(
+                                        providerId = providerId,
+                                        providerName = api.name,
+                                        stage = "load",
+                                        cause = error,
+                                    )
+                                    log.w(error) {
+                                        "CloudStream live catalog detail failed api=${api.name}"
+                                    }
+                                }.getOrNull()
+                                CloudStreamDiagnostics.info(
+                                    CloudStreamDiagnosticStage.LOAD,
+                                    api.name,
+                                    "operation=load providerId=$providerId inputType=homepage-item " +
+                                        "outputType=${detail?.let { it::class.java.name } ?: "null"} " +
+                                        "itemType=${item.type?.name.orEmpty()}",
+                                )
+                                val isLive = when {
+                                    detail == null -> item.type == TvType.Live
+                                    detail is LiveStreamLoadResponse -> true
+                                    else -> detail.type == TvType.Live
+                                }
+
+                                val detailMetadata = detail?.let(CloudStreamLoadResponseTargets::metadata)
+                                val title = detailMetadata?.title ?: item.name
+                                val metadata = detailMetadata ?: CloudStreamResponseMetadata(
+                                    title = title,
+                                    url = url,
+                                    poster = item.posterUrl,
+                                    posterHeaders = item.posterHeaders.orEmpty(),
+                                    year = item.searchYear(),
+                                    providerName = api.name,
+                                    mediaType = item.type?.name ?: if (isLive) TvType.Live.name else TvType.Movie.name,
+                                    isLive = isLive,
+                                    liveStatus = if (isLive) "catalog" else null,
+                                    channelName = title.takeIf { isLive },
+                                )
+                                CloudStreamLiveCatalogItem(
+                                    title = title,
+                                    url = url,
+                                    poster = metadata.poster ?: item.posterUrl,
+                                    posterHeaders = metadata.posterHeaders,
+                                    year = metadata.year ?: item.searchYear(),
+                                    mediaType = metadata.mediaType,
+                                    category = section.name.takeIf { it.isNotBlank() },
+                                    sectionPath = listOf(api.name, section.name)
+                                        .map(String::trim)
+                                        .filter(String::isNotBlank),
+                                    // Keep the actual MainAPI identity separate
+                                    // from LoadResponse.apiName so resolution can
+                                    // select the same provider when an extension
+                                    // registers several MainAPI instances.
+                                    providerName = api.name,
+                                    providerId = providerId,
+                                    repositoryId = plugin.repositoryUrl.orEmpty().ifBlank { "plugin:${plugin.id}" },
+                                    extensionId = plugin.id,
+                                    extensionName = plugin.displayName,
+                                    providerClassName = api.javaClass.name,
+                                    providerMainUrl = api.mainUrl,
+                                    navigationPayload = url,
+                                    metadata = metadata,
+                                )
+                            }
+                        }
+                    }
+                    val sectionNames = homepageItems
+                        .map { it.sectionPath.drop(1).joinToString(" / ") }
+                        .filter(String::isNotBlank)
+                        .distinct()
+                    CloudStreamDiagnostics.info(
+                        CloudStreamDiagnosticStage.GET_MAIN_PAGE,
+                        api.name,
+                        "getMainPage returned ${homepageItems.size} catalog item(s) across " +
+                            "${sectionNames.size} section(s): ${sectionNames.joinToString(", ")}",
+                    )
+                    homepageItems
+                }
+                .distinctBy { listOf(it.repositoryId, it.extensionId, it.providerId, it.sectionPath, it.url, it.title) }
+            if (failures.isNotEmpty()) {
+                throw CloudStreamCatalogExecutionException(catalogItems, failures)
+            }
+            catalogItems
+        }
+
+        override suspend fun resolveCatalog(
+            plugin: CloudStreamPlugin,
+            item: CloudStreamCatalogItem,
+        ): CloudStreamLiveResolution = withContext(Dispatchers.IO) {
+            val providers = providersFor(plugin)
+            val api = providers.firstOrNull { candidate ->
+                item.providerId.isNotBlank() && providerId(plugin, candidate) == item.providerId
+            } ?: error(
+                "CloudStream catalog item '${item.title}' has no registered provider identity " +
+                    "or its provider is no longer registered",
+            )
+            val navigationPayload = item.navigationPayload
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?: item.url
+            val detail = stage("load", api, LOAD_TIMEOUT_MS, api.loadTimeoutMs) {
+                api.load(navigationPayload)
+            } ?: error("Provider returned no live details for '${item.title}'")
+            val metadata = CloudStreamLoadResponseTargets.metadata(detail).copy(
+                providerName = api.name,
+            )
+            val target = CloudStreamLoadResponseTargets.movieTarget(detail)
+                ?.takeIf { it.isNotBlank() }
+                ?: item.url
+
+            val resolved = runCatching { collectLinks(plugin, api, target) }.getOrElse { error ->
+                if (error is ClassCastException) throw error
+                // A LiveStreamLoadResponse's dataUrl is itself an authoritative
+                // provider payload. If the provider returns it as a direct HLS,
+                // DASH or HTTP stream instead of asking loadLinks to resolve it,
+                // retain it rather than rejecting a valid extension response.
+                if (detail is LiveStreamLoadResponse && metadata.dataUrl?.isNotBlank() == true && target.isHttpUrl()) {
+                    CloudStreamLinkResult(
+                        links = listOf(
+                            CloudStreamLink(
+                                name = metadata.title,
+                                url = target,
+                                isM3u8 = target.looksLikeM3u8(),
+                                isDash = target.looksLikeDash(),
+                                source = api.name,
+                            ),
+                        ),
+                        providerName = api.name,
+                    )
+                } else {
+                    throw error
+                }
+            }
+            val playable = if (
+                resolved.links.isEmpty() &&
+                    detail is LiveStreamLoadResponse &&
+                    metadata.dataUrl?.isNotBlank() == true &&
+                    target.isHttpUrl()
+            ) {
+                resolved.copy(
+                    links = listOf(
+                        CloudStreamLink(
+                            name = metadata.title,
+                            url = target,
+                            isM3u8 = target.looksLikeM3u8(),
+                            isDash = target.looksLikeDash(),
+                            source = api.name,
+                        ),
+                    ),
+                )
+            } else {
+                resolved
+            }
+            CloudStreamLiveResolution(
+                metadata = metadata,
+                links = playable.links,
+                subtitles = playable.subtitles,
+            )
         }
 
         /**
@@ -466,12 +1276,16 @@ internal actual object CloudStreamPlatformRuntime {
                         } else {
                             CloudStreamLoadResponseTargets.movieTarget(detail) ?: match.url
                         }
-                        collectLinks(api, target)
+                        collectLinks(request.plugin, api, target).copy(
+                            metadata = CloudStreamLoadResponseTargets.metadata(detail).copy(
+                                providerName = api.name,
+                            ),
+                        )
                     }.onFailure { error ->
                         // A genuine cancellation (user left the screen, new
                         // request) must stay a cancellation and never be
                         // recorded as a provider failure.
-                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                         lastError = error.asDiagnosedFailure(api.name)
                         log.w(error) {
                             "CloudStream resolve failed api=${api.name} title=$title: " +
@@ -505,6 +1319,7 @@ internal actual object CloudStreamPlatformRuntime {
                         posterUrl = response.posterUrl,
                         year = response.searchYear(),
                         type = response.type?.name,
+                        posterHeaders = response.posterHeaders.orEmpty(),
                     )
                 }
             if (results.isEmpty()) return null
@@ -541,7 +1356,11 @@ internal actual object CloudStreamPlatformRuntime {
          * the URL. This is registry-driven, so no per-provider or
          * per-extractor special-casing is involved.
          */
-        private suspend fun collectLinks(api: MainAPI, data: String): CloudStreamLinkResult {
+        private suspend fun collectLinks(
+            plugin: CloudStreamPlugin,
+            api: MainAPI,
+            data: String,
+        ): CloudStreamLinkResult {
             val links = Collections.synchronizedList(mutableListOf<ExtractorLink>())
             val subtitles = Collections.synchronizedList(mutableListOf<SubtitleFile>())
 
@@ -563,9 +1382,24 @@ internal actual object CloudStreamPlatformRuntime {
                 // title has no sources on this provider".
                 error("Provider declined to resolve this source (loadLinks returned false)")
             }
+            if (handled && synchronized(links) { links.isEmpty() }) {
+                CloudStreamDiagnostics.warning(
+                    CloudStreamDiagnosticStage.LOAD_LINKS,
+                    api.name,
+                    "loadLinks reported success but emitted no links; extractor fallback also produced none.",
+                )
+            }
 
             val linkSnapshot = synchronized(links) { links.toList() }
             val subtitleSnapshot = synchronized(subtitles) { subtitles.toList() }
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.LOAD_LINKS,
+                api.name,
+                "operation=loadLinks providerId=${providerId(plugin, api)} " +
+                    "inputType=${if (data.startsWith("http", ignoreCase = true)) "url" else "opaque-payload"} " +
+                    "linkCount=${linkSnapshot.size} subtitleCount=${subtitleSnapshot.size} " +
+                    "types=${linkSnapshot.map { it.type.name }.distinct()}",
+            )
             log.d {
                 "CloudStream links api=${api.name} links=${linkSnapshot.size} " +
                     "subtitles=${subtitleSnapshot.size} " +
@@ -617,14 +1451,37 @@ internal actual object CloudStreamPlatformRuntime {
                         headers = subtitle.headers.orEmpty(),
                     )
                 },
+                providerName = api.name,
             )
         }
 
+        private fun providerId(plugin: CloudStreamPlugin, api: MainAPI): String =
+            CloudStreamLiveIdentity.providerId(
+                repositoryId = plugin.repositoryUrl.orEmpty().ifBlank { "plugin:${plugin.id}" },
+                extensionId = plugin.id,
+                className = api.javaClass.name,
+                name = api.name,
+                mainUrl = api.mainUrl,
+            )
+
         /** Loads the plugin on demand and returns the providers it registered. */
         private suspend fun providersFor(plugin: CloudStreamPlugin): List<MainAPI> {
+            // This check is required even when the plugin is already cached:
+            // getMainPage, load and loadLinks may all reach AppCompat APIs after
+            // the Activity that originally loaded the package was recreated.
+            val host = CloudStreamPlatformRuntime.requireAppCompatHost()
+            CloudStreamPlatformRuntime.prepareHostContext(host)
             val file = CloudStreamPackageStorage.packageFile(context, plugin)
                 ?: error("CloudStream package is not installed")
-            return loadedPlugin(plugin, file).providers
+            val loaded = loadedPlugin(plugin, file)
+            CloudStreamDiagnostics.info(
+                CloudStreamDiagnosticStage.PROVIDER_INITIALIZATION,
+                plugin.displayName,
+                "providerRegistry extensionId=${plugin.id} repositoryId=${plugin.repositoryUrl.orEmpty()} " +
+                    "registeredProviderCount=${loaded.providers.size} " +
+                    "settingsHook=${(loaded.instance as? Plugin)?.openSettings != null}",
+            )
+            return loaded.providers
         }
 
         /**
@@ -660,7 +1517,7 @@ internal actual object CloudStreamPlatformRuntime {
                     )
                 }
             }.onFailure { error ->
-                if (error is kotlinx.coroutines.CancellationException) throw error
+                if (error is kotlinx.coroutines.CancellationException || error is ClassCastException) throw error
                 log.w(error) { "CloudStream extractor fallback failed api=${api.name}" }
             }
 
@@ -691,14 +1548,35 @@ internal actual object CloudStreamPlatformRuntime {
  * Anything that is genuinely a provider failure is returned unchanged, so no
  * error is ever relabelled into something it is not.
  */
-private fun Throwable.asDiagnosedFailure(providerName: String?): Throwable {
+private fun Throwable.asDiagnosedFailure(
+    providerName: String?,
+    requestingClassName: String? = null,
+    pluginClassLoader: ClassLoader? = null,
+): Throwable {
     val diagnosis = CloudStreamRuntimeFailure.describe(
         throwableTypeName = this::class.simpleName ?: "Throwable",
         rawMessage = message,
         providerName = providerName,
     )
     if (!diagnosis.isHostRuntimeGap) return this
-    return CloudStreamHostAbiException(diagnosis.message, this)
+    // Keep the user-facing text actionable without exposing the full loader
+    // graph. The detailed class/requester/loader report is recorded separately
+    // in CloudStreamDiagnostics at the boundary where the failure occurred.
+    val userMessage = diagnosis.message +
+        " Reinstall the extension or use a full CloudStream-compatible build."
+    return CloudStreamHostAbiException(
+        message = userMessage,
+        cause = this,
+        missingClass = diagnosis.symbol,
+        requestingClassName = requestingClassName,
+        pluginClassLoader = CloudStreamRuntimeDependencyProbe.describe(pluginClassLoader),
+        parentClassLoader = CloudStreamRuntimeDependencyProbe.describe(pluginClassLoader?.parent),
+    )
+}
+
+private fun isClassAvailable(binaryName: String, loader: ClassLoader?): Boolean {
+    if (loader == null) return false
+    return runCatching { Class.forName(binaryName, false, loader) }.isSuccess
 }
 
 /**
@@ -711,7 +1589,14 @@ private fun Throwable.asDiagnosedFailure(providerName: String?): Throwable {
 internal class CloudStreamHostAbiException(
     message: String,
     cause: Throwable? = null,
+    val missingClass: String? = null,
+    val requestingClassName: String? = null,
+    val pluginClassLoader: String? = null,
+    val parentClassLoader: String? = null,
 ) : Exception(message, cause)
+
+/** Provider execution was requested without the required live UI host. */
+internal class CloudStreamActivityRequiredException(message: String) : Exception(message)
 
 /**
  * A provider stage exceeded its time budget.
@@ -726,14 +1611,20 @@ internal class CloudStreamStageTimeoutException(
 ) : Exception(message, cause)
 
 /**
- * Presents CloudStream's own package name to loaded plugins.
+ * Returns the concrete Android hierarchy without retaining the Activity.
  *
- * Some providers key their stored preferences or resource lookups off the
- * host package name; without this they behave inconsistently or refuse to run.
+ * This is intentionally recorded in diagnostics because R8 names such as R81
+ * are otherwise impossible to distinguish from a genuinely incompatible host.
  */
-private class CloudStreamIdentityContext(base: Context) : ContextWrapper(base) {
-    override fun getPackageName(): String = "com.lagradost.cloudstream3"
-    override fun getApplicationContext(): Context = this
+private fun Activity.cloudStreamActivityHierarchy(): String {
+    val names = buildList {
+        var current: Class<*>? = javaClass
+        while (current != null && size < 12) {
+            add(current.name.substringAfterLast('.'))
+            current = current.superclass
+        }
+    }
+    return names.joinToString(" -> ")
 }
 
 /**
@@ -753,3 +1644,12 @@ private fun com.lagradost.cloudstream3.SearchResponse.searchYear(): Int? = when 
 /** Normalises a title for tolerant comparison between metadata and provider results. */
 private fun String.normalisedTitle(): String =
     lowercase().filter { it.isLetterOrDigit() || it == ' ' }.trim().replace(Regex("\\s+"), " ")
+
+private fun String.isHttpUrl(): Boolean =
+    startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+
+private fun String.looksLikeM3u8(): Boolean =
+    contains(".m3u8", ignoreCase = true) || contains("m3u8", ignoreCase = true)
+
+private fun String.looksLikeDash(): Boolean =
+    contains(".mpd", ignoreCase = true) || contains("dash", ignoreCase = true)

@@ -21,6 +21,43 @@
 # Host compatibility shims resolved by name from plugin bytecode.
 -keep class com.lagradost.cloudstream3.** { *; }
 
+# CloudStream 4.8.0's Android UI ABI. These libraries are reached from
+# dynamically loaded plugin bytecode, so R8 cannot infer their usage from the
+# host's static call graph. Keep the standard runtime families that are
+# packaged in the full variant; do not keep unrelated application classes.
+-keep class androidx.activity.** { *; }
+-keep interface androidx.activity.** { *; }
+-keep class androidx.core.** { *; }
+-keep interface androidx.core.** { *; }
+-keep class androidx.fragment.** { *; }
+-keep interface androidx.fragment.** { *; }
+-keep class androidx.lifecycle.** { *; }
+-keep interface androidx.lifecycle.** { *; }
+-keep class androidx.navigation.** { *; }
+-keep interface androidx.navigation.** { *; }
+-keep class androidx.preference.** { *; }
+-keep interface androidx.preference.** { *; }
+-keep class androidx.constraintlayout.** { *; }
+-keep interface androidx.constraintlayout.** { *; }
+-keep class com.google.android.material.** { *; }
+-keep interface com.google.android.material.** { *; }
+-dontwarn androidx.activity.**
+-dontwarn androidx.core.**
+-dontwarn androidx.fragment.**
+-dontwarn androidx.lifecycle.**
+-dontwarn androidx.navigation.**
+-dontwarn androidx.preference.**
+-dontwarn androidx.constraintlayout.**
+-dontwarn com.google.android.material.**
+
+# The Activity is passed across the dynamically loaded CloudStream boundary.
+# Keep the host entry point and launcher subclasses named and structurally
+# intact. This does not make an incompatible Activity compatible; it prevents
+# R8 from obscuring which concrete class was handed to a provider while the
+# runtime verifies the actual AppCompatActivity hierarchy.
+-keep class com.nuvio.app.MainActivity { *; }
+-keep class com.nuvio.app.launcher.** extends com.nuvio.app.MainActivity { *; }
+
 # Some CloudStream providers are compiled against fuzzywuzzy and resolve this
 # package by its original JVM name from dynamically loaded .cs3 dex files.
 -keep class me.xdrop.fuzzywuzzy.** { *; }

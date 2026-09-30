@@ -92,6 +92,16 @@ class CloudStreamAggregatorBridgeTest {
     }
 
     @Test
+    fun `homepage catalog capability is not gated by a live manifest type`() {
+        val targets = CloudStreamAggregatorBridge.resolveTargets(
+            listOf(enabledExtension("HomepageLive", listOf("Movie"))),
+            "catalog",
+        )
+        assertEquals(1, targets.size)
+        assertEquals("Movie", targets.single().contentType)
+    }
+
+    @Test
     fun `an extension still downloading does not aggregate`() {
         val downloading = enabledExtension("Pending", listOf("Movie"))
             .copy(installStatus = CloudStreamInstallStatus(CloudStreamInstallState.DOWNLOADING))

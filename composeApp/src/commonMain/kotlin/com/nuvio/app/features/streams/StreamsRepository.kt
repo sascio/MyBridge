@@ -8,6 +8,7 @@ import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.cloudstream.CloudStreamAggregatorBridge
+import com.nuvio.app.features.cloudstream.CloudStreamCatalogStore
 import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
 import com.nuvio.app.features.debrid.DebridSettingsRepository
@@ -183,10 +184,30 @@ object StreamsRepository {
         // CloudStream providers join the same aggregation as Stremio addons and
         // plugin scrapers. Only genuinely executable, user-enabled providers whose
         // declared content type can serve this request are returned.
-        val cloudStreamTargets = CloudStreamAggregatorBridge.resolveTargets(
-            extensions = CloudStreamExtensionsRepository.uiState.value.extensions,
-            mediaType = type,
-        )
+        val cloudStreamCatalogItem = CloudStreamCatalogStore.get(videoId)
+        val cloudStreamExtensions = CloudStreamExtensionsRepository.uiState.value.extensions
+        val cloudStreamTargets = buildList {
+            addAll(
+                CloudStreamAggregatorBridge.resolveTargets(
+                    extensions = cloudStreamExtensions,
+                    mediaType = type,
+                ),
+            )
+            // A homepage item already carries the provider's exact URL and
+            // source identity. Keep that direct item eligible even when its
+            // manifest type is broader than the normalized detail type.
+            if (cloudStreamCatalogItem != null) {
+                addAll(
+                    CloudStreamAggregatorBridge.resolveTargets(
+                        extensions = cloudStreamExtensions,
+                        mediaType = "catalog",
+                    ).filter { target ->
+                        target.extensionId == cloudStreamCatalogItem.extensionId &&
+                            target.sourceId == cloudStreamCatalogItem.sourceId
+                    },
+                )
+            }
+        }.distinctBy { it.addonId }
         // CloudStream providers are site scrapers keyed by title, not by
         // IMDb/TMDB id, so the display metadata is what makes them searchable.
         val cloudStreamMeta = MetaDetailsRepository.uiState.value.meta
@@ -586,15 +607,22 @@ object StreamsRepository {
                         "Resolving provider=${target.addonName} addonId=${target.addonId} " +
                             "type=$type id=$videoId season=${season ?: -1} episode=${episode ?: -1}",
                     )
-                    val completion = CloudStreamExtensionsRepository.resolveStreams(
-                        target = target,
-                        mediaType = type,
-                        videoId = videoId,
-                        season = season,
-                        episode = episode,
-                        title = cloudStreamTitle,
-                        year = cloudStreamYear,
-                    ).fold(
+                    val directCatalogItem = CloudStreamCatalogStore.get(videoId)
+                        ?.takeIf { item -> item.extensionId == target.extensionId }
+                    val resolvedResult = if (directCatalogItem != null) {
+                        CloudStreamExtensionsRepository.resolveCatalogItem(directCatalogItem)
+                    } else {
+                        CloudStreamExtensionsRepository.resolveStreams(
+                            target = target,
+                            mediaType = type,
+                            videoId = videoId,
+                            season = season,
+                            episode = episode,
+                            title = cloudStreamTitle,
+                            year = cloudStreamYear,
+                        )
+                    }
+                    val completion = resolvedResult.fold(
                         onSuccess = { streams ->
                             InAppLogger.info(
                                 "Streams/CloudStreamFetch",

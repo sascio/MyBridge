@@ -39,6 +39,29 @@ probe Lcom/lagradost/cloudstream3/utils/ExtractorApi;
 probe Lcom/lagradost/cloudstream3/SubtitleFile;
 probe Lcom/lagradost/nicehttp/Requests;
 
+# --- Android/AndroidX/Material UI ABI ---------------------------------------
+# These are loaded by real CloudStream settings fragments and provider UI
+# helpers through the PathClassLoader's application parent.
+keep  androidx.activity
+probe Landroidx/activity/ComponentActivity;
+keep  androidx.core
+probe Landroidx/core/content/ContextCompat;
+keep  androidx.fragment
+probe Landroidx/fragment/app/Fragment;
+keep  androidx.appcompat.app
+probe Landroidx/appcompat/app/AppCompatActivity;
+keep  androidx.lifecycle
+probe Landroidx/lifecycle/Lifecycle;
+keep  androidx.navigation
+probe Landroidx/navigation/NavController;
+keep  androidx.preference
+probe Landroidx/preference/PreferenceFragmentCompat;
+keep  androidx.constraintlayout
+probe Landroidx/constraintlayout/widget/ConstraintLayout;
+keep  com.google.android.material
+probe Lcom/google/android/material/bottomsheet/BottomSheetDialogFragment;
+probe Lcom/google/android/material/dialog/MaterialAlertDialogBuilder;
+
 # --- Kotlin runtime (refs: 50/50) -------------------------------------------
 # A provider is a suspend function; it cannot not reference these.
 keep  kotlin
