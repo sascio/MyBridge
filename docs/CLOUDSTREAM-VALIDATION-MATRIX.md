@@ -9,9 +9,9 @@ not a device or playback result.
 
 | Scope | Result | Evidence / blocker |
 | --- | --- | --- |
-| Discovery, repository parsing and identity deduplication unit tests | PASS | CI run `36725620787`, job `109921625505`, completed the unit-test step successfully. |
-| Safe install/package validation unit tests | PASS | CI run `36725620787`, job `109921625505`, completed the unit-test and full APK steps successfully. Dynamic provider execution remains unvalidated. |
-| Verified Activity compatibility (`R81`/host hierarchy) in the minified APK | PASS | CI run `36725620787`, job `109921625505`, completed the dedicated superclass-hierarchy inspection successfully. Source host is `com.nuvio.app.MainActivity : AppCompatActivity`; no physical-device provider run. |
+| Discovery, repository parsing and identity deduplication unit tests | PASS | CI run `36727227441`, job `109927112248`, completed the unit-test step successfully. |
+| Safe install/package validation unit tests | PASS | CI run `36727227441`, job `109927112248`, completed the unit-test and full APK steps successfully. Dynamic provider execution remains unvalidated. |
+| Verified Activity compatibility (`R81`/host hierarchy) in the minified APK | PASS | CI run `36727227441`, job `109927112248`, completed the dedicated superclass-hierarchy inspection successfully. Source host is `com.nuvio.app.MainActivity : AppCompatActivity`; no physical-device provider run. |
 | Provider initialization isolation | BLOCKED | Source implements per-`MainAPI` initialization and rollback; no loaded extension was executed. |
 | `getMainPage` / section hierarchy / catalog visibility | BLOCKED | Generic paginated `getMainPage` path is implemented; no provider request or UI observation was made. |
 | Search, movie details and metadata | BLOCKED | Generic normalization is implemented; no real provider search/detail response was observed. |
@@ -26,8 +26,8 @@ not a device or playback result.
 | Anime provider | BLOCKED | No real anime provider operation was run. |
 | Multiple extensions with isolation | BLOCKED | No multiple-extension APK/device run was performed. |
 | M3U, Xtream, Stalker, Nuvio, Stremio regressions | BLOCKED | No current-tree regression suite or device run was executed. |
-| Debug build | PASS | CI run `36725620787`, job `109921625505`, full debug APK assembly completed successfully. |
-| Release/minified build | PASS | CI run `36725620787`, job `109921625505`, full release APK assembly and minified hierarchy inspection completed successfully. This is a CI debug-signed artifact, not a production release. |
+| Debug build | PASS | CI run `36727227441`, job `109927112248`, full debug APK assembly completed successfully. |
+| Release/minified build | PASS | CI run `36727227441`, job `109927112248`, full release APK assembly and minified hierarchy inspection completed successfully. This is a CI debug-signed artifact, not a production release. |
 | Real Android device validation | BLOCKED | No `adb` or physical Android device is available in this environment. |
 
 No provider, catalog, metadata, source, header, subtitle, playback or regression
