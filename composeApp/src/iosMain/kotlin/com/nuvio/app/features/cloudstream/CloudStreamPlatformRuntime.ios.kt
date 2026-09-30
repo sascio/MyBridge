@@ -19,4 +19,6 @@ internal actual object CloudStreamPlatformRuntime {
     actual fun executor(): CloudStreamPluginExecutor? = null
 
     actual fun unload(pluginId: String) = Unit
+
+    actual suspend fun openSettings(plugin: CloudStreamPlugin): Boolean = false
 }

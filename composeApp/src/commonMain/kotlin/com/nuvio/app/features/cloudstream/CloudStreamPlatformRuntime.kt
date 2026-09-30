@@ -53,4 +53,7 @@ internal expect object CloudStreamPlatformRuntime {
      * execution is unsupported.
      */
     fun unload(pluginId: String)
+
+    /** Opens the extension's own CloudStream settings through its runtime hook. */
+    suspend fun openSettings(plugin: CloudStreamPlugin): Boolean
 }

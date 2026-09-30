@@ -23,12 +23,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioIconActionButton
+import kotlinx.coroutines.launch
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import nuvio.composeapp.generated.resources.Res
@@ -57,6 +59,8 @@ internal fun CloudStreamExtensionDetail(
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
 ) {
+    val coroutineScope = rememberCoroutineScope()
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -77,7 +81,14 @@ internal fun CloudStreamExtensionDetail(
             )
         }
 
-        MetadataCard(extension = extension)
+        MetadataCard(
+            extension = extension,
+            onOpenSettings = {
+                coroutineScope.launch {
+                    CloudStreamExtensionsRepository.openSettings(extension.id)
+                }
+            },
+        )
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_sources))
         extension.sources.forEach { source ->
@@ -97,7 +108,10 @@ internal fun CloudStreamExtensionDetail(
 }
 
 @Composable
-private fun MetadataCard(extension: CloudStreamExtension) {
+private fun MetadataCard(
+    extension: CloudStreamExtension,
+    onOpenSettings: () -> Unit,
+) {
     val plugin = extension.plugin
     NuvioSurfaceCard {
         Row(
@@ -145,6 +159,19 @@ private fun MetadataCard(extension: CloudStreamExtension) {
             plugin.language?.takeIf { it.isNotBlank() }?.let { MetaChip(it.uppercase()) }
             plugin.tvTypes.forEach { type -> MetaChip(type) }
             MetaChip(stringResource(Res.string.cloudstream_sources_format, extension.sourceCount))
+        }
+
+        if (extension.installStatus.isInstalled && CloudStreamPlatformRuntime.supportsExecution) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = onOpenSettings) {
+                Icon(
+                    imageVector = Icons.Rounded.Settings,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(stringResource(Res.string.cloudstream_action_configure))
+            }
         }
 
         // Shows what is genuinely on disk, which is what an update offer is

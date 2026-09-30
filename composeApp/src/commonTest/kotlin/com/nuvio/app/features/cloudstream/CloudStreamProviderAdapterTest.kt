@@ -257,6 +257,39 @@ class CloudStreamProviderAdapterTest {
     }
 
     @Test
+    fun `load response metadata remains attached to every source`() {
+        val metadata = CloudStreamResponseMetadata(
+            title = "Live Event",
+            originalTitle = "Original Event",
+            poster = "https://cdn.example/poster.png",
+            backdrop = "https://cdn.example/backdrop.jpg",
+            logo = "https://cdn.example/logo.png",
+            description = "Provider supplied description",
+            year = 2026,
+            rating = 8.5,
+            durationMinutes = 120,
+            genres = listOf("Sports"),
+            tags = listOf("live"),
+            providerName = "Generic Provider",
+            mediaType = "Live",
+            isLive = true,
+            liveStatus = "live",
+            channelName = "Live Event",
+        )
+        val item = CloudStreamProviderAdapter.adaptLinks(
+            links = listOf(link(isM3u8 = true, referer = "https://provider.example")),
+            pluginName = "Extension",
+            pluginId = "extension",
+            metadata = metadata,
+        ).single()
+
+        assertEquals(metadata.toStreamMediaMetadata(), item.mediaMetadata)
+        assertEquals("Generic Provider", item.sourceName)
+        assertEquals("hls", item.streamType)
+        assertEquals("https://provider.example", item.behaviorHints.proxyHeaders?.request?.get("Referer"))
+    }
+
+    @Test
     fun `streams are produced even when the provider returned no subtitles`() {
         // Subtitles must never gate stream validity.
         val items = CloudStreamProviderAdapter.adaptLinks(
