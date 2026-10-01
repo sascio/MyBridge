@@ -1,279 +1,270 @@
-name: Draft production GitHub Release
+name: Build StreamBridge signed Android and iOS release
 
-# Manual only. Never runs on branch push. Never publishes (draft only).
-# Fails closed unless production upload-keystore GitHub Secrets are set.
-# See docs/SIGNING.md. Do not use CI debug-signed APKs as updates.
+# Manual test-builds produce verified signed artifacts only. Draft mode and tag
+# pushes create/update a DRAFT; publication remains an explicit human action.
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. 0.1.04)
+      mode:
+        description: Build signed artifacts only, or create a coordinated draft
+        type: choice
+        options: [test-build, draft]
+        default: test-build
         required: true
+      target:
+        description: Platforms (both requires both signing setups)
+        type: choice
+        options: [both, android, ios]
+        default: both
+        required: true
+      tag:
+        description: Optional exact canonical tag (v0.5.5-beta); never overrides metadata
         type: string
-        default: "0.1.04"
+        required: false
+      ios_export_method:
+        description: Distribution profiles must match this export model
+        type: choice
+        options: [release-testing, app-store-connect, enterprise]
+        default: release-testing
+        required: true
+  push:
+    tags: ['v*']
+
+defaults:
+  run:
+    shell: bash
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: streambridge-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  draft:
-    name: Production-signed full APK draft
+  prepare:
+    name: Verify isolated release source and canonical metadata
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+      target: ${{ steps.metadata.outputs.target }}
+      mode: ${{ steps.metadata.outputs.mode }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Source, identity, license and no-CloudStream guard
+        run: |
+          python3 .github/verify_update_track.py
+          python3 -m unittest discover -s .github/tests -v
+      - name: Read release metadata and reject mismatched requests
+        id: metadata
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          REQUESTED_MODE: ${{ inputs.mode }}
+          REQUESTED_TARGET: ${{ inputs.target }}
+        run: |
+          args=()
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            args=(--tag "$GITHUB_REF_NAME")
+            mode=draft
+            target=both
+          else
+            if [[ -n "$REQUESTED_TAG" ]]; then args=(--tag "$REQUESTED_TAG"); fi
+            mode="$REQUESTED_MODE"
+            target="$REQUESTED_TARGET"
+          fi
+          case "$mode" in test-build|draft) ;; *) exit 1 ;; esac
+          case "$target" in both|android|ios) ;; *) exit 1 ;; esac
+          python3 .github/streambridge_release.py "${args[@]}" --github-output "$GITHUB_OUTPUT"
+          printf 'mode=%s\ntarget=%s\n' "$mode" "$target" >> "$GITHUB_OUTPUT"
+          version="$(python3 -c 'import sys; sys.path.insert(0,".github"); from streambridge_release import check_release; print(check_release().version)')"
+          test -s "docs/RELEASE-NOTES-${version}.md"
 
+  android:
+    name: Production Android certificate, tests, R8 APKs and AAB
+    needs: prepare
+    if: needs.prepare.outputs.target == 'both' || needs.prepare.outputs.target == 'android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NUVIO_RELEASE_STORE_PASSWORD: ${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
+      NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
+      NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
+      STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING: 'true'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "21"
-
-      - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
-
-      - name: Require production signing secrets
-        env:
-          NUVIO_RELEASE_STORE_BASE64: ${{ secrets.NUVIO_RELEASE_STORE_BASE64 }}
-          NUVIO_RELEASE_STORE_PASSWORD: ${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
-          NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
-          NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          missing=0
-          for var in NUVIO_RELEASE_STORE_BASE64 NUVIO_RELEASE_STORE_PASSWORD NUVIO_RELEASE_KEY_ALIAS NUVIO_RELEASE_KEY_PASSWORD; do
-            if [ -z "${!var}" ]; then
-              echo "::error::$var GitHub secret is not set. Production release cannot proceed. See docs/SIGNING.md."
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Verify tag matches StreamBridge version
-        env:
-          TAG: ${{ inputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ ! -f streambridge.version.properties ]; then
-            echo "::error::streambridge.version.properties is missing on the checked-out tree."
-            exit 1
-          fi
-          version_name="$(grep '^STREAMBRIDGE_VERSION_NAME=' streambridge.version.properties | cut -d= -f2 | tr -d '\r')"
-          tag="${TAG#v}"
-          if [ "$tag" != "$version_name" ]; then
-            echo "::error::Release tag must match STREAMBRIDGE_VERSION_NAME ($version_name). Got $TAG."
-            exit 1
-          fi
-
-      - name: Decode upload keystore
+          java-version: '17'
+      - name: Prepare the established production keystore (never invent one)
         env:
           NUVIO_RELEASE_STORE_BASE64: ${{ secrets.NUVIO_RELEASE_STORE_BASE64 }}
         run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/signing"
-          printf '%s' "$NUVIO_RELEASE_STORE_BASE64" | base64 -d > "$RUNNER_TEMP/signing/upload.jks"
-          test -s "$RUNNER_TEMP/signing/upload.jks"
-
-      # Official NuvioMobile credential-supply mechanism, reproduced from
-      # NuvioMedia/NuvioMobile .github/workflows/android-release.yml ("Configure
-      # release properties"). :composeApp generateRuntimeConfigs reads the
-      # Trakt/Simkl keys out of local.properties only, so CI has to materialise that
-      # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
-      # file and the checks only test for presence.
-      - name: Configure release properties
+          python3 - <<'PY'
+          import base64,os
+          from pathlib import Path
+          required=['NUVIO_RELEASE_STORE_BASE64','NUVIO_RELEASE_STORE_PASSWORD','NUVIO_RELEASE_KEY_ALIAS','NUVIO_RELEASE_KEY_PASSWORD']
+          missing=[k for k in required if not os.environ.get(k)]
+          if missing: raise SystemExit('Missing production GitHub Secrets: '+', '.join(missing)+'. See docs/SIGNING.md.')
+          path=Path(os.environ['RUNNER_TEMP'])/'streambridge-upload.jks'
+          path.write_bytes(base64.b64decode(''.join(os.environ['NUVIO_RELEASE_STORE_BASE64'].split()),validate=True))
+          path.chmod(0o600)
+          with open(os.environ['GITHUB_ENV'],'a') as output: output.write(f'NUVIO_RELEASE_STORE_FILE={path}\n')
+          PY
+      - name: Optional runtime API/OAuth configuration (values are never logged)
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
-            echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 GitHub secret is not set. It must contain a base64-encoded local.properties providing TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET and SIMKL_CLIENT_ID. See docs/TRAKT-SIMKL-CONFIG.md."
-            exit 1
-          fi
-
-          printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
-
-          # sdk.dir is runner-specific and the keystore is decoded separately above,
-          # so drop any copies carried inside the secret (official does the same).
-          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
-
-          # Fail fast, as official Nuvio does, rather than shipping an APK whose
-          # Settings screen reports "Missing TRAKT_CLIENT_ID / SIMKL_CLIENT_ID".
-          # Matches a non-empty value without ever printing it.
-          required_properties=(
-            TRAKT_CLIENT_ID
-            TRAKT_CLIENT_SECRET
-            SIMKL_CLIENT_ID
-          )
-          missing=0
-          for property_name in "${required_properties[@]}"; do
-            if ! grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\S" local.properties; then
-              echo "::error::Missing required property in NUVIO_LOCAL_PROPERTIES_BASE64: ${property_name}"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-          echo "local.properties configured; required Trakt/Simkl properties present."
-
-      - name: Assemble production full release
-        env:
-          NUVIO_RELEASE_STORE_FILE: ${{ runner.temp }}/signing/upload.jks
-          NUVIO_RELEASE_STORE_PASSWORD: ${{ secrets.NUVIO_RELEASE_STORE_PASSWORD }}
-          NUVIO_RELEASE_KEY_ALIAS: ${{ secrets.NUVIO_RELEASE_KEY_ALIAS }}
-          NUVIO_RELEASE_KEY_PASSWORD: ${{ secrets.NUVIO_RELEASE_KEY_PASSWORD }}
-          STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING: "true"
-          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
-          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
-          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-          # Trakt/Simkl are deliberately NOT passed as environment variables. They are
-          # supplied through the decoded local.properties above, which is the official
-          # NuvioMobile mechanism and the only credential path this build supports.
-        run: ./gradlew :androidApp:assembleFullRelease --stacktrace
-
-      # Presence-only proof that the credentials survived
-      # local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig.
-      # Greps the generated Kotlin for a non-empty literal; never prints a value.
-      - name: Verify generated Trakt/Simkl config is populated
-        run: |
-          set -euo pipefail
-          generated="composeApp/build/generated/runtime-config/kotlin"
-          trakt="$generated/com/nuvio/app/features/trakt/TraktConfig.kt"
-          simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
-
-          failed=0
-          check_populated() {
-            local file="$1" constant="$2"
-            if [ ! -f "$file" ]; then
-              echo "::error::Generated config missing: $file"
-              failed=1
-              return
-            fi
-            if grep -Eq "const val ${constant} = \"\"" "$file"; then
-              echo "::error::${constant} is empty in the generated release config."
-              failed=1
-            else
-              echo "${constant} present=true"
-            fi
-          }
-
-          check_populated "$trakt" CLIENT_ID
-          check_populated "$trakt" CLIENT_SECRET
-          check_populated "$simkl" CLIENT_ID
-          [ "$failed" -eq 0 ]
-
-      - name: Reject debug certificates and record public cert identity
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          apks=(androidApp/build/outputs/apk/full/release/*.apk)
-          if [ "${#apks[@]}" -eq 0 ]; then
-            echo "::error::No full/release APKs were produced."
-            exit 1
-          fi
-          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          apksigner=""
-          if [ -n "$sdk" ] && [ -d "$sdk/build-tools" ]; then
-            apksigner="$(find "$sdk/build-tools" -name apksigner -type f | sort | tail -n 1)"
-          fi
-          if [ -z "$apksigner" ]; then
-            echo "::error::apksigner not found under $sdk/build-tools. Cannot verify production signature."
-            exit 1
-          fi
-          expected_sha256="5da621d8e6f5c4ffb7396de3fbf686f3bf61bcec71cccffba9bbbbdef56285fc"
-          for apk in "${apks[@]}"; do
-            echo "Verifying $apk"
-            certs="$("$apksigner" verify --print-certs "$apk")"
-            printf '%s\n' "$certs"
-            if printf '%s\n' "$certs" | grep -Ei 'CN=Android Debug|Android Debug'; then
-              echo "::error::$apk is signed with the Android Debug certificate. Refusing to attach it to a release."
-              exit 1
-            fi
-            got_sha256="$(printf '%s\n' "$certs" | sed -n 's/.*SHA-256 digest:[[:space:]]*//p' | head -n 1 | tr 'A-F' 'a-f' | tr -d ' :')"
-            if [ "$got_sha256" != "$expected_sha256" ]; then
-              echo "::error::$apk certificate SHA-256 does not match the StreamBridge production upload certificate."
-              exit 1
-            fi
-          done
-          sha256sum "${apks[@]}" | tee checksums.sha256
-
-      - name: Require expected production APKs
-        run: |
-          set -euo pipefail
-          missing=0
-          for f in \
-            androidApp/build/outputs/apk/full/release/androidApp-full-arm64-v8a-release.apk \
-            androidApp/build/outputs/apk/full/release/androidApp-full-armeabi-v7a-release.apk \
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86-release.apk \
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86_64-release.apk \
-            checksums.sha256
-          do
-            if [ ! -f "$f" ]; then
-              echo "::error::Missing required production asset: $f"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Upload production-signed APKs
-        uses: actions/upload-artifact@v6
+        run: python3 .github/configure_runtime.py
+      - run: bash .github/setup_android_sdk.sh
+      - uses: gradle/actions/setup-gradle@v6
         with:
-          name: StreamBridge-production-full-release-apk
-          path: |
-            androidApp/build/outputs/apk/full/release/androidApp-full-arm64-v8a-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-armeabi-v7a-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86_64-release.apk
-            checksums.sha256
+          cache-read-only: true
+      - name: Run the stable shared and Android unit suites
+        run: ./gradlew :composeApp:check :androidApp:testFullDebugUnitTest --stacktrace
+      - name: Build minified production APKs and AAB
+        run: |
+          ./gradlew :androidApp:assembleFullRelease --stacktrace
+          test -s androidApp/build/outputs/mapping/fullRelease/mapping.txt
+          python3 .github/package_android.py --production
+          ./gradlew :androidApp:clean :androidApp:bundleFullRelease --stacktrace
+          python3 .github/package_android.py --production --aab-only
+          python3 .github/apk-size-report.py build/artifacts/android > build/artifacts/android/apk-size-report.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-production-Android
+          path: build/artifacts/android/
           if-no-files-found: error
+      - name: Preserve test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-production-Android-test-reports
+          path: composeApp/build/reports/tests/
+          if-no-files-found: ignore
+      - name: Delete signing/runtime inputs
+        if: always()
+        run: rm -f "$RUNNER_TEMP/streambridge-upload.jks" local.properties
 
-      - name: Ensure git tag and draft GitHub Release
+  ios:
+    name: Production iOS profiles, archive and signed IPA
+    needs: prepare
+    if: needs.prepare.outputs.target == 'both' || needs.prepare.outputs.target == 'ios'
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.konan
+            .cache/ios
+          key: streambridge-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml', '.gitmodules', 'scripts/prepare-ios-dependencies.sh') }}
+      - name: Resolve Apple dependencies and validate Release configuration before signing
+        run: |
+          ./scripts/prepare-ios-dependencies.sh
+          xcodebuild -version
+          xcodebuild -resolvePackageDependencies -project iosApp/iosApp.xcodeproj -scheme StreamBridge
+          xcodebuild -showBuildSettings -project iosApp/iosApp.xcodeproj -scheme StreamBridge -configuration Release CODE_SIGNING_ALLOWED=NO > "$RUNNER_TEMP/streambridge-ios-build-settings.txt"
+      - name: Require and validate StreamBridge Apple signing credentials
+        id: signing
+        env:
+          IOS_DISTRIBUTION_P12_BASE64: ${{ secrets.IOS_DISTRIBUTION_P12_BASE64 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_APP_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APP_PROVISIONING_PROFILE_BASE64 }}
+          IOS_WIDGET_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_WIDGET_PROVISIONING_PROFILE_BASE64 }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_EXPORT_METHOD: ${{ inputs.ios_export_method || 'release-testing' }}
+        run: python3 .github/prepare_ios_signing.py
+      - name: Optional runtime API/OAuth configuration
+        env:
+          NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+        run: python3 .github/configure_runtime.py
+      - name: Archive and export the signed StreamBridge IPA
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          IOS_APP_PROFILE_UUID: ${{ steps.signing.outputs.app_profile }}
+          IOS_WIDGET_PROFILE_UUID: ${{ steps.signing.outputs.widget_profile }}
+          IOS_EXPORT_OPTIONS: ${{ steps.signing.outputs.export_options }}
+        run: ./scripts/build-ios-archive.sh signed
+      - uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-production-iOS
+          path: build/artifacts/ios/
+          if-no-files-found: error
+      - name: Remove private signing files, restore keychains and clear runtime properties
+        if: always()
+        run: |
+          python3 .github/prepare_ios_signing.py --cleanup
+          rm -f local.properties
+
+  draft:
+    name: Coordinate StreamBridge Android and iOS draft assets
+    needs: [prepare, android, ios]
+    if: >-
+      always() && needs.prepare.result == 'success' && needs.prepare.outputs.mode == 'draft' &&
+      (needs.android.result == 'success' || needs.prepare.outputs.target == 'ios') &&
+      (needs.ios.result == 'success' || needs.prepare.outputs.target == 'android')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: StreamBridge-production-*
+          path: build/release-inputs
+      - name: Stage only validated production assets and combined checksums
+        env:
+          RELEASE_TARGET: ${{ needs.prepare.outputs.target }}
+        run: python3 .github/stage_release.py
+      - name: Create or update a draft for this exact source commit
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
-          set -euo pipefail
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
-          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
-            tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
-            echo "Using existing tag ${TAG} -> ${tagged}"
-          else
-            git tag "${TAG}" "${GITHUB_SHA}"
-            git push origin "refs/tags/${TAG}"
-            echo "Created tag ${TAG} -> ${GITHUB_SHA}"
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$GITHUB_SHA" || { echo '::error::Existing release tag points at a different source commit.'; exit 1; }
           fi
-
-          assets=(
-            androidApp/build/outputs/apk/full/release/androidApp-full-arm64-v8a-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-armeabi-v7a-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86_64-release.apk
-            checksums.sha256
-          )
-          notes="$(mktemp)"
-          cat > "$notes" <<EOF
-          StreamBridge ${TAG}
-
-          Based on NuvioMobile $(grep '^NUVIO_UPSTREAM_RELEASE=' streambridge.version.properties | cut -d= -f2) ($(grep '^NUVIO_UPSTREAM_COMMIT=' streambridge.version.properties | cut -d= -f2)).
-
-          Draft only — publish after device validation. In-app updates require this production certificate (docs/SIGNING.md). CI debug-signed APKs are not updates.
-          EOF
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "${assets[@]}" --clobber
-            gh release edit "${TAG}" --title "StreamBridge ${TAG}" --draft
+          args=()
+          if [[ "$RELEASE_PRERELEASE" == true ]]; then args=(--prerelease); fi
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-is-draft" 2>/dev/null; then
+            test "$(cat "$RUNNER_TEMP/release-is-draft")" = true || { echo '::error::Refusing to overwrite an already published release.'; exit 1; }
+            gh release upload "$RELEASE_TAG" build/release-assets/* --clobber
+            gh release edit "$RELEASE_TAG" --title "StreamBridge $RELEASE_VERSION" --notes-file "docs/RELEASE-NOTES-$RELEASE_VERSION.md" "${args[@]}"
           else
-            gh release create "${TAG}" "${assets[@]}" \
-              --draft \
-              --target "${GITHUB_SHA}" \
-              --title "StreamBridge ${TAG}" \
-              --notes-file "$notes"
+            gh release create "$RELEASE_TAG" build/release-assets/* --draft "${args[@]}" \
+              --target "$GITHUB_SHA" --title "StreamBridge $RELEASE_VERSION" \
+              --notes-file "docs/RELEASE-NOTES-$RELEASE_VERSION.md"
           fi
-
-          gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,assets --jq '{tagName,isDraft,isPrerelease,assets:[.assets[].name]}'
