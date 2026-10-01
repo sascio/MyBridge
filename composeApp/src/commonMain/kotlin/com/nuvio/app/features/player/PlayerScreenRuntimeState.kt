@@ -28,7 +28,6 @@ internal class PlayerScreenRuntime(
     args: PlayerScreenArgs,
 ) {
     var args by mutableStateOf(args)
-    var randomEpisodePlayback by mutableStateOf(false)
 
     val title: String get() = args.title
     val profileId: Int get() = args.profileId
@@ -97,7 +96,9 @@ internal class PlayerScreenRuntime(
 
     var gestureController: PlayerGestureController? = null
 
+    var controlsActivityTick by mutableStateOf(0)
     var controlsVisible by mutableStateOf(false)
+    var showRemainingTime by mutableStateOf(false)
     var playerControlsLocked by mutableStateOf(false)
     private val shouldResolveInitialPlayerQuality: Boolean
         get() = torrentInfoHash == null &&
@@ -146,6 +147,7 @@ internal class PlayerScreenRuntime(
     var resizeMode by mutableStateOf(playerSettingsUiState.resizeMode)
     var layoutSize by mutableStateOf(IntSize.Zero)
     var playbackSnapshot by mutableStateOf(PlayerPlaybackSnapshot())
+    var playbackSnapshotKey by mutableStateOf<PlaybackKey?>(null)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)
@@ -197,10 +199,14 @@ internal class PlayerScreenRuntime(
     var nextEpisodeInfo by mutableStateOf<NextEpisodeInfo?>(null)
     var showNextEpisodeCard by mutableStateOf(false)
     var nextEpisodeCardDismissed by mutableStateOf(false)
+    var showMovieRecommendationCard by mutableStateOf(false)
+    var movieRecommendationDismissedStage by mutableStateOf(0)
+    val isMoviePlayback: Boolean get() = parentMetaType == "movie" && !isLiveTvPlayback
     var nextEpisodeAutoPlaySearching by mutableStateOf(false)
     var nextEpisodeAutoPlaySourceName by mutableStateOf<String?>(null)
     var nextEpisodeAutoPlayCountdown by mutableStateOf<Int?>(null)
     var nextEpisodeAutoPlayJob by mutableStateOf<Job?>(null)
+    var nextEpisodeAutoPlayAutomatic by mutableStateOf(false)
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
@@ -209,6 +215,7 @@ internal class PlayerScreenRuntime(
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
     var showStreamInfoModal by mutableStateOf(false)
+    var showUserRatingSheet by mutableStateOf(false)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
     var subtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
     var selectedAudioIndex by mutableStateOf(-1)
@@ -225,6 +232,9 @@ internal class PlayerScreenRuntime(
     var trackPreferenceRestoreApplied by mutableStateOf(false)
     var subtitleDelayMs by mutableStateOf(0)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
+    var showSubtitleSyncByEar by mutableStateOf(false)
+    var subtitleSyncHeardPositionMs by mutableStateOf<Long?>(null)
+    var subtitleSyncSawPositionMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleShowing by mutableStateOf(false)
     var autoSubtitleRewindWatermarkMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleMuteActive by mutableStateOf(false)
@@ -236,6 +246,7 @@ internal class PlayerScreenRuntime(
             showSubtitleModal ||
             showVideoSettingsModal ||
             showStreamInfoModal ||
+            showUserRatingSheet ||
             showSourcesPanel ||
             showQualityPanel ||
             showEpisodesPanel ||
@@ -245,6 +256,6 @@ internal class PlayerScreenRuntime(
             episodeStreamsPanelState.showStreams
 
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
-    var lastResetPlaybackIdentity: String? = null
+    var lastResetPlaybackIdentity: PlaybackKey? = null
     var lastResetVideoIdentity: String? = null
 }

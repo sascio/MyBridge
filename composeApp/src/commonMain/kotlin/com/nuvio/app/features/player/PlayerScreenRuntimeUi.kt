@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.watching.application.WatchingState
+import com.nuvio.app.features.home.MetaPreview
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -7,14 +9,21 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
+import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
@@ -22,6 +31,12 @@ import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
+import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.features.ratings.UserRatingPlayerOverlay
+import com.nuvio.app.features.ratings.rememberCanRate
+import com.nuvio.app.features.ratings.rememberUserRating
+import com.nuvio.app.features.ratings.toUserRatingTarget
+import com.nuvio.app.features.tracking.TrackingRatingTarget
 import nuvio.composeapp.generated.resources.*
 
 @Composable
@@ -231,50 +246,61 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             ),
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activePlaybackSourceUrl
+        val playbackKey = activePlaybackKey
         val initialPositionRequestKey = currentInitialPositionRequestKey()
         if (playerSurfaceSourceUrl != null) {
-            PlatformPlayerSurface(
-                sourceUrl = playerSurfaceSourceUrl,
-                sourceAudioUrl = activeSourceAudioUrl,
-                sourceHeaders = activeSourceHeaders,
-                sourceResponseHeaders = activeSourceResponseHeaders,
-                externalSubtitles = externalSubtitles,
-                streamType = activeStreamType,
-                modifier = Modifier.fillMaxSize(),
-                playWhenReady = shouldPlay,
-                initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
-                initialPositionRequestKey = initialPositionRequestKey,
-                resizeMode = resizeMode,
-                onInitialPositionHandled = { key, handled ->
-                    if (key == currentInitialPositionRequestKey()) {
-                        initialSeekApplied = handled
-                    }
-                },
-                onControllerReady = { controller ->
-                    playerController = controller
-                    playerControllerSourceUrl = playerSurfaceSourceUrl
-                },
-                onSnapshot = { snapshot ->
-                    playbackSnapshot = snapshot
-                    checkAutoSubtitleRewindWatermark(snapshot.positionMs)
-                    refreshAudioTracksIfChanged()
-                    if (!snapshot.isLoading) initialLoadCompleted = true
-                    if (snapshot.isEnded) {
-                        shouldPlay = false
-                        controlsVisible = !playerControlsLocked
-                    }
-                },
-                onError = { message ->
-                    if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
-                        return@PlatformPlayerSurface
-                    }
-                    errorMessage = message
-                    if (message != null) {
-                        controlsVisible = !playerControlsLocked
-                        removeFailedStreamFromCache()
-                    }
-                },
-            )
+            key(playbackKey) {
+                val active = remember { mutableStateOf(true) }
+                DisposableEffect(Unit) {
+                    onDispose { active.value = false }
+                }
+                PlatformPlayerSurface(
+                    sourceUrl = playerSurfaceSourceUrl,
+                    sourceAudioUrl = activeSourceAudioUrl,
+                    sourceHeaders = activeSourceHeaders,
+                    sourceResponseHeaders = activeSourceResponseHeaders,
+                    externalSubtitles = externalSubtitles,
+                    streamType = activeStreamType,
+                    modifier = Modifier.fillMaxSize(),
+                    playWhenReady = shouldPlay,
+                    initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
+                    initialPositionRequestKey = initialPositionRequestKey,
+                    resizeMode = resizeMode,
+                    onInitialPositionHandled = { key, handled ->
+                        if (active.value && playbackKey == activePlaybackKey && key == currentInitialPositionRequestKey()) {
+                            initialSeekApplied = handled
+                        }
+                    },
+                    onControllerReady = { controller ->
+                        if (active.value && playbackKey == activePlaybackKey) {
+                            playerController = controller
+                            playerControllerSourceUrl = playerSurfaceSourceUrl
+                        }
+                    },
+                    onSnapshot = { snapshot ->
+                        if (!active.value || !updatePlaybackSnapshot(snapshot, playbackKey)) return@PlatformPlayerSurface
+                        checkAutoSubtitleRewindWatermark(snapshot.positionMs)
+                        refreshAudioTracksIfChanged()
+                        if (!snapshot.isLoading) initialLoadCompleted = true
+                        if (snapshot.isEnded) {
+                            shouldPlay = false
+                            controlsVisible = !playerControlsLocked
+                        }
+                    },
+                    onError = { message ->
+                        if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
+                        if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
+                            return@PlatformPlayerSurface
+                        }
+                        errorMessage = message
+                        if (message != null) {
+                            scrubbingPositionMs = null
+                            controlsVisible = !playerControlsLocked
+                            removeFailedStreamFromCache()
+                        }
+                    },
+                )
+            }
         }
 
         AnimatedVisibility(
@@ -308,6 +334,18 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             p2pRebufferMessage = p2pRebufferMessage,
             p2pRebufferProgress = p2pRebufferProgress,
         )
+        SubtitleSyncByEarCard(
+            visible = showSubtitleSyncByEar,
+            subtitleDelayMs = subtitleDelayMs,
+            heardCaptured = subtitleSyncHeardPositionMs != null,
+            sawCaptured = subtitleSyncSawPositionMs != null,
+            onHeard = { captureSubtitleSyncHeard() },
+            onSaw = { captureSubtitleSyncSaw() },
+            onClose = { closeSubtitleSyncByEar() },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
+        )
         RenderPlayerModals(displayedPositionMs = displayedPositionMs)
     }
 }
@@ -333,6 +371,9 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
+    val userRatingTarget = currentUserRatingTarget()
+    val canRate = rememberCanRate(userRatingTarget)
+    val userRating = rememberUserRating(userRatingTarget.takeIf { canRate })
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -351,6 +392,17 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             metrics = metrics,
             resizeMode = resizeMode,
             isLocked = playerControlsLocked,
+            useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
+            showRemainingTime = showRemainingTime,
+            onRuntimeClick = { showRemainingTime = !showRemainingTime },
+            releaseInfo = metaUiState.meta?.takeIf { it.id == parentMetaId }?.releaseInfo,
+            hideDetails = activeSkipInterval != null && !skipIntervalDismissed,
+            onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true && !nextEpisodeAutoPlaySearching && nextEpisodeAutoPlayCountdown == null) {
+                {
+                    playNextEpisode()
+                }
+            } else null,
+            onInteraction = { controlsActivityTick += 1 },
             showPlaybackControls = controlsVisible,
             onLockToggle = {
                 if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
@@ -396,6 +448,10 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                 )
                 showStreamInfoModal = true
             },
+            onRateClick = if (canRate) {
+                { showUserRatingSheet = true }
+            } else null,
+            userRating = userRating,
             onVideoSettingsClick = if (isIos) {
                 {
                     showVideoSettingsModal = true
@@ -445,6 +501,8 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                             streamTitle = activeStreamTitle,
                             sourceHeaders = activeSourceHeaders,
                             resumePositionMs = playbackSnapshot.positionMs,
+                            durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
+                            playbackSession = playbackSession,
                             subtitles = loadedSubtitles,
                             season = activeSeasonNumber,
                             episode = activeEpisodeNumber,
@@ -477,10 +535,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                 scrubbingPositionMs = positionMs
             },
             onScrubFinished = { positionMs ->
-                // Respect the manual destination while the player's seek is still asynchronous.
-                lastManualSkipSeekPositions = playbackSnapshot.positionMs to positionMs
-                isScrubbingTimeline = false
-                scrubbingPositionMs = null
+                finishTimelineScrub(positionMs)
                 playerController?.seekTo(positionMs)
                 scheduleProgressSyncAfterSeek()
             },
@@ -504,7 +559,9 @@ private fun BoxScope.RenderPlaybackOverlays(
     runtime.run {
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
+            useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
             lockedOverlayVisible = lockedOverlayVisible,
+            showRemainingTime = showRemainingTime,
             playbackSnapshot = playbackSnapshot,
         displayedPositionMs = displayedPositionMs,
         metrics = metrics,
@@ -573,16 +630,30 @@ private fun BoxScope.RenderPlaybackOverlays(
         nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
         onPlayNextEpisode = {
-            nextEpisodeAutoPlayJob?.cancel()
             playNextEpisode()
         },
         onDismissNextEpisode = {
-            nextEpisodeAutoPlayJob?.cancel()
+            cancelNextEpisodeAutoPlay()
             nextEpisodeCardDismissed = true
             showNextEpisodeCard = false
-            nextEpisodeAutoPlaySearching = false
-            nextEpisodeAutoPlaySourceName = null
-            nextEpisodeAutoPlayCountdown = null
+        },
+        movieRecommendations = if (isMoviePlayback && args.onOpenMetaDetails != null) {
+            movieRecommendationCandidates
+        } else {
+            emptyList()
+        },
+        showMovieRecommendationCard = showMovieRecommendationCard,
+        onOpenMovieRecommendation = { preview ->
+            flushWatchProgress()
+            args.onOpenMetaDetails?.invoke(preview)
+        },
+        onDismissMovieRecommendations = {
+            movieRecommendationDismissedStage = PlayerNextEpisodeRules.movieRecommendationStage(
+                positionMs = playbackSnapshot.positionMs,
+                durationMs = playbackSnapshot.durationMs,
+                isEnded = playbackSnapshot.isEnded,
+            )
+            showMovieRecommendationCard = false
         },
         errorMessage = errorMessage,
             onDismissError = {
@@ -695,6 +766,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onSubtitleStyleChanged = PlayerSettingsRepository::setSubtitleStyle,
         onSubtitleDelayChanged = { delayMs -> setSubtitleDelay(delayMs) },
         onSubtitleDelayReset = { setSubtitleDelay(0) },
+        onSyncByEarClick = { openSubtitleSyncByEar() },
         onAutoSyncCapture = { captureSubtitleAutoSyncTime() },
         onAutoSyncCueSelected = { cue -> applySubtitleAutoSyncCue(cue) },
         onAutoSyncReload = { loadSubtitleAutoSyncCues(force = true) },
@@ -828,4 +900,45 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         mediaInfoJson = playbackSnapshot.mediaInfoJson,
         onStreamInfoModalDismissed = { showStreamInfoModal = false },
     )
+
+    if (showUserRatingSheet) {
+        currentUserRatingTarget()?.let { target ->
+            UserRatingPlayerOverlay(
+                target = target,
+                title = activeEpisodeTitle?.takeIf { target.episode != null && it.isNotBlank() } ?: title,
+                subtitle = if (target.episode != null) {
+                    listOfNotNull(
+                        title,
+                        localizedSeasonEpisodeCode(target.season, target.episode),
+                    ).joinToString(" · ")
+                } else {
+                    null
+                },
+                onDismiss = {
+                    showUserRatingSheet = false
+                    controlsVisible = true
+                },
+            )
+        }
+    }
 }
+
+/** The movie or episode currently playing, for in-player rating. */
+@Composable
+private fun PlayerScreenRuntime.currentUserRatingTarget(): TrackingRatingTarget? =
+    remember(parentMetaId, contentType, parentMetaType, activeVideoId, activeSeasonNumber, activeEpisodeNumber) {
+        if (isLiveTvPlayback) null else currentTrackingMedia().toUserRatingTarget()
+    }
+
+private const val MOVIE_RECOMMENDATION_LIMIT = 10
+
+internal val PlayerScreenRuntime.movieRecommendationCandidates: List<MetaPreview>
+    get() {
+        val watchedKeys = watchedUiState.watchedKeys
+        return playerMeta?.moreLikeThis.orEmpty()
+            .asSequence()
+            .filterNot { it.id == parentMetaId }
+            .filterNot { WatchingState.isPosterWatched(watchedKeys = watchedKeys, item = it) }
+            .take(MOVIE_RECOMMENDATION_LIMIT)
+            .toList()
+    }

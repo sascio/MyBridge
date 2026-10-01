@@ -1,10 +1,11 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.core.ui.LocalNuvioTabletNavLayout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -24,7 +25,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.floatingNavigationGlowSupported
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
-import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.labelRes
@@ -67,6 +67,8 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.lazy.itemsIndexed
+import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 
 internal fun LazyListScope.appearanceSettingsContent(
     isTablet: Boolean,
@@ -115,6 +117,7 @@ internal fun LazyListScope.appearanceSettingsContent(
         var showTabBarBehaviorSheet by remember { mutableStateOf(false) }
         var showAppIconPicker by remember { mutableStateOf(false) }
         val glowEnabled by ThemeSettingsRepository.navBarGlowEnabled.collectAsStateWithLifecycle()
+        val navBarPosition by ThemeSettingsRepository.navBarPosition.collectAsStateWithLifecycle()
         // Upstream pins tablets to COMPACT because there the bar is a top rail. This fork puts
         // the floating pill at the bottom on every size, so the chosen style still applies.
         val effectiveNavBarStyle = selectedNavBarStyle
@@ -244,10 +247,13 @@ internal fun LazyListScope.appearanceSettingsContent(
                 // Passing false keeps the style list visible on tablets: the sheet hides it when
                 // isTablet is true, which only fits upstream's tablet top rail.
                 isTablet = false,
+                tabletLayout = LocalNuvioTabletNavLayout.current,
                 selectedStyle = effectiveNavBarStyle,
                 onStyleSelected = onNavBarStyleSelected,
                 glowEnabled = glowEnabled,
                 onGlowChanged = ThemeSettingsRepository::setNavBarGlowEnabled,
+                selectedPosition = navBarPosition,
+                onPositionSelected = ThemeSettingsRepository::setNavBarPosition,
                 onDismiss = { showNavBarStyleSheet = false },
             )
         }
@@ -367,12 +373,10 @@ private fun AppearanceLanguageBottomSheet(
                 )
             }
 
-            itemsIndexed(options) { index, option ->
-                if (index > 0) {
-                    NuvioBottomSheetDivider()
-                }
+            items(options) { option ->
                 NuvioBottomSheetActionRow(
                     title = stringResource(option.labelRes),
+                    selected = option.language == selectedLanguage,
                     onClick = {
                         onLanguageSelected(option.language)
                         coroutineScope.launch {

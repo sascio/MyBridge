@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -50,7 +53,10 @@ import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioActionLabel
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioSectionLabel
+import com.nuvio.app.core.ui.accentBrush
+import com.nuvio.app.core.ui.gradientMask
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.features.home.HomeCatalogSettingsItem
 import nuvio.composeapp.generated.resources.Res
@@ -187,6 +193,11 @@ internal fun SettingsSidebarItem(
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
+                    modifier = if (selected) {
+                        Modifier.gradientMask(MaterialTheme.themePalette.accentBrush())
+                    } else {
+                        Modifier
+                    },
                     tint = if (selected) primary else contentColor,
                 )
             }
@@ -310,6 +321,7 @@ internal fun SettingsNavigationRow(
                             Icon(
                                 imageVector = icon,
                                 contentDescription = null,
+                                modifier = Modifier.gradientMask(MaterialTheme.themePalette.accentBrush()),
                                 tint = tokens.colors.accent,
                             )
                         }
@@ -394,6 +406,53 @@ internal fun SettingsSwitchRow(
                 uncheckedTrackColor = tokens.colors.borderDefault,
             ),
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+internal fun SettingsChipRow(
+    title: String,
+    description: String,
+    isTablet: Boolean,
+    footer: String? = null,
+    chips: @Composable FlowRowScope.() -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = if (isTablet) 20.dp else 16.dp,
+                vertical = if (isTablet) 16.dp else 14.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = tokens.colors.textPrimary,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = tokens.colors.textMuted,
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            content = chips,
+        )
+        if (footer != null) {
+            Text(
+                text = footer,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
+        }
     }
 }
 
@@ -546,33 +605,6 @@ internal fun HomescreenCatalogRow(
                     ),
                 )
             }
-        }
-    }
-}
-
-@Composable
-internal fun SettingsDialogSurface(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = tokens.shapes.dialog,
-        color = tokens.colors.surfaceDialog,
-    ) {
-        Column(
-            modifier = Modifier.padding(tokens.spacing.dialogPadding),
-            verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = tokens.colors.textPrimary,
-                fontWeight = FontWeight.SemiBold,
-            )
-            content()
-            Spacer(modifier = Modifier.height(NuvioTokens.Space.s2))
         }
     }
 }

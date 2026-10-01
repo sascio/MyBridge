@@ -1,7 +1,12 @@
 package com.nuvio.app.features.catalog
 
+import com.nuvio.app.core.poster.CustomPosterUrlRepository
+import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.details.MoreLikeThisSource
+import com.nuvio.app.features.simkl.SimklRelatedRepository
+import com.nuvio.app.features.details.MoreLikeThisPage
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.tmdb.TmdbMetadataService
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
 import com.nuvio.app.features.trakt.TraktRelatedRepository
@@ -100,7 +105,9 @@ object CatalogRepository {
             try {
                 val target = request.target as CatalogTarget.Library
                 LibraryRepository.ensureLoaded()
-                LibraryRepository.uiState.libraryCatalogStates(target).collect { state ->
+                LibraryRepository.uiState.libraryCatalogStates(
+                    target, LibraryRepository.uiState.libraryCatalogOrders(target),
+                ).collect { state ->
                     if (activeRequest != request) return@collect
                     _uiState.value = state
                 }
@@ -173,8 +180,10 @@ object CatalogRepository {
                         loadedNewItems = loadedNewItems,
                         consecutiveDuplicatePages = if (reset) 0 else current.consecutiveDuplicatePages,
                     )
+                    CustomPosterUrlRepository.ensureLoaded()
+                    val posterPattern = CustomPosterUrlRepository.patternForScreen(com.nuvio.app.core.poster.CustomPosterScreen.HOME)
                     _uiState.value = CatalogUiState(
-                        items = mergedItems,
+                        items = mergedItems.withCustomPosterUrls(posterPattern),
                         isLoading = false,
                         nextSkip = paginationState.nextSkip,
                         consecutiveDuplicatePages = paginationState.consecutiveDuplicatePages,
@@ -246,6 +255,25 @@ private suspend fun fetchMoreLikeThisCatalogPage(
                 page = page,
                 settings = TmdbSettingsRepository.snapshot(),
             )
+        }
+
+        MoreLikeThisSource.SIMKL -> {
+            if (page > 1) {
+                MoreLikeThisPage()
+            } else {
+                val meta = MetaDetailsRepository.peek(type = target.itemType, id = target.itemId)
+                    ?: MetaDetailsRepository.fetch(type = target.itemType, id = target.itemId)
+                MoreLikeThisPage(
+                    items = meta?.let { details ->
+                        SimklRelatedRepository.getRelated(
+                            meta = details,
+                            fallbackItemId = target.itemId,
+                            fallbackItemType = target.itemType,
+                        )
+                    }.orEmpty(),
+                    hasMore = false,
+                )
+            }
         }
     }
     return CatalogPage(

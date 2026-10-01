@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -151,6 +152,7 @@ internal data class AppTabActions(
     val onLibrarySectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)? = null,
     val onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     val onConnectCloudClick: (() -> Unit)? = null,
+    val onDownloadsClick: () -> Unit = {},
     val onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
     val onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
     val onLiveTvChannelClick: (LiveTvChannel) -> Unit = {},
@@ -160,7 +162,6 @@ internal data class AppTabActions(
     val onHomescreenSettingsClick: () -> Unit = {},
     val onMetaScreenSettingsClick: () -> Unit = {},
     val onContinueWatchingSettingsClick: () -> Unit = {},
-    val onDownloadsSettingsClick: () -> Unit = {},
     val onAddonsSettingsClick: () -> Unit = {},
     val onPluginsSettingsClick: () -> Unit = {},
     val onAccountSettingsClick: () -> Unit = {},
@@ -229,6 +230,7 @@ internal fun AppTabHost(
                     onSectionViewAllClick = actions.onLibrarySectionViewAllClick,
                     onCloudFilePlay = actions.onCloudFilePlay,
                     onConnectCloudClick = actions.onConnectCloudClick,
+                    onDownloadsClick = actions.onDownloadsClick,
                     disintegrationRequest = state.libraryDisintegrationRequest,
                 )
             }
@@ -255,7 +257,6 @@ internal fun AppTabHost(
                     onHomescreenClick = actions.onHomescreenSettingsClick,
                     onMetaScreenClick = actions.onMetaScreenSettingsClick,
                     onContinueWatchingClick = actions.onContinueWatchingSettingsClick,
-                    onDownloadsClick = actions.onDownloadsSettingsClick,
                     onAddonsClick = actions.onAddonsSettingsClick,
                     onPluginsClick = actions.onPluginsSettingsClick,
                     onAccountClick = actions.onAccountSettingsClick,
@@ -279,14 +280,15 @@ internal fun TabletFloatingTopBar(
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
     modifier: Modifier = Modifier,
+    topInset: Dp? = null,
 ) {
     val tokens = MaterialTheme.nuvio
-    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarPadding = topInset ?: (WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + NuvioTokens.Space.s10)
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = statusBarPadding + NuvioTokens.Space.s10, bottom = tokens.spacing.controlGap),
+            .padding(top = statusBarPadding, bottom = tokens.spacing.controlGap),
         contentAlignment = Alignment.TopCenter,
     ) {
         Surface(

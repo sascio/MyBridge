@@ -21,6 +21,7 @@ fun PlayerScreen(
     onBack: () -> Unit,
     onOpenInExternalPlayer: ((ExternalPlayerPlaybackRequest) -> Unit)? = null,
     onOpenExternalUrl: ((String) -> Unit)? = null,
+    onOpenMetaDetails: ((com.nuvio.app.features.home.MetaPreview) -> Unit)? = null,
     modifier: Modifier = Modifier,
     logo: String? = null,
     poster: String? = null,
@@ -41,6 +42,7 @@ fun PlayerScreen(
     initialPositionMs: Long = 0L,
     initialProgressFraction: Float? = null,
     contentLanguage: String? = null,
+    launchId: Long? = null,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -60,6 +62,7 @@ fun PlayerScreen(
             onBack = onBack,
             onOpenInExternalPlayer = onOpenInExternalPlayer,
             onOpenExternalUrl = onOpenExternalUrl,
+            onOpenMetaDetails = onOpenMetaDetails,
             modifier = modifier,
             logo = logo,
             poster = poster,
@@ -80,6 +83,7 @@ fun PlayerScreen(
             initialPositionMs = initialPositionMs,
             initialProgressFraction = initialProgressFraction,
             contentLanguage = contentLanguage,
+            launchId = launchId,
         )
     )
 }

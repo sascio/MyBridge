@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
 import androidx.compose.foundation.background
@@ -140,7 +141,6 @@ fun SettingsScreen(
     onContinueWatchingClick: () -> Unit = {},
     onAddonsClick: () -> Unit = {},
     onPluginsClick: () -> Unit = {},
-    onDownloadsClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
@@ -455,6 +455,7 @@ fun SettingsScreen(
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
                         homescreenHeroTrailerStartDelaySeconds = homescreenSettingsUiState.heroTrailerStartDelaySeconds,
+                        homescreenHeroTrailerStartUnmuted = homescreenSettingsUiState.heroTrailerStartUnmuted,
                         homescreenShowCatalogType = homescreenSettingsUiState.showCatalogType,
                         homescreenHideUnreleasedContent = homescreenSettingsUiState.hideUnreleasedContent,
                         homescreenItems = homescreenSettingsUiState.items,
@@ -466,7 +467,6 @@ fun SettingsScreen(
                         onSwitchProfile = onSwitchProfile,
                         onEditProfile = onEditProfile,
                         onPosterClick = onPosterClick,
-                        onDownloadsClick = onDownloadsClick,
                         onSupportersContributorsClick = openSupportersContributors,
                         onLicensesAttributionsClick = openLicensesAttributions,
                         onPrivacyPolicyClick = openPrivacyPolicy,
@@ -532,6 +532,7 @@ fun SettingsScreen(
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
                         homescreenHeroTrailerStartDelaySeconds = homescreenSettingsUiState.heroTrailerStartDelaySeconds,
+                        homescreenHeroTrailerStartUnmuted = homescreenSettingsUiState.heroTrailerStartUnmuted,
                         homescreenShowCatalogType = homescreenSettingsUiState.showCatalogType,
                         homescreenHideUnreleasedContent = homescreenSettingsUiState.hideUnreleasedContent,
                         homescreenItems = homescreenSettingsUiState.items,
@@ -548,7 +549,6 @@ fun SettingsScreen(
                         onContinueWatchingClick = openContinueWatching,
                         onAddonsClick = openAddons,
                         onPluginsClick = openPlugins,
-                        onDownloadsClick = onDownloadsClick,
                         onAccountClick = openAccount,
                         onSupportersContributorsClick = openSupportersContributors,
                         onLicensesAttributionsClick = openLicensesAttributions,
@@ -621,6 +621,7 @@ private fun MobileSettingsScreen(
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
     homescreenHeroTrailerStartDelaySeconds: Int,
+    homescreenHeroTrailerStartUnmuted: Boolean,
     homescreenShowCatalogType: Boolean,
     homescreenHideUnreleasedContent: Boolean,
     homescreenItems: List<HomeCatalogSettingsItem>,
@@ -637,7 +638,6 @@ private fun MobileSettingsScreen(
     onContinueWatchingClick: () -> Unit = {},
     onAddonsClick: () -> Unit = {},
     onPluginsClick: () -> Unit = {},
-    onDownloadsClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
@@ -693,7 +693,6 @@ private fun MobileSettingsScreen(
                     SettingsPage.Downloads -> onPageChange(SettingsPage.Downloads)
                     else -> onPageChange(target.page)
                 }
-                SettingsSearchTarget.Downloads -> onDownloadsClick()
                 SettingsSearchTarget.Collections -> onCollectionsClick()
                 SettingsSearchTarget.SwitchProfile -> onSwitchProfile?.invoke()
                 SettingsSearchTarget.CheckForUpdates -> onCheckForUpdatesClick?.invoke()
@@ -713,12 +712,16 @@ private fun MobileSettingsScreen(
             }
         }
 
+        val profileDrawsOwnChrome = page == SettingsPage.Profile && showInternalHeader && !LocalUseNativeNavigation.current
+        ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
         NuvioScreen(
             modifier = Modifier.nestedScroll(rootSearchRevealConnection),
             listState = listState,
             autoHidesNativeTabBar = true,
+            topPadding = if (page == SettingsPage.Profile) 0.dp else null,
         ) {
-            if (showInternalHeader) {
+            if (profileDrawsOwnChrome) {
+            } else if (showInternalHeader) {
                 stickyHeader {
                     val previousPage = page.previousPage()
                     NuvioScreenHeader(
@@ -767,7 +770,6 @@ private fun MobileSettingsScreen(
                             onPrivacyPolicyClick = onPrivacyPolicyClick,
                             onCheckForUpdatesClick = onCheckForUpdatesClick,
                             onTestUpdateBannerClick = onTestUpdateBannerClick,
-                            onDownloadsClick = onDownloadsClick,
                             onAccountClick = onAccountClick,
                             onSwitchProfileClick = if (onSwitchProfile != null) {
                                 { onPageChange(SettingsPage.Profile) }
@@ -786,6 +788,7 @@ private fun MobileSettingsScreen(
                     onSwitchProfile = onSwitchProfile,
                     onEditProfile = onEditProfile,
                     onPosterClick = onPosterClick,
+                    onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
                 )
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
@@ -895,6 +898,7 @@ private fun MobileSettingsScreen(
                     heroEnabled = homescreenHeroEnabled,
                     heroTrailerPlaybackEnabled = homescreenHeroTrailerPlaybackEnabled,
                     heroTrailerStartDelaySeconds = homescreenHeroTrailerStartDelaySeconds,
+                    heroTrailerStartUnmuted = homescreenHeroTrailerStartUnmuted,
                     showCatalogType = homescreenShowCatalogType,
                     hideUnreleasedContent = homescreenHideUnreleasedContent,
                     items = homescreenItems,
@@ -942,6 +946,7 @@ private fun MobileSettingsScreen(
                     uiState = liveTvUiState,
                 )
             }
+        }
         }
     }
 }
@@ -1046,6 +1051,7 @@ private fun TabletSettingsScreen(
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
     homescreenHeroTrailerStartDelaySeconds: Int,
+    homescreenHeroTrailerStartUnmuted: Boolean,
     homescreenShowCatalogType: Boolean,
     homescreenHideUnreleasedContent: Boolean,
     homescreenItems: List<HomeCatalogSettingsItem>,
@@ -1057,7 +1063,6 @@ private fun TabletSettingsScreen(
     onSwitchProfile: (() -> Unit)? = null,
     onEditProfile: (() -> Unit)? = null,
     onPosterClick: ((MetaPreview) -> Unit)? = null,
-    onDownloadsClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onPrivacyPolicyClick: () -> Unit = {},
@@ -1137,7 +1142,6 @@ private fun TabletSettingsScreen(
                             openInlinePage(target.page)
                         }
                     }
-                    SettingsSearchTarget.Downloads -> onDownloadsClick()
                     SettingsSearchTarget.Collections -> onCollectionsClick()
                     SettingsSearchTarget.SwitchProfile -> onSwitchProfile?.invoke()
                     SettingsSearchTarget.CheckForUpdates -> onCheckForUpdatesClick?.invoke()
@@ -1173,6 +1177,7 @@ private fun TabletSettingsScreen(
                     listState.animateScrollToItem(0)
                 }
             }
+            ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -1241,7 +1246,6 @@ private fun TabletSettingsScreen(
                                 onPrivacyPolicyClick = { openInlinePage(SettingsPage.PrivacyPolicy) },
                                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                                 onTestUpdateBannerClick = onTestUpdateBannerClick,
-                                onDownloadsClick = onDownloadsClick,
                                 onAccountClick = { openInlinePage(SettingsPage.Account) },
                                 onSwitchProfileClick = if (onSwitchProfile != null) {
                                     { openInlinePage(SettingsPage.Profile) }
@@ -1373,6 +1377,7 @@ private fun TabletSettingsScreen(
                         heroEnabled = homescreenHeroEnabled,
                         heroTrailerPlaybackEnabled = homescreenHeroTrailerPlaybackEnabled,
                         heroTrailerStartDelaySeconds = homescreenHeroTrailerStartDelaySeconds,
+                        heroTrailerStartUnmuted = homescreenHeroTrailerStartUnmuted,
                         showCatalogType = homescreenShowCatalogType,
                         hideUnreleasedContent = homescreenHideUnreleasedContent,
                         items = homescreenItems,
@@ -1420,6 +1425,7 @@ private fun TabletSettingsScreen(
                         uiState = liveTvUiState,
                     )
                 }
+            }
             }
         }
     }

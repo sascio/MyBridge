@@ -3,6 +3,12 @@ package com.nuvio.app.features.player
 import kotlinx.serialization.json.JsonObject
 
 internal expect object PlayerSettingsStorage {
+    fun loadPendingExternalPlayback(): String?
+    fun savePendingExternalPlayback(value: String?)
+    fun loadPlaybackBrightness(): Float?
+    fun savePlaybackBrightness(level: Float)
+    fun loadUseLegacyPlayerLayout(): Boolean?
+    fun saveUseLegacyPlayerLayout(enabled: Boolean)
     fun loadShowLoadingOverlay(): Boolean?
     fun saveShowLoadingOverlay(enabled: Boolean)
     fun loadShowPlayerLoadingStatus(): Boolean?
@@ -21,6 +27,8 @@ internal expect object PlayerSettingsStorage {
     fun saveTouchGesturesEnabled(enabled: Boolean)
     fun loadSwipeToSeekEnabled(): Boolean?
     fun saveSwipeToSeekEnabled(enabled: Boolean)
+    fun loadMovieRecommendationsEnabled(): Boolean?
+    fun saveMovieRecommendationsEnabled(enabled: Boolean)
     fun loadAutoShowSubtitlesOnRewindEnabled(): Boolean?
     fun saveAutoShowSubtitlesOnRewindEnabled(enabled: Boolean)
     fun loadAutoShowSubtitlesOnMuteEnabled(): Boolean?

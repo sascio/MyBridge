@@ -45,18 +45,19 @@ internal typealias ContentPlayAction = (
 ) -> Unit
 
 @Composable
-private fun rememberOpenMeta(navController: NuvioNavigator): (MetaPreview) -> Unit {
+internal fun rememberOpenMeta(navController: NuvioNavigator): (MetaPreview) -> Unit {
     val scope = rememberCoroutineScope()
     return { preview ->
         scope.launch {
             val resolvedId = if (preview.id.startsWith("tmdb:")) {
                 val tmdbId = preview.id.removePrefix("tmdb:").toIntOrNull()
-                tmdbId?.let {
+                val resolved = tmdbId?.let {
                     TmdbService.tmdbToImdb(
                         tmdbId = it,
                         mediaType = preview.type,
                     )
                 } ?: preview.id
+                resolved
             } else {
                 preview.id
             }
@@ -78,6 +79,9 @@ internal fun DetailsDestination(
     navController: NuvioNavigator,
     onPlay: ContentPlayAction,
     onPlayManually: ContentPlayAction,
+    onDownload: ContentPlayAction,
+    onPlayExternally: ContentPlayAction,
+    onPlayFromStart: ContentPlayAction,
     sharedTransitionScope: SharedTransitionScope,
     animatedVisibilityScope: AnimatedVisibilityScope,
 ) {
@@ -95,6 +99,9 @@ internal fun DetailsDestination(
         onBack = onBack,
         onPlay = onPlay,
         onPlayManually = onPlayManually,
+        onDownload = onDownload,
+        onPlayExternally = onPlayExternally,
+        onPlayFromStart = onPlayFromStart,
         onOpenMeta = onOpenMeta,
         onOpenMoreLikeThis = { meta ->
             val source = meta.moreLikeThisSource

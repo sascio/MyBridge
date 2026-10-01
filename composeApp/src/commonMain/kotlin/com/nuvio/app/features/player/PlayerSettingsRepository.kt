@@ -33,6 +33,7 @@ fun snapToAllowedTimeout(value: Int): Int {
 }
 
 data class PlayerSettingsUiState(
+    val useLegacyPlayerLayout: Boolean = false,
     val showLoadingOverlay: Boolean = true,
     val showPlayerLoadingStatus: Boolean = true,
     val pauseOverlayEnabled: Boolean = true,
@@ -42,6 +43,7 @@ data class PlayerSettingsUiState(
     val holdToSpeedValue: Float = 2f,
     val touchGesturesEnabled: Boolean = true,
     val swipeToSeekEnabled: Boolean = true,
+    val movieRecommendationsEnabled: Boolean = true,
     val autoShowSubtitlesOnRewindEnabled: Boolean = true,
     val autoShowSubtitlesOnMuteEnabled: Boolean = true,
     val externalPlayerEnabled: Boolean = false,
@@ -75,7 +77,6 @@ data class PlayerSettingsUiState(
     val introDbApiKey: String = "",
     val introSubmitEnabled: Boolean = false,
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
-    val randomEpisodesIncludeWatched: Boolean = false,
     val streamAutoPlayNextEpisodeFallbackEnabled: Boolean = true,
     val streamAutoPlayPreferBingeGroup: Boolean = true,
     val streamAutoPlayReuseBingeGroup: Boolean = false,
@@ -106,6 +107,7 @@ object PlayerSettingsRepository {
     val uiState: StateFlow<PlayerSettingsUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private var useLegacyPlayerLayout = false
     private var showLoadingOverlay = true
     private var showPlayerLoadingStatus = true
     private var pauseOverlayEnabled = true
@@ -115,6 +117,7 @@ object PlayerSettingsRepository {
     private var holdToSpeedValue = 2f
     private var touchGesturesEnabled = true
     private var swipeToSeekEnabled = true
+    private var movieRecommendationsEnabled = true
     private var autoShowSubtitlesOnRewindEnabled = true
     private var autoShowSubtitlesOnMuteEnabled = true
     private var externalPlayerEnabled = false
@@ -148,7 +151,6 @@ object PlayerSettingsRepository {
     private var introDbApiKey = ""
     private var introSubmitEnabled = false
     private var streamAutoPlayNextEpisodeEnabled = false
-    private var randomEpisodesIncludeWatched = false
     private var streamAutoPlayNextEpisodeFallbackEnabled = true
     private var streamAutoPlayPreferBingeGroup = true
     private var streamAutoPlayReuseBingeGroup = false
@@ -184,6 +186,7 @@ object PlayerSettingsRepository {
 
     fun clearLocalState() {
         hasLoaded = false
+        useLegacyPlayerLayout = false
         showLoadingOverlay = true
         showPlayerLoadingStatus = true
         pauseOverlayEnabled = true
@@ -193,6 +196,7 @@ object PlayerSettingsRepository {
         holdToSpeedValue = 2f
         touchGesturesEnabled = true
         swipeToSeekEnabled = true
+        movieRecommendationsEnabled = true
         autoShowSubtitlesOnRewindEnabled = true
         autoShowSubtitlesOnMuteEnabled = true
         externalPlayerEnabled = false
@@ -254,6 +258,7 @@ object PlayerSettingsRepository {
 
     private fun loadFromDisk() {
         hasLoaded = true
+        useLegacyPlayerLayout = PlayerSettingsStorage.loadUseLegacyPlayerLayout() ?: false
         showLoadingOverlay = PlayerSettingsStorage.loadShowLoadingOverlay() ?: true
         showPlayerLoadingStatus = PlayerSettingsStorage.loadShowPlayerLoadingStatus() ?: true
         pauseOverlayEnabled = PlayerSettingsStorage.loadPauseOverlayEnabled() ?: true
@@ -265,6 +270,7 @@ object PlayerSettingsRepository {
         holdToSpeedValue = PlayerSettingsStorage.loadHoldToSpeedValue() ?: 2f
         touchGesturesEnabled = PlayerSettingsStorage.loadTouchGesturesEnabled() ?: true
         swipeToSeekEnabled = PlayerSettingsStorage.loadSwipeToSeekEnabled() ?: true
+        movieRecommendationsEnabled = PlayerSettingsStorage.loadMovieRecommendationsEnabled() ?: true
         autoShowSubtitlesOnRewindEnabled = PlayerSettingsStorage.loadAutoShowSubtitlesOnRewindEnabled() ?: true
         autoShowSubtitlesOnMuteEnabled = PlayerSettingsStorage.loadAutoShowSubtitlesOnMuteEnabled() ?: true
         externalPlayerEnabled = PlayerSettingsStorage.loadExternalPlayerEnabled() ?: false
@@ -396,6 +402,14 @@ object PlayerSettingsRepository {
         publish()
     }
 
+    fun setUseLegacyPlayerLayout(enabled: Boolean) {
+        ensureLoaded()
+        if (useLegacyPlayerLayout == enabled) return
+        useLegacyPlayerLayout = enabled
+        publish()
+        PlayerSettingsStorage.saveUseLegacyPlayerLayout(enabled)
+    }
+
     fun setShowLoadingOverlay(enabled: Boolean) {
         ensureLoaded()
         if (showLoadingOverlay == enabled) return
@@ -467,6 +481,14 @@ object PlayerSettingsRepository {
         swipeToSeekEnabled = enabled
         publish()
         PlayerSettingsStorage.saveSwipeToSeekEnabled(enabled)
+    }
+
+    fun setMovieRecommendationsEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (movieRecommendationsEnabled == enabled) return
+        movieRecommendationsEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveMovieRecommendationsEnabled(enabled)
     }
 
     fun setAutoShowSubtitlesOnRewindEnabled(enabled: Boolean) {
@@ -760,13 +782,6 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.saveStreamAutoPlayNextEpisodeEnabled(enabled)
     }
 
-    fun setRandomEpisodesIncludeWatched(enabled: Boolean) {
-        ensureLoaded()
-        if (randomEpisodesIncludeWatched == enabled) return
-        randomEpisodesIncludeWatched = enabled
-        publish()
-    }
-
     fun setStreamAutoPlayNextEpisodeFallbackEnabled(enabled: Boolean) {
         ensureLoaded()
         if (streamAutoPlayNextEpisodeFallbackEnabled == enabled) return
@@ -998,6 +1013,7 @@ object PlayerSettingsRepository {
 
     private fun publish() {
         _uiState.value = PlayerSettingsUiState(
+            useLegacyPlayerLayout = useLegacyPlayerLayout,
             showLoadingOverlay = showLoadingOverlay,
             showPlayerLoadingStatus = showPlayerLoadingStatus,
             pauseOverlayEnabled = pauseOverlayEnabled,
@@ -1007,6 +1023,7 @@ object PlayerSettingsRepository {
             holdToSpeedValue = holdToSpeedValue,
             touchGesturesEnabled = touchGesturesEnabled,
             swipeToSeekEnabled = swipeToSeekEnabled,
+            movieRecommendationsEnabled = movieRecommendationsEnabled,
             autoShowSubtitlesOnRewindEnabled = autoShowSubtitlesOnRewindEnabled,
             autoShowSubtitlesOnMuteEnabled = autoShowSubtitlesOnMuteEnabled,
             externalPlayerEnabled = externalPlayerEnabled,
@@ -1040,7 +1057,6 @@ object PlayerSettingsRepository {
             introDbApiKey = introDbApiKey,
             introSubmitEnabled = introSubmitEnabled,
             streamAutoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabled,
-            randomEpisodesIncludeWatched = randomEpisodesIncludeWatched,
             streamAutoPlayNextEpisodeFallbackEnabled = streamAutoPlayNextEpisodeFallbackEnabled,
             streamAutoPlayPreferBingeGroup = streamAutoPlayPreferBingeGroup,
             streamAutoPlayReuseBingeGroup = streamAutoPlayReuseBingeGroup,

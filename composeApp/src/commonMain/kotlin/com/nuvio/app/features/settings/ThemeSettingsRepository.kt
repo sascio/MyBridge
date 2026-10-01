@@ -4,6 +4,7 @@ import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.CustomThemeColors
 import com.nuvio.app.core.ui.NativeTabBridge
 import com.nuvio.app.core.ui.ThemeColors
+import com.nuvio.app.core.ui.nativeAccentGradientHex
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.membership.resolveCustomThemeColors
 import com.nuvio.app.features.membership.resolveAppTheme
@@ -49,6 +50,9 @@ object ThemeSettingsRepository {
     private val _navBarStyle = MutableStateFlow(NavBarStyle.ADAPTIVE)
     val navBarStyle: StateFlow<NavBarStyle> = _navBarStyle.asStateFlow()
 
+    private val _navBarPosition = MutableStateFlow(NavBarPosition.BOTTOM)
+    val navBarPosition: StateFlow<NavBarPosition> = _navBarPosition.asStateFlow()
+
     private val _navBarGlowEnabled = MutableStateFlow(true)
     val navBarGlowEnabled: StateFlow<Boolean> = _navBarGlowEnabled.asStateFlow()
 
@@ -76,12 +80,16 @@ object ThemeSettingsRepository {
         _liquidGlassNativeTabBarEnabled.value = NuvioTabBarBehavior.Default.isEnabled
         _dynamicArtworkBackgroundEnabled.value = false
         _showCatalogAccentEnabled.value = false
-        NativeTabBridge.publishAccentColor(AppTheme.WHITE.nativeTabAccentHex())
+        NativeTabBridge.publishAccentColor(
+            hexColor = AppTheme.WHITE.nativeTabAccentHex(),
+            gradientHexColors = ThemeColors.getColorPalette(AppTheme.WHITE).nativeAccentGradientHex(),
+        )
         NativeTabBridge.publishTabBarBehavior(NuvioTabBarBehavior.Default)
         NativeTabBridge.publishLiquidGlassEnabled(NuvioTabBarBehavior.Default.isEnabled)
         _selectedAppLanguage.value = AppLanguage.DEVICE
         _navBarGlowEnabled.value = true
         _navBarStyle.value = NavBarStyle.ADAPTIVE
+        _navBarPosition.value = NavBarPosition.BOTTOM
     }
 
     private fun loadFromDisk() {
@@ -115,6 +123,7 @@ object ThemeSettingsRepository {
         _selectedAppLanguage.value = appLanguage
         _navBarGlowEnabled.value = ThemeSettingsStorage.loadNavBarGlowEnabled() ?: true
         _navBarStyle.value = NavBarStyle.fromKey(ThemeSettingsStorage.loadNavBarStyle())
+        _navBarPosition.value = NavBarPosition.fromKey(ThemeSettingsStorage.loadNavBarPosition())
     }
 
     fun setCustomTheme(colors: CustomThemeColors) {
@@ -191,6 +200,13 @@ object ThemeSettingsRepository {
         ThemeSettingsStorage.saveNavBarStyle(style.key)
     }
 
+    fun setNavBarPosition(position: NavBarPosition) {
+        ensureLoaded()
+        if (_navBarPosition.value == position) return
+        _navBarPosition.value = position
+        ThemeSettingsStorage.saveNavBarPosition(position.key)
+    }
+
     fun setNavBarGlowEnabled(enabled: Boolean) {
         ensureLoaded()
         if (_navBarGlowEnabled.value == enabled) return
@@ -217,8 +233,10 @@ object ThemeSettingsRepository {
         )
         _customThemeColors.value = resolveCustomThemeColors(_customThemePreference.value, access.tier)
         _selectedTheme.value = effective
+        val palette = ThemeColors.getColorPalette(effective, _customThemeColors.value)
         NativeTabBridge.publishAccentColor(
-            ThemeColors.getColorPalette(effective, _customThemeColors.value).nativeAccentHex,
+            hexColor = palette.nativeAccentHex,
+            gradientHexColors = palette.nativeAccentGradientHex(),
         )
     }
 }
