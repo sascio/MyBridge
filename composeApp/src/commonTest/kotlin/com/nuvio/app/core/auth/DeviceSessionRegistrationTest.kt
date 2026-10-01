@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 
 class DeviceSessionRegistrationTest {
     @Test
-    fun buildsOfficialClientRegistrationPayload() {
+    fun buildsStreamBridgeRegistrationPayloadWithCompatibleInstallationId() {
         val params = buildDeviceRegistrationParams(
             installationId = "nuvio-mobile-installation",
             clientVersion = "1.2.3",
@@ -16,7 +16,7 @@ class DeviceSessionRegistrationTest {
         )
 
         assertEquals("nuvio-mobile-installation", params.getValue("p_installation_id").toString().trim('"'))
-        assertEquals("Nuvio Mobile", params.getValue("p_client_name").toString().trim('"'))
+        assertEquals("StreamBridge", params.getValue("p_client_name").toString().trim('"'))
         assertEquals("1.2.3", params.getValue("p_client_version").toString().trim('"'))
         assertEquals("Android 16", params.getValue("p_platform").toString().trim('"'))
         assertEquals("Google Pixel 9", params.getValue("p_device_name").toString().trim('"'))
