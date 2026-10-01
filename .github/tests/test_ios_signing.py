@@ -4,10 +4,12 @@ from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
+import os
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from prepare_ios_signing import validate_profile, APP_ID, WIDGET_ID
+from prepare_ios_signing import validate_profile, prepare, APP_ID, WIDGET_ID
 
 
 class IosSigningProfileTests(unittest.TestCase):
@@ -26,6 +28,12 @@ class IosSigningProfileTests(unittest.TestCase):
 
     def validate(self, profile=None, bundle=APP_ID, method='release-testing'):
         return validate_profile(profile or self.profile, self.team, bundle, method, self.now)
+
+    def test_missing_secrets_fail_at_signing_stage_before_tools_or_files(self):
+        with patch.dict(os.environ, {}, clear=True), patch('prepare_ios_signing.run') as apple_tool:
+            with self.assertRaisesRegex(ValueError, 'Missing required GitHub Secrets at iOS signing stage'):
+                prepare(Path('unused-signing-directory'), Path('unused-output'))
+            apple_tool.assert_not_called()
 
     def test_ad_hoc_app_profile_is_validated(self):
         self.assertEqual(self.validate(), self.profile['UUID'])
