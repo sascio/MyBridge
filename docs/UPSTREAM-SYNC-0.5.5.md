@@ -225,3 +225,22 @@ succeed in the temporary HLS quality-playlist writer. That conversion now uses
 pattern used in title-facts and subtitle storage. Filename/storage conventions
 and UTF-8 output stay compatible. A native regression test is added; it has not
 been executed in this Linux workspace and must run after toolchain access resumes.
+
+Run `36934863322` completed actual four-ABI/R8 APK and separate AAB packaging
+again and ran the shared/host suite. Its remaining failures distinguish target
+changes from regressions: portrait hero geometry is now 2:3, retry delay is capped
+at 30 seconds, subtitle downloads run concurrently but join before completion,
+and drag previews require crossing the target activation slop. Fixtures are
+adapted to those explicit contracts without skipping tests or disabling features.
+Android SDK-36 Robolectric explicitly requires JDK 21, so only Android validation/
+production workers use 21 (same as the stable fork's earlier CI); app dependencies
+and JVM bytecode targets remain pinned. Percentage-feedback assertions preserve
+StreamBridge's custom reading/unit display.
+
+Native optimized link still exhausted the in-process heap. Kotlin's exact
+`v2.4.10` NativeProperties and KotlinNativeToolRunner source confirms Native runs
+in the Gradle JVM by default, and `native.jvmArgs` is applied to separate-process
+execution. The next attempt explicitly enables
+`kotlin.native.disableCompilerDaemon=true` (the documented fork switch), budgets
+10 GiB for Native and 2 GiB for Gradle/1 GiB for the Kotlin daemon. No optimization
+phase, release flag, app feature or dependency version is disabled/substituted.

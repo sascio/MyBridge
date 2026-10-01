@@ -17,23 +17,24 @@ archive="${repository_root}/build/ios/StreamBridge-${version}.xcarchive"
 derived_data="${repository_root}/build/ios/DerivedData"
 mkdir -p "${output}"
 # Full Compose release linking exceeded the verified upstream 4608M heap on
-# macos-26. Keep optimizations enabled; budget 8 GiB for Native's whole-program
+# macos-26. Keep optimizations enabled; budget a separate 10 GiB JVM for Native's whole-program
 # analysis and pass it explicitly to Gradle rather than relying on project-env
-# aliases for daemon/system settings.
-export NUVIO_GRADLE_JVMARGS="${NUVIO_GRADLE_JVMARGS:--Xmx8g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M}"
-export NUVIO_KOTLIN_NATIVE_JVMARGS="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx8g}"
+# aliases for daemon/system settings. The verified KGP runs Native in the
+# Gradle JVM by default, where native.jvmArgs cannot change that process heap.
+export NUVIO_GRADLE_JVMARGS="${NUVIO_GRADLE_JVMARGS:--Xmx2048M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M}"
+export NUVIO_KOTLIN_NATIVE_JVMARGS="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx10g}"
 export NUVIO_IOS_DISTRIBUTION=full
 if [[ "${OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED:-NO}" == YES ]]; then
     echo 'Release archives must build the shared framework, not reuse an IDE override.' >&2
     exit 1
 fi
 export GRADLE_OPTS="${GRADLE_OPTS:--Dfile.encoding=UTF-8}"
-export KOTLIN_DAEMON_JVMARGS="${KOTLIN_DAEMON_JVMARGS:--Xmx2048M}"
+export KOTLIN_DAEMON_JVMARGS="${KOTLIN_DAEMON_JVMARGS:--Xmx1024M}"
 export CLANG_MODULE_CACHE_PATH="${derived_data}/ModuleCache.noindex"
 export SWIFTPM_MODULECACHE_OVERRIDE="${derived_data}/SwiftPMModuleCache.noindex"
 build_environment=(env
-    "ORG_GRADLE_PROJECT_org.gradle.jvmargs=${NUVIO_GRADLE_JVMARGS:--Xmx8g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M}"
-    "ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx8g}")
+    "ORG_GRADLE_PROJECT_org.gradle.jvmargs=${NUVIO_GRADLE_JVMARGS:--Xmx2048M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M}"
+    "ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx10g}")
 ./scripts/prepare-ios-dependencies.sh
 xcodebuild -version
 xcrun --sdk iphoneos --show-sdk-version
