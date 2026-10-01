@@ -56,7 +56,7 @@ internal class InfusePlaybackCallbacks(
 
     fun handleUrl(value: String): Boolean {
         val url = runCatching { Url(value) }.getOrNull() ?: return false
-        if (url.protocol.name != "nuvio" || url.host != "external-player") return false
+        if (url.protocol.name !in setOf("streambridge", "nuvio") || url.host != "external-player") return false
         val path = url.pathSegments.filter(String::isNotEmpty)
         if (path.size != 3 || path[0] != "infuse") return false
         val session = storedSession() ?: return true
@@ -104,7 +104,7 @@ internal fun buildInfusePlaybackUrl(request: ExternalPlayerPlaybackRequest, sess
         append(subtitle.url.encodeURLParameter())
     }
     append("&x-success=")
-    append("nuvio://external-player/infuse/$sessionId/success".encodeURLParameter())
+    append("streambridge://external-player/infuse/$sessionId/success".encodeURLParameter())
     append("&x-error=")
-    append("nuvio://external-player/infuse/$sessionId/error".encodeURLParameter())
+    append("streambridge://external-player/infuse/$sessionId/error".encodeURLParameter())
 }

@@ -24,7 +24,7 @@ internal class MdbListNetworkEngine(
         client.prepareRequest(mdbListRequestUrl(configuration, request)) {
             method = HttpMethod.parse(request.method.name)
             header("Accept", "application/json")
-            header("User-Agent", "Nuvio/${configuration.appVersion}")
+            header("User-Agent", "StreamBridge/${configuration.appVersion}")
             request.accessToken?.let { header("Authorization", "Bearer $it") }
             if (request.method == MdbListHttpMethod.POST || request.method == MdbListHttpMethod.PUT) {
                 header("Content-Type", if (request.form == null) "application/json" else "application/x-www-form-urlencoded")

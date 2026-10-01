@@ -16,7 +16,7 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
-private const val CLIENT_NAME = "Nuvio Mobile"
+private const val CLIENT_NAME = "StreamBridge"
 private val REGISTRATION_INTERVAL = 15.minutes
 
 internal data class DeviceClientMetadata(

@@ -63,4 +63,15 @@ class AppUrlBridgeTest {
     fun `does not treat non-host stremio link as addon install`() {
         assertNull(parseAppDeepLink("stremio://detail/series/tt0944947"))
     }
+    @Test
+    fun `StreamBridge generated links round trip and legacy links remain accepted`() {
+        val expected = AppDeepLink.Meta(type = "series", id = "tmdb:1399")
+        val url = buildMetaDeepLinkUrl("series", "tmdb:1399")
+        assertEquals("streambridge://meta?type=series&id=tmdb%3A1399", url)
+        assertEquals(expected, parseAppDeepLink(url))
+        assertEquals(AppDeepLink.Downloads, parseAppDeepLink(buildDownloadsDeepLinkUrl()))
+        assertEquals(AppDeepLink.Downloads, parseAppDeepLink("nuvio://downloads"))
+        assertNull(parseAppDeepLink("streambridge://auth/trakt?code=abc"))
+    }
+
 }

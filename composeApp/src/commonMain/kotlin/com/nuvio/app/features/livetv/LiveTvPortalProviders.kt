@@ -14,7 +14,7 @@ private const val STALKER_PLAYLIST_ID = "provider:stalker"
 private const val XTREAM_PLAYLIST_ID = "provider:xtream"
 
 private val portalJson = Json { ignoreUnknownKeys = true; isLenient = true }
-private val playlistRequestHeaders = mapOf("Accept" to "application/json, text/plain, */*", "User-Agent" to "Nuvio/1.0")
+private val playlistRequestHeaders = mapOf("Accept" to "application/json, text/plain, */*", "User-Agent" to "StreamBridge/1.0")
 private val streamRequestHeaders = mapOf("User-Agent" to "Mozilla/5.0", "Accept" to "*/*")
 
 internal suspend fun fetchXtreamChannels(settings: LiveTvXtreamSettings): List<LiveTvChannel> {

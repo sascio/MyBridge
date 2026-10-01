@@ -53,13 +53,13 @@ fun buildMetaDeepLinkUrl(
     type: String,
     id: String,
 ): String = buildString {
-    append("nuvio://meta?type=")
+    append("streambridge://meta?type=")
     append(type.trim().encodeURLParameter())
     append("&id=")
     append(id.trim().encodeURLParameter())
 }
 
-fun buildDownloadsDeepLinkUrl(): String = "nuvio://downloads"
+fun buildDownloadsDeepLinkUrl(): String = "streambridge://downloads"
 
 internal fun parseAppDeepLink(url: String): AppDeepLink? {
     val parsedUrl = runCatching { Url(url) }.getOrNull() ?: return null
@@ -71,7 +71,7 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
             null
         }
     }
-    if (scheme != "nuvio") return null
+    if (scheme != "streambridge" && scheme != "nuvio") return null
 
     val host = parsedUrl.host.lowercase()
     val pathSegments = parsedUrl.pathSegments.map(String::trim).filter(String::isNotBlank)

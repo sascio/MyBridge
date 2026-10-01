@@ -58,6 +58,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
+                <data android:scheme="streambridge" />
+                <!-- Legacy configured OAuth and addon links remain compatible. -->
                 <data android:scheme="nuvio" />
             </intent-filter>
             <intent-filter>

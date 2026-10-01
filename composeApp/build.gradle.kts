@@ -9,6 +9,7 @@ import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.io.StringReader
 import java.util.Properties
@@ -65,6 +66,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
 
     @get:Input
     abstract val simklAppName: Property<String>
+
+    @get:Input
+    abstract val mdbListClientId: Property<String>
 
     @get:Input
     abstract val introDbApiUrl: Property<String>
@@ -181,6 +185,19 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |    const val CLIENT_ID = "${simklClientId.asKotlinLiteral()}"
                 |    const val REDIRECT_URI = "${simklRedirectUri.asKotlinLiteral()}"
                 |    const val APP_NAME = "${simklAppName.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
+
+        outDir.resolve("com/nuvio/app/features/mdblist").apply {
+            mkdirs()
+            resolve("MdbListConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.mdblist
+                |
+                |object MdbListConfig {
+                |    const val CLIENT_ID = "${mdbListClientId.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -305,12 +322,9 @@ val streamBridgeProps = Properties().apply {
     if (streamBridgeVersionFile.exists()) streamBridgeVersionFile.inputStream().use(::load)
 }
 val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
-    ?: providers.gradleProperty("nuvio.app.versionName").orNull
-    ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
-    ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
+    ?: error("STREAMBRIDGE_VERSION_NAME is required in streambridge.version.properties")
 val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
-    ?: readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")?.toIntOrNull()
-    ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+    ?: error("STREAMBRIDGE_VERSION_CODE is required in streambridge.version.properties")
 val nuvioUpstreamReleaseValue = streamBridgeProps.getProperty("NUVIO_UPSTREAM_RELEASE")?.trim().orEmpty()
 val nuvioUpstreamCommitValue = streamBridgeProps.getProperty("NUVIO_UPSTREAM_COMMIT")?.trim().orEmpty()
 val iosDistribution = (
@@ -327,8 +341,10 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
 } else {
     "src/iosAppStore/kotlin"
 }
-val iosFrameworkBundleId = "com.nuvio.media"
-val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
+val iosFrameworkBundleId = "com.streambridge.app.shared"
+val nuvioEngineAppleRoot = providers.environmentVariable("NUVIO_ENGINE_ROOT").orNull
+    ?.let(rootProject::file) ?: rootProject.file(".cache/ios/nuvio-engine")
+val nuvioEngineAppleFramework = File(nuvioEngineAppleRoot, "platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
 val requestedGradleTasks = gradle.startParameter.taskNames.map { taskName ->
@@ -462,6 +478,7 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     traktClientSecret.set(runtimeLocalPropertyValue("TRAKT_CLIENT_SECRET"))
     traktRedirectUri.set(runtimeLocalPropertyValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
     simklClientId.set(runtimeLocalPropertyValue("SIMKL_CLIENT_ID"))
+    mdbListClientId.set(runtimeLocalPropertyValue("MDBLIST_CLIENT_ID"))
     simklRedirectUri.set(runtimeLocalPropertyValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
     simklAppName.set(runtimeLocalPropertyValue("SIMKL_APP_NAME", "nuvio"))
     introDbApiUrl.set(runtimeConfigValue("INTRODB_API_URL"))
@@ -557,6 +574,14 @@ kotlin {
                     "-framework", "SystemConfiguration",
                     "-framework", "CoreFoundation",
                 )
+            }
+        }
+
+        if (iosTarget.name == "iosSimulatorArm64") {
+            val testEntitlements = project.file("src/iosTest/resources/keychain-test.entitlements")
+            iosTarget.binaries.withType<TestExecutable>().configureEach {
+                linkerOpts("-sectcreate", "__TEXT", "__entitlements", testEntitlements.absolutePath)
+                linkTaskProvider.configure { inputs.file(testEntitlements) }
             }
         }
     }
@@ -656,6 +681,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.kotlinx.coroutines.get()}")
         }
     }
 }
@@ -667,4 +693,10 @@ configurations.matching { it.name == "iosMainImplementation" }.configureEach {
 configurations.all {
     exclude(group = "androidx.media3", module = "media3-exoplayer")
     exclude(group = "androidx.media3", module = "media3-ui")
+}
+
+// Keep upstream-compatible generated-resource imports while presenting a
+// StreamBridge Gradle project. This avoids a repository-wide package migration.
+compose.resources {
+    packageOfResClass = "nuvio.composeapp.generated.resources"
 }

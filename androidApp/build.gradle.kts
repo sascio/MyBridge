@@ -16,6 +16,7 @@ fun readXcconfigValue(file: File, key: String): String? {
 
 plugins {
     alias(libs.plugins.androidApplication)
+    alias(libs.plugins.composeCompiler)
     alias(libs.plugins.sentry.android.gradle)
 }
 
@@ -72,12 +73,9 @@ val streamBridgeProps = Properties().apply {
     if (f.exists()) f.inputStream().use(::load)
 }
 val releaseAppVersionName = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_NAME")?.trim()?.takeIf { it.isNotBlank() }
-    ?: providers.gradleProperty("nuvio.app.versionName").orNull
-    ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
-    ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
+    ?: error("STREAMBRIDGE_VERSION_NAME is required in streambridge.version.properties")
 val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_CODE")?.trim()?.toIntOrNull()
-    ?: readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")?.toIntOrNull()
-    ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+    ?: error("STREAMBRIDGE_VERSION_CODE is required in streambridge.version.properties")
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
 val buildsReleaseApks = requestedTaskNames.any {
     it.startsWith("assemble", ignoreCase = true) && it.endsWith("Release", ignoreCase = true)
@@ -220,9 +218,13 @@ sentry {
 dependencies {
     implementation(project(":composeApp"))
     implementation(libs.androidx.appcompat)
+    implementation(libs.compose.runtime)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     debugImplementation(libs.compose.uiTooling)
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation(libs.androidx.testExt.junit)
+    androidTestImplementation(libs.androidx.activity.compose)
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4:${libs.versions.composeMultiplatform.get()}")
+    debugImplementation("androidx.compose.ui:ui-test-manifest:${libs.versions.composeMultiplatform.get()}")
 }
