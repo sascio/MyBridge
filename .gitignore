@@ -55,3 +55,7 @@ legacy/streambridge-app/build/
 iosApp/Configuration/Signing.local.xcconfig
 !scripts/prepare-ios-dependencies.sh
 !scripts/build-ios-archive.sh
+
+# Python build/release validation caches
+__pycache__/
+*.pyc

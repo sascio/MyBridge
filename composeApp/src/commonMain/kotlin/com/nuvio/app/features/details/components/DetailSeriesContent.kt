@@ -80,6 +80,7 @@ import com.nuvio.app.features.tracking.TrackingRatingTarget
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.details.resolveEpisodeBadgeRatings
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
@@ -267,13 +268,18 @@ fun DetailSeriesContent(
                                     fallbackVideoId = episode.id,
                                 )
                                 val userRatingTarget = remember(meta, episode) { meta.episodeUserRatingTarget(episode) }
+                                val badgeRatings = resolveEpisodeBadgeRatings(
+                                    tmdbRating = episode.tmdbRating ?: episode.rating,
+                                    imdbRating = episode.imdbRating,
+                                    fetchedImdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] },
+                                )
                                 EpisodeListCard(
                                     video = episode,
                                     userRating = rememberUserRating(userRatingTarget),
                                     fallbackImage = meta.background ?: meta.poster,
                                     progressEntry = progressByVideoId[episodeVideoId],
-                                    tmdbRating = episode.tmdbRating,
-                                    imdbRating = episode.imdbRating,
+                                    tmdbRating = badgeRatings.tmdbRating,
+                                    imdbRating = badgeRatings.imdbRating,
                                     isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                                         WatchingState.isEpisodeWatched(
                                             watchedKeys = watchedKeys,
@@ -370,13 +376,18 @@ internal fun DetailSeriesListEpisode(
             fallbackVideoId = episode.id,
         )
         val userRatingTarget = remember(meta, episode) { meta.episodeUserRatingTarget(episode) }
+        val badgeRatings = resolveEpisodeBadgeRatings(
+            tmdbRating = episode.tmdbRating ?: episode.rating,
+            imdbRating = episode.imdbRating,
+            fetchedImdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] },
+        )
         EpisodeListCard(
             video = episode,
             userRating = rememberUserRating(userRatingTarget),
             fallbackImage = meta.background ?: meta.poster,
             progressEntry = progressByVideoId[episodeVideoId],
-            tmdbRating = episode.tmdbRating ?: episode.rating,
-            imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] } ?: episode.imdbRating,
+            tmdbRating = badgeRatings.tmdbRating,
+            imdbRating = badgeRatings.imdbRating,
             isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                 WatchingState.isEpisodeWatched(
                     watchedKeys = watchedKeys,
@@ -796,13 +807,18 @@ private fun EpisodeHorizontalRow(
                 fallbackVideoId = episode.id,
             )
             val userRatingTarget = remember(episode) { userRatingTargetFor(episode) }
+            val badgeRatings = resolveEpisodeBadgeRatings(
+                tmdbRating = episode.tmdbRating ?: episode.rating,
+                imdbRating = episode.imdbRating,
+                fetchedImdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] },
+            )
             EpisodeHorizontalCard(
                 video = episode,
                 userRating = rememberUserRating(userRatingTarget),
                 fallbackImage = fallbackImage,
                 progressEntry = progressByVideoId[episodeVideoId],
-                tmdbRating = episode.tmdbRating,
-                imdbRating = episode.imdbRating,
+                tmdbRating = badgeRatings.tmdbRating,
+                imdbRating = badgeRatings.imdbRating,
                 isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                     WatchingState.isEpisodeWatched(
                         watchedKeys = watchedKeys,

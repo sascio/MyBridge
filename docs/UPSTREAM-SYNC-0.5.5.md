@@ -171,3 +171,26 @@ local differences. The companion file inventory records individual paths.
   Maven/Google/Gradle downloads failed with TLS/network errors. GitHub refuses
   signing-secret metadata access (403), so secret availability is **unknown**,
   not assumed absent. CI/signing results will be recorded separately.
+
+## Reviewed local conflicts and released non-runtime policies
+
+- Greek/Norwegian resources: use updated translations, retain StreamBridge's
+  name. English resources retain privacy/credit additions while adopting the
+  expanded MDBList tracking description.
+- Fetch bridge: add upstream binary request/response support without restoring
+  blocking `runBlocking` inside the async bridge; continue propagating coroutine
+  cancellation instead of converting it into a network response.
+- MDBList config generation: adapt the new upstream client ID into the fork's
+  tracked Gradle inputs, optional local-property configuration and escaped Kotlin
+  literals. Do not refer to upstream's incompatible task-local `props` variable.
+- Version and signing: keep the established Android application ID and production
+  certificate. Use StreamBridge metadata for both platforms, never an upstream
+  version fallback or Apple team ID.
+- A read-only review of the released non-CloudStream UI policies in `0.1.06`
+  identified fetched episode-rating precedence and avatar accessibility labels.
+  These small policies are explicitly adapted to the target implementation,
+  including all three episode layouts and new pure policy tests. No later source
+  tree/CloudStream commit is copied, merged or cherry-picked.
+- AGP 9.2 does not support shrinking ABI-split APKs and an unsplit AAB in the same
+  invocation. CI and production build them separately, stage APKs first and clean
+  only generated application-module output before the bundle build. R8 stays on.

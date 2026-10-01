@@ -3,15 +3,20 @@ name: Validate StreamBridge Android and iOS
 on:
   push:
     branches: [main, 'arena/**']
+    paths-ignore: ['docs/**', 'README.md', 'NOTICE', 'CHANGELOG.md', 'branding/README.md']
   pull_request:
   workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
 
 permissions:
   contents: read
 
 concurrency:
   group: streambridge-validation-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   audit:
@@ -28,6 +33,8 @@ jobs:
         run: python3 .github/verify_update_track.py
       - name: Test release tooling
         run: python3 -m unittest discover -s .github/tests -v
+      - name: Lint workflow definitions (verified actionlint binary)
+        run: bash .github/check_workflows.sh
       - name: Validate build script syntax
         run: bash -n scripts/build-ios-archive.sh scripts/prepare-ios-dependencies.sh .github/setup_android_sdk.sh
 
@@ -46,7 +53,9 @@ jobs:
         run: bash .github/setup_android_sdk.sh
       - uses: gradle/actions/setup-gradle@v6
       - name: Compile debug Kotlin (KMP library and full app variant)
-        run: ./gradlew :composeApp:compileAndroidMain :androidApp:compileFullDebugKotlin --stacktrace 2>&1 | tee compile-debug.log
+        run: |
+          echo '::add-matcher::.github/problem-matchers.json'
+          ./gradlew :composeApp:compileAndroidMain :androidApp:compileFullDebugKotlin --stacktrace 2>&1 | tee compile-debug.log
       - name: Analyze release dependency resolution
         run: |
           ./gradlew :androidApp:dependencies --configuration fullReleaseRuntimeClasspath > dependencies.txt
@@ -55,13 +64,25 @@ jobs:
           done
       - name: Build debug, minified release APKs and full AAB (non-production signing)
         run: |
-          ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease :androidApp:bundleFullRelease --stacktrace 2>&1 | tee android-build.log
+          # APK splits affect every variant in an invocation. Debug is universal;
+          # APK release is split; bundle release must have splits disabled.
+          ./gradlew :androidApp:assembleFullDebug --stacktrace 2>&1 | tee android-build.log
+          ./gradlew :androidApp:assembleFullRelease --stacktrace 2>&1 | tee -a android-build.log
           test -s androidApp/build/outputs/mapping/fullRelease/mapping.txt
-          python3 .github/package_android.py --debug --aab
+          mkdir -p build/reports/android-apk-mapping
+          cp -R androidApp/build/outputs/mapping/fullRelease/. build/reports/android-apk-mapping/
+          python3 .github/package_android.py --debug 2>&1 | tee -a android-build.log
+          # Remove only application-module generated outputs before the unsplit
+          # bundle shrink, so AGP does not encounter old per-ABI resource protos.
+          ./gradlew :androidApp:clean :androidApp:bundleFullRelease --stacktrace 2>&1 | tee -a android-build.log
+          python3 .github/package_android.py --aab-only 2>&1 | tee -a android-build.log
       - name: Run shared and Android host unit tests
         id: tests
         continue-on-error: true
         run: ./gradlew :composeApp:check :androidApp:testFullDebugUnitTest --continue --stacktrace 2>&1 | tee unit-tests.log
+      - name: Expose actionable build/test failures as check annotations
+        if: always()
+        run: python3 .github/report_validation.py
       - name: APK size report
         if: always()
         run: |
@@ -87,6 +108,7 @@ jobs:
             androidApp/build/reports/tests/
             androidApp/build/test-results/
             androidApp/build/outputs/mapping/fullRelease/
+            build/reports/android-apk-mapping/
             *.log
             dependencies.txt
             dependency-insight.txt

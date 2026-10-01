@@ -1,10 +1,10 @@
 {
   "problemMatcher": [
     {
-      "owner": "kotlin",
+      "owner": "streambridge-kotlin",
       "pattern": [
         {
-          "regexp": "^e: (?:file:)?([^:]+\\.kts?):(\\d+):(\\d+)\\s*(.*)$",
+          "regexp": "^e: (?:file://)?(.+?):(\\d+):(\\d+) (.*)$",
           "file": 1,
           "line": 2,
           "column": 3,
@@ -13,22 +13,10 @@
       ]
     },
     {
-      "owner": "android-build",
+      "owner": "streambridge-r8",
       "pattern": [
         {
-          "regexp": "^([^:\\s]+\\.(?:java|kt|kts|xml)):(\\d+):(\\d+)?\\s*(?:error:)?\\s*(.+)$",
-          "file": 1,
-          "line": 2,
-          "column": 3,
-          "message": 4
-        }
-      ]
-    },
-    {
-      "owner": "gradle-task-failure",
-      "pattern": [
-        {
-          "regexp": "^(Execution failed for task '.*')\\.$",
+          "regexp": "^ERROR: (R8: .*|Missing class .*|.*defined multiple times.*)$",
           "message": 1
         }
       ]

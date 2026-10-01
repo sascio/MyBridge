@@ -95,9 +95,33 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=ROOT / "build/artifacts/android")
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--aab", action="store_true")
+    parser.add_argument("--aab-only", action="store_true", help="Append a separately built AAB to checksum-verified staged APKs")
     args = parser.parse_args()
-    assets = package_apks(args.source, args.output, args.production)
     release = check_release()
+    if args.aab_only:
+        if args.debug:
+            parser.error("--aab-only appends to the existing debug/release artifact set")
+        args.aab = True
+        suffix = "" if args.production else "-not-production"
+        expected = {f"StreamBridge-{release.version}-{abi}{suffix}.apk" for abi in ABIS}
+        optional_debug = f"StreamBridge-{release.version}-debug-not-production.apk"
+        assets = []
+        seen = set()
+        for line in (args.output / "checksums.sha256").read_text().splitlines():
+            digest, name = line.split("  ", 1)
+            if name not in expected and (args.production or name != optional_debug):
+                raise ValueError("Unexpected pre-existing Android artifact")
+            if name in seen or not re.fullmatch(r"[0-9a-f]{64}", digest):
+                raise ValueError("Invalid pre-existing Android checksum manifest")
+            seen.add(name)
+            path = args.output / name
+            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                raise ValueError("Staged Android artifact was changed before AAB packaging")
+            assets.append(path)
+        if not expected <= seen:
+            raise ValueError("All four ABI APKs must be staged before appending an AAB")
+    else:
+        assets = package_apks(args.source, args.output, args.production)
     if args.debug:
         if args.production:
             parser.error("Debug artifacts cannot accompany a production release")

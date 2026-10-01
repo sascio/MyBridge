@@ -80,6 +80,13 @@ val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfter
 val buildsReleaseApks = requestedTaskNames.any {
     it.startsWith("assemble", ignoreCase = true) && it.endsWith("Release", ignoreCase = true)
 }
+val buildsReleaseBundle = requestedTaskNames.any {
+    it.startsWith("bundle", ignoreCase = true) && it.endsWith("Release", ignoreCase = true)
+}
+require(!(buildsReleaseApks && buildsReleaseBundle)) {
+    "AGP cannot shrink ABI-split APKs and an AAB in one invocation. " +
+        "Build assembleFullRelease and bundleFullRelease separately (see docs/RELEASING.md)."
+}
 
 android {
     namespace = "com.nuvio.android"
