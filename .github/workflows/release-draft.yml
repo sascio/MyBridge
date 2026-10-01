@@ -105,7 +105,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - name: Prepare the established production keystore (never invent one)
         env:
           NUVIO_RELEASE_STORE_BASE64: ${{ secrets.NUVIO_RELEASE_STORE_BASE64 }}

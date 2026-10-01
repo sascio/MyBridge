@@ -48,7 +48,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - name: Install the verified Android SDK
         run: bash .github/setup_android_sdk.sh
       - uses: gradle/actions/setup-gradle@v6

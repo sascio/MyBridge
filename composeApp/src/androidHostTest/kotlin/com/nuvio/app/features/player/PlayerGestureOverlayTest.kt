@@ -99,7 +99,9 @@ class PlayerGestureOverlayTest {
         // A twelfth of the width is 5 s: swipes on titles under 30 minutes span 60 s.
         compose.onNodeWithTag("surface").performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            // Cross the target activation slop first, then scrub back to the small offset.
+            moveBy(Offset(width / 3f, 0f))
+            moveBy(Offset(-width / 4f, 0f))
         }
 
         val target = compose.onNodeWithText("01:05").assertIsDisplayed().getUnclippedBoundsInRoot()
@@ -132,7 +134,9 @@ class PlayerGestureOverlayTest {
         setPlayerContent()
         compose.onNodeWithTag("surface").performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            // Cross the target activation slop first, then scrub back to the small offset.
+            moveBy(Offset(width / 3f, 0f))
+            moveBy(Offset(-width / 4f, 0f))
         }
 
         compose.onNodeWithText("1:00:10").assertIsDisplayed()
@@ -189,7 +193,9 @@ class PlayerGestureOverlayTest {
         val surface = compose.onNodeWithTag("surface")
         surface.performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            // Cross the target activation slop first, then scrub back to the small offset.
+            moveBy(Offset(width / 3f, 0f))
+            moveBy(Offset(-width / 4f, 0f))
         }
         compose.onNodeWithText("+5s").assertIsDisplayed()
 
@@ -209,7 +215,9 @@ class PlayerGestureOverlayTest {
         setPlayerContent()
         compose.onNodeWithTag("surface").performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            // Cross the target activation slop first, then scrub back to the small offset.
+            moveBy(Offset(width / 3f, 0f))
+            moveBy(Offset(-width / 4f, 0f))
         }
 
         compose.onNodeWithText("01:05").assertIsDisplayed()
@@ -241,7 +249,7 @@ class PlayerGestureOverlayTest {
             runtime.liveGestureFeedback = null
             runtime.showBrightnessFeedback(0.4f)
         }
-        compose.onNodeWithText("40").assertIsDisplayed()
+        compose.onNodeWithText("40%").assertIsDisplayed()
         compose.onNodeWithText("2x").assertDoesNotExist()
     }
 

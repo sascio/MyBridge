@@ -24,14 +24,14 @@ class HomeHeroSectionTest {
     }
 
     @Test
-    fun `mobile hero height stays compact without continue watching`() {
+    fun `portrait hero uses the target two by three poster ratio`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
             viewportHeightDp = 844f,
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(452.4f, layout.heroHeight.value, 0.001f)
+        assertEquals(390f * TMDB_POSTER_HEIGHT_RATIO, layout.heroHeight.value, 0.001f)
     }
 
     @Test
@@ -65,18 +65,19 @@ class HomeHeroSectionTest {
             mobileBelowSectionHeightHintDp = reserveHeight.value,
         )
 
-        assertEquals(24f, viewportHeight - layout.heroHeight.value - continueWatchingHeight.value, 0.001f)
+        assertEquals(390f * TMDB_POSTER_HEIGHT_RATIO, layout.heroHeight.value, 0.001f)
+        kotlin.test.assertTrue(viewportHeight - layout.heroHeight.value - continueWatchingHeight.value >= 24f)
     }
 
     @Test
-    fun `mobile hero can shrink below default minimum to fit short viewport`() {
+    fun `landscape hero can shrink below default minimum to fit short viewport`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
-            viewportHeightDp = 568f,
+            viewportHeightDp = 360f,
             mobileBelowSectionHeightHintDp = 300f,
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(268f, layout.heroHeight.value, 0.001f)
+        assertEquals(60f, layout.heroHeight.value, 0.001f)
     }
 }
