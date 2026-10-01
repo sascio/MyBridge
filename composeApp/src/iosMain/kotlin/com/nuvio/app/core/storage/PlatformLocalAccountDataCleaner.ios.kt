@@ -23,6 +23,7 @@ internal actual object PlatformLocalAccountDataCleaner {
         "watch_progress_payload_",
     )
     private val profileScopedBaseKeys = listOf(
+        "episode_shuffle",
         "catalog_settings_payload",
         "discover_catalog_key",
         "continue_watching_preferences_payload",
@@ -65,6 +66,7 @@ internal actual object PlatformLocalAccountDataCleaner {
         "trakt_library_payload",
         "trakt_settings_payload",
         "library_display_settings_payload",
+        "library_release_schedule_payload",
         "pending_watch_progress_source",
         "collection_mobile_settings_payload",
         "collections_payload",

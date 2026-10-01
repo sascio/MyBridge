@@ -16,8 +16,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "E1B229BC363ABB711AF255E3"
-               BuildableName = "Nuvio.app"
-               BlueprintName = "iosApp"
+               BuildableName = "StreamBridge.app"
+               BlueprintName = "StreamBridge"
                ReferencedContainer = "container:iosApp.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E1B229BC363ABB711AF255E3"
-            BuildableName = "Nuvio.app"
-            BlueprintName = "iosApp"
+            BuildableName = "StreamBridge.app"
+            BlueprintName = "StreamBridge"
             ReferencedContainer = "container:iosApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -62,8 +62,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "E1B229BC363ABB711AF255E3"
-            BuildableName = "Nuvio.app"
-            BlueprintName = "iosApp"
+            BuildableName = "StreamBridge.app"
+            BlueprintName = "StreamBridge"
             ReferencedContainer = "container:iosApp.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

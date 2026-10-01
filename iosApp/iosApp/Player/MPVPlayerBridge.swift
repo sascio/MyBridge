@@ -729,6 +729,7 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("vulkan-queue-count", "1")
         setSetupOption("vulkan-async-compute", "no")
         setSetupOption("vulkan-async-transfer", "no")
+        setSetupOption("vulkan-disable-interop", "yes")
         setSetupOption("video-rotate", "no")
         setSetupOption("subs-match-os-language", "yes")
         setSetupOption("subs-fallback", "yes")
@@ -737,6 +738,8 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("target-colorspace-hint", "yes")
         setSetupOption("tone-mapping", "auto")
         setSetupOption("hdr-compute-peak", "yes")
+        setSetupOption("demuxer-max-bytes", "\(Self.demuxerMaxBytes)")
+        setSetupOption("demuxer-max-back-bytes", "\(Self.demuxerMaxBackBytes)")
         setSetupOption("demuxer-lavf-o", "protocol_whitelist=[file,crypto,data,http,https,tcp,tls]")
 
         checkError(mpv_initialize(mpv))
@@ -748,6 +751,7 @@ final class MPVPlayerViewController: UIViewController {
         mpv_observe_property(mpv, 0, "eof-reached", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "seeking", MPV_FORMAT_FLAG)
         mpv_observe_property(mpv, 0, "track-list/count", MPV_FORMAT_INT64)
+        mpv_observe_property(mpv, 0, "current-tracks/sub/id", MPV_FORMAT_INT64)
         mpv_observe_property(mpv, 0, "current-tracks/sub/lang", MPV_FORMAT_STRING)
         mpv_observe_property(mpv, 0, "sub-text", MPV_FORMAT_STRING)
 
@@ -756,6 +760,10 @@ final class MPVPlayerViewController: UIViewController {
             vc.readEvents()
         }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
     }
+
+    private static let demuxerMaxBytes = 64 * 1024 * 1024
+
+    private static let demuxerMaxBackBytes = 32 * 1024 * 1024
 
     private func setSetupOption(_ name: String, _ value: String) {
         guard let ctx = mpv else { return }
@@ -2410,9 +2418,9 @@ final class MPVPlayerViewController: UIViewController {
     private func publishImmersiveSystemUIVisibility(isVisible: Bool) {
         guard !isEmbeddedPreviewMode else { return }
         if isVisible {
-            NuvioImmersiveSystemUI.shared.playerDidBecomeVisible(self)
+            SystemUI.shared.playerDidBecomeVisible(self)
         } else {
-            NuvioImmersiveSystemUI.shared.playerDidBecomeHidden(self)
+            SystemUI.shared.playerDidBecomeHidden(self)
         }
         NotificationCenter.default.post(
             name: nuvioPlayerImmersiveSystemUIVisibilityDidChange,

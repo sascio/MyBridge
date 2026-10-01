@@ -44,3 +44,14 @@ iosApp/Configuration/DeviceSigning.local.json
 .mpvkit-build.sparseimage
 
 legacy/streambridge-app/build/
+
+# StreamBridge build/bootstrap caches and platform signing inputs
+.cache/
+.local/
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.p8
+iosApp/Configuration/Signing.local.xcconfig
+!scripts/prepare-ios-dependencies.sh
+!scripts/build-ios-archive.sh

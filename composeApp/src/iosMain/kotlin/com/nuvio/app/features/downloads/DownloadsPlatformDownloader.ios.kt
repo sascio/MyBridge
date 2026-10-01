@@ -166,8 +166,14 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun openDownloadsDirectory(): Boolean =
         resolveDownloadsBaseDirectory().withAccess { downloadsDirectory ->
-            val url = NSURL.fileURLWithPath(downloadsDirectory)
-            UIApplication.sharedApplication.openURL(
+            val fileUrl = NSURL.fileURLWithPath(downloadsDirectory).absoluteString
+                ?.takeIf { it.startsWith("file://") }
+                ?: return@withAccess false
+            val url = NSURL(string = "shareddocuments://" + fileUrl.removePrefix("file://"))
+            val application = UIApplication.sharedApplication
+            if (!application.canOpenURL(url)) return@withAccess false
+
+            application.openURL(
                 url = url,
                 options = emptyMap<Any?, Any>(),
                 completionHandler = null,
@@ -571,7 +577,7 @@ private data class DownloadsBaseDirectory(val path: String, val scopedUrl: NSURL
 @OptIn(ExperimentalForeignApi::class)
 private fun downloadsDirectoryPath(): String {
     val root = NSHomeDirectory().trimEnd('/')
-    val path = "$root/Documents/nuvio_downloads"
+    val path = "$root/Documents/StreamBridge Downloads"
     NSFileManager.defaultManager.createDirectoryAtPath(
         path = path,
         withIntermediateDirectories = true,

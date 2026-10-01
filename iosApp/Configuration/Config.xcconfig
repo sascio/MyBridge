@@ -1,6 +1,16 @@
-#include? "Version.xcconfig"
+#include "Version.xcconfig"
 
-TEAM_ID=
+// Stable StreamBridge identity shared by Debug and Release.
+PRODUCT_NAME = StreamBridge
+STREAMBRIDGE_APP_BUNDLE_IDENTIFIER = com.streambridge.app
+STREAMBRIDGE_WIDGET_BUNDLE_IDENTIFIER = com.streambridge.app.DownloadsWidgetExtension
+PRODUCT_BUNDLE_IDENTIFIER = $(STREAMBRIDGE_APP_BUNDLE_IDENTIFIER)
 
-PRODUCT_NAME=Nuvio
-PRODUCT_BUNDLE_IDENTIFIER=com.nuvio.app.Nuvio$(TEAM_ID)
+// No upstream team or invented credentials. CI supplies these after validating
+// the two distribution profiles; developers may use the ignored local include.
+STREAMBRIDGE_TEAM_ID =
+STREAMBRIDGE_CODE_SIGN_STYLE = Automatic
+STREAMBRIDGE_CODE_SIGN_IDENTITY = Apple Development
+STREAMBRIDGE_APP_PROFILE_UUID =
+STREAMBRIDGE_WIDGET_PROFILE_UUID =
+#include? "Signing.local.xcconfig"

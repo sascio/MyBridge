@@ -10,9 +10,10 @@
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLName</key>
-			<string>com.nuvio.app.auth</string>
+			<string>com.streambridge.app.auth</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>streambridge</string>
 				<string>nuvio</string>
 				<string>stremio</string>
 			</array>
@@ -25,6 +26,7 @@
 	</dict>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
+		<string>shareddocuments</string>
 		<string>infuse</string>
 		<string>vlc-x-callback</string>
 		<string>outplayer</string>
@@ -40,5 +42,15 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<false/>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>CFBundleDisplayName</key>
+	<string>StreamBridge</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>StreamBridgeReleaseVersion</key>
+	<string>$(STREAMBRIDGE_RELEASE_VERSION)</string>
 </dict>
 </plist>
