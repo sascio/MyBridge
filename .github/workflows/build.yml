@@ -1,235 +1,142 @@
-name: Build Stream Bridge
+name: Validate StreamBridge Android and iOS
 
 on:
   push:
-    branches: [main, arena/**]
+    branches: [main, 'arena/**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  issues: write
+
+concurrency:
+  group: streambridge-validation-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    name: Nuvio-core full Android APK
+  audit:
+    name: Release metadata, branding and stable-track guard
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify source identity, attribution and isolation
+        run: python3 .github/verify_update_track.py
+      - name: Test release tooling
+        run: python3 -m unittest discover -s .github/tests -v
+      - name: Validate build script syntax
+        run: bash -n scripts/build-ios-archive.sh scripts/prepare-ios-dependencies.sh .github/setup_android_sdk.sh
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
+  android:
+    name: Android Kotlin, tests, debug and R8 release
+    needs: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '21'
-
-      - name: Set up Android SDK
+          java-version: '17'
+      - name: Install the verified Android SDK
+        run: bash .github/setup_android_sdk.sh
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Compile debug Kotlin (KMP library and full app variant)
+        run: ./gradlew :composeApp:compileAndroidMain :androidApp:compileFullDebugKotlin --stacktrace 2>&1 | tee compile-debug.log
+      - name: Analyze release dependency resolution
         run: |
-          set -x
-          exec > >(tee -a gradle-build.log) 2>&1
-          echo "ANDROID_HOME=${ANDROID_HOME:-unset} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          ls "$SDK" || true
-          ls "$SDK/platforms" || true
-          SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
-          echo "sdkmanager=$SDKMANAGER"
-          "$SDKMANAGER" --version
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-
-          # The runner image ships minor-versioned platforms (android-37.0,
-          # android-37.1, ...); the unsuffixed "platforms;android-37" package
-          # no longer exists, so installing it hard-fails the job. AGP resolves
-          # compileSdk=37 + compileSdkMinor=0 to android-37.0, which is already
-          # present, so only install what is genuinely missing.
-          PLATFORM="android-${ANDROID_COMPILE_SDK}.${ANDROID_COMPILE_SDK_MINOR}"
-          if [ -d "$SDK/platforms/$PLATFORM" ]; then
-            echo "platform $PLATFORM already installed"
-          else
-            "$SDKMANAGER" --install "platforms;$PLATFORM"
-          fi
-          if [ -d "$SDK/build-tools/${ANDROID_BUILD_TOOLS}" ]; then
-            echo "build-tools ${ANDROID_BUILD_TOOLS} already installed"
-          else
-            "$SDKMANAGER" --install "build-tools;${ANDROID_BUILD_TOOLS}"
-          fi
-
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-        env:
-          ANDROID_COMPILE_SDK: '37'
-          ANDROID_COMPILE_SDK_MINOR: '0'
-          ANDROID_BUILD_TOOLS: '36.0.0'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          cache-read-only: false
-
-      # Reports results without gating the APK build: the suite currently has 12
-      # known failures (3 pre-existing on main, 9 from Enhanced tests that assert
-      # upstream behaviour not yet wired up in StreamBridge). See
-      # docs/TEST-FAILURES.md. Flip this to a gate once that list is empty.
-      - name: Run unit tests
+          ./gradlew :androidApp:dependencies --configuration fullReleaseRuntimeClasspath > dependencies.txt
+          for dependency in androidx.media3 okhttp kotlin-stdlib quickjs; do
+            ./gradlew :androidApp:dependencyInsight --configuration fullReleaseRuntimeClasspath --dependency "$dependency" >> dependency-insight.txt
+          done
+      - name: Build debug, minified release APKs and full AAB (non-production signing)
+        run: |
+          ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease :androidApp:bundleFullRelease --stacktrace 2>&1 | tee android-build.log
+          test -s androidApp/build/outputs/mapping/fullRelease/mapping.txt
+          python3 .github/package_android.py --debug --aab
+      - name: Run shared and Android host unit tests
+        id: tests
         continue-on-error: true
-        env:
-          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
-          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
-          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: |
-          echo "::add-matcher::.github/problem-matchers.json"
-          set -o pipefail
-          # composeApp uses the new KMP android library plugin (withHostTest),
-          # which does not produce the classic testFooDebugUnitTest task names.
-          # Discover the JVM host-test task instead of hardcoding a guess.
-          # Note: grep exits 1 on no match and the step runs under -e/pipefail,
-          # so every stage here is explicitly guarded.
-          # composeApp uses the new androidKotlinMultiplatformLibrary plugin with
-          # withHostTest {}, so there is no testFooDebugUnitTest task; :check runs
-          # the host test suite (allTests).
-          ./gradlew :composeApp:check --continue --stacktrace 2>&1 | tee -a gradle-build.log
-
-      - name: Upload unit test report
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: Stream-Bridge-unit-test-report
-          path: composeApp/build/reports/tests/
-          if-no-files-found: ignore
-
-      - name: Assemble Nuvio full debug and release APKs
-        env:
-          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
-          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
-          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
-        run: |
-          echo "::add-matcher::.github/problem-matchers.json"
-          set -o pipefail
-          ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee -a gradle-build.log
-
+        run: ./gradlew :composeApp:check :androidApp:testFullDebugUnitTest --continue --stacktrace 2>&1 | tee unit-tests.log
       - name: APK size report
-        run: python3 .github/apk-size-report.py androidApp/build/outputs/apk/full/release
-
-      - name: Record that CI release APKs are not production
+        if: always()
         run: |
-          set -euo pipefail
-          mkdir -p signing-status
-          cat > signing-status/CI-NOT-PRODUCTION.txt <<'EOF'
-          These GitHub Actions artifacts are compile-validation APKs.
-
-          This workflow does not inject production keystore secrets.
-          assembleFullRelease therefore uses the debug signing config.
-
-          Release outputs are per-ABI (arm64-v8a, armeabi-v7a, x86, x86_64),
-          matching NuvioMobile. Do not publish these APKs as GitHub Releases
-          and do not install them as in-app updates over a production-signed
-          build.
-
-          Production drafts: .github/workflows/release-draft.yml
-          See docs/SIGNING.md
-          EOF
-
-      - name: Upload full debug APK
-        uses: actions/upload-artifact@v6
+          if compgen -G 'build/artifacts/android/*.apk' >/dev/null; then
+            python3 .github/apk-size-report.py build/artifacts/android | tee apk-size-report.txt
+          fi
+      - name: Upload validation APKs and AAB (never production)
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: Stream-Bridge-CI-full-debug-APK
-          path: androidApp/build/outputs/apk/full/debug/*.apk
-          if-no-files-found: error
-
-      - name: Upload full release APK (debug-signed, not production)
-        uses: actions/upload-artifact@v6
+          name: StreamBridge-Android-validation-not-production
+          path: build/artifacts/android/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload tests, dependency analysis, R8 mapping and build logs
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
-          name: Stream-Bridge-CI-full-release-APK-not-production
+          name: StreamBridge-Android-validation-reports
           path: |
-            androidApp/build/outputs/apk/full/release/*.apk
-            signing-status/CI-NOT-PRODUCTION.txt
-          if-no-files-found: error
+            composeApp/build/reports/tests/
+            composeApp/build/test-results/
+            androidApp/build/reports/tests/
+            androidApp/build/test-results/
+            androidApp/build/outputs/mapping/fullRelease/
+            *.log
+            dependencies.txt
+            dependency-insight.txt
+            apk-size-report.txt
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Make unit-test failures a hard gate after preserving diagnostic artifacts
+        if: always() && steps.tests.outcome == 'failure'
+        run: |
+          echo '::error::StreamBridge unit tests failed. Inspect the validation reports; this run is not release-ready.'
+          exit 1
 
-      - name: Close resolved CI-failure issues
-        if: success()
-        uses: actions/github-script@v8
+  ios:
+    name: iOS Release dependencies and unsigned archive
+    needs: audit
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+    steps:
+      - uses: actions/checkout@v6
         with:
-          script: |
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'ci-failure',
-              per_page: 100
-            });
-            let closed = 0;
-            for (const issue of issues) {
-              try {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  body: 'Build is green again as of commit `' + context.sha.slice(0, 7) +
-                    '` — closing this auto-generated CI failure report.'
-                });
-                await github.rest.issues.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  state: 'closed'
-                });
-                closed++;
-              } catch (e) {
-                core.info('Issue ' + issue.number + ' skipped: ' + e.message);
-              }
-            }
-            core.info('Closed ' + closed + ' of ' + issues.length + ' open ci-failure issue(s).');
-
-      - name: Report failure log as an issue
-        if: failure()
-        uses: actions/github-script@v8
+          submodules: false
+      - uses: actions/setup-python@v6
         with:
-          script: |
-            const fs = require('fs');
-            let log = '';
-            try {
-              log = fs.readFileSync('gradle-build.log', 'utf8');
-            } catch (e) {
-              log = 'No gradle-build.log captured: ' + e.message;
-            }
-            const lines = log.split('\n');
-            const errorLines = lines.filter(l =>
-              /^e: /.test(l) ||
-              /error:/.test(l) ||
-              / FAILED$/.test(l) ||
-              /AssertionError/.test(l) ||
-              /Exception/.test(l) ||
-              /Caused by/.test(l) ||
-              /LinkageError|UnsatisfiedLink|NoClassDef/.test(l) ||
-              /BUILD FAILED/.test(l) ||
-              /What went wrong/.test(l) ||
-              /Unable to process command/.test(l) ||
-              /tests? completed/.test(l)
-            );
-            const tail = lines.slice(-120).join('\n');
-            const errorBlock = errorLines.slice(0, 400).join('\n');
-            const body = [
-              'CI build failed for commit `' + context.sha.slice(0, 7) + '` on branch `' + (context.ref || '') + '`.',
-              '',
-              '## Errors',
-              '',
-              '```',
-              errorBlock.slice(0, 40000),
-              '```',
-              '',
-              '## Log tail',
-              '',
-              '```',
-              tail.slice(0, 12000),
-              '```'
-            ].join('\n');
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: 'CI failure: ' + context.sha.slice(0, 7),
-              labels: ['ci-failure'],
-              body: body
-            });
+          python-version: '3.12'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.konan
+            .cache/ios
+          key: streambridge-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml', '.gitmodules', 'scripts/prepare-ios-dependencies.sh') }}
+      - name: Resolve dependencies, build and validate unsigned Release archive
+        run: ./scripts/build-ios-archive.sh unsigned 2>&1 | tee ios-build.log
+      - name: Upload unsigned device archive and IPA (requires re-signing)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-iOS-unsigned-validation
+          path: |
+            build/artifacts/ios/
+            ios-build.log
+          if-no-files-found: warn
+          retention-days: 7
