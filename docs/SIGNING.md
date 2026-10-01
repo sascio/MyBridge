@@ -1,100 +1,64 @@
-# StreamBridge Android signing
+# StreamBridge Android production signing
 
-Production updates require **one stable upload certificate**. Mixing the
-Android Debug certificate with a later production keystore breaks in-place
-updates (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`). Users must uninstall first.
+An Android in-place update requires the original `com.streambridge.app` package
+and the same signing certificate. Rebranding, a higher version code or a CI
+release build does not bypass Android signature checks.
 
-This repository never contains a keystore, passwords, or private keys.
+The established StreamBridge production certificate SHA-256 is:
 
-## What CI does vs production
-
-| Path | Workflow | Signing | Published? |
-| --- | --- | --- | --- |
-| Branch / PR compile | `.github/workflows/build.yml` | Debug fallback. **Not production.** | Actions artifacts only. Names include `not-production`. |
-| Production draft | `.github/workflows/release-draft.yml` (`workflow_dispatch` only) | Upload keystore from GitHub Secrets. **Fails if secrets are missing.** | Draft GitHub Release only. Never auto-published. |
-
-`assembleFullRelease` without `NUVIO_RELEASE_*` still compiles and
-debug-signs so CI stays a compile check. That APK must not be treated as
-a StreamBridge release.
-
-Set `STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING=true` to **fail the Gradle
-build** instead of falling back to debug. The production draft workflow
-always sets this.
-
-## GitHub Secrets (production only)
-
-Create an upload keystore **on a trusted machine**. Do not invent a
-test keystore in git. Do not commit `*.jks` / `*.keystore`.
-
-```bash
-keytool -genkeypair -v \
-  -keystore streambridge-upload.jks \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -alias streambridge \
-  -storepass '<store-password>' \
-  -keypass '<key-password>' \
-  -dname 'CN=StreamBridge, O=Stream Bridge, C=IN'
+```text
+5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBDEF56285FC
 ```
 
-Record the **public** cert SHA-256 (this is not a secret):
+This is a **public certificate fingerprint**, not a private key. The task does
+not generate or replace the production upload key. `.github/package_android.py`
+checks the actual APK certificate and rejects debug certificates in production
+mode. The Gradle production guard refuses a release without real configuration.
 
-```bash
-keytool -list -v -keystore streambridge-upload.jks -alias streambridge
-```
+## GitHub Secrets
 
-Base64 the store file (do not log the output in CI transcripts you share):
+The existing technical names remain compatible with deployed signing setup:
 
-```bash
-base64 -w 0 streambridge-upload.jks
-```
-
-Repo secrets:
-
-| Secret | Value |
+| Secret | Meaning |
 | --- | --- |
-| `NUVIO_RELEASE_STORE_BASE64` | Base64 of the `.jks` |
-| `NUVIO_RELEASE_STORE_PASSWORD` | Store password |
-| `NUVIO_RELEASE_KEY_ALIAS` | Key alias (example: `streambridge`) |
-| `NUVIO_RELEASE_KEY_PASSWORD` | Key password |
+| `NUVIO_RELEASE_STORE_BASE64` | Base64 established upload keystore |
+| `NUVIO_RELEASE_STORE_PASSWORD` | Keystore password |
+| `NUVIO_RELEASE_KEY_ALIAS` | Existing upload-key alias |
+| `NUVIO_RELEASE_KEY_PASSWORD` | Private-key password |
+| `NUVIO_LOCAL_PROPERTIES_BASE64` | Optional runtime API/OAuth properties, not a signing requirement |
 
-Gradle also accepts the same names (except `STORE_BASE64`) from
-`local.properties` or the environment, plus `NUVIO_RELEASE_STORE_FILE`
-as a filesystem path. `local.properties` is gitignored.
+The signed release workflow decodes the keystore into a mode-600 file under
+`RUNNER_TEMP`, passes its path through `NUVIO_RELEASE_STORE_FILE`, enables
+`STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING=true`, builds minified outputs and
+verifies the known certificate before uploading production artifacts. It deletes
+the private input even on failure and does not write secret-bearing Gradle state
+back to the shared release cache.
 
-Public production upload certificate SHA-256 (never a password):
+Do not commit, paste or print keystores, certificates/provisioning profiles,
+private keys, passwords or API secrets. Secret metadata/dispatch access is
+restricted in the current Arena GitHub connection; availability is unknown.
+Reconnect in Arena for an authorized signing run; do not send credentials in chat.
 
+## Local production build
+
+Supply the four `NUVIO_RELEASE_*` environment values and the real keystore path
+through `NUVIO_RELEASE_STORE_FILE`, or supported ignored local properties. Then:
+
+```sh
+export STREAMBRIDGE_REQUIRE_PRODUCTION_SIGNING=true
+./gradlew :androidApp:assembleFullRelease
+python3 .github/package_android.py --production
 ```
-Production cert SHA-256: 5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBDEF56285FC
-```
 
-## Operator checklist
+Do not put literal passwords in tracked scripts/commands. See [RELEASING.md](RELEASING.md)
+for separate AAB builds and strict checksums. The job defaults to artifacts-only
+`test-build`; creating a draft does not publish it.
 
-1. Secrets above are set on `sascio/MyBridge`.
-2. `streambridge.version.properties` is the version you intend to ship
-   (do not bump only to exercise the updater).
-3. Run **Draft production GitHub Release** with tag = `STREAMBRIDGE_VERSION_NAME`
-   (currently `0.1.01`).
-4. Workflow fails closed without secrets, if the tag does not match, if
-   the APK is debug-signed, or if `apksigner` cannot verify.
-5. Inspect the **draft**. Device-validate install + playback before
-   publishing. Publishing is a human action, not CI.
-6. Keep the same upload keystore for every later tag. In-app updates
-   only install over the same signing certificate.
-7. Attach **all** per-ABI APKs from `full/release/` (arm64-v8a,
-   armeabi-v7a, x86, x86_64). Do not ship a universal fat APK. The
-   updater matches `arm64-v8a` (etc.) in the asset name.
+Without production configuration, local/automatic CI release APKs retain the
+non-production fallback for developer validation. Their names explicitly include
+`-not-production`. A universal debug APK is not a production update, and removing
+the guard or signing with a fresh key will not make it compatible with installed
+StreamBridge releases.
 
-## Updater
-
-The app reads `https://api.github.com/repos/sascio/MyBridge/releases`.
-Drafts and prereleases are ignored. APK assets must be `https://`.
-When several APKs are attached, the client prefers the filename that
-contains the device ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`).
-Debug-signed CI APKs and production-signed Release APKs are **not**
-interchangeable updates.
-
-## Rotation
-
-If the upload key is lost, in-place updates from that identity are
-impossible. Ship a new package only with a migration plan (uninstall
-or a new `applicationId`). Do not commit a replacement keystore.
+Apple signing is separate: see [IOS.md](IOS.md) for distribution P12/team/app and
+widget profiles, temporary keychain cleanup and signed versus unsigned exports.

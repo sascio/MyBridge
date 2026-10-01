@@ -194,3 +194,34 @@ local differences. The companion file inventory records individual paths.
 - AGP 9.2 does not support shrinking ABI-split APKs and an unsplit AAB in the same
   invocation. CI and production build them separately, stage APKs first and clean
   only generated application-module output before the bundle build. R8 stays on.
+
+## Initial hosted validation findings (not final success evidence)
+
+Run `36923648498` at `741f830` compiled Android Kotlin and completed its R8
+minification task, but the combined split-APK/AAB invocation failed before release
+packaging. The next source commit separates those layouts.
+
+The same run's iOS job was incorrectly green because a default-shell pipeline
+returned `tee`'s status. The actual Xcode log says **ARCHIVE FAILED**:
+`linkReleaseFrameworkIosArm64` exhausted Java heap during Kotlin 2.4.10
+DevirtualizationAnalysis. Its 31,553-byte artifact contains **only the build log**,
+not an archive or IPA. This run is NOT iOS build/IPA proof. Native compile and
+package resolution progressed, but no full Release link/archive completed.
+
+The validation workflow now runs Bash with `pipefail`, separates build reports
+from app artifacts, requires actual archive/IPA outputs on successful builds,
+and uses explicit 8 GiB Gradle/Native compiler arguments without disabling
+Release optimization. The unsigned IPA itself is now validated after packaging.
+
+An authorized attempt to dispatch the signed test-build workflow returned
+GitHub HTTP 403 (`Resource not accessible by integration`). No signed test run
+was created, and Apple secret availability remains unknown. Signing credentials
+were not requested, printed or fabricated; dispatch requires reconnecting the
+Arena GitHub integration with the necessary Actions access.
+
+The actual native compiler also warned that `playlistText as NSString` can never
+succeed in the temporary HLS quality-playlist writer. That conversion now uses
+`NSString.create(string = playlistText)`, the same already-compiled target-source
+pattern used in title-facts and subtitle storage. Filename/storage conventions
+and UTF-8 output stay compatible. A native regression test is added; it has not
+been executed in this Linux workspace and must run after toolchain access resumes.

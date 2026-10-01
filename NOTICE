@@ -1,74 +1,61 @@
-StreamBridge
-Copyright (c) 2026 Stream Bridge contributors
+StreamBridge / MyBridge
+=====================
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, version 3 of the License.
+StreamBridge is an independently branded community derivative, not an official
+Nuvio release. Product branding does not transfer or replace upstream copyright.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
-
-The combined work is licensed under GPL-3.0. See LICENSE and COPYING.
-
-
-NuvioMobile (core)
-==================
-StreamBridge’s runnable Android foundation is official NuvioMobile,
-imported from:
-
+Runnable Android and iOS application source:
+- Nuvio Mobile, NuvioMedia and contributors
   https://github.com/NuvioMedia/NuvioMobile
-  branch: cmp-rewrite
-  commit: d177eb57dfc8989e56de577bda8f4c2714b2bd64
-  tag context: 0.4.17 (bump version; latest cmp-rewrite)
-  previous pin: 465266d (0.4.16)
-  license: GNU General Public License v3.0
-
-Copyright (c) NuvioMedia and NuvioMobile contributors.
-
-Imported as-is into `composeApp/`, `androidApp/`, `iosApp/` (version
-config), and `gradle/` with StreamBridge identity overlays only
-(applicationId, visible app name, launcher mark). Kotlin packages
-remain `com.nuvio.app` / `com.nuvio.android`.
-
-NuvioMobile-Enhanced (feature overlay)
-======================================
-Unique fork features (Live TV, OMDB episode ratings, hero trailer extras,
-volume boost, HLS quality chooser, library calendar, profile insights,
-download location / Wi-Fi-only, etc.) were overlaid from:
-
+  Verified 0.5.5-beta: 5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8
+- NuvioMobile Enhanced, luqmanfadlli and contributors
   https://github.com/luqmanfadlli/NuvioMobile-Enhanced
-  branch: enhanced
-  commit: d4a3b23
-  license: GNU General Public License v3.0
+  Verified 0.5.5-beta: 8b3bd867e172757c9fd7373da301e6489914f3fc
+- StreamBridge modifications and branding: this repository and its contributors
+  https://github.com/sascio/MyBridge
 
-Official NuvioMobile 0.4.17 plugin/sync/player fixes were re-applied on
-top of that overlay. StreamBridge identity, empty default addons, and
-updater source `sascio/MyBridge` are preserved.
+The runnable application retains GNU GPL v3 licensing. LICENSE and COPYING are
+not replaced, relicensed or shortened by this update. Existing source headers
+and in-app upstream/third-party attribution remain applicable. Corresponding
+source for a distributed binary must identify its exact StreamBridge commit
+and the pinned dependency sources; private signing credentials are not source.
 
-Vendored Android binaries shipped by that pin (GPL application):
+Nuvio Engine 0.1.2:
+https://github.com/NuvioMedia/nuvio-engine
+Tag v0.1.2 resolves to f2217b8c6ac4563046be2a55a06981b6b4d1152b.
+The engine is GPL-3.0-or-later. Its Android release preserves the complete engine
+license, third-party notices, libtorrent BSD notices, Boost Software License,
+OpenSSL Apache-2.0 license and try_signal notices in classes.jar/META-INF.
+The Apple distribution is checksum-pinned by the iOS bootstrap. Do not remove
+its license/notice payloads when redistributing the native dependency.
 
-  composeApp/libs/lib-exoplayer-release.aar
-  composeApp/libs/lib-decoder-ffmpeg-release.aar
-  composeApp/libs/lib-decoder-av1-release.aar
-  composeApp/libs/lib-decoder-mpegh-release.aar
-  composeApp/libs/lib-ui-release.aar
-  composeApp/libs/lib-nuvio-engine-android-0.1.1.aar
-  composeApp/libs/quickjs-kt-android-1.0.5-nuvio.aar
+MPVKit / mpv / FFmpeg and native dependencies:
+https://github.com/NuvioMedia/MPVKit
+Pinned submodule: bb1d0250ddcfa9d220761fcdad6011ac9fecf15e.
+The selected package, its checksum-pinned native binaries and their respective
+upstream licenses/notices remain separate attribution/licensing obligations.
+The MPVKit and MPVKit-GPL products are not interchangeable licensing claims.
+See Package.swift and docs/THIRD-PARTY-0.5.5.md. No substitute project-wide
+license is invented for the selected MPVKit commit.
 
-Related upstream (not copied as source trees in Milestone 1):
+Android playback, platform and application libraries:
+AndroidX/Media3, modified player/decoder AARs, mpvAndroid, QuickJS bindings,
+Kotlin/Compose, Ktor, Coil, kotlinx libraries, SQLDelight, Supabase and other
+upstream dependencies retain their licenses and notices. Vendored AARs are not
+rebranded as original StreamBridge libraries. Their technical filenames remain
+upstream-compatible; version/license provenance is documented in the audit.
 
-  NuvioTV        https://github.com/NuvioMedia/NuvioTV        e7a335e
-  nuvio-engine   https://github.com/NuvioMedia/nuvio-engine   772f8c0
-                 (GPL-3.0-or-later; Android consumes the AAR above)
+Noto Sans subtitle font:
+The copyright and full SIL Open Font License notice in
+  iosApp/iosApp/SubtitleFonts/OFL.txt
+remain unchanged apart from line-ending normalization. The font is not an
+original StreamBridge asset and its licensing obligations remain applicable.
 
+Historical prototype:
+legacy/streambridge-app/ is retained as an unbuilt historical client under its
+separate MIT license. That license does not relicense the GPL application core.
 
-Historical StreamBridge client (quarantined)
-============================================
-`legacy/streambridge-app/` is the previous independent Android client
-(custom Media3 player, original Compose UI). Those files were
-originally published under the MIT License (see
-`legacy/LICENSE-MIT.txt`). They are **not** on the runtime or CI path.
-
-The combined StreamBridge distribution is GPL-3.0.
+External service names, marks and account/backend notices belong to their
+respective operators. Nuvio account/supporter labels and third-party service
+logos are not proof that StreamBridge operates those services. This application
+provides no content and does not include the experimental CloudStream runtime.

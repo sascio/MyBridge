@@ -1,3 +1,5 @@
+> **Historical record — not current 0.5.5-beta validation.** See [current source pins](UPSTREAM.md), [runtime configuration](UPSTREAM-CREDENTIALS.md) and [executed validation status](VALIDATION-0.5.5.md).
+
 # Milestone 0 — Nuvio core source audit
 
 **Status: AUDIT COMPLETE (historical). Milestone 1 imported this mapping

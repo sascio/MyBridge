@@ -1,3 +1,5 @@
+> **Historical record — not current 0.5.5-beta validation.** See [current source pins](UPSTREAM.md), [runtime configuration](UPSTREAM-CREDENTIALS.md) and [executed validation status](VALIDATION-0.5.5.md).
+
 # Nuvio 0.4.17 sync + StreamBridge branding + silent updater
 
 **Status: Nuvio 0.4.17 overlaid, StreamBridge version 0.1.01, splash/credits/updater
