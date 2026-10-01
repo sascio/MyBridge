@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.nuvio.app.features.shuffle.ShuffleBadge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -223,12 +224,41 @@ private fun ContinueWatchingItem.continueWatchingCardArtworkUrl(
 private fun firstNonBlank(vararg values: String?): String? =
     values.firstOrNull { value -> !value.isNullOrBlank() }?.trim()
 
+private fun ContinueWatchingItem.fallbackUrlForArtwork(artworkUrl: String?): String? {
+    if (artworkUrl.isNullOrBlank()) return null
+    val trimmed = artworkUrl.trim()
+    if (trimmed == poster?.trim() && !rawPosterUrl.isNullOrBlank() && rawPosterUrl != poster) return rawPosterUrl
+    if (trimmed == background?.trim() && !rawBackgroundUrl.isNullOrBlank() && rawBackgroundUrl != background) return rawBackgroundUrl
+    return null
+}
+
+@Composable
+private fun continuewatchingImageModel(
+    imageUrl: String?,
+    fallbackUrl: String?,
+): Any? {
+    val platformContext = coil3.compose.LocalPlatformContext.current
+    return remember(imageUrl, fallbackUrl, platformContext) {
+        if (imageUrl.isNullOrBlank()) return@remember imageUrl
+        if (!fallbackUrl.isNullOrBlank() && fallbackUrl != imageUrl) {
+            coil3.request.ImageRequest.Builder(platformContext)
+                .data(imageUrl)
+                .memoryCacheKeyExtras(
+                    mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
+                )
+                .build()
+        } else {
+            imageUrl
+        }
+    }
+}
+
 internal fun ContinueWatchingItem.shouldBlurContinueWatchingArtwork(
     blurUnwatchedEpisodes: Boolean,
     useEpisodeThumbnails: Boolean,
     artworkUrl: String?,
 ): Boolean {
-    if (!blurUnwatchedEpisodes || !useEpisodeThumbnails) return false
+    if (!blurUnwatchedEpisodes || !useEpisodeThumbnails || isWatched) return false
     val thumbnail = episodeThumbnail?.trim()?.takeIf { it.isNotBlank() } ?: return false
     val artwork = artworkUrl?.trim()?.takeIf { it.isNotBlank() } ?: return false
     val isUnwatched = isNextUp || progressFraction < WatchProgressCompletionPercentThreshold / 100f
@@ -461,7 +491,7 @@ private fun WideCardPreview() {
             .width(100.dp)
             .height(60.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)),
     ) {
         Box(
             modifier = Modifier
@@ -696,8 +726,13 @@ private fun ContinueWatchingCard(
             ),
     ) {
         if (imageUrl != null) {
+            val cwFallbackUrl = item.fallbackUrlForArtwork(imageUrl)
+            val cwImageModel = continuewatchingImageModel(
+                imageUrl = cloudLibraryDisplayArtworkUrl(imageUrl),
+                fallbackUrl = cwFallbackUrl,
+            )
             AsyncImage(
-                model = cloudLibraryDisplayArtworkUrl(imageUrl),
+                model = cwImageModel,
                 contentDescription = item.title,
                 modifier = Modifier
                     .fillMaxSize()
@@ -725,6 +760,7 @@ private fun ContinueWatchingCard(
                 contentScale = ContentScale.Crop,
             )
         }
+        if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -885,6 +921,7 @@ private fun ContinueWatchingWideCard(
             imageUrl = artworkUrl,
             width = layout.widePosterStripWidth,
             blurred = shouldBlurArtwork,
+            fallbackUrl = item.fallbackUrlForArtwork(artworkUrl),
             contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
             modifier = Modifier.fillMaxHeight(),
         )
@@ -915,6 +952,7 @@ private fun ContinueWatchingWideCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    if (item.shufflePlayback) ShuffleBadge()
                     if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                         val todayIsoDate = CurrentDateProvider.todayIsoDate()
                         val badgeText = when {
@@ -1018,8 +1056,13 @@ private fun ContinueWatchingPosterCard(
                 artworkUrl = imageUrl,
             )
             if (imageUrl != null) {
+                val cwFallbackUrl = item.fallbackUrlForArtwork(imageUrl)
+                val cwImageModel = continuewatchingImageModel(
+                    imageUrl = cloudLibraryDisplayArtworkUrl(imageUrl),
+                    fallbackUrl = cwFallbackUrl,
+                )
                 AsyncImage(
-                    model = cloudLibraryDisplayArtworkUrl(imageUrl),
+                    model = cwImageModel,
                     contentDescription = item.title,
                     modifier = Modifier
                         .fillMaxSize()
@@ -1027,6 +1070,7 @@ private fun ContinueWatchingPosterCard(
                     contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
                 )
             }
+            if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
             if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                 Box(
                     modifier = Modifier
@@ -1115,6 +1159,7 @@ private fun ArtworkPanel(
     imageUrl: String?,
     width: Dp,
     blurred: Boolean = false,
+    fallbackUrl: String? = null,
     contentScale: ContentScale = ContentScale.Crop,
     modifier: Modifier = Modifier,
 ) {
@@ -1124,8 +1169,12 @@ private fun ArtworkPanel(
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         if (imageUrl != null) {
+            val artworkModel = continuewatchingImageModel(
+                imageUrl = cloudLibraryDisplayArtworkUrl(imageUrl),
+                fallbackUrl = fallbackUrl,
+            )
             AsyncImage(
-                model = cloudLibraryDisplayArtworkUrl(imageUrl),
+                model = artworkModel,
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()

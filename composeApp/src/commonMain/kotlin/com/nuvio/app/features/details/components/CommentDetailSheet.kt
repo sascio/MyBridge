@@ -69,7 +69,6 @@ fun CommentDetailSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
     ) {
         Column(
             modifier = Modifier
@@ -114,7 +113,10 @@ fun CommentDetailSheet(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .background(
+                                if (canGoBack) MaterialTheme.colorScheme.surfaceVariant
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            )
                             .then(if (canGoBack) Modifier.clickable(onClick = onPrevious) else Modifier),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -137,7 +139,10 @@ fun CommentDetailSheet(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .background(
+                                if (canGoForward) MaterialTheme.colorScheme.surfaceVariant
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            )
                             .then(if (canGoForward) Modifier.clickable(onClick = onNext) else Modifier),
                         contentAlignment = Alignment.Center,
                     ) {
