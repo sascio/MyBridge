@@ -62,6 +62,10 @@ jobs:
           for dependency in androidx.media3 okhttp kotlin-stdlib quickjs; do
             ./gradlew :androidApp:dependencyInsight --configuration fullReleaseRuntimeClasspath --dependency "$dependency" >> dependency-insight.txt
           done
+      - name: Run shared and Android host unit tests
+        id: tests
+        continue-on-error: true
+        run: ./gradlew :composeApp:check :androidApp:testFullDebugUnitTest --continue --stacktrace 2>&1 | tee unit-tests.log
       - name: Build debug, minified release APKs and full AAB (non-production signing)
         run: |
           # APK splits affect every variant in an invocation. Debug is universal;
@@ -76,10 +80,6 @@ jobs:
           # bundle shrink, so AGP does not encounter old per-ABI resource protos.
           ./gradlew :androidApp:clean :androidApp:bundleFullRelease --stacktrace 2>&1 | tee -a android-build.log
           python3 .github/package_android.py --aab-only 2>&1 | tee -a android-build.log
-      - name: Run shared and Android host unit tests
-        id: tests
-        continue-on-error: true
-        run: ./gradlew :composeApp:check :androidApp:testFullDebugUnitTest --continue --stacktrace 2>&1 | tee unit-tests.log
       - name: Expose actionable build/test failures as check annotations
         if: always()
         run: python3 .github/report_validation.py
@@ -130,8 +130,8 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       KOTLIN_DAEMON_JVMARGS: -Xmx2048M
-      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      NUVIO_GRADLE_JVMARGS: -Xmx8g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx8g
     steps:
       - uses: actions/checkout@v6
         with:
@@ -153,12 +153,21 @@ jobs:
       - name: Resolve dependencies, build and validate unsigned Release archive
         run: ./scripts/build-ios-archive.sh unsigned 2>&1 | tee ios-build.log
       - name: Upload unsigned device archive and IPA (requires re-signing)
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v7
         with:
           name: StreamBridge-iOS-unsigned-validation
-          path: |
-            build/artifacts/ios/
-            ios-build.log
+          path: build/artifacts/ios/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Annotate actual iOS compiler errors
+        if: failure()
+        run: python3 .github/report_validation.py
+      - name: Preserve separate iOS build logs (not app artifacts)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-iOS-build-reports
+          path: ios-build.log
           if-no-files-found: warn
           retention-days: 7

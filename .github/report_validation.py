@@ -11,13 +11,13 @@ def annotate(message):
     print('::error::'+escaped[:3800])
 
 
-for name in ('compile-debug.log','android-build.log'):
+for name in ('compile-debug.log','android-build.log','ios-build.log'):
     path=Path(name)
     if not path.is_file():
         continue
     lines=path.read_text(errors='replace').splitlines()
     for index,line in enumerate(lines):
-        if 'FAILURE: Build failed' in line or line.startswith('Traceback (most recent call last)'):
+        if 'FAILURE: Build failed' in line or line.startswith('Traceback (most recent call last)') or 'error: Compilation failed:' in line:
             context=lines[index:index+18]
             context=[line for line in context if not line.lstrip().startswith('at ') and line.strip()]
             annotate('\n'.join(context))
