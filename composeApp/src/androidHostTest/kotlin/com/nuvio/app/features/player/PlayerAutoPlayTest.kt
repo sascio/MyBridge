@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player
 
 import android.app.Application
+import android.content.Context
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.nuvio.app.features.details.MetaDetails
@@ -12,14 +13,17 @@ import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.WatchProgressStorage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.StandardTestDispatcher
 import org.junit.After
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,6 +43,19 @@ class PlayerAutoPlayTest {
     private val nearEnd = PlayerPlaybackSnapshot(
         isLoading = false, isPlaying = false, positionMs = 1_190_000L, durationMs = 1_200_000L,
     )
+
+    @Before
+    fun initializeStorage() {
+        // WatchProgressStorage holds one static SharedPreferences instance for the whole test
+        // JVM, so progress written by a previous test would be reloaded by ensureLoaded().
+        val context = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences("nuvio_watch_progress", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        WatchProgressStorage.initialize(context)
+        WatchProgressRepository.clearLocalState()
+    }
 
     @After
     fun cleanup() {
@@ -241,7 +258,11 @@ class PlayerAutoPlayTest {
                 compose.runOnIdle {
                     assertFalse(runtime.hasRequestedScrobbleStartForCurrentItem)
                     assertFalse(runtime.hasSentCompletionScrobbleForCurrentItem)
-                    assertTrue(WatchProgressRepository.uiState.value.entries.isEmpty())
+                    val entries = WatchProgressRepository.uiState.value.entries
+                    assertTrue(
+                        entries.isEmpty(),
+                        "short clips must not be stored: ${entries.map { "${it.videoId}@${it.lastPositionMs}/${it.durationMs}" }}",
+                    )
                     assertFalse(runtime.nextEpisodeAutoPlaySearching)
                     assertFalse(runtime.showNextEpisodeCard)
                     assertNull(runtime.activeSkipInterval)
@@ -269,7 +290,13 @@ class PlayerAutoPlayTest {
             ))
         }
         compose.runOnIdle {
-            val progress = WatchProgressRepository.uiState.value.entries.single()
+            val entries = WatchProgressRepository.uiState.value.entries
+            assertEquals(
+                1,
+                entries.size,
+                "error clip must not add an entry: ${entries.map { "${it.videoId}@${it.lastPositionMs}/${it.durationMs}" }}",
+            )
+            val progress = entries.single()
             assertEquals(300_000L, progress.lastPositionMs)
             assertEquals(1_200_000L, progress.durationMs)
             assertFalse(progress.isCompleted)

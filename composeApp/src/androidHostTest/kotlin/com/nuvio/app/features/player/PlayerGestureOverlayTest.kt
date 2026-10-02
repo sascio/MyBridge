@@ -9,6 +9,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -93,17 +94,49 @@ class PlayerGestureOverlayTest {
         }
     }
 
+    /**
+     * Asserts that a gesture feedback text is on screen. Robolectric never advances the
+     * compose clock on its own, so the enter transition could still be sitting on its first
+     * frame; settling it first keeps the display check deterministic. On failure the message
+     * carries the feedback state so the reported cause is the actual one.
+     */
+    private fun assertFeedbackDisplayed(
+        text: String,
+        substring: Boolean = false,
+    ): SemanticsNodeInteraction {
+        compose.mainClock.advanceTimeBy(1_000L)
+        compose.waitForIdle()
+        val node = compose.onNodeWithText(text, substring = substring)
+        try {
+            node.assertIsDisplayed()
+        } catch (error: AssertionError) {
+            throw AssertionError(
+                "$error [legacy=${useLegacyLayout.value}" +
+                    " live=${feedbackSummary(runtime.liveGestureFeedback)}" +
+                    " rendered=${feedbackSummary(runtime.renderedGestureFeedback)}" +
+                    " bounds=${node.getUnclippedBoundsInRoot()}]",
+                error,
+            )
+        }
+        return node
+    }
+
+    private fun feedbackSummary(feedback: GestureFeedbackState?): String = feedback
+        ?.let { "${it.icon.name}:${it.message}/${it.secondaryMessage}/${it.messageArgs}" }
+        ?: "none"
+
     @Test
     fun swipingRightShowsTheSeekTargetWhileTheFingerIsDown() {
         setPlayerContent()
-        // A twelfth of the width is 5 s: swipes on titles under 30 minutes span 60 s.
+        // A quarter of the width is 15 s: swipes on titles under 30 minutes span 60 s.
+        // Smaller drags stay inside the horizontal seek slop and show no preview at all.
         compose.onNodeWithTag("surface").performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            moveBy(Offset(width / 4f, 0f))
         }
 
-        val target = compose.onNodeWithText("01:05").assertIsDisplayed().getUnclippedBoundsInRoot()
-        val delta = compose.onNodeWithText("+5s").assertIsDisplayed().getUnclippedBoundsInRoot()
+        val target = assertFeedbackDisplayed("01:15").getUnclippedBoundsInRoot()
+        val delta = assertFeedbackDisplayed("+15s").getUnclippedBoundsInRoot()
         val surface = compose.onNodeWithTag("surface").getUnclippedBoundsInRoot()
         assertTrue(target.right <= delta.left, "the target time comes before the offset")
         assertTrue(delta.bottom < surface.top + (surface.bottom - surface.top) / 3, "the preview sits at the top")
@@ -132,11 +165,11 @@ class PlayerGestureOverlayTest {
         setPlayerContent()
         compose.onNodeWithTag("surface").performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            moveBy(Offset(width / 4f, 0f))
         }
 
-        compose.onNodeWithText("1:00:10").assertIsDisplayed()
-        compose.onNodeWithText("+10s").assertIsDisplayed()
+        assertFeedbackDisplayed("1:00:30")
+        assertFeedbackDisplayed("+30s")
     }
 
     @Test
@@ -189,18 +222,18 @@ class PlayerGestureOverlayTest {
         val surface = compose.onNodeWithTag("surface")
         surface.performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            moveBy(Offset(width / 4f, 0f))
         }
-        compose.onNodeWithText("+5s").assertIsDisplayed()
+        assertFeedbackDisplayed("+15s")
 
         surface.performTouchInput { up() }
 
         compose.runOnIdle {
-            assertEquals(listOf(65_000L), seeks)
+            assertEquals(listOf(75_000L), seeks)
             assertNull(runtime.liveGestureFeedback)
         }
-        compose.onNodeWithText("+5s").assertDoesNotExist()
-        compose.onNodeWithText("01:05").assertDoesNotExist()
+        compose.onNodeWithText("+15s").assertDoesNotExist()
+        compose.onNodeWithText("01:15").assertDoesNotExist()
     }
 
     @Test
@@ -209,11 +242,11 @@ class PlayerGestureOverlayTest {
         setPlayerContent()
         compose.onNodeWithTag("surface").performTouchInput {
             down(center)
-            moveBy(Offset(width / 12f, 0f))
+            moveBy(Offset(width / 4f, 0f))
         }
 
-        compose.onNodeWithText("01:05").assertIsDisplayed()
-        compose.onNodeWithText("+5s").assertIsDisplayed()
+        assertFeedbackDisplayed("01:15")
+        assertFeedbackDisplayed("+15s")
     }
 
     @Test
@@ -241,7 +274,8 @@ class PlayerGestureOverlayTest {
             runtime.liveGestureFeedback = null
             runtime.showBrightnessFeedback(0.4f)
         }
-        compose.onNodeWithText("40").assertIsDisplayed()
+        // The fork labels the feedback with the supplied reading, e.g. "40%".
+        assertFeedbackDisplayed("40", substring = true)
         compose.onNodeWithText("2x").assertDoesNotExist()
     }
 

@@ -102,7 +102,7 @@ class RatingsVisibilityTest {
                 progress.value = emptyMap()
                 ratings.value = mapOf((1 to 1) to 8.4)
             }
-            compose.onNodeWithText("8.4").fetchSemanticsNode()
+            compose.onNodeWithText("8.4").fetchSemanticsNode("8.4 should be visible for SHOW_ALL")
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_UNWATCHED_EPISODES }
@@ -110,7 +110,7 @@ class RatingsVisibilityTest {
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { watchedKeys.value = watchedItemKeys(meta.type, meta.id, 1, 1).toSet() }
-            compose.onNodeWithText("8.4").fetchSemanticsNode()
+            compose.onNodeWithText("8.4").fetchSemanticsNode("8.4 should be visible while the episode is watched")
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_EPISODES }
             compose.onNodeWithText("8.4").assertDoesNotExist()
@@ -119,7 +119,7 @@ class RatingsVisibilityTest {
             compose.onNodeWithText("6.2").assertDoesNotExist()
 
             compose.runOnIdle { visibility.value = EpisodeRatingsVisibility.HIDE_UNWATCHED_EPISODES }
-            compose.onNodeWithText("6.2").fetchSemanticsNode()
+            compose.onNodeWithText("6.2").fetchSemanticsNode("6.2 addon rating should be visible for an unwatched episode")
 
             compose.runOnIdle { watchedKeys.value = emptySet() }
             compose.onNodeWithText("6.2").assertDoesNotExist()
@@ -133,18 +133,20 @@ class RatingsVisibilityTest {
                     title = meta.name,
                     seasonNumber = 1,
                     episodeNumber = 1,
-                    lastPositionMs = 950,
-                    durationMs = 1000,
+                    // A finished real-length episode: clips under 121 s are treated as
+                    // error placeholders since the 0.5.5 sync and no longer count as watched.
+                    lastPositionMs = 570_000,
+                    durationMs = 600_000,
                     lastUpdatedEpochMs = 1,
                 ))
             }
-            compose.onNodeWithText("6.2").fetchSemanticsNode()
+            compose.onNodeWithText("6.2").fetchSemanticsNode("6.2 addon rating should be visible for a completed episode")
 
             compose.runOnIdle {
                 progress.value = emptyMap()
                 visibility.value = EpisodeRatingsVisibility.SHOW_ALL
             }
-            compose.onNodeWithText("6.2").fetchSemanticsNode()
+            compose.onNodeWithText("6.2").fetchSemanticsNode("6.2 addon rating should be visible again for SHOW_ALL")
         }
     }
 }

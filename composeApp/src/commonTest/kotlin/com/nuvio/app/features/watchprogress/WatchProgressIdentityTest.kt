@@ -89,16 +89,18 @@ class WatchProgressIdentityTest {
                 "title": "Show",
                 "seasonNumber": 1,
                 "episodeNumber": 2,
-                "lastPositionMs": 940,
-                "durationMs": 1000,
+                "lastPositionMs": 564000,
+                "durationMs": 600000,
                 "lastUpdatedEpochMs": 100
               }]
             }
             """.trimIndent(),
         )
 
+        // The clip has to be longer than the 121 s error-placeholder floor, otherwise
+        // the derived completion flag is suppressed regardless of the position.
         assertEquals("show_s1e2", decoded.single().progressKey)
-        assertEquals(940L, decoded.single().lastPositionMs)
+        assertEquals(564_000L, decoded.single().lastPositionMs)
         assertTrue(decoded.single().isCompleted)
     }
 
