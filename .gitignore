@@ -38,10 +38,16 @@ AGENTS.md
 PERFORMANCE_FINDINGS.md
 scripts/*
 !scripts/sign-ios-device-app.py
+# iOS release helpers are checked in: they are part of the release workflow.
+!scripts/build-ios-ipa.sh
+!scripts/prepare-ios-dependencies.sh
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage
+# MPVKit local Swift package, fetched by scripts/prepare-ios-dependencies.sh
+# (upstream carries it as a submodule; StreamBridge does not vendor it).
+MPVKit/
 
 legacy/streambridge-app/build/
 

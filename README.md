@@ -7,19 +7,21 @@
 <p align="center"><strong>Your App, Your Way</strong></p>
 
 <p align="center">
-  Android media client · GPL-3.0 · version <strong>0.1.05</strong> (105)
+  Android media client · iOS in 0.1.08+ · GPL-3.0 · version <strong>0.1.08</strong> (108)
 </p>
 
-StreamBridge is an Android media client. You bring catalogs, addons, and
-plugins. The app does not ship, host, or recommend any content.
+StreamBridge is a media client for Android, with an iOS release starting in
+0.1.08. You bring catalogs, addons, and plugins. The app does not ship, host, or
+recommend any content.
 
 It is **NuvioMobile core with StreamBridge identity** (name, icon, package,
-in-app updater). The runnable app is official
+iOS bundle identifier, in-app updater). The runnable app is official
 [NuvioMobile](https://github.com/NuvioMedia/NuvioMobile)
-(`cmp-rewrite` `b88fef2e`, **0.5.1**), GPL-3.0, plus unique features
+(`cmp-rewrite` `5c6028f2`, **0.5.5-beta**), GPL-3.0, plus unique features
 overlaid from [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced)
-(`enhanced` `9d311c18`, **0.5.1-beta**).
-Kotlin packages stay `com.nuvio.app`. `applicationId` is `com.streambridge.app`.
+(`enhanced` `8b3bd867`, **0.5.5-beta**).
+Kotlin packages stay `com.nuvio.app`. `applicationId` is `com.streambridge.app`;
+the iOS bundle identifier is `com.streambridge.app`.
 
 The app ships **empty**: no catalogs, no metadata, no streams, no
 providers. Add Stremio-compatible addons and Nuvio-compatible plugin
@@ -37,12 +39,13 @@ on configuration you add. Avatar images need a working account backend.
 **Home and discovery**
 - Home catalogs from your addons, Continue Watching, and configurable hero styles (full-bleed or card)
 - Search
-- Title details, trailers, and play-random-episode for series
+- Title details, trailers, and episode shuffle for series
 
 **Playback**
-- Nuvio ExoPlayer pipeline (the only playback path)
+- Nuvio ExoPlayer pipeline (the only Android playback path)
 - HLS quality chooser when a stream exposes HLS master variants
 - Timeline tap-to-seek, picture-in-picture, background playback, and an optional external player
+- Subtitle controls including per-episode restore, styling, and "sync by ear" alignment
 
 **Live TV**
 - Channels, EPG, and Live TV settings when you configure sources
@@ -50,13 +53,15 @@ on configuration you add. Avatar images need a working account backend.
 - Provider availability is **configuration-dependent** — nothing is bundled
 
 **Library and tracking**
-- Library, calendar, and lists
+- Library, calendar, lists, and the downloads entry point
+- In-app ratings synced with Trakt, Simkl, and MDBList
 - Optional Trakt device-code sign-in and Simkl PIN/device sign-in (off by default)
 
 **Profiles**
 - Multiple profiles
 - Avatar catalog loaded from the official Nuvio backend (public client configuration) with Ready, Empty, and Failed states plus retry; supporter avatars require a membership
 - Custom profile background URL where the profile entitlement allows it
+- Profile Insights computed off the main thread and cached across launches
 
 **Downloads**
 - Download manager and a Wi-Fi-only (no mobile data) setting
@@ -64,6 +69,7 @@ on configuration you add. Avatar images need a working account backend.
 **Addons, plugins, and settings**
 - Empty addon and plugin lists until you add them
 - Separate Plugin and Addon entries in Settings
+- Plugin runtime with async timers (`setTimeout`) for Nuvio-compatible plugins
 - In-app Privacy & Policy page describing what the app stores and which services it can contact
 - Licenses and attributions (StreamBridge as the app; NuvioMobile as upstream)
 
@@ -72,7 +78,15 @@ on configuration you add. Avatar images need a working account backend.
 - Drafts and prereleases are ignored
 - The client selects the newest compatible stable APK for the device ABI
 
+**iOS (new in 0.1.08)**
+- Same Kotlin core and MPV/ExoPlayer-equivalent playback pipeline as Android
+- `StreamBridge.app`, bundle identifier `com.streambridge.app`, version 0.1.08
+- Downloads Live Activity extension and bundled Noto subtitle fonts
+- Built by `.github/workflows/ios-release.yml`; see [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md)
+
 ## Install
+
+### Android
 
 Production builds are the **published** GitHub Releases of this repository.
 Each release attaches one APK per ABI:
@@ -86,7 +100,17 @@ Plus `checksums.sha256`. Branch CI APKs are **debug-signed compile
 artifacts**, not production. In-place updates need the same production
 certificate. See [docs/SIGNING.md](docs/SIGNING.md).
 
+### iOS
+
+iOS releases are built by GitHub Actions and distributed as an IPA
+(`streambridge-0.1.08-full-release.ipa`). A signed IPA is attached to the draft
+release only when Apple signing secrets are configured; without them CI still
+builds and validates an **unsigned** IPA and clearly reports that signing is
+still required. See [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
+
 ## Build
+
+### Android
 
 ```bash
 ./gradlew :androidApp:assembleFullDebug
@@ -102,6 +126,16 @@ Release output is **one APK per ABI** under
 `androidApp/build/outputs/apk/full/release/`. A production GitHub Release
 is a **manual** workflow and **fails** unless upload-keystore GitHub
 Secrets are set.
+
+### iOS
+
+```bash
+./scripts/prepare-ios-dependencies.sh
+./scripts/build-ios-ipa.sh
+```
+
+Output: `build/ios-ipa/streambridge-0.1.08-full-release.ipa` (unsigned unless
+signing is configured). See [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
 
 ## License
 

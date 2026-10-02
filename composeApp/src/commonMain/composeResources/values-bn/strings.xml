@@ -1698,7 +1698,7 @@
     <string name="addon_already_installed">এই অ্যাডনটি ইতিমধ্যেই ইনস্টল করা আছে।</string>
     <string name="addon_invalid_url">একটি বৈধ অ্যাডন URL লিখুন</string>
     <string name="addon_load_manifest_failed">ম্যানিফেস্ট লোড করা যায়নি</string>
-    <string name="app_brand_name">Nuvio</string>
+    <string name="app_brand_name">StreamBridge</string>
     <string name="auth_account_deletion_failed">অ্যাকাউন্ট ডিলিট করতে ব্যর্থ</string>
     <string name="auth_sign_in_failed">সাইন ইন ব্যর্থ হয়েছে</string>
     <string name="auth_sign_out_failed">সাইন-আউট ব্যর্থ হয়েছে</string>

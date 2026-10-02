@@ -1696,7 +1696,7 @@
     <string name="addon_already_installed">یہ Addon پہلے سے انسٹال ہے۔</string>
     <string name="addon_invalid_url">درست Addon URL درج کریں</string>
     <string name="addon_load_manifest_failed">Manifest لوڈ نہیں ہو سکا</string>
-    <string name="app_brand_name">Nuvio</string>
+    <string name="app_brand_name">StreamBridge</string>
     <string name="auth_account_deletion_failed">اکاؤنٹ حذف نہیں ہو سکا</string>
     <string name="auth_sign_in_failed">سائن اِن ناکام رہا</string>
     <string name="auth_sign_out_failed">سائن آؤٹ ناکام رہا</string>

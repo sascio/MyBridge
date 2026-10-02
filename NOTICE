@@ -15,22 +15,23 @@ The combined work is licensed under GPL-3.0. See LICENSE and COPYING.
 
 NuvioMobile (core)
 ==================
-StreamBridge’s runnable Android foundation is official NuvioMobile,
+StreamBridge’s runnable core (Android and iOS) is official NuvioMobile,
 imported from:
 
   https://github.com/NuvioMedia/NuvioMobile
   branch: cmp-rewrite
-  commit: d177eb57dfc8989e56de577bda8f4c2714b2bd64
-  tag context: 0.4.17 (bump version; latest cmp-rewrite)
-  previous pin: 465266d (0.4.16)
+  commit: 5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8
+  tag: 0.5.5-beta
+  previous pins: bb3c1e4c (0.5.2-beta), b88fef2e (0.5.1),
+                 ec441c7b (0.4.25-beta), d177eb57 (0.4.17)
   license: GNU General Public License v3.0
 
 Copyright (c) NuvioMedia and NuvioMobile contributors.
 
-Imported as-is into `composeApp/`, `androidApp/`, `iosApp/` (version
-config), and `gradle/` with StreamBridge identity overlays only
-(applicationId, visible app name, launcher mark). Kotlin packages
-remain `com.nuvio.app` / `com.nuvio.android`.
+Imported as-is into `composeApp/`, `androidApp/`, `iosApp/`, and
+`gradle/` with StreamBridge identity overlays only (applicationId and
+iOS bundle identifier, visible app name, launcher marks, updater
+source). Kotlin packages remain `com.nuvio.app` / `com.nuvio.android`.
 
 NuvioMobile-Enhanced (feature overlay)
 ======================================
@@ -40,22 +41,35 @@ download location / Wi-Fi-only, etc.) were overlaid from:
 
   https://github.com/luqmanfadlli/NuvioMobile-Enhanced
   branch: enhanced
-  commit: 9d311c18 (tag 0.5.1-beta)
+  commit: 8b3bd867e172757c9fd7373da301e6489914f3fc
+  tag: 0.5.5-beta
+  previous pins: 3da8d06f (0.5.2-beta), 9d311c18 (0.5.1-beta),
+                 ce4492ec (0.4.23-beta)
   license: GNU General Public License v3.0
 
-Official NuvioMobile 0.4.17 plugin/sync/player fixes were re-applied on
-top of that overlay. StreamBridge identity, empty default addons, and
-updater source `sascio/MyBridge` are preserved.
+Official NuvioMobile 0.5.5-beta is contained in that tag; the Enhanced
+overlay adds unique features on top. StreamBridge identity, empty default
+addons, and updater source `sascio/MyBridge` are preserved.
 
-Vendored Android binaries shipped by that pin (GPL application):
+Vendored binaries shipped by those pins (GPL application):
 
   composeApp/libs/lib-exoplayer-release.aar
   composeApp/libs/lib-decoder-ffmpeg-release.aar
   composeApp/libs/lib-decoder-av1-release.aar
   composeApp/libs/lib-decoder-mpegh-release.aar
   composeApp/libs/lib-ui-release.aar
-  composeApp/libs/lib-nuvio-engine-android-0.1.1.aar
+  composeApp/libs/lib-nuvio-engine-android-0.1.2.aar
   composeApp/libs/quickjs-kt-android-1.0.5-nuvio.aar
+  composeApp/libs/cloudstream-runtime-api-4.8.0-3496e5f.aar
+                 (CloudStream 3 runtime API, GPL-3.0; sideload/full
+                  distribution only, see docs/CLOUDSTREAM-AUDIT.md)
+
+The iOS build additionally consumes upstream build-time dependencies
+that are not committed to this repository: the pinned Nuvio Engine Apple
+XCFramework (0.1.2) fetched by scripts/prepare-ios-dependencies.sh, and
+the MPVKit local Swift package (LGPL-3.0) referenced as ../MPVKit.
+Bundled subtitle fonts (Noto Sans / Noto Sans CJK, SIL Open Font
+License) ship under iosApp/iosApp/SubtitleFonts/ with their license.
 
 Related upstream (not copied as source trees in Milestone 1):
 

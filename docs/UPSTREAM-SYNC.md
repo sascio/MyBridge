@@ -6,9 +6,10 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `bb3c1e4c43f65b0c12c897ae9eda6f36806452b0` |
-| Release | 0.5.2-beta (`chore(store): publish 0.5.2-beta`, 2026-09-26) |
-| Enhanced overlay | `3da8d06f` (tag `0.5.2-beta`, 2026-09-26) |
+| Commit | `5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8` |
+| Release | 0.5.5-beta (`bump version`, 2026-09-30) |
+| Enhanced overlay | `8b3bd867` (tag `0.5.5-beta`, 2026-10-01) |
+| Previous pin | 0.5.2-beta (`bb3c1e4c`) + Enhanced `3da8d06f` |
 
 ## Important: upstream rewrote history (historical note)
 
@@ -30,7 +31,92 @@ is merged with the new upstream tip so `git merge` sees the correct base,
 then conflicts are resolved by hand. The result is committed as regular
 commits so the StreamBridge branch history stays linear.
 
-## 0.5.2-beta / Enhanced 0.5.2-beta integration (this sync)
+## 0.5.5-beta / Enhanced 0.5.5-beta integration (this sync)
+
+Base: Enhanced `3da8d06f` (0.5.2-beta) / Official `bb3c1e4c` (0.5.2-beta).
+Theirs: Official NuvioMobile `5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8`
+(tag `0.5.5-beta`) + Enhanced `8b3bd867e172757c9fd7373da301e6489914f3fc`
+(tag `0.5.5-beta`, which contains the official tag).
+
+Scope: 236 files, +16628/−5013. 49 files are new, 2 upstream-removed files are
+kept removed (`features/player/RandomEpisodePlaybackTracker.kt`, whose episode
+shuffle role moved to `features/shuffle/*`, and the superseded
+`commonTest/.../ReleaseDateDisplayTest.kt`).
+
+**Official NuvioMobile 0.5.2-beta → 0.5.5-beta**
+- Ratings: `features/ratings/*` storage + user rating sheet, ratings providers
+  for Trakt/Simkl/MDBList, star row on details.
+- Episode shuffle: `features/shuffle/*` (repository, picker, sheet, badge) with
+  Android/iOS storage and host tests.
+- Shared UI restyle: `core/ui/Chip.kt`, `core/ui/Dialog.kt`, `core/ui/Menu.kt`,
+  shimmer loading states, `core/format/ReleaseDateDisplay.*`,
+  `core/i18n/MediaStatusLabel.kt`, `TmdbAgeRatings.kt`.
+- Plugin runtime: async timers / `setTimeout` (`HostFunctions.kt`, `JsBindings.kt`).
+- Downloads moved into the library (`LibraryDownloadsButton.kt`,
+  `DownloadsDestinations.kt`), debrid episode file selection, MDBList ordering,
+  buffer-duration tuning, player resume/auto-play fixes.
+- New locales: Bengali (`values-bn`) and Urdu (`values-ur`), plus Greek, Slovak,
+  Vietnamese and other translation updates.
+- iOS: QuickJS 1.0.15, `MPVPlayerBridge.swift` drops `.mixWithOthers` so Now
+  Playing controls work again, `Version.xcconfig` 137/0.5.5.
+- Root `store.json` (AltStore source) updated — kept out of StreamBridge.
+
+**NuvioMobile-Enhanced 0.5.2-beta → 0.5.5-beta**
+- Ratings UI completion (star row, animations, episode badge), Profile Insight
+  caching/background computation and manual refresh, Clear Metadata Cache in
+  Advanced settings, subtitle "sync by ear" card and modal wiring, landscape
+  clearlogo option, iOS library/calendar metadata-lookup limits.
+
+**StreamBridge changes in this sync**
+- All StreamBridge customizations carried through the merge unchanged:
+  CloudStream runtime and settings pages, in-app updater for
+  `sascio/MyBridge`, privacy & policy page, licenses & attributions, avatar
+  catalog, profiles, Trakt/Simkl plumbing, full/playstore flavor split, signing
+  and release workflows, StreamBridge branding.
+- Locale rebrand: `app_brand_name` is StreamBridge in every locale (the new
+  Bengali/Urdu files arrived as `Nuvio` and were reset).
+- New: iOS release support for StreamBridge 0.1.08 —
+  `scripts/build-ios-ipa.sh` (unsigned by default, signed when Apple material
+  is provided), `.github/workflows/ios-release.yml`, iOS identity
+  (`com.streambridge.app`, `StreamBridge.app`, StreamBridge app icons),
+  `docs/RELEASE-IOS.md`.
+- Version metadata: `streambridge.version.properties` = 0.1.08/108;
+  `iosApp/Configuration/Version.xcconfig` = 0.1.08/108 (upstream's 0.5.5/137 is
+  not shipped as StreamBridge's version).
+
+**Merge conflicts and how they were resolved**
+- `PlayerGestureOverlay.kt` — took upstream Enhanced 0.5.5 verbatim (a custom
+  gesture reading is a strict superset of the 0.1.07 behavior).
+- `MainActivity.kt` — kept StreamBridge's CloudStream initialization and added
+  upstream's `UserRatingsStorage.initialize`.
+- `StreamOrientationTest.kt` — took upstream's initialization block.
+- `values-el/strings.xml` — took upstream's Greek wording, kept
+  `app_brand_name` = StreamBridge.
+- `SettingsScreen.kt` — kept StreamBridge's `onCloudStreamClick`/`onDownloadsClick`
+  parameters alongside upstream's `onAccountClick` and friends.
+- `store.json` — stays deleted (StreamBridge is not published through the
+  AltStore source).
+
+**Deliberate divergence**
+- Upstream uses Compose format strings that treat a trailing `%` as a conversion
+  and expect `S%1$dE%2$d`. StreamBridge keeps its 0.1.07 composition rule: the
+  transparency value stays a literal percent (`%1$d%%`) and episode codes keep
+  the space after the season number. The countdown string upstream changed to
+  `Playing via %1$s in %2$ds…` is also kept in the StreamBridge form so the
+  argument stays an `Int` (see `player_next_episode_playing_via_countdown`).
+
+**Verification**
+- `composeApp/build.gradle.kts` and `androidApp/build.gradle.kts` are byte-identical
+  to the pre-sync StreamBridge tree, so Android credentials, signing, flavors and
+  release behavior did not change.
+- `gradle/libs.versions.toml` differs only in `quickjsKt` 1.0.5 → 1.0.15 (the
+  Android `full` flavor keeps its pinned `quickjs-kt-android-1.0.5-nuvio.aar`
+  for plugin runtime compatibility; iOS uses the version-catalog QuickJS 1.0.15
+  that upstream 0.5.5 requires).
+- No CloudStream-path file was touched; the no-DEX boundary and the pinned AARs
+  are intact.
+
+## 0.5.2-beta / Enhanced 0.5.2-beta integration (previous sync)
 
 Base: Enhanced `9d311c18` (0.5.1-beta) / Official `b88fef2e` (0.5.1).
 Theirs: Official NuvioMobile `bb3c1e4c43f65b0c12c897ae9eda6f36806452b0` (tag `0.5.2-beta`) +
