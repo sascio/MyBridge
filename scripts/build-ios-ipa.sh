@@ -166,9 +166,23 @@ build_environment=(
 if [[ -n "${NUVIO_GRADLE_JVMARGS:-}" ]]; then
     build_environment+=("ORG_GRADLE_PROJECT_org.gradle.jvmargs=${NUVIO_GRADLE_JVMARGS}")
 fi
-if [[ -n "${NUVIO_KOTLIN_NATIVE_JVMARGS:-}" ]]; then
-    build_environment+=("ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}")
-fi
+
+# Kotlin/Native linking is the memory peak of the iOS build. Linking
+# linkReleaseFrameworkIosArm64 died with `java.lang.OutOfMemoryError: Java heap
+# space` because the heaps that reach the Xcode-spawned Gradle build were too
+# small: StreamBridge's gradle.properties deliberately keeps Android-sized
+# values, and the upstream env var that is supposed to raise the native
+# compiler heap did not cover the Kotlin daemon that runs the compiler.
+#
+# These defaults match upstream NuvioMobile's gradle.properties (the values its
+# released iOS builds use), and are passed as Gradle *properties* so they apply
+# to the build Xcode starts without touching the Android memory profile.
+kotlin_native_jvmargs="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx12288M}"
+kotlin_daemon_jvmargs="${NUVIO_KOTLIN_DAEMON_JVMARGS:--Xmx8192M}"
+build_environment+=(
+    "ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${kotlin_native_jvmargs}"
+    "ORG_GRADLE_PROJECT_kotlin.daemon.jvmargs=${kotlin_daemon_jvmargs}"
+)
 
 signing_arguments=()
 archive_path=""

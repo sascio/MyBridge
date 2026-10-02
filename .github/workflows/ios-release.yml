@@ -77,9 +77,11 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       IOS_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }}
-      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      # Kotlin/Native linking needs the large heaps upstream ships; the Gradle
+      # daemon stays smaller because the runners have limited RAM.
+      KOTLIN_DAEMON_JVMARGS: -Xmx8192M
       NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
       NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
 
     steps:
