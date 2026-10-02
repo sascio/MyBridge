@@ -28,7 +28,6 @@ internal class PlayerScreenRuntime(
     args: PlayerScreenArgs,
 ) {
     var args by mutableStateOf(args)
-    var randomEpisodePlayback by mutableStateOf(false)
 
     val title: String get() = args.title
     val profileId: Int get() = args.profileId
@@ -216,6 +215,7 @@ internal class PlayerScreenRuntime(
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
     var showStreamInfoModal by mutableStateOf(false)
+    var showUserRatingSheet by mutableStateOf(false)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
     var subtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
     var selectedAudioIndex by mutableStateOf(-1)
@@ -232,6 +232,9 @@ internal class PlayerScreenRuntime(
     var trackPreferenceRestoreApplied by mutableStateOf(false)
     var subtitleDelayMs by mutableStateOf(0)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
+    var showSubtitleSyncByEar by mutableStateOf(false)
+    var subtitleSyncHeardPositionMs by mutableStateOf<Long?>(null)
+    var subtitleSyncSawPositionMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleShowing by mutableStateOf(false)
     var autoSubtitleRewindWatermarkMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleMuteActive by mutableStateOf(false)
@@ -243,6 +246,7 @@ internal class PlayerScreenRuntime(
             showSubtitleModal ||
             showVideoSettingsModal ||
             showStreamInfoModal ||
+            showUserRatingSheet ||
             showSourcesPanel ||
             showQualityPanel ||
             showEpisodesPanel ||

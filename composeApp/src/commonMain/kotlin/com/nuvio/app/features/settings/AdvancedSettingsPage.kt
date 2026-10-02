@@ -2,19 +2,9 @@ package com.nuvio.app.features.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.material3.BasicAlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,20 +13,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.ui.DialogButton
+import com.nuvio.app.core.ui.DialogButtons
+import com.nuvio.app.core.ui.DialogButtonStyle
+import com.nuvio.app.core.ui.DialogSurface
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.library.clearLibraryReleaseScheduleCache
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.watched.WatchedClock
 import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_done
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_subtitle
+import nuvio.composeapp.generated.resources.settings_advanced_clear_metadata_cache
+import nuvio.composeapp.generated.resources.settings_advanced_clear_metadata_cache_done
+import nuvio.composeapp.generated.resources.settings_advanced_clear_metadata_cache_subtitle
 import nuvio.composeapp.generated.resources.settings_advanced_debug_logs
 import nuvio.composeapp.generated.resources.settings_advanced_debug_logs_description
 import nuvio.composeapp.generated.resources.settings_advanced_remember_last_profile
@@ -148,6 +150,22 @@ internal fun LazyListScope.advancedSettingsContent(
                         }
                     },
                 )
+                var metadataCleared by rememberSaveable { mutableStateOf(MetadataCacheClearer.recentlyCleared()) }
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_advanced_clear_metadata_cache),
+                    description = if (metadataCleared) {
+                        stringResource(Res.string.settings_advanced_clear_metadata_cache_done)
+                    } else {
+                        stringResource(Res.string.settings_advanced_clear_metadata_cache_subtitle)
+                    },
+                    isTablet = isTablet,
+                    onClick = {
+                        if (!metadataCleared && !MetadataCacheClearer.recentlyCleared()) {
+                            metadataCleared = true
+                            MetadataCacheClearer.clear()
+                        }
+                    },
+                )
             }
         }
     }
@@ -168,6 +186,25 @@ internal fun LazyListScope.advancedSettingsContent(
     }
 }
 
+private object MetadataCacheClearer {
+    private const val COOLDOWN_MS = 60L * 60_000L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var lastClearedAtEpochMs = 0L
+
+    fun recentlyCleared(): Boolean =
+        lastClearedAtEpochMs != 0L && WatchedClock.nowEpochMs() - lastClearedAtEpochMs < COOLDOWN_MS
+
+    fun clear() {
+        if (recentlyCleared()) return
+        lastClearedAtEpochMs = WatchedClock.nowEpochMs()
+        MetaDetailsRepository.clearCachedMetadata()
+        scope.launch {
+            clearProfileInsightTitleFacts()
+            clearLibraryReleaseScheduleCache()
+        }
+    }
+}
+
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun SentrySettingsDialog(
@@ -176,100 +213,68 @@ private fun SentrySettingsDialog(
     onDismiss: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
-    BasicAlertDialog(
+    DialogSurface(
         onDismissRequest = onDismiss,
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = tokens.colors.surfaceDialog,
-            shape = tokens.shapes.dialog,
-        ) {
-            Column(
-                modifier = Modifier.padding(tokens.spacing.dialogPadding),
-            ) {
-                Text(
-                    text = stringResource(
+        title = stringResource(
                         if (enabled) {
                             Res.string.sentry_disable_dialog_title
                         } else {
                             Res.string.sentry_enable_dialog_title
                         },
                     ),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = tokens.colors.textPrimary,
-                )
-                Spacer(modifier = Modifier.height(tokens.spacing.controlGap))
-                Text(
-                    text = stringResource(
+    ) {
+        Text(
+            text = stringResource(
+                if (enabled) {
+                    Res.string.sentry_disable_dialog_subtitle
+                } else {
+                    Res.string.sentry_enable_dialog_subtitle
+                },
+            ),
+            style = MaterialTheme.typography.bodyLarge,
+            color = tokens.colors.textMuted,
+        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+        ) {
+            SentryInfoSection(
+                title = stringResource(Res.string.sentry_help_title),
+                body = stringResource(Res.string.sentry_help_body),
+            )
+            SentryInfoSection(
+                title = stringResource(Res.string.sentry_sent_title),
+                body = stringResource(Res.string.sentry_sent_body),
+            )
+            SentryInfoSection(
+                title = stringResource(Res.string.sentry_not_sent_title),
+                body = stringResource(Res.string.sentry_not_sent_body),
+            )
+        }
+        DialogButtons {
+            DialogButton(
+                text = stringResource(
                         if (enabled) {
-                            Res.string.sentry_disable_dialog_subtitle
+                            Res.string.sentry_keep_enabled
                         } else {
-                            Res.string.sentry_enable_dialog_subtitle
+                            Res.string.action_cancel
                         },
                     ),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = tokens.colors.textMuted,
-                )
-                Spacer(modifier = Modifier.height(NuvioTokens.Space.s18))
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-                ) {
-                    SentryInfoSection(
-                        title = stringResource(Res.string.sentry_help_title),
-                        body = stringResource(Res.string.sentry_help_body),
-                    )
-                    SentryInfoSection(
-                        title = stringResource(Res.string.sentry_sent_title),
-                        body = stringResource(Res.string.sentry_sent_body),
-                    )
-                    SentryInfoSection(
-                        title = stringResource(Res.string.sentry_not_sent_title),
-                        body = stringResource(Res.string.sentry_not_sent_body),
-                    )
-                }
-                Spacer(modifier = Modifier.height(NuvioTokens.Space.s18))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    Button(
-                        onClick = onDismiss,
-                        shape = tokens.shapes.button,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = tokens.colors.surfaceCard,
-                            contentColor = tokens.colors.textPrimary,
-                        ),
-                    ) {
-                        Text(
-                            text = stringResource(
-                                if (enabled) {
-                                    Res.string.sentry_keep_enabled
-                                } else {
-                                    Res.string.action_cancel
-                                },
-                            ),
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(NuvioTokens.Space.s10))
-                    Button(
-                        onClick = {
-                            onConfirm()
-                            onDismiss()
+                onClick = onDismiss,
+            )
+            DialogButton(
+                text = stringResource(
+                        if (enabled) {
+                            Res.string.sentry_turn_off
+                        } else {
+                            Res.string.sentry_turn_on
                         },
-                        shape = tokens.shapes.button,
-                    ) {
-                        Text(
-                            text = stringResource(
-                                if (enabled) {
-                                    Res.string.sentry_turn_off
-                                } else {
-                                    Res.string.sentry_turn_on
-                                },
-                            ),
-                        )
-                    }
-                }
-            }
+                    ),
+                onClick = {
+                    onConfirm()
+                    onDismiss()
+                },
+                style = DialogButtonStyle.Primary,
+            )
         }
     }
 }

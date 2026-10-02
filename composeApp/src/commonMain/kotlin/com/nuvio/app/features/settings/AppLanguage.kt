@@ -2,6 +2,7 @@ package com.nuvio.app.features.settings
 
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.lang_arabic
+import nuvio.composeapp.generated.resources.lang_bengali
 import nuvio.composeapp.generated.resources.lang_bulgarian
 import nuvio.composeapp.generated.resources.lang_czech
 import nuvio.composeapp.generated.resources.lang_english
@@ -20,6 +21,7 @@ import nuvio.composeapp.generated.resources.lang_russian
 import nuvio.composeapp.generated.resources.lang_slovak
 import nuvio.composeapp.generated.resources.lang_spanish
 import nuvio.composeapp.generated.resources.lang_turkish
+import nuvio.composeapp.generated.resources.lang_urdu
 import nuvio.composeapp.generated.resources.lang_norwegian
 import nuvio.composeapp.generated.resources.lang_dutch
 import nuvio.composeapp.generated.resources.lang_japanese
@@ -33,6 +35,7 @@ enum class AppLanguage(
 ) {
     DEVICE("device", Res.string.settings_appearance_app_language_device),
     ARABIC("ar", Res.string.lang_arabic),
+    BENGALI("bn", Res.string.lang_bengali),
     BULGARIAN("bg", Res.string.lang_bulgarian),
     CZECH("cs", Res.string.lang_czech),
     ENGLISH("en", Res.string.lang_english),
@@ -51,6 +54,7 @@ enum class AppLanguage(
     SLOVAK("sk", Res.string.lang_slovak),
     SPANISH("es", Res.string.lang_spanish),
     TURKISH("tr", Res.string.lang_turkish),
+    URDU("ur", Res.string.lang_urdu),
     NORWEGIAN("nb", Res.string.lang_norwegian),
     DUTCH("nl", Res.string.lang_dutch),
     JAPANESE("ja", Res.string.lang_japanese),

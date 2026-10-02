@@ -7,6 +7,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -15,6 +17,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
@@ -26,6 +29,12 @@ import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
+import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.features.ratings.UserRatingPlayerOverlay
+import com.nuvio.app.features.ratings.rememberCanRate
+import com.nuvio.app.features.ratings.rememberUserRating
+import com.nuvio.app.features.ratings.toUserRatingTarget
+import com.nuvio.app.features.tracking.TrackingRatingTarget
 import nuvio.composeapp.generated.resources.*
 
 @Composable
@@ -323,6 +332,18 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             p2pRebufferMessage = p2pRebufferMessage,
             p2pRebufferProgress = p2pRebufferProgress,
         )
+        SubtitleSyncByEarCard(
+            visible = showSubtitleSyncByEar,
+            subtitleDelayMs = subtitleDelayMs,
+            heardCaptured = subtitleSyncHeardPositionMs != null,
+            sawCaptured = subtitleSyncSawPositionMs != null,
+            onHeard = { captureSubtitleSyncHeard() },
+            onSaw = { captureSubtitleSyncSaw() },
+            onClose = { closeSubtitleSyncByEar() },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
+        )
         RenderPlayerModals(displayedPositionMs = displayedPositionMs)
     }
 }
@@ -348,6 +369,9 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
+    val userRatingTarget = currentUserRatingTarget()
+    val canRate = rememberCanRate(userRatingTarget)
+    val userRating = rememberUserRating(userRatingTarget.takeIf { canRate })
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -422,6 +446,10 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                 )
                 showStreamInfoModal = true
             },
+            onRateClick = if (canRate) {
+                { showUserRatingSheet = true }
+            } else null,
+            userRating = userRating,
             onVideoSettingsClick = if (isIos) {
                 {
                     showVideoSettingsModal = true
@@ -738,6 +766,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onSubtitleStyleChanged = PlayerSettingsRepository::setSubtitleStyle,
         onSubtitleDelayChanged = { delayMs -> setSubtitleDelay(delayMs) },
         onSubtitleDelayReset = { setSubtitleDelay(0) },
+        onSyncByEarClick = { openSubtitleSyncByEar() },
         onAutoSyncCapture = { captureSubtitleAutoSyncTime() },
         onAutoSyncCueSelected = { cue -> applySubtitleAutoSyncCue(cue) },
         onAutoSyncReload = { loadSubtitleAutoSyncCues(force = true) },
@@ -871,7 +900,35 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         mediaInfoJson = playbackSnapshot.mediaInfoJson,
         onStreamInfoModalDismissed = { showStreamInfoModal = false },
     )
+
+    if (showUserRatingSheet) {
+        currentUserRatingTarget()?.let { target ->
+            UserRatingPlayerOverlay(
+                target = target,
+                title = activeEpisodeTitle?.takeIf { target.episode != null && it.isNotBlank() } ?: title,
+                subtitle = if (target.episode != null) {
+                    listOfNotNull(
+                        title,
+                        localizedSeasonEpisodeCode(target.season, target.episode),
+                    ).joinToString(" · ")
+                } else {
+                    null
+                },
+                onDismiss = {
+                    showUserRatingSheet = false
+                    controlsVisible = true
+                },
+            )
+        }
+    }
 }
+
+/** The movie or episode currently playing, for in-player rating. */
+@Composable
+private fun PlayerScreenRuntime.currentUserRatingTarget(): TrackingRatingTarget? =
+    remember(parentMetaId, contentType, parentMetaType, activeVideoId, activeSeasonNumber, activeEpisodeNumber) {
+        if (isLiveTvPlayback) null else currentTrackingMedia().toUserRatingTarget()
+    }
 
 private const val MOVIE_RECOMMENDATION_LIMIT = 10
 

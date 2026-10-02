@@ -6,9 +6,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -59,10 +61,8 @@ internal fun PlayerGestureOverlay(
     horizontalSafePadding: Dp,
     horizontalPadding: Dp,
 ) {
-    val isSeek = currentFeedback?.icon == GestureFeedbackIcon.SeekForward ||
-        currentFeedback?.icon == GestureFeedbackIcon.SeekBackward
     AnimatedVisibility(
-        visible = currentFeedback != null && (useLegacyLayout || !isSeek),
+        visible = currentFeedback != null,
         enter = fadeIn(),
         exit = fadeOut(),
     ) {
@@ -109,6 +109,8 @@ private fun PlayerGestureFeedback(
                     val trackHeight = minOf(maxHeight / 4, 104.dp)
                     val animatedLevel by animateFloatAsState(level, tween(80), label = "playerGestureLevel")
                     val percent = (level * 100f).roundToInt()
+                    // Fork: gestures can supply their own reading (e.g. a custom label) via messageArgs.
+                    val reading = feedback.messageArgs.firstOrNull()?.toString() ?: percent.toString()
                     Column(
                         modifier = Modifier
                             .align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
@@ -119,7 +121,7 @@ private fun PlayerGestureFeedback(
                         // Centered on the bar; unbounded width lets the digits overflow the 6dp
                         // column evenly on both sides so the bar itself never moves.
                         Text(
-                            text = percent.toString(),
+                            text = reading,
                             color = Color.White,
                             style = MaterialTheme.nuvioTypeScale.bodySm.copy(
                                 fontWeight = FontWeight.SemiBold,
@@ -151,24 +153,42 @@ private fun PlayerGestureFeedback(
                         }
                     }
                 }
-                GestureFeedbackIcon.Speed -> {
+                GestureFeedbackIcon.Speed, GestureFeedbackIcon.SeekForward, GestureFeedbackIcon.SeekBackward -> {
                     val message = feedback.messageRes?.let { stringResource(it, *feedback.messageArgs.toTypedArray()) }
                         ?: feedback.message.orEmpty()
-                    Text(
-                        text = message,
-                        color = Color.White,
-                        style = MaterialTheme.nuvioTypeScale.bodyLg.copy(
-                            fontWeight = FontWeight.SemiBold,
-                            shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f),
-                        ),
+                    val secondaryMessage = feedback.secondaryMessageRes?.let {
+                        stringResource(it, *feedback.secondaryMessageArgs.toTypedArray())
+                    } ?: feedback.secondaryMessage
+                    val shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f)
+                    Row(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
                             .padding(horizontal = horizontalSafePadding + horizontalPadding)
                             .padding(top = 40.dp),
-                    )
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = message,
+                            color = Color.White,
+                            style = MaterialTheme.nuvioTypeScale.bodyLg.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                shadow = shadow,
+                            ),
+                        )
+                        secondaryMessage?.let {
+                            Text(
+                                text = it,
+                                color = feedback.secondaryMessageColor ?: Color.White,
+                                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    shadow = shadow,
+                                ),
+                            )
+                        }
+                    }
                 }
-                GestureFeedbackIcon.SeekForward, GestureFeedbackIcon.SeekBackward -> Unit
             }
         }
     }
