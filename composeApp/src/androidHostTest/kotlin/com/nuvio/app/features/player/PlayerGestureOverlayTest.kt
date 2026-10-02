@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
@@ -61,11 +62,13 @@ class PlayerGestureOverlayTest {
                         .testTag("surface")
                         .playerSurfaceDragGestures(
                             gestureController = null,
+                            playerController = runtime.playerController,
                             layoutSize = IntSize(480, 270),
                             playbackGesturesEnabled = true,
                             sideGestureSystemEdgeExclusionPx = 0f,
                             playerControlsLockedState = callbacks.playerControlsLocked,
                             touchGesturesEnabledState = callbacks.touchGesturesEnabled,
+                            swipeToSeekEnabledState = rememberUpdatedState(true),
                             isHoldToSpeedGestureActiveState = callbacks.isHoldToSpeedGestureActive,
                             currentPositionMsState = callbacks.currentPositionMs,
                             currentDurationMsState = callbacks.currentDurationMs,

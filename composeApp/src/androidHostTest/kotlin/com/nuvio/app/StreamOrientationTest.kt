@@ -18,7 +18,6 @@ import com.nuvio.app.features.streams.StreamLaunch
 import com.nuvio.app.features.streams.StreamLaunchStore
 import com.nuvio.app.features.updater.AndroidAppUpdaterPlatform
 import com.nuvio.app.features.streams.StreamsRepository
-import com.nuvio.app.features.updater.AndroidAppUpdaterPlatform
 import com.nuvio.app.navigation.StreamRoute
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
