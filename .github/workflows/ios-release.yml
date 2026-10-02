@@ -33,8 +33,21 @@ on:
           - Release
           - Debug
         default: Release
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "iosApp/**"
+      - "scripts/build-ios-ipa.sh"
+      - "scripts/prepare-ios-dependencies.sh"
+      - "composeApp/src/iosMain/**"
+      - "composeApp/src/iosAppStore/**"
+      - "composeApp/src/iosFull/**"
+      - "composeApp/src/fullCommonMain/**"
+      - "composeApp/build.gradle.kts"
+      - "gradle/libs.versions.toml"
+      - ".github/workflows/ios-release.yml"
   push:
-    branches: [main]
+    branches: [main, arena/**]
     paths:
       - "iosApp/**"
       - "scripts/build-ios-ipa.sh"
