@@ -39,13 +39,23 @@ Environment:
 | `IOS_IPA_OUTPUT_DIR` | Output directory (default `build/ios-ipa`) |
 | `IOS_DERIVED_DATA_PATH` | DerivedData directory |
 | `NUVIO_ENGINE_ROOT` | Where `NuvioEngine.xcframework` is expected (default `../nuvio-engine`) |
-| `NUVIO_MPVKIT_REPO`, `NUVIO_MPVKIT_REF` | MPVKit source and ref (default upstream `Nuvio`) |
+| `NUVIO_MPVKIT_REPO` | MPVKit source (default `NuvioMedia/MPVKit`) |
+| `NUVIO_MPVKIT_COMMIT` | MPVKit revision (default `d5cf091c`, the revision NuvioMobile-Enhanced 0.5.5-beta records for its submodule) |
+| `NUVIO_MPVKIT_REF` | Fetch a branch instead of the pinned revision |
 
 `scripts/prepare-ios-dependencies.sh` downloads the pinned **Nuvio Engine
 0.1.2** Apple XCFramework (checksum verified) and, when the working tree does not
 provide it, fetches the MPVKit local Swift package that
-`iosApp/iosApp.xcodeproj` references as `../MPVKit`. StreamBridge does not vendor
-the MPVKit submodule; fetches are ignored by git.
+`iosApp/iosApp.xcodeproj` references as `../MPVKit`. MPVKit is checked out at
+`d5cf091c` — the same revision NuvioMobile-Enhanced 0.5.5-beta pins for its own
+submodule — so the iOS build always uses the player revision the release was
+synced from rather than a moving branch tip. StreamBridge does not vendor the
+MPVKit submodule; fetches are ignored by git.
+
+`NuvioEngine` is kept only in the path and file names of the upstream engine
+artifact. The iOS application itself is named, signed and versioned as
+StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.08), and
+`scripts/build-ios-ipa.sh` fails if the packaged app reports anything else.
 
 ## GitHub Actions
 
@@ -58,6 +68,10 @@ Artifacts:
 
 - `StreamBridge-iOS-signed-IPA` / `StreamBridge-iOS-unsigned-IPA` — validation
   artifacts from `ios-release.yml`.
+- `StreamBridge-iOS-build-log` — the captured `xcodebuild` log, uploaded when the
+  build fails. The workflow also republishes the failing lines as run
+  annotations (`.github/report-ios-failure.sh`) and comments them on the pull
+  request, because the raw Actions log is not always downloadable.
 - `StreamBridge-production-ios-release-ipa` — the signed IPA the draft release
   attaches.
 - `StreamBridge-ios-UNSIGNED-ipa-not-a-release` — the unsigned IPA produced
