@@ -190,8 +190,13 @@ jobs:
           build_log="${RUNNER_TEMP}/streambridge-ios-build.log"
           # xcodebuild output is captured so the failure reporter below can
           # republish it: the raw Actions log is not always retrievable.
+          # `set +e` around the pipeline is deliberate: run steps execute under
+          # `bash -e`, which would abort the step on the first failing command and
+          # skip the reporter entirely.
+          set +e
           ./scripts/build-ios-ipa.sh 2>&1 | tee "${build_log}"
           status="${PIPESTATUS[0]}"
+          set -e
           if [ "${status}" -ne 0 ]; then
             PR_NUMBER="${{ github.event.pull_request.number }}" \
               GH_TOKEN="${{ github.token }}" \

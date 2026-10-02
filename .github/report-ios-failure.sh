@@ -28,8 +28,16 @@ pattern='error:|error |fatal error|FAILED|FAILURE: Build failed|The following bu
 mapfile -t matches < <(grep -aEn "${pattern}" "${log_file}" | tail -n "${max_lines}" | cut -c1-900)
 mapfile -t tail_lines < <(tail -n "${max_lines}" "${log_file}" | cut -c1-900)
 
+# Never end up with an unreported failure: when nothing matched the known
+# failure patterns, the tail of the log is the best evidence available.
+if (( ${#matches[@]} == 0 )); then
+    matches=("${tail_lines[@]}")
+fi
+
 echo "::error::iOS build failed; ${#matches[@]} diagnostic line(s) reported as annotations."
-for line in "${matches[@]}"; do
+# GitHub shows at most ten annotations per check run; the rest stay in the
+# step summary and the pull-request comment.
+for line in "${matches[@]:0:10}"; do
     echo "::error::${line}"
 done
 
