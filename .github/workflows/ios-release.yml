@@ -198,9 +198,19 @@ jobs:
           status="${PIPESTATUS[0]}"
           set -e
           if [ "${status}" -ne 0 ]; then
+            echo "::error::The iOS build failed with status ${status}."
+            echo "::group::iOS build diagnostics"
+            echo "--- last 60 captured log lines"
+            tail -n 60 "${build_log}" | cut -c1-500 || true
+            echo "--- build products"
+            ls -la "${IOS_DERIVED_DATA_PATH:-build/ios-derived-full-release}/Build/Products" 2>/dev/null || true
+            echo "--- produced applications/archives"
+            find build -maxdepth 5 \( -name '*.app' -o -name '*.xcarchive' \) 2>/dev/null | head -n 20 || true
+            echo "::endgroup::"
             PR_NUMBER="${{ github.event.pull_request.number }}" \
               GH_TOKEN="${{ github.token }}" \
-              ./.github/report-ios-failure.sh "${build_log}"
+              bash ./.github/report-ios-failure.sh "${build_log}" \
+              || echo "::warning::The iOS failure reporter did not complete."
           fi
           exit "${status}"
 
