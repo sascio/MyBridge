@@ -62,6 +62,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: streambridge-ios-release-${{ github.ref }}
@@ -173,7 +174,7 @@ jobs:
           STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
           STREAMBRIDGE_IOS_EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD || 'app-store' }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           (
             while sleep 60; do
               echo "::group::Build resources $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -185,7 +186,18 @@ jobs:
           ) &
           monitor_pid=$!
           trap 'kill "${monitor_pid}" 2>/dev/null || true' EXIT
-          ./scripts/build-ios-ipa.sh
+
+          build_log="${RUNNER_TEMP}/streambridge-ios-build.log"
+          # xcodebuild output is captured so the failure reporter below can
+          # republish it: the raw Actions log is not always retrievable.
+          ./scripts/build-ios-ipa.sh 2>&1 | tee "${build_log}"
+          status="${PIPESTATUS[0]}"
+          if [ "${status}" -ne 0 ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}" \
+              GH_TOKEN="${{ github.token }}" \
+              ./.github/report-ios-failure.sh "${build_log}"
+          fi
+          exit "${status}"
 
       - name: Summarize the IPA
         run: |
@@ -229,3 +241,12 @@ jobs:
           path: build/ios-ipa/*.ipa
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload the iOS build log
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: StreamBridge-iOS-build-log
+          path: ${{ runner.temp }}/streambridge-ios-build.log
+          if-no-files-found: ignore
+          retention-days: 7
