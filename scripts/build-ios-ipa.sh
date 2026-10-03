@@ -163,26 +163,52 @@ build_environment=(
     CLANG_MODULE_CACHE_PATH="${clang_module_cache}"
     SWIFTPM_MODULECACHE_OVERRIDE="${swiftpm_module_cache}"
 )
-if [[ -n "${NUVIO_GRADLE_JVMARGS:-}" ]]; then
-    build_environment+=("ORG_GRADLE_PROJECT_org.gradle.jvmargs=${NUVIO_GRADLE_JVMARGS}")
-fi
-
 # Kotlin/Native linking is the memory peak of the iOS build. Linking
 # linkReleaseFrameworkIosArm64 died with `java.lang.OutOfMemoryError: Java heap
-# space` because the heaps that reach the Xcode-spawned Gradle build were too
-# small: StreamBridge's gradle.properties deliberately keeps Android-sized
-# values, and the upstream env var that is supposed to raise the native
-# compiler heap did not cover the Kotlin daemon that runs the compiler.
+# space` because the heaps reachable from the Xcode-spawned Gradle build were
+# too small: StreamBridge's gradle.properties deliberately keeps Android-sized
+# values, and the module's own properties cannot raise them for one build only.
 #
-# These defaults match upstream NuvioMobile's gradle.properties (the values its
-# released iOS builds use), and are passed as Gradle *properties* so they apply
-# to the build Xcode starts without touching the Android memory profile.
+# Kotlin/Native compiles and links inside the Gradle daemon, so the Gradle
+# daemon heap is the one that matters. GRADLE_USER_HOME/gradle.properties takes
+# precedence over the project's gradle.properties, so the iOS build gets
+# upstream NuvioMobile's memory profile (the values its released iOS builds use)
+# while Android keeps the values in the project file.
 kotlin_native_jvmargs="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx12288M}"
 kotlin_daemon_jvmargs="${NUVIO_KOTLIN_DAEMON_JVMARGS:--Xmx8192M}"
+gradle_daemon_jvmargs="${NUVIO_GRADLE_JVMARGS:--Xmx12288M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=2048m}"
 build_environment+=(
     "ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${kotlin_native_jvmargs}"
     "ORG_GRADLE_PROJECT_kotlin.daemon.jvmargs=${kotlin_daemon_jvmargs}"
 )
+
+gradle_user_home="${GRADLE_USER_HOME:-${HOME}/.gradle}"
+mkdir -p "${gradle_user_home}"
+ios_memory_marker="# StreamBridge iOS memory profile (scripts/build-ios-ipa.sh)"
+ios_memory_properties="${gradle_user_home}/gradle.properties"
+touch "${ios_memory_properties}"
+if ! grep -qF "${ios_memory_marker}" "${ios_memory_properties}"; then
+    {
+        echo ""
+        echo "${ios_memory_marker}"
+        echo "org.gradle.jvmargs=${gradle_daemon_jvmargs}"
+        echo "kotlin.daemon.jvmargs=${kotlin_daemon_jvmargs}"
+        echo "kotlin.native.jvmArgs=${kotlin_native_jvmargs}"
+    } >> "${ios_memory_properties}"
+    echo "Applied the iOS memory profile to ${ios_memory_properties}."
+else
+    echo "iOS memory profile already present in ${ios_memory_properties}."
+fi
+echo "Gradle daemon heap for this build: ${gradle_daemon_jvmargs}"
+
+# A daemon that was already running keeps the heap it was started with, and
+# neither the profile written above nor the two Gradle properties below would
+# change it. Nothing in the iOS job starts Gradle before this point, but the
+# build must not silently fall back to the project's Android-sized heap if that
+# ever changes.
+if [[ -x ./gradlew ]]; then
+    ./gradlew --stop >/dev/null 2>&1 || true
+fi
 
 signing_arguments=()
 archive_path=""

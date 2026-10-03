@@ -42,6 +42,9 @@ Environment:
 | `NUVIO_MPVKIT_REPO` | MPVKit source (default `NuvioMedia/MPVKit`) |
 | `NUVIO_MPVKIT_COMMIT` | MPVKit revision (default `d5cf091c`, the revision NuvioMobile-Enhanced 0.5.5-beta records for its submodule) |
 | `NUVIO_MPVKIT_REF` | Fetch a branch instead of the pinned revision |
+| `NUVIO_GRADLE_JVMARGS` | Gradle daemon heap for the iOS build (default `-Xmx12288M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=2048m`) |
+| `NUVIO_KOTLIN_DAEMON_JVMARGS` | Kotlin compile daemon heap (default `-Xmx8192M`) |
+| `NUVIO_KOTLIN_NATIVE_JVMARGS` | Kotlin/Native compiler heap (default `-Xmx12288M`) |
 
 `scripts/prepare-ios-dependencies.sh` downloads the pinned **Nuvio Engine
 0.1.2** Apple XCFramework (checksum verified) and, when the working tree does not
@@ -56,6 +59,23 @@ MPVKit submodule; fetches are ignored by git.
 artifact. The iOS application itself is named, signed and versioned as
 StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.08), and
 `scripts/build-ios-ipa.sh` fails if the packaged app reports anything else.
+
+## Memory
+
+Kotlin/Native compiles and links inside the Gradle daemon, so the daemon heap is
+what decides whether `linkReleaseFrameworkIosArm64` fits. StreamBridge's
+`gradle.properties` keeps the Android profile (`-Xmx6144M`, `-Xmx4096M` for the
+Kotlin daemon); with it the release link died with
+`java.lang.OutOfMemoryError: Java heap space`.
+
+`scripts/build-ios-ipa.sh` therefore writes a small, marker-tagged profile into
+`GRADLE_USER_HOME/gradle.properties` (a file Gradle gives precedence over the
+project one) before it starts `xcodebuild`, using the heaps upstream NuvioMobile
+ships in its own `gradle.properties`: `org.gradle.jvmargs=-Xmx12288M`,
+`kotlin.daemon.jvmargs=-Xmx8192M`, `kotlin.native.jvmArgs=-Xmx12288M`. The values
+are also passed to that build as Gradle properties, and can be overridden with
+the three variables in the table above. Android builds never read this profile:
+they use the project's `gradle.properties` unchanged.
 
 ## GitHub Actions
 

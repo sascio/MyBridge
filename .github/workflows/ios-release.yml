@@ -77,10 +77,10 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       IOS_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }}
-      # Kotlin/Native linking needs the large heaps upstream ships; the Gradle
-      # daemon stays smaller because the runners have limited RAM.
+      # Kotlin/Native linking needs the large heaps upstream NuvioMobile ships in
+      # its gradle.properties; build-ios-ipa.sh applies them to GRADLE_USER_HOME
+      # for this build only.
       KOTLIN_DAEMON_JVMARGS: -Xmx8192M
-      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
       NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
 
@@ -208,6 +208,11 @@ jobs:
             ls -la "${IOS_DERIVED_DATA_PATH:-build/ios-derived-full-release}/Build/Products" 2>/dev/null || true
             echo "--- produced applications/archives"
             find build -maxdepth 5 \( -name '*.app' -o -name '*.xcarchive' \) 2>/dev/null | head -n 20 || true
+            echo "--- memory profile in effect"
+            grep -hE 'jvmargs|jvmArgs' gradle.properties \
+              "${GRADLE_USER_HOME:-${HOME}/.gradle}/gradle.properties" 2>/dev/null || true
+            echo "--- kotlin/native heap-related environment"
+            env | grep -E 'JVMARGS|GRADLE_OPTS|KOTLIN' | sort || true
             echo "::endgroup::"
             PR_NUMBER="${{ github.event.pull_request.number }}" \
               GH_TOKEN="${{ github.token }}" \
