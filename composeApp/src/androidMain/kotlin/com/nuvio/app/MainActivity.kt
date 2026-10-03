@@ -35,6 +35,7 @@ import com.nuvio.app.features.details.OmdbEpisodeRatingsStorage
 import com.nuvio.app.features.cloudstream.CloudStreamPlatformRuntime
 import com.nuvio.app.features.cloudstream.CloudStreamStorage
 import com.nuvio.app.features.details.OmdbSettingsStorage
+import com.nuvio.app.features.ratings.UserRatingsStorage
 import com.nuvio.app.features.home.HomeCatalogSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
@@ -53,6 +54,7 @@ import com.nuvio.app.features.profiles.ProfileStorage
 import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.search.DiscoverSelectionStorage
 import com.nuvio.app.features.search.SearchHistoryStorage
+import com.nuvio.app.features.settings.ProfileTitleFactsStorage
 import com.nuvio.app.features.settings.SentrySettingsStorage
 import com.nuvio.app.features.settings.AppIconPlatform
 import com.nuvio.app.features.settings.ThemeSettingsStorage
@@ -105,6 +107,7 @@ open class MainActivity : AppCompatActivity() {
         LiveTvStorage.initialize(applicationContext)
         WatchedStorage.initialize(applicationContext)
         MetaScreenSettingsStorage.initialize(applicationContext)
+        com.nuvio.app.features.shuffle.EpisodeShuffleStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)
         PlayerSettingsStorage.initialize(applicationContext)
         PlayerTrackPreferenceStorage.initialize(applicationContext)
@@ -136,6 +139,7 @@ open class MainActivity : AppCompatActivity() {
         // `CommonActivity.activity`, which is part of the ABI that
         // WebView-backed resolvers and Cloudflare challenges read.
         CloudStreamPlatformRuntime.initialize(this)
+        UserRatingsStorage.initialize(applicationContext)
         MdbListSettingsStorage.initialize(applicationContext)
         TraktAuthStorage.initialize(applicationContext)
         TraktCommentsStorage.initialize(applicationContext)
@@ -155,6 +159,7 @@ open class MainActivity : AppCompatActivity() {
         StreamLinkCacheStorage.initialize(applicationContext)
         StreamBadgeSettingsStorage.initialize(applicationContext)
         BingeGroupCacheStorage.initialize(applicationContext)
+        ProfileTitleFactsStorage.initialize(applicationContext)
         PluginStorage.initialize(applicationContext)
         CollectionMobileSettingsStorage.initialize(applicationContext)
         CollectionStorage.initialize(applicationContext)

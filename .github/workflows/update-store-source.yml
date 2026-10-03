@@ -1,0 +1,151 @@
+name: Update Sideload Source
+
+# Publishes a released StreamBridge version into store.json, the AltStore and
+# SideStore source that points at the unsigned iOS IPA. Ported from
+# NuvioMedia/NuvioMobile 0.5.5-beta (.github/workflows/update-store-source.yml).
+#
+# Triggers when a GitHub release is published, so store.json always describes the
+# real published asset: the IPA is downloaded from the release, its digest and
+# size are verified against the release metadata, and the script refuses anything
+# that is signed, mis-branded or of the wrong version.
+#
+# The release channel is the default branch because AltStore fetches store.json
+# over raw.githubusercontent.com from a stable ref. Set the repository variable
+# STREAMBRIDGE_SOURCE_BRANCH to publish the source from a different branch.
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published release tag (e.g. v0.1.08)
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sideload-source-${{ inputs.tag || github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Update store.json
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      RELEASE_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+      SOURCE_BRANCH: ${{ vars.STREAMBRIDGE_SOURCE_BRANCH || github.event.repository.default_branch }}
+      ICON_PATH: iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png
+
+    steps:
+      - name: Check out the source branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Download and verify published IPA
+        run: |
+          set -euo pipefail
+          release_json="${RUNNER_TEMP}/release.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${release_json}"
+
+          if [[ "$(jq -r '.draft' "${release_json}")" != "false" ]]; then
+            echo "Release ${RELEASE_TAG} is not public." >&2
+            exit 1
+          fi
+
+          ipa_names=()
+          while IFS= read -r name; do
+            [[ -n "${name}" ]] && ipa_names+=("${name}")
+          done < <(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")
+          if (( ${#ipa_names[@]} != 1 )); then
+            echo "Expected exactly one published IPA, found ${#ipa_names[@]}." >&2
+            exit 1
+          fi
+
+          ipa_name="${ipa_names[0]}"
+          mkdir -p source-assets
+          gh release download "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern "${ipa_name}" \
+            --dir source-assets
+
+          ipa_file="source-assets/${ipa_name}"
+          remote_size="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .size' "${release_json}")"
+          local_size="$(stat -c '%s' "${ipa_file}")"
+          if [[ "${remote_size}" != "${local_size}" ]]; then
+            echo "Published IPA size ${remote_size} does not match downloaded size ${local_size}." >&2
+            exit 1
+          fi
+
+          # The release asset digest is only exposed on newer API versions; verify
+          # it when present so a corrupted upload can never reach users.
+          remote_digest="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .digest // empty' "${release_json}")"
+          if [[ -n "${remote_digest}" ]]; then
+            local_digest="$(sha256sum "${ipa_file}" | awk '{print $1}')"
+            if [[ "${remote_digest}" != "sha256:${local_digest}" ]]; then
+              echo "Published IPA digest ${remote_digest} does not match sha256:${local_digest}." >&2
+              exit 1
+            fi
+          fi
+
+      - name: Update sideload source
+        run: |
+          set -euo pipefail
+          release_json="${RUNNER_TEMP}/release.json"
+          release_notes="${RUNNER_TEMP}/release-notes.md"
+          ipa_name="$(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")"
+          release_date="$(jq -r '.published_at // empty' "${release_json}")"
+          download_url="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .browser_download_url' "${release_json}")"
+
+          if [[ -z "${release_date}" ]]; then
+            echo "Published release ${RELEASE_TAG} has no publication date." >&2
+            exit 1
+          fi
+          if [[ -z "${download_url}" || "${download_url}" == "null" ]]; then
+            echo "Published release ${RELEASE_TAG} has no download URL for ${ipa_name}." >&2
+            exit 1
+          fi
+
+          jq -rj '.body // ""' "${release_json}" > "${release_notes}"
+
+          # The icon is served from the immutable release tag, so the source never
+          # points at a stale or branch-dependent asset.
+          icon_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${RELEASE_TAG}/${ICON_PATH}"
+
+          python3 scripts/update-store-source.py \
+            --source store.json \
+            --ipa "source-assets/${ipa_name}" \
+            --release-notes "${release_notes}" \
+            --release-version "${RELEASE_VERSION#v}" \
+            --release-date "${release_date}" \
+            --download-url "${download_url}" \
+            --icon-url "${icon_url}"
+
+      - name: Commit sideload source
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain -- store.json)" ]]; then
+            echo "store.json is already current for ${RELEASE_VERSION}."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add store.json
+          git commit -m "chore(store): publish ${RELEASE_VERSION}"
+          git push origin "HEAD:${SOURCE_BRANCH}"

@@ -1,16 +1,28 @@
 name: Draft production GitHub Release
 
-# Manual only. Never runs on branch push. Never publishes (draft only).
-# Fails closed unless production upload-keystore GitHub Secrets are set.
-# See docs/SIGNING.md. Do not use CI debug-signed APKs as updates.
+# Manual only, or from a v* tag push. Never publishes (draft only).
+#
+# Android: fails closed unless the production upload-keystore GitHub Secrets are
+# set. Debug-signed APKs are never attached. See docs/SIGNING.md.
+#
+# iOS: builds the StreamBridge IPA on a macOS runner, unsigned, and attaches it
+# to the draft. The unsigned IPA is the iOS distribution artifact: AltStore and
+# SideStore re-sign it with the installer's own Apple ID, which is why no Apple
+# Developer credentials are required or used here. The build fails if the
+# application unexpectedly comes out signed. See docs/RELEASE-IOS.md.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.07)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.08)
         required: true
         type: string
-        default: "v0.1.07"
+        default: "v0.1.08"
+      include_ios:
+        description: Also build the iOS release IPA
+        required: false
+        type: boolean
+        default: true
   push:
     tags:
       - "v*"
@@ -18,12 +30,19 @@ on:
 permissions:
   contents: write
 
+# Two runs for the same tag could otherwise race while creating the tag and the
+# draft release. In-flight releases are never cancelled: the tag push and the
+# asset upload must finish.
+concurrency:
+  group: streambridge-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
-  draft:
-    name: Production-signed full APK draft
+  android:
+    name: Production-signed full APK
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-java@v5
         with:
@@ -31,7 +50,7 @@ jobs:
           java-version: "21"
 
       - uses: android-actions/setup-android@v4
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
 
@@ -112,7 +131,7 @@ jobs:
           # TRAKT_CLIENT_SECRET or SIMKL_CLIENT_ID must not fail the release.
           # Presence-only report; values are never printed.
           for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
-            if grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\S" local.properties; then
+            if grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\\S" local.properties; then
               echo "${property_name} present=true"
             else
               echo "${property_name} present=false"
@@ -222,7 +241,7 @@ jobs:
           fi
 
       - name: Upload production-signed APKs
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: StreamBridge-production-full-release-apk
           path: |
@@ -233,12 +252,208 @@ jobs:
             checksums.sha256
           if-no-files-found: error
 
+  ios:
+    name: iOS unsigned IPA
+    if: ${{ github.event_name == 'push' || inputs.include_ios }}
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      IOS_CONFIGURATION: Release
+      # Same memory profile as .github/workflows/ios-release.yml, which is the
+      # configuration that builds successfully. The earlier small heaps made
+      # :composeApp:linkReleaseFrameworkIosArm64 fail with
+      # java.lang.OutOfMemoryError: Java heap space. NUVIO_GRADLE_JVMARGS is
+      # deliberately not set: build-ios-ipa.sh applies upstream NuvioMobile's
+      # 12288M Gradle daemon heap through GRADLE_USER_HOME for this build only.
+      KOTLIN_DAEMON_JVMARGS: -Xmx8192M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
+      NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+
+      - name: Verify Apple toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          # Kotlin/Native's platform libraries are generated from the installed
+          # SDK, so the toolchain cache is keyed on the Xcode version as well as
+          # the Kotlin version. An Xcode bump therefore re-link rather than reuse
+          # libraries built against a different SDK.
+          # Parsed in bash rather than through head(1): under `set -o pipefail`
+          # a consumer that exits before reading all of xcodebuild's output
+          # makes the pipeline report SIGPIPE and fails the step intermittently.
+          version_output="$(xcodebuild -version)"
+          xcode_version="${version_output%%$'\n'*}"
+          xcode_version="${xcode_version// /}"
+          xcode_version="${xcode_version//:/-}"
+          echo "xcode_version=${xcode_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode_version }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+
+      - name: Configure runtime properties
+        run: |
+          set -euo pipefail
+          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
+            : > local.properties
+            echo "NUVIO_LOCAL_PROPERTIES_BASE64 not set; using an empty local.properties."
+            exit 0
+          fi
+          printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          echo "local.properties configured."
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Build StreamBridge IPA
+        env:
+          # Always unsigned: the published IPA is re-signed by the installer's
+          # own Apple ID through AltStore/SideStore. build-ios-ipa.sh fails the
+          # build if the application turns out to be signed anyway.
+          STREAMBRIDGE_IOS_SIGNING: "0"
+        run: ./scripts/build-ios-ipa.sh
+
+      - name: Package IPA for the release
+        id: package
+        run: |
+          set -euo pipefail
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name 'streambridge-*-full-release.ipa' -print -quit)"
+          if [ -z "${ipa_path}" ]; then
+            echo "::error::No StreamBridge IPA was produced."
+            exit 1
+          fi
+          if unzip -l "${ipa_path}" | grep -q '_CodeSignature'; then
+            echo "::error::The produced IPA is signed; refusing to publish it."
+            exit 1
+          fi
+
+          # The release asset name says outright that it is unsigned, so nobody
+          # installs it from the release page expecting an App Store build.
+          version="$(basename "${ipa_path}" | sed -E 's/^streambridge-(.*)-full-release\.ipa$/\1/')"
+          release_ipa="dist/StreamBridge-${version}-iOS-unsigned.ipa"
+          mkdir -p dist
+          cp "${ipa_path}" "${release_ipa}"
+          shasum -a 256 "${release_ipa}" >> checksums-ios.sha256
+
+          {
+            echo "## StreamBridge iOS release build"
+            echo
+            echo "- File: $(basename "${release_ipa}")"
+            echo "- Size: $(du -h "${release_ipa}" | cut -f1)"
+            echo "- SHA-256: $(shasum -a 256 "${release_ipa}" | awk '{print $1}')"
+            echo "- Signing: none (unsigned)"
+            echo
+            echo "> Install with AltStore or SideStore: the unsigned IPA is re-signed with"
+            echo "> your own Apple ID at install time. \`store.json\` in this repository is"
+            echo "> the sideload source that points at this release asset."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Report IPA composition
+        run: |
+          set -euo pipefail
+          ipa_path="$(find dist -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          ipa_bytes="$(stat -c%s "${ipa_path}" 2>/dev/null || stat -f%z "${ipa_path}")"
+          {
+            echo "### IPA composition ($(basename "${ipa_path}"))"
+            echo
+            echo "Total size: ${ipa_bytes} bytes"
+            echo
+            echo "Largest files:"
+            echo
+            echo '```'
+            unzip -l "${ipa_path}" \
+              | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); print $1"\t"name}' \
+              | sort -k1,1 -rn | awk 'NR<=30'
+            echo '```'
+            echo
+            echo "Size by directory (up to four levels):"
+            echo
+            echo '```'
+            unzip -l "${ipa_path}" \
+              | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%12d  %s\n", sz[d], d}' \
+              | sort -rn | awk 'NR<=30'
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "IPA composition written to the job summary."
+          # Annotations stay readable through the GitHub API even when the raw
+          # Actions log cannot be downloaded, so the largest components are also
+          # emitted as one notice annotation.
+          top_components="$(unzip -l "${ipa_path}" \
+            | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%d %s\n", sz[d], d}' \
+            | sort -rn | awk 'NR<=8 {printf "%s B in %s; ", $1, $2}')"
+          echo "::notice title=IPA composition::total ${ipa_bytes} B; ${top_components}"
+
+      - name: Upload StreamBridge iOS IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-ios-unsigned-ipa
+          path: |
+            dist/*.ipa
+          if-no-files-found: error
+
+  draft:
+    name: Draft GitHub Release
+    needs: [android, ios]
+    if: ${{ always() && needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download production-signed APKs
+        uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-production-full-release-apk
+          path: release-assets
+
+      - name: Download unsigned iOS IPA
+        if: needs.ios.result == 'success'
+        uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-ios-unsigned-ipa
+          path: release-assets
+
+      - name: Report iOS artifact status
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.ios.result }}" = "success" ]; then
+            echo "Unsigned iOS IPA included in this draft; AltStore/SideStore re-sign it with the installer's Apple ID."
+          elif [ "${{ inputs.include_ios }}" = "false" ]; then
+            echo "::warning::The iOS build was skipped on request (include_ios=false). This draft has no IPA, so publishing it will not update store.json."
+          else
+            echo "::error::The iOS job did not produce an IPA. The release carries the iOS artifact, so it is not created without one: store.json can only be built from a release with exactly one .ipa asset."
+            exit 1
+          fi
+
       - name: Ensure git tag and draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
+          shopt -s nullglob
           git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
           if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
             tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
@@ -249,32 +464,103 @@ jobs:
             echo "Created tag ${TAG} -> ${GITHUB_SHA}"
           fi
 
-          assets=(
-            androidApp/build/outputs/apk/full/release/androidApp-full-arm64-v8a-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-armeabi-v7a-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86-release.apk
-            androidApp/build/outputs/apk/full/release/androidApp-full-x86_64-release.apk
-            checksums.sha256
+          android_assets=(
+            release-assets/androidApp-full-arm64-v8a-release.apk
+            release-assets/androidApp-full-armeabi-v7a-release.apk
+            release-assets/androidApp-full-x86-release.apk
+            release-assets/androidApp-full-x86_64-release.apk
+            release-assets/checksums.sha256
           )
-          notes="$(mktemp)"
-          cat > "$notes" <<'EOF'
-          ## StreamBridge 0.1.07
+          for asset in "${android_assets[@]}"; do
+            if [ ! -f "${asset}" ]; then
+              echo "::error::Missing required production asset: ${asset}"
+              exit 1
+            fi
+          done
 
-          - Updated core baseline to official NuvioMobile 0.5.2-beta.
-          - Upgraded Nuvio engine to 0.1.2 with binary fetch support.
-          - Added Simkl "More Like This" recommendations provider and tracking toggle.
-          - Added per-screen custom poster URL pattern controls with Profile Settings Sync v4 schema.
-          - Integrated PlaybackKey player lifecycle management and post-credits next episode timing.
-          - Added gesture percentage overlay for volume and brightness adjustments.
-          - Integrated NuvioMobile-Enhanced Profile Insights Taste DNA genre donut chart.
-          - Added password manager autofill support for login and registration.
-          - Added device-local appearance and bottom navigation configuration sheets.
-          - Updated iOS lifecycle, MPV bridge rendering, and dependency preparation scripts.
-          - Preserved StreamBridge branding, updater, metadata enrichment, avatars, addons, and CloudStream runtime.
-          EOF
+          assets=("${android_assets[@]}")
+          ipa_assets=(release-assets/*.ipa)
+          if [ "${#ipa_assets[@]}" -gt 0 ]; then
+            assets+=("${ipa_assets[@]}")
+          fi
+
+          notes="$(mktemp)"
+          # Written through printf rather than an indented heredoc. A heredoc
+          # keeps the YAML indentation, and a release body indented by ten
+          # spaces is rendered by GitHub as a code block rather than Markdown.
+          release_notes=(
+            '## StreamBridge 0.1.08'
+            ''
+            '### Highlights'
+            '- Core updated to official NuvioMobile 0.5.5-beta plus NuvioMobile-Enhanced 0.5.5-beta.'
+            '- iOS is available for the first time, published as an unsigned IPA for AltStore and SideStore.'
+            '- Much smaller downloads: brand assets now ship at the size the interface renders them at.'
+            '- New languages: Bengali and Urdu.'
+            '- Preserved StreamBridge branding, updater, privacy page, addons, profiles and CloudStream runtime.'
+            ''
+            '### New'
+            '- In-app ratings synced with Trakt, Simkl and MDBList, plus a ratings sheet and a star row on details.'
+            '- Episode shuffle for series, with its own sheet and per-profile storage.'
+            '- Subtitle sync by ear, to align a subtitle track while watching.'
+            '- Plugin runtime: async timers and setTimeout support for Nuvio-compatible plugins.'
+            '- Downloads entry point moved into the library, with an animated downloads icon.'
+            '- Settings: Clear Metadata Cache, and an always-backdrop landscape logo option.'
+            ''
+            '### Improved'
+            '- Restyled bottom sheets, dropdown menus and dialogs on the shared UI components.'
+            '- Streams screen: shimmer loading states, swipe-to-seek preview and custom landscape posters.'
+            '- Debrid: requested episode file selection and a release-aware file selector.'
+            '- MDBList: newest library additions first, response value fixes and a rating provider.'
+            '- Profile Insight: cached title facts, background stat computation and manual refresh.'
+            '- iOS: QuickJS 1.0.15 and a Now Playing audio-session fix.'
+            '- Release infrastructure: production APKs and the unsigned iOS IPA build together, and the sideload source is regenerated from every published release.'
+            ''
+            '### Fixed'
+            '- iOS: the Kotlin/Native link step now gets the heap it needs, so release IPA builds complete reliably.'
+            '- iOS: the CI toolchain probe can no longer fail intermittently.'
+            ''
+            '### Downloads'
+            '- Android: pick the APK for the architecture of your device. In-place updates keep working with the production certificate used by 0.1.07.'
+            '- iOS: the IPA is unsigned and is not distributed through the App Store. See the installation note below.'
+            '- The brand assets were re-encoded to their display size, which makes the iOS IPA about 29 percent smaller and the Android release APKs about 21 percent smaller than before this release.'
+            ''
+            'StreamBridge provides no content of its own. Use only content you are legally entitled to access.'
+          )
+          printf '%s\n' "${release_notes[@]}" > "$notes"
+          ipa_assets=(release-assets/*.ipa)
+          if [ "${#ipa_assets[@]}" -gt 0 ]; then
+            {
+              echo ""
+              echo "### iOS installation"
+              echo ""
+              echo "The iOS build in this release is **unsigned**. Install it with"
+              echo "[AltStore](https://altstore.io) or [SideStore](https://sidestore.io):"
+              echo "either signs the IPA with your own Apple ID on your device, so no Apple"
+              echo "Developer account and no App Store listing is involved."
+              echo ""
+              echo "Add this repository as a source in AltStore or SideStore to get updates"
+              echo "automatically:"
+              echo ""
+              echo "\`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json\`"
+              echo ""
+              echo "See \`docs/RELEASE-IOS.md\` for the details."
+              echo ""
+              echo "The IPA is deliberately unsigned, and no Apple Developer account or"
+              echo "App Store submission is involved in this release."
+            } >> "$notes"
+          else
+            {
+              echo ""
+              echo "### iOS status"
+              echo ""
+              echo "The iOS build is produced and validated by CI"
+              echo "(\`.github/workflows/ios-release.yml\`), but this release carries no IPA."
+              echo "\`store.json\` is therefore not updated for this version."
+            } >> "$notes"
+          fi
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${assets[@]}" --clobber
-            gh release edit "${TAG}" --title "StreamBridge ${TAG}" --draft
+            gh release edit "${TAG}" --title "StreamBridge ${TAG}" --notes-file "$notes" --draft
           else
             gh release create "${TAG}" "${assets[@]}" \
               --draft \

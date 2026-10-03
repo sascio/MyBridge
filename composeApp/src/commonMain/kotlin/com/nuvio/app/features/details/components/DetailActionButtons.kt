@@ -8,6 +8,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.rememberScrollState
+import com.nuvio.app.features.ratings.UserRatingStars
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -73,6 +77,7 @@ fun DetailActionButtons(
     modifier: Modifier = Modifier,
     playLabel: String = stringResource(Res.string.action_play),
     playEnabled: Boolean = true,
+    pinnedAction: DetailSecondaryAction? = null,
     secondaryActions: List<DetailSecondaryAction> = emptyList(),
     actionsMenuLabel: String = stringResource(Res.string.details_actions_menu_label),
     isTablet: Boolean = false,
@@ -81,6 +86,8 @@ fun DetailActionButtons(
     onDownloadClick: (() -> Unit)? = null,
     iconActionRow: Boolean = false,
     iconActions: List<DetailSecondaryAction> = emptyList(),
+    userRating: Int? = null,
+    onRateClick: (() -> Unit)? = null,
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
     val buttonHeight = if (isTablet) 56.dp else 52.dp
@@ -114,27 +121,44 @@ fun DetailActionButtons(
                 modifier = Modifier.fillMaxWidth(),
             )
             if (iconActions.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(
-                        space = if (isTablet) 20.dp else 16.dp,
-                        alignment = Alignment.CenterHorizontally,
-                    ),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    iconActions.forEach { action ->
-                        DetailIconAction(
-                            label = action.label,
-                            icon = action.icon,
-                            drawable = action.drawable,
-                            active = action.isActive,
-                            progress = 1f,
-                            size = iconButtonSize,
-                            onClick = action.onClick,
-                            onLongClick = action.onLongClick,
-                        )
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val layout = fitIconActionRow(
+                        count = iconActions.size,
+                        availableWidth = maxWidth,
+                        preferredSize = iconButtonSize,
+                        preferredSpacing = if (isTablet) 20.dp else 16.dp,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(if (layout.fits) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+                        horizontalArrangement = Arrangement.spacedBy(
+                            space = layout.spacing,
+                            alignment = Alignment.CenterHorizontally,
+                        ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        iconActions.forEach { action ->
+                            DetailIconAction(
+                                label = action.label,
+                                icon = action.icon,
+                                drawable = action.drawable,
+                                active = action.isActive,
+                                progress = 1f,
+                                size = layout.size,
+                                onClick = action.onClick,
+                                onLongClick = action.onLongClick,
+                            )
+                        }
                     }
                 }
+            }
+            onRateClick?.let { rate ->
+                UserRatingStars(
+                    rating = userRating,
+                    onClick = rate,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
             }
             return@Column
         }
@@ -162,6 +186,21 @@ fun DetailActionButtons(
                 onPlayLongClick = onPlayLongClick,
                 modifier = Modifier.weight(1f),
             )
+
+            if (pinnedAction != null) {
+                Spacer(modifier = Modifier.width(12.dp))
+                DetailIconAction(
+                    label = pinnedAction.label,
+                    icon = pinnedAction.icon,
+                    active = pinnedAction.isActive,
+                    progress = 1f,
+                    size = iconButtonSize,
+                    onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        pinnedAction.onClick()
+                    },
+                )
+            }
 
             if (hasSecondaryActions) {
                 Spacer(modifier = Modifier.width(12.dp))
@@ -278,6 +317,13 @@ fun DetailActionButtons(
                     )
                 }
             }
+        }
+        onRateClick?.let { rate ->
+            UserRatingStars(
+                rating = userRating,
+                onClick = rate,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
         }
     }
 }
@@ -407,4 +453,31 @@ private fun PlayButton(
                 )
             }
         }
+}
+
+private data class IconActionRowLayout(val size: Dp, val spacing: Dp, val fits: Boolean)
+
+private fun fitIconActionRow(
+    count: Int,
+    availableWidth: Dp,
+    preferredSize: Dp,
+    preferredSpacing: Dp,
+): IconActionRowLayout {
+    if (count <= 1) return IconActionRowLayout(preferredSize, preferredSpacing, true)
+    val gaps = count - 1
+    val minSpacing = 8.dp
+    val minSize = 44.dp
+    if (preferredSize * count + preferredSpacing * gaps <= availableWidth) {
+        return IconActionRowLayout(preferredSize, preferredSpacing, true)
+    }
+    val spacingAtPreferredSize = (availableWidth - preferredSize * count) / gaps
+    if (spacingAtPreferredSize >= minSpacing) {
+        return IconActionRowLayout(preferredSize, spacingAtPreferredSize, true)
+    }
+    val shrunkSize = (availableWidth - minSpacing * gaps) / count
+    return if (shrunkSize >= minSize) {
+        IconActionRowLayout(shrunkSize, minSpacing, true)
+    } else {
+        IconActionRowLayout(minSize, minSpacing, false)
+    }
 }

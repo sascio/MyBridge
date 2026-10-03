@@ -1,0 +1,336 @@
+name: StreamBridge iOS release
+
+# Builds the StreamBridge iOS application and packages it as an IPA.
+#
+# Signing policy (StreamBridge 0.1.08+):
+#   * The default and published build is UNSIGNED. That is the real distribution
+#     artifact, not a placeholder: AltStore and SideStore install it by re-signing
+#     it with the installer's own Apple ID on their device. No Apple Developer
+#     account, certificate, provisioning profile or App Store Connect access is
+#     involved, and none is required to release StreamBridge.
+#   * When Apple signing material is configured, this validation workflow can also
+#     build a SIGNED IPA through an archive export and fails the run if signing
+#     does not succeed. The release workflow (.github/workflows/release-draft.yml)
+#     never does this: it always publishes the unsigned IPA.
+#
+# Required repository secrets for a signed IPA (all optional):
+#   STREAMBRIDGE_IOS_TEAM_ID                Apple Developer team identifier
+#   STREAMBRIDGE_IOS_SIGN_IDENTITY          e.g. "Apple Distribution"
+#   STREAMBRIDGE_IOS_CERTIFICATE_BASE64     base64 of the distribution .p12
+#   STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD   password of that .p12
+#   STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD      password for the temporary CI keychain
+#   STREAMBRIDGE_IOS_PROFILE_BASE64         base64 of the App Store .mobileprovision
+# Optional repository variables:
+#   STREAMBRIDGE_IOS_EXPORT_METHOD          app-store (default) | ad-hoc | enterprise
+#
+# No credential is ever printed; the workflow only reports presence or absence.
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Production-optimized or fast validation build
+        required: true
+        type: choice
+        options:
+          - Release
+          - Debug
+        default: Release
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "iosApp/**"
+      - "scripts/build-ios-ipa.sh"
+      - "scripts/prepare-ios-dependencies.sh"
+      - "composeApp/src/iosMain/**"
+      - "composeApp/src/iosAppStore/**"
+      - "composeApp/src/iosFull/**"
+      - "composeApp/src/fullCommonMain/**"
+      - "composeApp/src/commonMain/composeResources/**"
+      - "scripts/optimize-app-assets.py"
+      - "composeApp/build.gradle.kts"
+      - "gradle/libs.versions.toml"
+      - ".github/workflows/ios-release.yml"
+  push:
+    branches: [main, arena/**]
+    paths:
+      - "iosApp/**"
+      - "scripts/build-ios-ipa.sh"
+      - "scripts/prepare-ios-dependencies.sh"
+      - "composeApp/src/iosMain/**"
+      - "composeApp/src/iosAppStore/**"
+      - "composeApp/src/iosFull/**"
+      - "composeApp/src/fullCommonMain/**"
+      - "composeApp/src/commonMain/composeResources/**"
+      - "scripts/optimize-app-assets.py"
+      - "composeApp/build.gradle.kts"
+      - "gradle/libs.versions.toml"
+      - ".github/workflows/ios-release.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: streambridge-ios-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS IPA (${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }})
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      IOS_CONFIGURATION: ${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }}
+      # Kotlin/Native linking needs the large heaps upstream NuvioMobile ships in
+      # its gradle.properties; build-ios-ipa.sh applies them to GRADLE_USER_HOME
+      # for this build only.
+      KOTLIN_DAEMON_JVMARGS: -Xmx8192M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
+      NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+
+      - name: Verify Apple toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          # Kotlin/Native's platform libraries are generated from the installed
+          # SDK, so the toolchain cache is keyed on the Xcode version as well as
+          # the Kotlin version. An Xcode bump therefore re-link rather than reuse
+          # libraries built against a different SDK.
+          # Parsed in bash rather than through head(1): under `set -o pipefail`
+          # a consumer that exits before reading all of xcodebuild's output
+          # makes the pipeline report SIGPIPE and fails the step intermittently.
+          version_output="$(xcodebuild -version)"
+          xcode_version="${version_output%%$'\n'*}"
+          xcode_version="${xcode_version// /}"
+          xcode_version="${xcode_version//:/-}"
+          echo "xcode_version=${xcode_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Cache Kotlin/Native toolchain
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode_version }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+
+      - name: Configure runtime properties
+        run: |
+          set -euo pipefail
+          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
+            : > local.properties
+            echo "NUVIO_LOCAL_PROPERTIES_BASE64 is not set; using an empty local.properties (Trakt/Simkl/storage unconfigured for this build)."
+            exit 0
+          fi
+          printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          echo "local.properties configured."
+
+      - name: Report Apple signing availability
+        id: signing
+        env:
+          TEAM_ID: ${{ secrets.STREAMBRIDGE_IOS_TEAM_ID }}
+          SIGN_IDENTITY: ${{ secrets.STREAMBRIDGE_IOS_SIGN_IDENTITY }}
+          CERTIFICATE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
+          PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${TEAM_ID}" ] || missing+=("STREAMBRIDGE_IOS_TEAM_ID")
+          [ -n "${SIGN_IDENTITY}" ] || missing+=("STREAMBRIDGE_IOS_SIGN_IDENTITY")
+          [ -n "${CERTIFICATE_BASE64}" ] || missing+=("STREAMBRIDGE_IOS_CERTIFICATE_BASE64")
+          [ -n "${CERTIFICATE_PASSWORD}" ] || missing+=("STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD")
+          [ -n "${KEYCHAIN_PASSWORD}" ] || missing+=("STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD")
+          [ -n "${PROFILE_BASE64}" ] || missing+=("STREAMBRIDGE_IOS_PROFILE_BASE64")
+
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "signed=true" >> "${GITHUB_OUTPUT}"
+            echo "Apple signing material is fully configured; this run produces a signed IPA."
+          else
+            echo "signed=false" >> "${GITHUB_OUTPUT}"
+            echo "missing_secrets=$(printf '%s, ' "${missing[@]}" | sed 's/, $//')" >> "${GITHUB_OUTPUT}"
+            echo "::notice::This run builds the UNSIGNED IPA, which is the published form of the iOS application: AltStore and SideStore install it by re-signing it with the installer's own Apple ID, so no Apple Developer certificate or provisioning profile is needed. Apple signing material ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')) is only used by this validation workflow's optional signed mode and is never required by release-draft.yml. See docs/RELEASE-IOS.md."
+          fi
+
+      - name: Decode provisioning profile
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          profile_path="${RUNNER_TEMP}/streambridge-ios.mobileprovision"
+          printf '%s' "${PROFILE_BASE64}" | base64 --decode > "${profile_path}"
+          test -s "${profile_path}"
+          echo "STREAMBRIDGE_IOS_PROFILE_PATH=${profile_path}" >> "${GITHUB_ENV}"
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Build StreamBridge IPA
+        env:
+          STREAMBRIDGE_IOS_SIGNING: ${{ steps.signing.outputs.signed == 'true' && '1' || '0' }}
+          STREAMBRIDGE_IOS_TEAM_ID: ${{ secrets.STREAMBRIDGE_IOS_TEAM_ID }}
+          STREAMBRIDGE_IOS_SIGN_IDENTITY: ${{ secrets.STREAMBRIDGE_IOS_SIGN_IDENTITY }}
+          STREAMBRIDGE_IOS_CERTIFICATE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_BASE64 }}
+          STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD }}
+          STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
+          STREAMBRIDGE_IOS_EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD || 'app-store' }}
+        run: |
+          set -uo pipefail
+          (
+            while sleep 60; do
+              echo "::group::Build resources $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+              uptime
+              vm_stat
+              ps -Ao pid,etime,%cpu,rss,command -r | head -n 12 || true
+              echo "::endgroup::"
+            done
+          ) &
+          monitor_pid=$!
+          trap 'kill "${monitor_pid}" 2>/dev/null || true' EXIT
+
+          build_log="${RUNNER_TEMP}/streambridge-ios-build.log"
+          # xcodebuild output is captured so the failure reporter below can
+          # republish it: the raw Actions log is not always retrievable.
+          # `set +e` around the pipeline is deliberate: run steps execute under
+          # `bash -e`, which would abort the step on the first failing command and
+          # skip the reporter entirely.
+          set +e
+          ./scripts/build-ios-ipa.sh 2>&1 | tee "${build_log}"
+          status="${PIPESTATUS[0]}"
+          set -e
+          if [ "${status}" -ne 0 ]; then
+            echo "::error::The iOS build failed with status ${status}."
+            echo "::group::iOS build diagnostics"
+            echo "--- last 60 captured log lines"
+            tail -n 60 "${build_log}" | cut -c1-500 || true
+            echo "--- build products"
+            ls -la "${IOS_DERIVED_DATA_PATH:-build/ios-derived-full-release}/Build/Products" 2>/dev/null || true
+            echo "--- produced applications/archives"
+            find build -maxdepth 5 \( -name '*.app' -o -name '*.xcarchive' \) 2>/dev/null | head -n 20 || true
+            echo "--- memory profile in effect"
+            grep -hE 'jvmargs|jvmArgs' gradle.properties \
+              "${GRADLE_USER_HOME:-${HOME}/.gradle}/gradle.properties" 2>/dev/null || true
+            echo "--- kotlin/native heap-related environment"
+            env | grep -E 'JVMARGS|GRADLE_OPTS|KOTLIN' | sort || true
+            echo "::endgroup::"
+            PR_NUMBER="${{ github.event.pull_request.number }}" \
+              GH_TOKEN="${{ github.token }}" \
+              bash ./.github/report-ios-failure.sh "${build_log}" \
+              || echo "::warning::The iOS failure reporter did not complete."
+          fi
+          exit "${status}"
+
+      - name: Summarize the IPA
+        run: |
+          set -euo pipefail
+          configuration_slug="$(printf '%s' "${IOS_CONFIGURATION}" | tr '[:upper:]' '[:lower:]')"
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "streambridge-*-full-${configuration_slug}.ipa" -print -quit)"
+          if [ -z "${ipa_path}" ]; then
+            echo "::error::No StreamBridge IPA was produced."
+            exit 1
+          fi
+          signed="${{ steps.signing.outputs.signed }}"
+          signing_label="unsigned"
+          if [ "${signed}" = "true" ]; then signing_label="signed"; fi
+
+          {
+            echo "## StreamBridge iOS build"
+            echo
+            echo "- File: $(basename "${ipa_path}")"
+            echo "- Size: $(du -h "${ipa_path}" | cut -f1)"
+            echo "- SHA-256: $(shasum -a 256 "${ipa_path}" | awk '{print $1}')"
+            echo "- Distribution: full"
+            echo "- Configuration: ${IOS_CONFIGURATION}"
+            echo "- Signing: ${signing_label}"
+            if [ "${signed}" != "true" ]; then
+              echo
+              echo "> This IPA is **unsigned**, which is the published distribution form:"
+              echo "> AltStore and SideStore re-sign it with the installer's own Apple ID, so"
+              echo "> it installs on a device without any Apple Developer account."
+              if [ -n "${{ steps.signing.outputs.missing_secrets }}" ]; then
+                echo "> Signing material was not configured (\`${{ steps.signing.outputs.missing_secrets }}\`),"
+                echo "> which is the expected state for this repository."
+              fi
+              echo "> See \`docs/RELEASE-IOS.md\`."
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          echo "signed=${signing_label}" >> "${GITHUB_OUTPUT}"
+        id: summarize
+
+      - name: Report IPA composition
+        run: |
+          set -euo pipefail
+          configuration_slug="$(printf '%s' "${IOS_CONFIGURATION}" | tr '[:upper:]' '[:lower:]')"
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "streambridge-*-full-${configuration_slug}.ipa" -print -quit)"
+          ipa_bytes="$(stat -c%s "${ipa_path}" 2>/dev/null || stat -f%z "${ipa_path}")"
+          {
+            echo
+            echo "### IPA composition ($(basename "${ipa_path}"))"
+            echo
+            echo "Total size: ${ipa_bytes} bytes"
+            echo
+            echo "Largest files:"
+            echo
+            echo '```'
+            unzip -l "${ipa_path}" \
+              | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); print $1"\t"name}' \
+              | sort -k1,1 -rn | awk 'NR<=30'
+            echo '```'
+            echo
+            echo "Size by directory (up to four levels):"
+            echo
+            echo '```'
+            unzip -l "${ipa_path}" \
+              | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%12d  %s\n", sz[d], d}' \
+              | sort -rn | awk 'NR<=30'
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "IPA composition written to the job summary."
+          # Annotations stay readable through the GitHub API even when the raw
+          # Actions log cannot be downloaded, so the largest components are also
+          # emitted as one notice annotation.
+          top_components="$(unzip -l "${ipa_path}" \
+            | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%d %s\n", sz[d], d}' \
+            | sort -rn | awk 'NR<=8 {printf "%s B in %s; ", $1, $2}')"
+          echo "::notice title=IPA composition::total ${ipa_bytes} B; ${top_components}"
+
+      - name: Upload StreamBridge iOS IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-iOS-${{ steps.summarize.outputs.signed }}-IPA
+          path: build/ios-ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the iOS build log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: StreamBridge-iOS-build-log
+          path: ${{ runner.temp }}/streambridge-ios-build.log
+          if-no-files-found: ignore
+          retention-days: 7

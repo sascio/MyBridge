@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
@@ -22,6 +23,7 @@ import com.nuvio.app.features.trakt.TraktRelatedRepository
 import com.nuvio.app.features.trakt.MoreLikeThisSourcePreference
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.trakt.shouldUseTraktMoreLikeThis
+import com.nuvio.app.features.watched.WatchedClock
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -193,11 +195,18 @@ object MetaDetailsRepository {
         val currentMeta = _uiState.value.meta?.takeIf { it.type == type && it.id == id }
         if (currentMeta != null) return currentMeta
 
-        val metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(MdbListSettingsRepository.snapshot())
         val cachedEntry = cachedMetaByRequestKey[requestKey] ?: return null
-        return cachedEntry.metaScreenMeta
-            ?.takeIf { cachedEntry.metaScreenSettingsFingerprint == metaScreenSettingsFingerprint }
+        val cachedMeta = cachedEntry.metaScreenMeta
+            ?.takeIf {
+                cachedEntry.metaScreenSettingsFingerprint ==
+                    buildMetaScreenSettingsFingerprint(MdbListSettingsRepository.snapshot())
+            }
             ?: cachedEntry.baseMeta
+        return cachedMeta.withUnreleasedFilter()
+    }
+
+    fun clearCachedMetadata() {
+        cachedMetaByRequestKey.clear()
     }
 
     fun clear() {
@@ -206,9 +215,16 @@ object MetaDetailsRepository {
         _uiState.value = MetaDetailsUiState()
     }
 
-    suspend fun fetch(type: String, id: String, cacheResult: Boolean = true): MetaDetails? {
+    suspend fun fetch(
+        type: String,
+        id: String,
+        cacheResult: Boolean = true,
+        useCache: Boolean = true,
+    ): MetaDetails? {
         val requestKey = "$type:$id"
-        cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
+        if (useCache) {
+            cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
+        }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
         val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
@@ -231,6 +247,90 @@ object MetaDetailsRepository {
             }
         }
     }
+
+    private val backgroundBackoffUntilByHost = mutableMapOf<String, Long>()
+
+    internal suspend fun fetchLightweight(type: String, id: String): MetaLookupOutcome {
+        val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+        val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
+        if (manifests.isEmpty()) {
+            return tryFetchTmdbFallbackMeta(type = type, id = id)
+                ?.let { meta -> MetaLookupOutcome.Loaded(meta) }
+                ?: MetaLookupOutcome.Unavailable
+        }
+
+        var throttledUntil: Long? = null
+        for (manifest in manifests) {
+            val host = manifest.transportUrl.addonHost()
+            val now = WatchedClock.nowEpochMs()
+            val blockedUntil = backgroundBackoffUntilByHost[host]
+            if (blockedUntil != null && blockedUntil > now) {
+                throttledUntil = minOf(throttledUntil ?: blockedUntil, blockedUntil)
+                continue
+            }
+            val url = buildAddonResourceUrl(
+                manifestUrl = manifest.transportUrl,
+                resource = "meta",
+                type = type,
+                id = metaLookupId,
+            )
+            val response = try {
+                withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                    httpRequestRaw(
+                        method = "GET",
+                        url = url,
+                        headers = mapOf("Accept" to "application/json"),
+                        body = "",
+                        maxResponseBodyBytes = LIGHTWEIGHT_META_MAX_BYTES,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.w(error) { "Lightweight meta request failed url=$url" }
+                null
+            }
+            if (response == null) continue
+
+            if (response.status == 429 || response.status == 503) {
+                val until = now + response.retryAfterMs()
+                backgroundBackoffUntilByHost[host] = until
+                InAppLogger.warn(
+                    "Metadata/AddonFetch",
+                    "Background lookups paused host=$host status=${response.status} for ${(until - now) / 1000}s",
+                )
+                throttledUntil = minOf(throttledUntil ?: until, until)
+                continue
+            }
+            if (response.status !in 200..299 || response.body.isBlank()) continue
+
+            val meta = try {
+                withContext(Dispatchers.Default) { MetaDetailsParser.parse(response.body) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.w(error) { "Failed to parse lightweight meta url=$url" }
+                null
+            }
+            if (meta != null) return MetaLookupOutcome.Loaded(meta)
+        }
+
+        return throttledUntil?.let { until -> MetaLookupOutcome.Throttled(until) } ?: MetaLookupOutcome.Failed
+    }
+
+    private fun String.addonHost(): String =
+        substringAfter("://").substringBefore('/').substringBefore('?').lowercase()
+
+    private fun com.nuvio.app.features.addons.RawHttpResponse.retryAfterMs(): Long {
+        val seconds = headers["retry-after"]?.trim()?.toLongOrNull()
+        val delayMs = seconds?.times(1_000L) ?: DEFAULT_BACKGROUND_BACKOFF_MS
+        return delayMs.coerceIn(MIN_BACKGROUND_BACKOFF_MS, MAX_BACKGROUND_BACKOFF_MS)
+    }
+
+    private const val LIGHTWEIGHT_META_MAX_BYTES = 8 * 1024 * 1024
+    private const val DEFAULT_BACKGROUND_BACKOFF_MS = 2L * 60_000L
+    private const val MIN_BACKGROUND_BACKOFF_MS = 30_000L
+    private const val MAX_BACKGROUND_BACKOFF_MS = 15L * 60_000L
 
     private const val FETCH_TIMEOUT_MS = 5_000L
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
@@ -257,7 +357,7 @@ object MetaDetailsRepository {
             val payload = fetchAddonResponseText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
             InAppLogger.debug("Metadata/AddonFetch", "Meta payload length=${payload.length} type=$type id=$id")
-            val result = MetaDetailsParser.parse(payload)
+            val result = withContext(Dispatchers.Default) { MetaDetailsParser.parse(payload) }
             val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
                 TmdbMetadataService.enrichMeta(
                     meta = result,
@@ -635,4 +735,14 @@ object MetaDetailsRepository {
 
         return emptyList()
     }
+}
+
+internal sealed interface MetaLookupOutcome {
+    class Loaded(val meta: MetaDetails) : MetaLookupOutcome
+
+    class Throttled(val retryAtEpochMs: Long) : MetaLookupOutcome
+
+    object Unavailable : MetaLookupOutcome
+
+    object Failed : MetaLookupOutcome
 }

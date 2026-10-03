@@ -1,2 +1,11 @@
-CURRENT_PROJECT_VERSION=134
-MARKETING_VERSION=0.5.2
+// StreamBridge application version.
+//
+// The canonical StreamBridge version lives in ../streambridge.version.properties
+// (STREAMBRIDGE_VERSION_NAME=0.1.08, STREAMBRIDGE_VERSION_CODE=108); this file
+// mirrors it for Xcode and is the fallback source read by androidApp/build.gradle.kts
+// and composeApp/build.gradle.kts.
+//
+// Upstream NuvioMobile published this tree as 0.5.5-beta (MARKETING_VERSION=0.5.5,
+// CURRENT_PROJECT_VERSION=137). StreamBridge never ships Nuvio's version as its own.
+CURRENT_PROJECT_VERSION=108
+MARKETING_VERSION=0.1.08

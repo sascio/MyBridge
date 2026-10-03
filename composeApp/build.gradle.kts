@@ -345,7 +345,11 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
 } else {
     "src/iosAppStore/kotlin"
 }
-val iosFrameworkBundleId = "com.nuvio.media"
+// The ComposeApp framework is a nested bundle: reusing the application's own
+// bundle identifier here would make the IPA contain two bundles with the same
+// CFBundleIdentifier, which App Store validation rejects (ITMS-90685).
+// Upstream keeps its framework id distinct from its app id for the same reason.
+val iosFrameworkBundleId = "com.streambridge.app.ComposeApp"
 val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")

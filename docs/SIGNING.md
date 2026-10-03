@@ -11,7 +11,8 @@ This repository never contains a keystore, passwords, or private keys.
 | Path | Workflow | Signing | Published? |
 | --- | --- | --- | --- |
 | Branch / PR compile | `.github/workflows/build.yml` | Debug fallback. **Not production.** | Actions artifacts only. Names include `not-production`. |
-| Production draft | `.github/workflows/release-draft.yml` (`workflow_dispatch` only) | Upload keystore from GitHub Secrets. **Fails if secrets are missing.** | Draft GitHub Release only. Never auto-published. |
+| Production draft (Android) | `.github/workflows/release-draft.yml` (`workflow_dispatch` or a `v*` tag) | Upload keystore from GitHub Secrets. **Fails if secrets are missing.** | Draft GitHub Release only. Never auto-published. |
+| Production draft (iOS) | same workflow, `ios` job | **None.** Always unsigned; the job fails if the application comes out signed. | Unsigned IPA attached to the draft; AltStore/SideStore re-sign it with the installer's own Apple ID. No Apple credentials are involved. See [RELEASE-IOS.md](RELEASE-IOS.md). |
 
 `assembleFullRelease` without `NUVIO_RELEASE_*` still compiles and
 debug-signs so CI stays a compile check. That APK must not be treated as
@@ -73,7 +74,7 @@ Production cert SHA-256: 5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBD
 2. `streambridge.version.properties` is the version you intend to ship
    (do not bump only to exercise the updater).
 3. Run **Draft production GitHub Release** with tag `v<STREAMBRIDGE_VERSION_NAME>`
-   (for this release, `v0.1.05`).
+   (for this release, `v0.1.08`).
 4. Workflow fails closed without secrets, if the tag does not match, if
    the APK is debug-signed, or if `apksigner` cannot verify.
 5. Inspect the **draft**. Device-validate install + playback before
@@ -83,6 +84,10 @@ Production cert SHA-256: 5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBD
 7. Attach **all** per-ABI APKs from `full/release/` (arm64-v8a,
    armeabi-v7a, x86, x86_64). Do not ship a universal fat APK. The
    updater matches `arm64-v8a` (etc.) in the asset name.
+8. iOS: the draft also carries `streambridge-<version>-full-release.ipa` when
+   the `STREAMBRIDGE_IOS_*` secrets are set. Without them the workflow reports
+   the missing signing requirement and attaches no IPA — an unsigned build is
+   not a releasable iOS artifact. See [RELEASE-IOS.md](RELEASE-IOS.md).
 
 ## Updater
 
