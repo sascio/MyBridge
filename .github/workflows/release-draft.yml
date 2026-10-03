@@ -255,9 +255,14 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       IOS_CONFIGURATION: Release
-      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
-      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
-      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      # Same memory profile as .github/workflows/ios-release.yml, which is the
+      # configuration that builds successfully. The earlier small heaps made
+      # :composeApp:linkReleaseFrameworkIosArm64 fail with
+      # java.lang.OutOfMemoryError: Java heap space. NUVIO_GRADLE_JVMARGS is
+      # deliberately not set: build-ios-ipa.sh applies upstream NuvioMobile's
+      # 12288M Gradle daemon heap through GRADLE_USER_HOME for this build only.
+      KOTLIN_DAEMON_JVMARGS: -Xmx8192M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
       NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
     steps:
       - name: Check out source
