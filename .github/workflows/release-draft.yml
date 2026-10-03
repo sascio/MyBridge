@@ -469,15 +469,28 @@ jobs:
           - Debrid: requested episode file selection and release-aware file selector.
           - MDBList: newest library additions first, response value fixes and rating provider.
           - Profile Insight: cached title facts, background stat computation and manual refresh.
-          - Settings: Clear Metadata Cache, always-backdrop landscape cleartext logo option.
+          - Settings: Clear Metadata Cache and an always-backdrop landscape logo option.
           - New locales: Bengali and Urdu, plus Greek, Slovak and Vietnamese updates.
           - iOS: QuickJS 1.0.15, Now Playing audio-session fix, and StreamBridge iOS identity.
           - iOS releases: signed IPA attached when Apple signing secrets are configured.
           - Preserved StreamBridge branding, updater, privacy page, addons, profiles and CloudStream runtime.
           EOF
+          ipa_assets=(release-assets/*.ipa)
+          if [ "${#ipa_assets[@]}" -eq 0 ]; then
+            {
+              echo ""
+              echo "### iOS status"
+              echo ""
+              echo "The 0.1.08 iOS build is built and validated by CI"
+              echo "(\`.github/workflows/ios-release.yml\`), but the IPA is **unsigned**: no Apple"
+              echo "signing credentials are configured in this repository, so no iOS artifact"
+              echo "is attached to this release. A signed, distributable IPA requires the"
+              echo "\`STREAMBRIDGE_IOS_*\` secrets documented in \`docs/RELEASE-IOS.md\`."
+            } >> "$notes"
+          fi
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${assets[@]}" --clobber
-            gh release edit "${TAG}" --title "StreamBridge ${TAG}" --draft
+            gh release edit "${TAG}" --title "StreamBridge ${TAG}" --notes-file "$notes" --draft
           else
             gh release create "${TAG}" "${assets[@]}" \
               --draft \

@@ -332,6 +332,22 @@ if [[ "${built_bundle_id}" != com.streambridge.app* ]]; then
     exit 1
 fi
 
+# App Store validation rejects a bundle that contains two bundles with the same
+# CFBundleIdentifier (ITMS-90685), so a nested framework must not reuse the
+# application's identifier. The Kotlin framework is built with its own
+# com.streambridge.app.ComposeApp id precisely so this holds.
+nested_plists="$(find "${app_path}" -maxdepth 4 -path '*/Frameworks/*.framework/Info.plist' 2>/dev/null || true)"
+if [[ -n "${nested_plists}" ]]; then
+    while IFS= read -r nested_plist; do
+        [[ -n "${nested_plist}" ]] || continue
+        nested_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${nested_plist}" 2>/dev/null || true)"
+        if [[ -n "${nested_id}" && "${nested_id}" == "${built_bundle_id}" ]]; then
+            echo "Nested bundle ${nested_plist} reuses the application bundle identifier ${built_bundle_id}." >&2
+            exit 1
+        fi
+    done <<< "${nested_plists}"
+fi
+
 executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${app_path}/Info.plist")"
 architectures="$(xcrun lipo -archs "${app_path}/${executable}")"
 if [[ " ${architectures} " != *" arm64 "* ]]; then
