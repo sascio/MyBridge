@@ -3,12 +3,15 @@ name: StreamBridge iOS release
 # Builds the StreamBridge iOS application and packages it as an IPA.
 #
 # Signing policy (StreamBridge 0.1.08+):
-#   * Without Apple signing material the job still builds a real, unsigned IPA and
-#     labels it exactly that way. Nothing here pretends an unsigned build is an
-#     installable release. The artifact name, the job summary and the step output
-#     all carry "unsigned".
-#   * When the Apple secrets below are configured, the job builds a SIGNED IPA
-#     through an archive export and fails the run if signing does not succeed.
+#   * The default and published build is UNSIGNED. That is the real distribution
+#     artifact, not a placeholder: AltStore and SideStore install it by re-signing
+#     it with the installer's own Apple ID on their device. No Apple Developer
+#     account, certificate, provisioning profile or App Store Connect access is
+#     involved, and none is required to release StreamBridge.
+#   * When Apple signing material is configured, this validation workflow can also
+#     build a SIGNED IPA through an archive export and fails the run if signing
+#     does not succeed. The release workflow (.github/workflows/release-draft.yml)
+#     never does this: it always publishes the unsigned IPA.
 #
 # Required repository secrets for a signed IPA (all optional):
 #   STREAMBRIDGE_IOS_TEAM_ID                Apple Developer team identifier
@@ -43,6 +46,8 @@ on:
       - "composeApp/src/iosAppStore/**"
       - "composeApp/src/iosFull/**"
       - "composeApp/src/fullCommonMain/**"
+      - "composeApp/src/commonMain/composeResources/**"
+      - "scripts/optimize-app-assets.py"
       - "composeApp/build.gradle.kts"
       - "gradle/libs.versions.toml"
       - ".github/workflows/ios-release.yml"
@@ -56,6 +61,8 @@ on:
       - "composeApp/src/iosAppStore/**"
       - "composeApp/src/iosFull/**"
       - "composeApp/src/fullCommonMain/**"
+      - "composeApp/src/commonMain/composeResources/**"
+      - "scripts/optimize-app-assets.py"
       - "composeApp/build.gradle.kts"
       - "gradle/libs.versions.toml"
       - ".github/workflows/ios-release.yml"
@@ -86,7 +93,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -95,22 +102,31 @@ jobs:
           java-version: "17"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
 
+      - name: Verify Apple toolchain
+        id: toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          # Kotlin/Native's platform libraries are generated from the installed
+          # SDK, so the toolchain cache is keyed on the Xcode version as well as
+          # the Kotlin version. An Xcode bump therefore re-link rather than reuse
+          # libraries built against a different SDK.
+          xcode_version="$(xcodebuild -version | head -n 1 | tr -d ' ' | tr ':' '-')"
+          echo "xcode_version=${xcode_version}" >> "${GITHUB_OUTPUT}"
+
       - name: Cache Kotlin/Native toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.konan
-          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode_version }}-${{ hashFiles('gradle/libs.versions.toml') }}
           restore-keys: |
             konan-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Verify Apple toolchain
-        run: |
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
 
       - name: Configure runtime properties
         run: |
@@ -149,7 +165,7 @@ jobs:
           else
             echo "signed=false" >> "${GITHUB_OUTPUT}"
             echo "missing_secrets=$(printf '%s, ' "${missing[@]}" | sed 's/, $//')" >> "${GITHUB_OUTPUT}"
-            echo "::warning::Apple signing is not configured ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')). This run produces an UNSIGNED IPA: it is a real build artifact for validation and must be re-signed with an Apple certificate and provisioning profile before it can be installed on a device or published. See docs/RELEASE-IOS.md."
+            echo "::notice::This run builds the UNSIGNED IPA, which is the published form of the iOS application: AltStore and SideStore install it by re-signing it with the installer's own Apple ID, so no Apple Developer certificate or provisioning profile is needed. Apple signing material ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')) is only used by this validation workflow's optional signed mode and is never required by release-draft.yml. See docs/RELEASE-IOS.md."
           fi
 
       - name: Decode provisioning profile
@@ -245,10 +261,13 @@ jobs:
             echo "- Signing: ${signing_label}"
             if [ "${signed}" != "true" ]; then
               echo
-              echo "> Apple signing material was not available, so this IPA is **unsigned**."
-              echo "> It validates the iOS build and cannot be installed on a device or"
-              echo "> published until it is re-signed. Missing secrets:"
-              echo "> \`${{ steps.signing.outputs.missing_secrets }}\`."
+              echo "> This IPA is **unsigned**, which is the published distribution form:"
+              echo "> AltStore and SideStore re-sign it with the installer's own Apple ID, so"
+              echo "> it installs on a device without any Apple Developer account."
+              if [ -n "${{ steps.signing.outputs.missing_secrets }}" ]; then
+                echo "> Signing material was not configured (\`${{ steps.signing.outputs.missing_secrets }}\`),"
+                echo "> which is the expected state for this repository."
+              fi
               echo "> See \`docs/RELEASE-IOS.md\`."
             fi
           } >> "${GITHUB_STEP_SUMMARY}"
@@ -256,8 +275,45 @@ jobs:
           echo "signed=${signing_label}" >> "${GITHUB_OUTPUT}"
         id: summarize
 
+      - name: Report IPA composition
+        run: |
+          set -euo pipefail
+          configuration_slug="$(printf '%s' "${IOS_CONFIGURATION}" | tr '[:upper:]' '[:lower:]')"
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "streambridge-*-full-${configuration_slug}.ipa" -print -quit)"
+          ipa_bytes="$(stat -c%s "${ipa_path}" 2>/dev/null || stat -f%z "${ipa_path}")"
+          {
+            echo
+            echo "### IPA composition ($(basename "${ipa_path}"))"
+            echo
+            echo "Total size: ${ipa_bytes} bytes"
+            echo
+            echo "Largest files:"
+            echo
+            echo '```'
+            unzip -l "${ipa_path}" \
+              | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); print $1"\t"name}' \
+              | sort -k1,1 -rn | head -30
+            echo '```'
+            echo
+            echo "Size by directory (up to four levels):"
+            echo
+            echo '```'
+            unzip -l "${ipa_path}" \
+              | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%12d  %s\n", sz[d], d}' \
+              | sort -rn | head -30
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo "IPA composition written to the job summary."
+          # Annotations stay readable through the GitHub API even when the raw
+          # Actions log cannot be downloaded, so the largest components are also
+          # emitted as one notice annotation.
+          top_components="$(unzip -l "${ipa_path}" \
+            | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%d %s\n", sz[d], d}' \
+            | sort -rn | head -8 | awk '{printf "%s B in %s; ", $1, $2}')"
+          echo "::notice title=IPA composition::total ${ipa_bytes} B; ${top_components}"
+
       - name: Upload StreamBridge iOS IPA
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: StreamBridge-iOS-${{ steps.summarize.outputs.signed }}-IPA
           path: build/ios-ipa/*.ipa
@@ -266,7 +322,7 @@ jobs:
 
       - name: Upload the iOS build log
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: StreamBridge-iOS-build-log
           path: ${{ runner.temp }}/streambridge-ios-build.log

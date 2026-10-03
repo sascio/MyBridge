@@ -1,0 +1,28 @@
+{
+  "name": "StreamBridge",
+  "subtitle": "A media client for Android and iOS. Bring your own catalogs, addons and plugins.",
+  "description": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.\n\nBuilt on NuvioMobile (GPL-3.0) with StreamBridge identity, an in-app updater, profiles, ratings, episode shuffle and the CloudStream compatibility runtime.\n\nThe iOS build published here is unsigned. AltStore and SideStore sign it with your own Apple ID when installing, which is why no App Store listing exists.",
+  "website": "https://github.com/sascio/MyBridge",
+  "tintColor": "#1E88E5",
+  "featuredApps": [
+    "com.streambridge.app"
+  ],
+  "apps": [
+    {
+      "name": "StreamBridge",
+      "bundleIdentifier": "com.streambridge.app",
+      "developerName": "StreamBridge",
+      "subtitle": "A media client for Android and iOS. Bring your own catalogs, addons and plugins.",
+      "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
+      "tintColor": "#1E88E5",
+      "category": "entertainment",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/main/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "versions": [],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      }
+    }
+  ],
+  "news": []
+}

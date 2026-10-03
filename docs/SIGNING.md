@@ -12,7 +12,7 @@ This repository never contains a keystore, passwords, or private keys.
 | --- | --- | --- | --- |
 | Branch / PR compile | `.github/workflows/build.yml` | Debug fallback. **Not production.** | Actions artifacts only. Names include `not-production`. |
 | Production draft (Android) | `.github/workflows/release-draft.yml` (`workflow_dispatch` or a `v*` tag) | Upload keystore from GitHub Secrets. **Fails if secrets are missing.** | Draft GitHub Release only. Never auto-published. |
-| Production draft (iOS) | same workflow, `ios` job | Apple distribution certificate + provisioning profile from GitHub Secrets when present; otherwise an **unsigned** IPA that is **not** attached to the draft. | Signed IPA attached to the draft; unsigned builds are validation artifacts only. See [RELEASE-IOS.md](RELEASE-IOS.md). |
+| Production draft (iOS) | same workflow, `ios` job | **None.** Always unsigned; the job fails if the application comes out signed. | Unsigned IPA attached to the draft; AltStore/SideStore re-sign it with the installer's own Apple ID. No Apple credentials are involved. See [RELEASE-IOS.md](RELEASE-IOS.md). |
 
 `assembleFullRelease` without `NUVIO_RELEASE_*` still compiles and
 debug-signs so CI stays a compile check. That APK must not be treated as

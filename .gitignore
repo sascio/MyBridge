@@ -41,6 +41,9 @@ scripts/*
 # iOS release helpers are checked in: they are part of the release workflow.
 !scripts/build-ios-ipa.sh
 !scripts/prepare-ios-dependencies.sh
+# Release tooling that the workflows invoke directly.
+!scripts/update-store-source.py
+!scripts/optimize-app-assets.py
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
@@ -54,3 +57,6 @@ legacy/streambridge-app/build/
 # Python bytecode from the CI helper scripts
 __pycache__/
 *.pyc
+
+# CI-only staging directory (release workflows assemble assets here).
+dist/
