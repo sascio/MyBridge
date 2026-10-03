@@ -464,11 +464,14 @@ jobs:
             echo "Created tag ${TAG} -> ${GITHUB_SHA}"
           fi
 
+          # upload-artifact preserves paths relative to the common ancestor of
+          # all uploaded files. Since checksums.sha256 is at the repository root,
+          # the APKs remain under androidApp/build/outputs/... after download.
           android_assets=(
-            release-assets/androidApp-full-arm64-v8a-release.apk
-            release-assets/androidApp-full-armeabi-v7a-release.apk
-            release-assets/androidApp-full-x86-release.apk
-            release-assets/androidApp-full-x86_64-release.apk
+            release-assets/androidApp/build/outputs/apk/full/release/androidApp-full-arm64-v8a-release.apk
+            release-assets/androidApp/build/outputs/apk/full/release/androidApp-full-armeabi-v7a-release.apk
+            release-assets/androidApp/build/outputs/apk/full/release/androidApp-full-x86-release.apk
+            release-assets/androidApp/build/outputs/apk/full/release/androidApp-full-x86_64-release.apk
             release-assets/checksums.sha256
           )
           for asset in "${android_assets[@]}"; do
