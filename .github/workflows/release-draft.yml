@@ -295,7 +295,13 @@ jobs:
           # SDK, so the toolchain cache is keyed on the Xcode version as well as
           # the Kotlin version. An Xcode bump therefore re-link rather than reuse
           # libraries built against a different SDK.
-          xcode_version="$(xcodebuild -version | head -n 1 | tr -d ' ' | tr ':' '-')"
+          # Parsed in bash rather than through head(1): under `set -o pipefail`
+          # a consumer that exits before reading all of xcodebuild's output
+          # makes the pipeline report SIGPIPE and fails the step intermittently.
+          version_output="$(xcodebuild -version)"
+          xcode_version="${version_output%%$'\n'*}"
+          xcode_version="${xcode_version// /}"
+          xcode_version="${xcode_version//:/-}"
           echo "xcode_version=${xcode_version}" >> "${GITHUB_OUTPUT}"
 
       - name: Cache Kotlin/Native toolchain
@@ -380,7 +386,7 @@ jobs:
             echo '```'
             unzip -l "${ipa_path}" \
               | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); print $1"\t"name}' \
-              | sort -k1,1 -rn | head -30
+              | sort -k1,1 -rn | awk 'NR<=30'
             echo '```'
             echo
             echo "Size by directory (up to four levels):"
@@ -388,7 +394,7 @@ jobs:
             echo '```'
             unzip -l "${ipa_path}" \
               | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%12d  %s\n", sz[d], d}' \
-              | sort -rn | head -30
+              | sort -rn | awk 'NR<=30'
             echo '```'
           } >> "${GITHUB_STEP_SUMMARY}"
           echo "IPA composition written to the job summary."
@@ -397,7 +403,7 @@ jobs:
           # emitted as one notice annotation.
           top_components="$(unzip -l "${ipa_path}" \
             | awk 'NR>3 && NF>=4 {name=substr($0, index($0,$4)); if (name=="") next; n=split(name,p,"/"); dir=""; for(i=1;i<=4 && i<n;i++) dir=dir p[i]"/"; sz[dir]+=$1} END {for (d in sz) printf "%d %s\n", sz[d], d}' \
-            | sort -rn | head -8 | awk '{printf "%s B in %s; ", $1, $2}')"
+            | sort -rn | awk 'NR<=8 {printf "%s B in %s; ", $1, $2}')"
           echo "::notice title=IPA composition::total ${ipa_bytes} B; ${top_components}"
 
       - name: Upload StreamBridge iOS IPA
