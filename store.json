@@ -16,13 +16,25 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/main/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
-      "versions": [],
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.08/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "versions": [
+        {
+          "version": "0.1.08",
+          "buildVersion": "108",
+          "date": "2026-10-04T00:03:48Z",
+          "localizedDescription": "## StreamBridge 0.1.08\r\n\r\n### Highlights\r\n- Core updated to official NuvioMobile 0.5.5-beta plus NuvioMobile-Enhanced 0.5.5-beta.\r\n- iOS is available for the first time, published as an unsigned IPA for AltStore and SideStore.\r\n- Much smaller downloads: brand assets now ship at the size the interface renders them at.\r\n- New languages: Bengali and Urdu.\r\n- Preserved StreamBridge branding, updater, privacy page, addons, profiles and CloudStream runtime.\r\n\r\n### New\r\n- In-app ratings synced with Trakt, Simkl and MDBList, plus a ratings sheet and a star row on details.\r\n- Episode shuffle for series, with its own sheet and per-profile storage.\r\n- Subtitle sync by ear, to align a subtitle track while watching.\r\n- Plugin runtime: async timers and setTimeout support for Nuvio-compatible plugins.\r\n- Downloads entry point moved into the library, with an animated downloads icon.\r\n- Settings: Clear Metadata Cache, and an always-backdrop landscape logo option.\r\n\r\n### Improved\r\n- Restyled bottom sheets, dropdown menus and dialogs on the shared UI components.\r\n- Streams screen: shimmer loading states, swipe-to-seek preview and custom landscape posters.\r\n- Debrid: requested episode file selection and a release-aware file selector.\r\n- MDBList: newest library additions first, response value fixes and a rating provider.\r\n- Profile Insight: cached title facts, background stat computation and manual refresh.\r\n- iOS: QuickJS 1.0.15 and a Now Playing audio-session fix.\r\n- Release infrastructure: production APKs and the unsigned iOS IPA build together, and the sideload source is regenerated from every published release.\r\n\r\n### Fixed\r\n- iOS: the Kotlin/Native link step now gets the heap it needs, so release IPA builds complete reliably.\r\n- iOS: the CI toolchain probe can no longer fail intermittently.\r\n\r\n### Downloads\r\n- Android: pick the APK for the architecture of your device. In-place updates keep working with the production certificate used by 0.1.07.\r\n- iOS: the IPA is unsigned and is not distributed through the App Store. See the installation note below.\r\n- The brand assets were re-encoded to their display size, which makes the iOS IPA about 29 percent smaller and the Android release APKs about 21 percent smaller than before this release.\r\n\r\nStreamBridge provides no content of its own. Use only content you are legally entitled to access.\r\n\r\n### iOS installation\r\n\r\nThe iOS build in this release is **unsigned**. Install it with\r\n[AltStore](https://altstore.io) or [SideStore](https://sidestore.io):\r\neither signs the IPA with your own Apple ID on your device, so no Apple\r\nDeveloper account and no App Store listing is involved.\r\n\r\nAdd this repository as a source in AltStore or SideStore to get updates\r\nautomatically:\r\n\r\n`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`\r\n\r\nSee `docs/RELEASE-IOS.md` for the details.\r\n\r\nThe IPA is deliberately unsigned, and no Apple Developer account or\r\nApp Store submission is involved in this release.\r\n",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.08/StreamBridge-0.1.08-iOS-unsigned.ipa",
+          "size": 68959799,
+          "sha256": "82d9caae0f280f2645737b3520cec8cc0be0faef28eaefd651496245ea8be6e5",
+          "minOSVersion": "16.1"
+        }
+      ],
       "appPermissions": {
         "entitlements": [],
         "privacy": {}
       }
     }
   ],
-  "news": []
+  "news": [],
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.08/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
