@@ -90,6 +90,10 @@ jobs:
       KOTLIN_DAEMON_JVMARGS: -Xmx8192M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
       NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Parity with the Android release job: MDBLIST_CLIENT_ID may also be supplied
+      # as its own secret, since runtimeConfigValue() accepts the environment.
+      # Empty when unset, which normalisation treats as "not configured".
+      MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
 
     steps:
       - name: Check out source
