@@ -1969,6 +1969,16 @@
     <string name="streambridge_credits_based_on">Based on NuvioMobile</string>
     <string name="streambridge_credits_nuvio_media">NuvioMedia</string>
     <string name="streambridge_based_on_nuvio">StreamBridge is based on the NuvioMobile project by NuvioMedia (%1$s), with StreamBridge modifications and additional functionality. Licensed under GPL-3.0.</string>
+    <string name="streambridge_credits_made_with">Made with ❤️ SAIF</string>
+    <string name="about_us_page_title">About Us</string>
+    <string name="about_us_settings_subtitle">What StreamBridge is and what it is for</string>
+    <string name="about_us_what_title">What StreamBridge is</string>
+    <string name="about_us_what_body">StreamBridge is a streaming app that brings the sources you already use together in one place. You add your own addons and services, and StreamBridge organizes them into a single library you can browse, watch and keep track of.</string>
+    <string name="about_us_goal_title">Our goal</string>
+    <string name="about_us_goal_body">To give you control over how you stream. StreamBridge is designed to be a flexible, unified streaming experience that adapts to the sources you choose, while staying simple and easy to use. You decide what to connect, and the app stays out of the way.</string>
+    <string name="about_us_community_section">Community</string>
+    <string name="about_us_telegram_title">Telegram</string>
+    <string name="about_us_telegram_description">Join the StreamBridge community</string>
     <string name="auth_account_deletion_failed">Account deletion failed</string>
     <string name="auth_sign_in_failed">Sign-in failed</string>
     <string name="auth_sign_out_failed">Sign-out failed</string>

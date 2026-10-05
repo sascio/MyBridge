@@ -103,7 +103,7 @@ internal fun settingsSearchEntries(
     val streamsPage = stringResource(Res.string.compose_settings_page_streams)
     val integrationsPage = stringResource(Res.string.compose_settings_page_integrations)
     val notificationsPage = stringResource(Res.string.compose_settings_page_notifications)
-    val supportersPage = stringResource(Res.string.compose_settings_page_supporters_contributors)
+    val supportersPage = stringResource(Res.string.about_us_page_title)
     val licensesPage = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val privacyPolicyPage = stringResource(Res.string.compose_settings_page_privacy_policy)
     val homeLayoutPage = stringResource(Res.string.compose_settings_page_homescreen)
@@ -285,7 +285,7 @@ internal fun settingsSearchEntries(
             page = SettingsPage.SupportersContributors,
             key = "supporters",
             title = supportersPage,
-            description = stringResource(Res.string.about_supporters_contributors_subtitle),
+            description = stringResource(Res.string.about_us_settings_subtitle),
             category = aboutCategory,
             icon = Icons.Rounded.Favorite,
         )

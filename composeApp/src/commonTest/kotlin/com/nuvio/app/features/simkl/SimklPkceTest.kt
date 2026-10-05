@@ -40,7 +40,7 @@ class SimklPkceTest {
     }
 
     @Test
-    fun `authorization URL uses browser host and exact S256 method`() {
+    fun `authorization URL uses the AUTH V2 endpoint and exact S256 method`() {
         val url = buildSimklAuthorizationUrl(
             clientId = "client id",
             redirectUri = "nuvio://auth/simkl",
@@ -49,10 +49,55 @@ class SimklPkceTest {
             material = SimklPkceMaterial("verifier", "challenge", "state"),
         )
 
-        assertTrue(url.startsWith("https://simkl.com/oauth/authorize?"))
+        // Simkl rejects V2 clients on the V1 path with {"error":"unauthorized_client"}.
+        assertTrue(url.startsWith("https://simkl.com/oauth2/authorize?"))
+        assertFalse(url.startsWith("https://simkl.com/oauth/authorize?"))
         assertTrue("client_id=client+id" in url || "client_id=client%20id" in url)
         assertTrue("code_challenge_method=S256" in url)
         assertTrue("redirect_uri=nuvio%3A%2F%2Fauth%2Fsimkl" in url)
+    }
+
+    @Test
+    fun `authorization URL requests read and write scope`() {
+        val url = buildSimklAuthorizationUrl(
+            clientId = "client-id",
+            redirectUri = "nuvio://auth/simkl",
+            appName = "nuvio",
+            appVersion = "1.2.3",
+            material = SimklPkceMaterial("verifier", "challenge", "state"),
+        )
+
+        // Omitting scope yields a read-only token, which breaks scrobbling and
+        // watched-status writes, so it has to be on the authorize URL.
+        assertTrue("scope=media%3Aread+media%3Awrite" in url || "scope=media%3Aread%20media%3Awrite" in url)
+        assertTrue("response_type=code" in url)
+    }
+
+    @Test
+    fun `token form is url encoded and drops blank fields`() {
+        val form = buildSimklTokenForm(
+            mapOf(
+                "grant_type" to "refresh_token",
+                "client_id" to "client-id",
+                // Both of these would corrupt a form body if left raw.
+                "refresh_token" to "a+b/c=d",
+                "redirect_uri" to "",
+            ),
+        )
+
+        assertEquals(
+            "grant_type=refresh_token&client_id=client-id&refresh_token=a%2Bb%2Fc%3Dd",
+            form,
+        )
+    }
+
+    @Test
+    fun `token form encodes spaces either as plus or percent twenty`() {
+        val form = buildSimklTokenForm(mapOf("scope" to "media:read media:write"))
+        assertTrue(
+            form == "scope=media%3Aread+media%3Awrite" ||
+                form == "scope=media%3Aread%20media%3Awrite",
+        )
     }
 
     @Test
@@ -63,6 +108,29 @@ class SimklPkceTest {
         assertIs<SimklAuthCallback.Invalid>(
             parseSimklAuthCallback("nuvio://auth/simkl?code=a", "nuvio://auth/simkl"),
         )
+        assertEquals(
+            SimklAuthCallback.AuthorizationCode(code = "a", state = "b"),
+            parseSimklAuthCallback("nuvio://auth/simkl?code=a&state=b", "nuvio://auth/simkl"),
+        )
+    }
+
+    @Test
+    fun `callback parser validates the AUTH V2 issuer when present`() {
+        assertEquals(
+            SimklAuthCallback.AuthorizationCode(code = "a", state = "b"),
+            parseSimklAuthCallback(
+                "nuvio://auth/simkl?code=a&state=b&iss=https%3A%2F%2Fsimkl.com",
+                "nuvio://auth/simkl",
+            ),
+        )
+        // A response claiming to be from somewhere else must not be exchanged.
+        assertIs<SimklAuthCallback.Invalid>(
+            parseSimklAuthCallback(
+                "nuvio://auth/simkl?code=a&state=b&iss=https%3A%2F%2Fsimkl.com.evil.test",
+                "nuvio://auth/simkl",
+            ),
+        )
+        // Absent iss is still accepted so nothing regresses.
         assertEquals(
             SimklAuthCallback.AuthorizationCode(code = "a", state = "b"),
             parseSimklAuthCallback("nuvio://auth/simkl?code=a&state=b", "nuvio://auth/simkl"),

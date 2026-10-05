@@ -10,8 +10,8 @@ synchronised from official NuvioMobile **0.5.5-beta** and NuvioMobile-Enhanced
 | App name | StreamBridge |
 | App bundle identifier | `com.streambridge.app` |
 | Widget bundle identifier | `com.streambridge.app.DownloadsWidgetExtension` |
-| Marketing version | `0.1.08` (`iosApp/Configuration/Version.xcconfig`) |
-| Build number | `108` |
+| Marketing version | `0.1.09` (`iosApp/Configuration/Version.xcconfig`) |
+| Build number | `109` |
 | Xcode project | `iosApp/iosApp.xcodeproj`, scheme `iosApp` |
 | Product | `StreamBridge.app` |
 | Distribution | `full` (`NUVIO_IOS_DISTRIBUTION=full`, plugins/CloudStream-capable core) |
@@ -29,7 +29,7 @@ or does not carry a `com.streambridge.app*` bundle identifier.
 ./scripts/build-ios-ipa.sh              # the unsigned IPA that is published
 ```
 
-Output: `build/ios-ipa/streambridge-0.1.08-full-release.ipa`.
+Output: `build/ios-ipa/streambridge-0.1.09-full-release.ipa`.
 
 Environment:
 
@@ -57,7 +57,7 @@ MPVKit submodule; fetches are ignored by git.
 
 `NuvioEngine` is kept only in the path and file names of the upstream engine
 artifact. The iOS application itself is named, signed and versioned as
-StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.08), and
+StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.09), and
 `scripts/build-ios-ipa.sh` fails if the packaged app reports anything else.
 
 ## Memory
@@ -184,7 +184,7 @@ The unsigned IPA is the artifact users install. AltStore/SideStore does the
 re-signing on the device; the manual equivalent is:
 
 ```bash
-unzip -q build/ios-ipa/streambridge-0.1.08-full-release.ipa -d resigned
+unzip -q build/ios-ipa/streambridge-0.1.09-full-release.ipa -d resigned
 codesign --force --deep --sign "Apple Development" \
   --entitlements StreamBridge.entitlements \
   --keychain "$KEYCHAIN" "resigned/Payload/StreamBridge.app"
@@ -195,7 +195,7 @@ Re-signing with a free Apple ID works but lasts 7 days; AltStore/SideStore
 refresh it before expiry. Alternatively run the signed path above:
 
 ```bash
-unzip -q build/ios-ipa/streambridge-0.1.08-full-release.ipa -d resigned
+unzip -q build/ios-ipa/streambridge-0.1.09-full-release.ipa -d resigned
 codesign --force --deep --sign "Apple Distribution" \
   --entitlements StreamBridge.entitlements \
   --keychain "$KEYCHAIN" "resigned/Payload/StreamBridge.app"
