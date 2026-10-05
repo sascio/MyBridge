@@ -518,7 +518,7 @@ jobs:
           release_notes=(
             '## StreamBridge 0.1.09'
             ''
-            '### What\'s new'
+            "### What's new"
             '- Fixed Simkl connection authorization.'
             '- Added a new About Us section.'
             '- Added the StreamBridge Telegram community link.'
