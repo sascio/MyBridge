@@ -16,8 +16,18 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.08/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.09/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
+        {
+          "version": "0.1.09",
+          "buildVersion": "109",
+          "date": "2026-10-06T02:13:37Z",
+          "localizedDescription": "## StreamBridge 0.1.09\n\n### What's new\n- Fixed Simkl connection authorization.\n- Added a new About Us section.\n- Added the StreamBridge Telegram community link.\n- Updated Settings branding.\n- Updated the app to version 0.1.09.\n\n### iOS installation\n\nThe iOS build in this release is **unsigned**. Install it with\n[AltStore](https://altstore.io) or [SideStore](https://sidestore.io):\neither signs the IPA with your own Apple ID on your device, so no Apple\nDeveloper account and no App Store listing is involved.\n\nAdd this repository as a source in AltStore or SideStore to get updates\nautomatically:\n\n`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`\n\nSee `docs/RELEASE-IOS.md` for the details.\n\nThe IPA is deliberately unsigned, and no Apple Developer account or\nApp Store submission is involved in this release.\n",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.09/StreamBridge-0.1.09-iOS-unsigned.ipa",
+          "size": 68859923,
+          "sha256": "58cd9cd5b477d012065f91d3cc7662f2125c0f8bc18be66cb26f20b5571b957c",
+          "minOSVersion": "16.1"
+        },
         {
           "version": "0.1.08",
           "buildVersion": "108",
@@ -36,5 +46,5 @@
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.08/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.09/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
