@@ -33,7 +33,7 @@ import nuvio.composeapp.generated.resources.compose_settings_page_privacy_policy
 import nuvio.composeapp.generated.resources.compose_settings_page_profile
 import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.compose_settings_page_streams
-import nuvio.composeapp.generated.resources.compose_settings_page_supporters_contributors
+import nuvio.composeapp.generated.resources.about_us_page_title
 import nuvio.composeapp.generated.resources.compose_settings_page_tmdb_enrichment
 import nuvio.composeapp.generated.resources.compose_settings_page_trakt
 import nuvio.composeapp.generated.resources.compose_settings_page_tracking
@@ -72,7 +72,7 @@ internal enum class SettingsPage(
         parentPage = Root,
     ),
     SupportersContributors(
-        titleRes = Res.string.compose_settings_page_supporters_contributors,
+        titleRes = Res.string.about_us_page_title,
         category = SettingsCategory.About,
         parentPage = Root,
     ),

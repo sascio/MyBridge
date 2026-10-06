@@ -280,10 +280,16 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
         // Presence-only diagnostics. Never log the values themselves — this output
         // ends up in CI logs. It lets a build prove whether credentials actually
         // reached the generated runtime config.
+        //
+        // MDBLIST_CLIENT_ID is reported alongside Trakt/Simkl: it is the only
+        // credential MDBList needs (public OAuth device-flow client, so there is no
+        // client secret) and a blank value is exactly what makes Settings render
+        // "MDBList connection is unavailable in this build."
         logger.lifecycle(
             "generateRuntimeConfigs: TRAKT_CLIENT_ID present=${traktClientId.get().isNotBlank()} " +
                 "TRAKT_CLIENT_SECRET present=${traktClientSecret.get().isNotBlank()} " +
-                "SIMKL_CLIENT_ID present=${simklClientId.get().isNotBlank()}"
+                "SIMKL_CLIENT_ID present=${simklClientId.get().isNotBlank()} " +
+                "MDBLIST_CLIENT_ID present=${mdblistClientId.get().isNotBlank()}"
         )
     }
 }
@@ -524,6 +530,14 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     supportersWallUrl.set(runtimeConfigValue("SUPPORTERS_WALL_URL"))
     donationsBaseUrl.set(runtimeConfigValue("DONATIONS_BASE_URL"))
     donationsDonateUrl.set(runtimeConfigValue("DONATIONS_DONATE_URL"))
+    // MDBList is a public OAuth 2.0 device-flow client: the client id is its only
+    // credential and there is no client secret (MdbListAuthRepository sends just
+    // `client_id` to /oauth/device-authorization/ and /oauth/token/). Upstream reads
+    // it from local.properties like the Trakt/Simkl keys; this build resolves it with
+    // runtimeConfigValue() instead, so it additionally accepts an environment variable
+    // or a -P property. That is a superset of upstream's behaviour and is what lets CI
+    // supply it as its own GitHub Secret. Do not narrow it to
+    // runtimeLocalPropertyValue() without also updating release-draft.yml.
     mdblistClientId.set(runtimeConfigValue("MDBLIST_CLIENT_ID"))
 }
 

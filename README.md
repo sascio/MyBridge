@@ -7,7 +7,7 @@
 <p align="center"><strong>Your App, Your Way</strong></p>
 
 <p align="center">
-  Android media client · iOS in 0.1.08+ · GPL-3.0 · version <strong>0.1.08</strong> (108)
+  Android media client · iOS in 0.1.08+ · GPL-3.0 · version <strong>0.1.09</strong> (109)
 </p>
 
 StreamBridge is a media client for Android, with an iOS release starting in
@@ -80,7 +80,7 @@ on configuration you add. Avatar images need a working account backend.
 
 **iOS (new in 0.1.08)**
 - Same Kotlin core and MPV/ExoPlayer-equivalent playback pipeline as Android
-- `StreamBridge.app`, bundle identifier `com.streambridge.app`, version 0.1.08
+- `StreamBridge.app`, bundle identifier `com.streambridge.app`, version 0.1.09
 - Downloads Live Activity extension and bundled Noto subtitle fonts
 - Distributed as an unsigned IPA through AltStore/SideStore, not the App Store
 - Built by `.github/workflows/ios-release.yml`; see [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md)
@@ -107,7 +107,7 @@ iOS builds are published as an **unsigned** IPA on the
 [published GitHub Releases](https://github.com/sascio/MyBridge/releases) of this
 repository:
 
-- `StreamBridge-0.1.08-iOS-unsigned.ipa`
+- `StreamBridge-0.1.09-iOS-unsigned.ipa`
 
 There is no App Store listing. Install the IPA with **AltStore** or
 **SideStore**, which sign it on your device with your own Apple ID:
@@ -167,9 +167,9 @@ Secrets are set.
 ./scripts/build-ios-ipa.sh
 ```
 
-Output: `build/ios-ipa/streambridge-0.1.08-full-release.ipa`, unsigned. The
+Output: `build/ios-ipa/streambridge-0.1.09-full-release.ipa`, unsigned. The
 release workflow publishes that same file as
-`StreamBridge-0.1.08-iOS-unsigned.ipa` and
+`StreamBridge-0.1.09-iOS-unsigned.ipa` and
 `.github/workflows/update-store-source.yml` records it in `store.json`. See
 [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
 

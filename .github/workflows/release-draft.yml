@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.08)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.09)
         required: true
         type: string
-        default: "v0.1.08"
+        default: "v0.1.09"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -105,10 +105,11 @@ jobs:
       # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
       # file and the checks only test for presence.
       #
-      # NUVIO_LOCAL_PROPERTIES_BASE64 is optional. Trakt/Simkl are not configured for
+      # NUVIO_LOCAL_PROPERTIES_BASE64 is optional. Tracking is not configured for
       # every release, so when the secret is absent CI creates an empty
-      # local.properties and the build proceeds with unconfigured Trakt/Simkl (empty
-      # generated credentials). No placeholder credentials are ever injected.
+      # local.properties and the build proceeds with unconfigured Trakt/Simkl/MDBList
+      # (empty generated credentials, and Settings shows the missing-credentials
+      # state for each provider). No placeholder credentials are ever injected.
       - name: Configure release properties
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
@@ -127,10 +128,16 @@ jobs:
           # so drop any copies carried inside the secret (official does the same).
           sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
 
-          # Trakt/Simkl properties are optional: a missing TRAKT_CLIENT_ID,
-          # TRAKT_CLIENT_SECRET or SIMKL_CLIENT_ID must not fail the release.
-          # Presence-only report; values are never printed.
-          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+          # Tracking properties are optional: a missing TRAKT_CLIENT_ID,
+          # TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID or MDBLIST_CLIENT_ID must not fail
+          # the release. Presence-only report; values are never printed.
+          #
+          # MDBLIST_CLIENT_ID is included because MdbListConfig.CLIENT_ID gates the
+          # MDBList Connect button: without it the app shows "MDBList connection is
+          # unavailable in this build." and there is no way to connect. MDBList is a
+          # public OAuth device-flow client, so the client id is its only credential
+          # -- there is deliberately no MDBLIST_CLIENT_SECRET.
+          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID MDBLIST_CLIENT_ID; do
             if grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\\S" local.properties; then
               echo "${property_name} present=true"
             else
@@ -153,37 +160,50 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           # Trakt/Simkl are deliberately NOT passed as environment variables. They are
           # supplied through the decoded local.properties above, which is the official
-          # NuvioMobile mechanism and the only credential path this build supports.
+          # NuvioMobile mechanism and the only credential path this build supports
+          # (composeApp/build.gradle.kts resolves them with runtimeLocalPropertyValue).
+          #
+          # MDBList is different: build.gradle.kts resolves MDBLIST_CLIENT_ID with
+          # runtimeConfigValue(), the same helper as TMDB_API_KEY above, which accepts
+          # the environment. So it can be supplied either inside
+          # NUVIO_LOCAL_PROPERTIES_BASE64 (preferred, matches upstream) or as its own
+          # secret. local.properties wins when both are set. When the secret is unset
+          # GitHub passes an empty string, which normalisation treats as "not
+          # configured" -- identical to today's behaviour, so this is additive.
+          MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
       # Presence-only report of what reached the generated runtime config
-      # (local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig).
-      # Trakt/Simkl credentials are optional, so empty generated values must not
-      # fail the release. Greps the generated Kotlin for an empty literal; never
-      # prints a value.
-      - name: Report generated Trakt/Simkl config presence
+      # (local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig/MdbListConfig).
+      # Tracking credentials are optional, so empty generated values must not fail
+      # the release. Greps the generated Kotlin for an empty literal; never prints a
+      # value. Each line is prefixed with its provider because all three constants
+      # are named CLIENT_ID and would otherwise be indistinguishable in the log.
+      - name: Report generated tracking config presence
         run: |
           set -euo pipefail
           generated="composeApp/build/generated/runtime-config/kotlin"
           trakt="$generated/com/nuvio/app/features/trakt/TraktConfig.kt"
           simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
+          mdblist="$generated/com/nuvio/app/features/mdblist/MdbListConfig.kt"
 
           report_populated() {
-            local file="$1" constant="$2"
+            local provider="$1" file="$2" constant="$3"
             if [ ! -f "$file" ]; then
               echo "::warning::Generated config missing: $file"
               return
             fi
             if grep -Eq "const val ${constant} = \"\"" "$file"; then
-              echo "${constant} present=false"
+              echo "${provider} ${constant} present=false"
             else
-              echo "${constant} present=true"
+              echo "${provider} ${constant} present=true"
             fi
           }
 
-          report_populated "$trakt" CLIENT_ID
-          report_populated "$trakt" CLIENT_SECRET
-          report_populated "$simkl" CLIENT_ID
+          report_populated TRAKT "$trakt" CLIENT_ID
+          report_populated TRAKT "$trakt" CLIENT_SECRET
+          report_populated SIMKL "$simkl" CLIENT_ID
+          report_populated MDBLIST "$mdblist" CLIENT_ID
 
       - name: Reject debug certificates and record public cert identity
         run: |
@@ -270,6 +290,10 @@ jobs:
       KOTLIN_DAEMON_JVMARGS: -Xmx8192M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
       NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      # Parity with the Android job: MDBLIST_CLIENT_ID may also be supplied as its
+      # own secret, since runtimeConfigValue() accepts the environment. Empty when
+      # unset, which normalisation treats as "not configured".
+      MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -492,42 +516,14 @@ jobs:
           # keeps the YAML indentation, and a release body indented by ten
           # spaces is rendered by GitHub as a code block rather than Markdown.
           release_notes=(
-            '## StreamBridge 0.1.08'
+            '## StreamBridge 0.1.09'
             ''
-            '### Highlights'
-            '- Core updated to official NuvioMobile 0.5.5-beta plus NuvioMobile-Enhanced 0.5.5-beta.'
-            '- iOS is available for the first time, published as an unsigned IPA for AltStore and SideStore.'
-            '- Much smaller downloads: brand assets now ship at the size the interface renders them at.'
-            '- New languages: Bengali and Urdu.'
-            '- Preserved StreamBridge branding, updater, privacy page, addons, profiles and CloudStream runtime.'
-            ''
-            '### New'
-            '- In-app ratings synced with Trakt, Simkl and MDBList, plus a ratings sheet and a star row on details.'
-            '- Episode shuffle for series, with its own sheet and per-profile storage.'
-            '- Subtitle sync by ear, to align a subtitle track while watching.'
-            '- Plugin runtime: async timers and setTimeout support for Nuvio-compatible plugins.'
-            '- Downloads entry point moved into the library, with an animated downloads icon.'
-            '- Settings: Clear Metadata Cache, and an always-backdrop landscape logo option.'
-            ''
-            '### Improved'
-            '- Restyled bottom sheets, dropdown menus and dialogs on the shared UI components.'
-            '- Streams screen: shimmer loading states, swipe-to-seek preview and custom landscape posters.'
-            '- Debrid: requested episode file selection and a release-aware file selector.'
-            '- MDBList: newest library additions first, response value fixes and a rating provider.'
-            '- Profile Insight: cached title facts, background stat computation and manual refresh.'
-            '- iOS: QuickJS 1.0.15 and a Now Playing audio-session fix.'
-            '- Release infrastructure: production APKs and the unsigned iOS IPA build together, and the sideload source is regenerated from every published release.'
-            ''
-            '### Fixed'
-            '- iOS: the Kotlin/Native link step now gets the heap it needs, so release IPA builds complete reliably.'
-            '- iOS: the CI toolchain probe can no longer fail intermittently.'
-            ''
-            '### Downloads'
-            '- Android: pick the APK for the architecture of your device. In-place updates keep working with the production certificate used by 0.1.07.'
-            '- iOS: the IPA is unsigned and is not distributed through the App Store. See the installation note below.'
-            '- The brand assets were re-encoded to their display size, which makes the iOS IPA about 29 percent smaller and the Android release APKs about 21 percent smaller than before this release.'
-            ''
-            'StreamBridge provides no content of its own. Use only content you are legally entitled to access.'
+            "### What's new"
+            '- Fixed Simkl connection authorization.'
+            '- Added a new About Us section.'
+            '- Added the StreamBridge Telegram community link.'
+            '- Updated Settings branding.'
+            '- Updated the app to version 0.1.09.'
           )
           printf '%s\n' "${release_notes[@]}" > "$notes"
           ipa_assets=(release-assets/*.ipa)

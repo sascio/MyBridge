@@ -157,7 +157,7 @@ import com.nuvio.app.features.settings.LicensesAttributionsSettingsScreen
 import com.nuvio.app.features.settings.PrivacyPolicySettingsScreen
 import com.nuvio.app.features.settings.MetaScreenSettingsScreen
 import com.nuvio.app.features.settings.PluginsSettingsScreen
-import com.nuvio.app.features.settings.SupportersContributorsSettingsScreen
+import com.nuvio.app.features.settings.AboutUsSettingsScreen
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamAutoPlayPolicy
@@ -376,7 +376,7 @@ internal fun MainAppContent(
     val accountSettingsTitle = stringResource(Res.string.compose_settings_page_account)
     val editProfileTitle = stringResource(Res.string.profile_edit_edit_title)
     val pushEditProfile: () -> Unit = { navController.navigate(ProfileEditRoute(editProfileTitle)) }
-    val supportersSettingsTitle = stringResource(Res.string.compose_settings_page_supporters_contributors)
+    val supportersSettingsTitle = stringResource(Res.string.about_us_page_title)
     val licensesSettingsTitle = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val privacyPolicySettingsTitle = stringResource(Res.string.compose_settings_page_privacy_policy)
     val collectionsTitle = stringResource(Res.string.collections_header)
@@ -1850,7 +1850,7 @@ internal fun MainAppContent(
                 entry<SupportersContributorsSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->
                         if (AppFeaturePolicy.supportersContributorsPageEnabled) {
-                            SupportersContributorsSettingsScreen(onBack = onBack)
+                            AboutUsSettingsScreen(onBack = onBack)
                         } else {
                             LaunchedEffect(Unit) { onBack() }
                         }

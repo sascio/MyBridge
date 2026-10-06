@@ -186,11 +186,6 @@ internal fun TrackingProviderCards(
         TraktAuthRepository.onConnectRequested()
         deviceCodeBrand = TrackingBrand.TRAKT
     }
-    val onSimklConnectWithCode: () -> Unit = {
-        SimklAuthRepository.setAuthenticationMethod(SimklAuthenticationMethod.DEVICE_CODE)
-        SimklAuthRepository.onConnectRequested()
-        deviceCodeBrand = TrackingBrand.SIMKL
-    }
     val onSimklSyncRequested: () -> Unit = {
         scope.launch {
             WatchProgressSourceCoordinator.refreshProviderAndActiveSource(
@@ -218,7 +213,10 @@ internal fun TrackingProviderCards(
             syncErrorMessage = syncState.errorMessage,
             onSyncRequested = onSimklSyncRequested,
             onInfoRequested = { showSyncInfo = true },
-            onConnectWithCodeRequested = onSimklConnectWithCode,
+            // Simkl's PIN/device flow is still AUTH V1 (GET /oauth/pin), which V2
+            // clients reject. The option stays hidden until it is migrated rather than
+            // offering a path that can only fail.
+            onConnectWithCodeRequested = null,
             modifier = Modifier.fillMaxWidth(),
         )
         MdbListProviderCard(Modifier.fillMaxWidth())
@@ -304,8 +302,8 @@ private fun SimklProviderCard(
     syncErrorMessage: String?,
     onSyncRequested: () -> Unit,
     onInfoRequested: () -> Unit,
-    onConnectWithCodeRequested: () -> Unit,
     modifier: Modifier,
+    onConnectWithCodeRequested: (() -> Unit)? = null,
 ) {
     TrackingProviderCard(
         brand = TrackingBrand.SIMKL,

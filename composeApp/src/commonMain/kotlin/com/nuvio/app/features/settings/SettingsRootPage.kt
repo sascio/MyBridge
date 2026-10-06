@@ -10,7 +10,6 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Notifications
@@ -29,6 +28,9 @@ import androidx.compose.ui.Alignment
 import com.nuvio.app.StreamBridgeBrandLockup
 import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.streambridge_credits_made_with
+import nuvio.composeapp.generated.resources.about_us_page_title
+import nuvio.composeapp.generated.resources.about_us_settings_subtitle
 import nuvio.composeapp.generated.resources.compose_about_version_format
 import nuvio.composeapp.generated.resources.compose_settings_page_account
 import nuvio.composeapp.generated.resources.compose_settings_page_advanced
@@ -38,7 +40,6 @@ import nuvio.composeapp.generated.resources.compose_settings_page_licenses_attri
 import nuvio.composeapp.generated.resources.compose_settings_page_notifications
 import nuvio.composeapp.generated.resources.compose_settings_page_playback
 import nuvio.composeapp.generated.resources.compose_settings_page_privacy_policy
-import nuvio.composeapp.generated.resources.compose_settings_page_supporters_contributors
 import nuvio.composeapp.generated.resources.compose_settings_root_account_description
 import nuvio.composeapp.generated.resources.compose_settings_root_appearance_description
 import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_description
@@ -61,11 +62,8 @@ import nuvio.composeapp.generated.resources.compose_settings_page_tracking
 import nuvio.composeapp.generated.resources.settings_playback_subtitle
 import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
-import nuvio.composeapp.generated.resources.about_supporters_contributors_subtitle
 import nuvio.composeapp.generated.resources.about_licenses_attributions_subtitle
 import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description_streambridge
-import nuvio.composeapp.generated.resources.streambridge_credits_based_on
-import nuvio.composeapp.generated.resources.streambridge_credits_nuvio_media
 import org.jetbrains.compose.resources.stringResource
 
 internal fun LazyListScope.settingsRootContent(
@@ -185,9 +183,9 @@ internal fun LazyListScope.settingsRootContent(
                 SettingsGroup(isTablet = isTablet) {
                     if (showSupportersContributorsPage) {
                         SettingsNavigationRow(
-                            title = stringResource(Res.string.compose_settings_page_supporters_contributors),
-                            description = stringResource(Res.string.about_supporters_contributors_subtitle),
-                            icon = Icons.Rounded.Favorite,
+                            title = stringResource(Res.string.about_us_page_title),
+                            description = stringResource(Res.string.about_us_settings_subtitle),
+                            icon = Icons.Rounded.Info,
                             isTablet = isTablet,
                             onClick = onSupportersContributorsClick,
                         )
@@ -270,15 +268,8 @@ internal fun LazyListScope.settingsRootContent(
                 showTagline = false,
             )
             Text(
-                text = stringResource(Res.string.streambridge_credits_based_on),
+                text = stringResource(Res.string.streambridge_credits_made_with),
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                style = creditStyle,
-                color = creditColor,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = stringResource(Res.string.streambridge_credits_nuvio_media),
-                modifier = Modifier.fillMaxWidth(),
                 style = creditStyle,
                 color = creditColor,
                 textAlign = TextAlign.Center,

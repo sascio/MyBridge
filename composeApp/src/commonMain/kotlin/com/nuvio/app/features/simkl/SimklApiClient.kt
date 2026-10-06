@@ -37,6 +37,8 @@ internal data class SimklApiRequest(
     val requiresAuthentication: Boolean = true,
     val retryPolicy: SimklRetryPolicy = SimklRetryPolicy.TRANSIENT_FAILURES,
     val scrobbleStopConflictIsSuccess: Boolean = false,
+    /** Sends the body as application/x-www-form-urlencoded instead of JSON. */
+    val formEncoded: Boolean = false,
 )
 
 internal data class SimklApiResponse(
@@ -103,6 +105,7 @@ internal class SimklApiClient(
                         headers = simklRequestHeaders(
                             accessToken = token,
                             contentTypeJson = request.method == SimklHttpMethod.POST,
+                            formEncoded = request.formEncoded,
                         ),
                         body = request.body,
                     )
