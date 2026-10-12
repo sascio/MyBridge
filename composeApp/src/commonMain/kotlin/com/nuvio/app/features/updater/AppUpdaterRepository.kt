@@ -83,7 +83,7 @@ internal object AppUpdaterRepository {
                 ?: release.name.orEmpty()
             AppUpdate(
                 tag = tag,
-                title = release.name?.takeIf { it.isNotBlank() } ?: tag,
+                title = updateDisplayTitle(tag),
                 notes = release.body.orEmpty(),
                 releaseUrl = release.htmlUrl,
                 assetName = asset.name,

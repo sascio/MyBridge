@@ -76,3 +76,13 @@ internal object VersionUtils {
         return remoteVersion > localVersion
     }
 }
+
+/**
+ * User-facing title for an update. Always StreamBridge + version, never the
+ * GitHub release name: release names come from upstream/CI metadata and must
+ * not leak a foreign application label (e.g. "Nuvio …") into the updater UI.
+ */
+internal const val UPDATE_DISPLAY_NAME = "StreamBridge"
+
+internal fun updateDisplayTitle(tag: String): String =
+    if (tag.isBlank()) UPDATE_DISPLAY_NAME else "$UPDATE_DISPLAY_NAME $tag"

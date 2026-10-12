@@ -4,7 +4,7 @@
 
 <h1 align="center">StreamBridge</h1>
 
-<p align="center"><strong>Your App, Your Way</strong></p>
+<p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
   Android media client · iOS in 0.1.08+ · GPL-3.0 · version <strong>0.1.09</strong> (109)
