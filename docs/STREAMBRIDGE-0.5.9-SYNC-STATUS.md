@@ -27,3 +27,29 @@
   The sandbox has no JDK, no Android SDK, and Maven Central is not reachable.
 - Splash crop fix: asset geometry verified with Pillow only; not verified on a device.
 - Application identity / in-place update on device: NOT VERIFIED.
+
+## Continuation audit (tracking + profile), no functional code change
+
+### Trakt / Simkl / MDBList configuration path (traced)
+- Trakt: `TraktConfig.CLIENT_ID` and `CLIENT_SECRET` (both required), read from `local.properties` only.
+  Gate: `TraktAuthRepository.hasRequiredCredentials()`.
+- Simkl: `SimklConfig.CLIENT_ID` from `local.properties` only. Gate: `SimklAuthRepository.hasRequiredCredentials()`.
+- MDBList: `MdbListConfig.CLIENT_ID` (device-flow public client, no secret). Gate: `MdbListAuthRepository.hasRequiredCredentials()`.
+  MDBList ratings also accept a user-entered API key (`MdbListApiKeyRow`), independent of build config.
+- Connect UI is NOT hidden. `TrackingProviderCards` renders the Connect button disabled with
+  `missingCredentialsMessage` when `credentialsConfigured` is false. An apparently missing Connect
+  therefore means the build was produced without these keys.
+- Root cause in CI: release-draft.yml supplies keys through the `NUVIO_LOCAL_PROPERTIES_BASE64` secret.
+  If that secret lacks `TRAKT_*`, `SIMKL_*`, or `MDBLIST_CLIENT_ID`, the build is unconfigured.
+  Individually set GitHub secrets for TRAKT_/SIMKL_ are intentionally not read (documented design).
+  Changing that would be a policy change, so it was not made.
+- Not verified: the authenticated OAuth round-trip (requires real accounts and a device).
+
+### Profile genre error (`profile_insights_genre_failures`)
+- Source: `ProfileInsightsSettingsPage.kt` `fetchMissingFacts` → `MetaDetailsRepository.fetchLightweight`.
+- A title counts as a genre failure only when its lookup returns `MetaLookupOutcome.Failed` or throws,
+  and its genres remain empty. `Unavailable` and `Throttled` are retried, not counted.
+- Failures retry after 3 days (`FAILURE_RETRY_AFTER_MS`); budget 150 fetches per window; concurrency 4.
+- Identifying the two failing titles and their causes requires runtime logs (`profileInsightsLog`) on a
+  device with the user's addons. Not reproduced here.
+- Gap: `Unavailable` titles have no user-visible indication and no explicit retry control.
