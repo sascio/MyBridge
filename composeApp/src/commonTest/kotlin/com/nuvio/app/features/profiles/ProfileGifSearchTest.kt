@@ -13,7 +13,7 @@ class ProfileGifSearchTest {
     @Test
     fun searchUrlTargetsProxyAndEncodesQuery() {
         val url = buildProfileGifSearchUrl("https://gifs.example.test/", "  cat & dog  ", limit = 24)
-        assertEquals("https://gifs.example.test/gifs/search?q=cat+%26+dog&limit=24", url)
+        assertEquals("https://gifs.example.test/gifs/search?q=cat%20%26%20dog&limit=24", url)
     }
 
     @Test
