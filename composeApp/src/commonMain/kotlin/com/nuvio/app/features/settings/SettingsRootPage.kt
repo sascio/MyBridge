@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
@@ -202,7 +203,7 @@ internal fun LazyListScope.settingsRootContent(
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_licenses_attributions),
                         description = stringResource(Res.string.about_licenses_attributions_subtitle),
-                        icon = Icons.Rounded.Info,
+                        icon = Icons.Rounded.Description,
                         isTablet = isTablet,
                         onClick = onLicensesAttributionsClick,
                     )

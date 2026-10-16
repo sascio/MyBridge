@@ -53,3 +53,27 @@
 - Identifying the two failing titles and their causes requires runtime logs (`profileInsightsLog`) on a
   device with the user's addons. Not reproduced here.
 - Gap: `Unavailable` titles have no user-visible indication and no explicit retry control.
+
+## Round 3 audit: upstream 0.6.0-beta, icons, GIF source check
+
+### Verified upstream revisions
+- NuvioMedia/NuvioMobile tag `0.6.0-beta` → `f2e537861f34a2807cc66dda995ed3adb1658315`
+  (0.5.9-beta `db0c50b5` is an ancestor). Delta 0.5.9→0.6.0: 160 files, +17490/−250, 94 commits.
+- luqmanfadlli/NuvioMobile-Enhanced: has NO `0.6.0-beta` tag. Latest verified tag `0.5.9-beta` → `a0b585578b6dda0d99459b11d3583f56dd543f74`.
+- StreamBridge is still based on Nuvio `0.5.5-beta` (`5c6028f2`). The full sync therefore spans
+  0.5.5→0.6.0 (0.5.5→0.5.9 plus 0.5.9→0.6.0). NOT performed in this pass: it cannot be ported and
+  compile-verified safely here (no JDK/Android SDK, Maven Central unreachable).
+
+### Done
+- About Us keeps `Icons.Rounded.Info`. Licenses & Attribution now uses `Icons.Rounded.Description`
+  (SettingsRootPage.kt). Privacy Policy and other rows unchanged. Not compiled or rendered yet.
+
+### GIF avatar search: blocked
+- "Search GIFs" does not exist in StreamBridge, in Nuvio Official 0.6.0-beta, or in the Enhanced
+  0.5.9-beta tag or current `enhanced` branch head (no Giphy/Tenor code or strings found).
+- There is no upstream reference to port. Building it requires a provider and API key chosen by the
+  maintainer. Not implemented; no fake results.
+
+### Not done in this pass
+- Full 0.6.0 port, updater identity re-verification on device, Profile Overview pipeline changes,
+  splash device verification, and any Gradle/iOS build.
