@@ -98,6 +98,11 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val mdblistClientId: Property<String>
 
+    // Base URL of the StreamBridge GIF search proxy (NOT a secret). The provider key
+    // lives only on that server. Blank means GIF search is not configured.
+    @get:Input
+    abstract val gifSearchProxyUrl: Property<String>
+
     /**
      * Escapes a resolved config value for embedding in a Kotlin string literal.
      * Without this, a value containing a quote, backslash or `$` produces a generated
@@ -199,6 +204,19 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |
                 |object MdbListConfig {
                 |    const val CLIENT_ID = "${mdblistClientId.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
+
+        outDir.resolve("com/nuvio/app/features/profiles").apply {
+            mkdirs()
+            resolve("GifSearchConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.profiles
+                |
+                |object GifSearchConfig {
+                |    const val PROXY_URL = "${gifSearchProxyUrl.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -539,6 +557,10 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     // supply it as its own GitHub Secret. Do not narrow it to
     // runtimeLocalPropertyValue() without also updating release-draft.yml.
     mdblistClientId.set(runtimeConfigValue("MDBLIST_CLIENT_ID"))
+
+    // GIF search proxy base URL. Non-secret, so it may come from local.properties, an
+    // environment variable, or a -P property like other NUVIO_* values.
+    gifSearchProxyUrl.set(runtimeConfigValue("NUVIO_GIF_SEARCH_PROXY_URL"))
 }
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {

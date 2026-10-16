@@ -82,6 +82,7 @@ fun ProfileEditScreen(
     var name by rememberSaveable { mutableStateOf(currentProfile?.name ?: "") }
     var selectedAvatarId by rememberSaveable { mutableStateOf(currentProfile?.avatarId) }
     var avatarUrl by rememberSaveable { mutableStateOf(currentProfile?.avatarUrl.orEmpty()) }
+    var showGifSearch by rememberSaveable { mutableStateOf(false) }
     var selectedBackgroundId by rememberSaveable { mutableStateOf(currentProfile?.profileBackgroundId) }
     var selectedBackgroundUrl by rememberSaveable { mutableStateOf(currentProfile?.profileBackgroundUrl) }
     var customBackgroundUrlInput by rememberSaveable { mutableStateOf(currentProfile?.profileBackgroundUrl.orEmpty()) }
@@ -217,7 +218,40 @@ fun ProfileEditScreen(
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+                    Button(
+                        onClick = { showGifSearch = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                            contentColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    ) {
+                        Text(
+                            text = stringResource(Res.string.profile_gif_search_button),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Text(
+                        text = stringResource(Res.string.profile_gif_search_description),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
+            }
+        }
+
+        if (showGifSearch) {
+            item {
+                ProfileGifSearchDialog(
+                    onSelect = { item ->
+                        // Only fills the URL field. Saving is still the editor's Save action.
+                        avatarUrl = item.gifUrl
+                        selectedAvatarId = null
+                        showGifSearch = false
+                    },
+                    onDismiss = { showGifSearch = false },
+                )
             }
         }
 
