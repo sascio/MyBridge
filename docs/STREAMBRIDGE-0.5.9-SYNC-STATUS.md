@@ -77,3 +77,14 @@
 ### Not done in this pass
 - Full 0.6.0 port, updater identity re-verification on device, Profile Overview pipeline changes,
   splash device verification, and any Gradle/iOS build.
+
+## Release decisions (recorded from maintainer answers)
+- Release version: **0.1.10**, versionCode **110** (latest published: v0.1.09 / 109). The tag must be `v0.1.10`
+  to match STREAMBRIDGE_VERSION_NAME, which release-draft.yml enforces. Do not tag before all gates pass.
+- GIF search: **deferred**. No provider is wired. A key-in-APK design is not acceptable without
+  maintainer approval; a backend proxy is the preferred option.
+- Merge to `main`: **only after** the full Official 0.6.0-beta sync and the remaining features are done.
+- Remote CI evidence: "Build Stream Bridge" run 38911450502 on 308c964 succeeded (unit tests, debug and
+  release APK assembly). Run 38286724455 on b0cc366 also succeeded.
+- Remaining before a release can be published: full Official 0.5.5→0.6.0 port, Profile Overview fixes,
+  splash device check, in-place update test against the production-signed v0.1.09 APK.
