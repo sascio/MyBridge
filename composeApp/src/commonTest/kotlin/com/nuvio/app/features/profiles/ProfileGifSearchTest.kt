@@ -70,14 +70,18 @@ class ProfileGifSearchTest {
     }
 
     @Test
-    fun blankQueryReturnsEmptyWithoutNetwork() = runBlocking {
-        val result = ProfileGifSearchService.search(query = "   ", proxyBaseUrl = "https://gifs.example.test")
-        assertEquals(emptyList(), result.getOrThrow())
+    fun blankQueryReturnsEmptyWithoutNetwork() {
+        runBlocking {
+            val result = ProfileGifSearchService.search(query = "   ", proxyBaseUrl = "https://gifs.example.test")
+            assertEquals(emptyList(), result.getOrThrow())
+        }
     }
 
     @Test
-    fun missingProxyConfigurationIsReportedNotHidden() = runBlocking {
-        val result = ProfileGifSearchService.search(query = "cat", proxyBaseUrl = "")
-        assertIs<ProfileGifSearchNotConfiguredException>(result.exceptionOrNull())
+    fun missingProxyConfigurationIsReportedNotHidden() {
+        runBlocking {
+            val result = ProfileGifSearchService.search(query = "cat", proxyBaseUrl = "")
+            assertIs<ProfileGifSearchNotConfiguredException>(result.exceptionOrNull())
+        }
     }
 }
