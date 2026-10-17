@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.servers.ServerItemRef
+import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.tracking.TrackingScrobbleAction
@@ -14,7 +16,10 @@ import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.player_engine_switching_manual_message
 import kotlin.math.abs
+import kotlin.time.TimeSource
 
 internal fun PlayerScreenRuntime.finishTimelineScrub(positionMs: Long) {
     lastManualSkipSeekPositions = playbackSnapshot.positionMs to positionMs
@@ -27,12 +32,14 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
     playbackKey: PlaybackKey = activePlaybackKey,
 ): Boolean {
     if (playbackKey != activePlaybackKey) return false
-    playbackSnapshot = if (snapshot.durationMs <= 0L && playbackSnapshotKey == playbackKey) {
-        snapshot.copy(durationMs = playbackSnapshot.durationMs)
+    val reported = if (partyRateNudge != null) snapshot.copy(playbackSpeed = partyBaseRate()) else snapshot
+    playbackSnapshot = if (reported.durationMs <= 0L && playbackSnapshotKey == playbackKey) {
+        reported.copy(durationMs = playbackSnapshot.durationMs)
     } else {
-        snapshot
+        reported
     }
     playbackSnapshotKey = playbackKey
+    playbackSnapshotMark = TimeSource.Monotonic.markNow()
     val targetPositionMs = scrubbingPositionMs ?: return true
     if (!isScrubbingTimeline && (
             !snapshot.isLoading || snapshot.isEnded ||
@@ -49,16 +56,18 @@ internal val PlayerScreenRuntime.activePlaybackIdentity: String
         ?.let { hash -> "torrent:$hash:${activeTorrentFileIdx ?: -1}" }
         ?: activeSourceUrl
 
+internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
+    get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true) &&
+        !playerSettingsUiState.privateViewingEnabled
+
 internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
     get() = PlaybackKey(
         sourceIdentity = activePlaybackIdentity,
         videoId = activeVideoId,
         seasonNumber = activeSeasonNumber,
         episodeNumber = activeEpisodeNumber,
+        playbackEngine = playbackEngineOverride,
     )
-
-internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
-    get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true)
 
 internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
     get() = WatchProgressPlaybackSession(
@@ -85,7 +94,7 @@ internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
         lastStreamTitle = activeStreamTitle,
         lastStreamSubtitle = activeStreamSubtitle,
         pauseDescription = activePauseDescription,
-        lastSourceUrl = activeSourceUrl,
+        lastSourceUrl = activeSourceUrl.takeUnless { ServerStreams.isServerSourceId(activeProviderAddonId) },
     )
 
 internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaunch {
@@ -114,6 +123,7 @@ internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaun
         torrentFileIdx = activeTorrentFileIdx,
         torrentFilename = activeTorrentFilename,
         torrentTrackers = activeTorrentTrackers,
+        sourceFilename = activeSourceFilename,
         initialPositionMs = positionMs ?: activeInitialPositionMs,
         initialProgressFraction = activeInitialProgressFraction.takeIf { positionMs == null },
     )
@@ -173,15 +183,23 @@ internal data class TrackingScrobbleItemInputs(
     val episodeTitle: String?,
 )
 
-internal fun PlayerScreenRuntime.snapshotTrackingScrobbleItemInputs() = TrackingScrobbleItemInputs(
-    contentType = contentType ?: parentMetaType,
-    parentMetaId = parentMetaId,
-    videoId = activeVideoId,
-    title = title,
-    seasonNumber = activeSeasonNumber,
-    episodeNumber = activeEpisodeNumber,
-    episodeTitle = activeEpisodeTitle,
-)
+internal fun PlayerScreenRuntime.snapshotTrackingScrobbleItemInputs(): TrackingScrobbleItemInputs {
+    val inputs = TrackingScrobbleItemInputs(
+        contentType = contentType ?: parentMetaType,
+        parentMetaId = parentMetaId,
+        videoId = activeVideoId,
+        title = title,
+        seasonNumber = activeSeasonNumber,
+        episodeNumber = activeEpisodeNumber,
+        episodeTitle = activeEpisodeTitle,
+    )
+    if (!ServerItemRef.isServerId(parentMetaId)) return inputs
+    val imdbId = (metaUiState.meta ?: playerMeta)
+        ?.takeIf { it.id == parentMetaId }
+        ?.imdbId
+        ?.takeIf { it.startsWith("tt") }
+    return if (imdbId != null) inputs.copy(parentMetaId = imdbId, videoId = null) else inputs.copy(title = "")
+}
 
 private fun TrackingScrobbleItemInputs.buildMedia(): TrackingMediaReference =
     buildTrackingMediaReference(
@@ -418,4 +436,30 @@ internal fun PlayerScreenRuntime.persistPlaybackProgressTick() {
         snapshot = playbackSnapshot,
         syncRemote = false,
     )
+}
+
+internal fun PlayerScreenRuntime.switchPlaybackEngine() {
+    val engine = playerController?.playbackEngine ?: return
+    val target = if (engine == AndroidPlaybackEngine.Libmpv) AndroidPlaybackEngine.ExoPlayer else AndroidPlaybackEngine.Libmpv
+    flushWatchProgress()
+    if (initialSeekApplied) {
+        activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+        activeInitialProgressFraction = null
+    }
+    playbackEngineOverride = target
+    showGestureFeedback(
+        GestureFeedbackState(
+            messageRes = Res.string.player_engine_switching_manual_message,
+            messageArgs = listOf(target.label),
+        ),
+    )
+}
+
+internal fun PlayerScreenRuntime.openStreamInfo() {
+    refreshTracks()
+    val controller = playerController
+    scope.launch {
+        streamMediaInfo = controller?.getMediaInfo() ?: PlayerMediaInfo()
+        showStreamInfo = true
+    }
 }

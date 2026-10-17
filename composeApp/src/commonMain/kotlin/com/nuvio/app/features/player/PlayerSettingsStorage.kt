@@ -27,6 +27,8 @@ internal expect object PlayerSettingsStorage {
     fun saveTouchGesturesEnabled(enabled: Boolean)
     fun loadSwipeToSeekEnabled(): Boolean?
     fun saveSwipeToSeekEnabled(enabled: Boolean)
+    fun loadSeekPreviewEnabled(): Boolean?
+    fun saveSeekPreviewEnabled(enabled: Boolean)
     fun loadMovieRecommendationsEnabled(): Boolean?
     fun saveMovieRecommendationsEnabled(enabled: Boolean)
     fun loadAutoShowSubtitlesOnRewindEnabled(): Boolean?
@@ -89,6 +91,30 @@ internal expect object PlayerSettingsStorage {
     fun saveMapDV7ToHevc(enabled: Boolean)
     fun loadTunnelingEnabled(): Boolean?
     fun saveTunnelingEnabled(enabled: Boolean)
+    fun loadAndroidAudioPassthroughEnabled(): Boolean?
+    fun saveAndroidAudioPassthroughEnabled(enabled: Boolean)
+    fun loadExoNativeMemoryEnabled(): Boolean?
+    fun saveExoNativeMemoryEnabled(value: Boolean)
+    fun loadCustomPlaybackBuffersEnabled(): Boolean?
+    fun saveCustomPlaybackBuffersEnabled(value: Boolean)
+    fun loadVodDiskCacheEnabled(): Boolean?
+    fun saveVodDiskCacheEnabled(value: Boolean)
+    fun loadVodDiskCacheAutoSize(): Boolean?
+    fun saveVodDiskCacheAutoSize(value: Boolean)
+    fun loadPlaybackMinBufferSeconds(): Int?
+    fun savePlaybackMinBufferSeconds(value: Int)
+    fun loadPlaybackMaxBufferSeconds(): Int?
+    fun savePlaybackMaxBufferSeconds(value: Int)
+    fun loadPlaybackStartBufferSeconds(): Int?
+    fun savePlaybackStartBufferSeconds(value: Int)
+    fun loadPlaybackRebufferSeconds(): Int?
+    fun savePlaybackRebufferSeconds(value: Int)
+    fun loadPlaybackBackBufferSeconds(): Int?
+    fun savePlaybackBackBufferSeconds(value: Int)
+    fun loadPlaybackTargetBufferMb(): Int?
+    fun savePlaybackTargetBufferMb(value: Int)
+    fun loadVodDiskCacheSizeMb(): Int?
+    fun saveVodDiskCacheSizeMb(value: Int)
     fun loadStreamAutoPlayMode(): String?
     fun saveStreamAutoPlayMode(mode: String)
     fun loadStreamAutoPlaySource(): String?
@@ -132,6 +158,12 @@ internal expect object PlayerSettingsStorage {
     fun saveNextEpisodeThresholdPercent(percent: Float)
     fun loadNextEpisodeThresholdMinutesBeforeEnd(): Float?
     fun saveNextEpisodeThresholdMinutesBeforeEnd(minutes: Float)
+    fun loadPreloadNextEpisodeSources(): Boolean?
+    fun savePreloadNextEpisodeSources(enabled: Boolean)
+    fun loadMiniPlayerEnabled(): Boolean?
+    fun saveMiniPlayerEnabled(enabled: Boolean)
+    fun loadPrivateViewingEnabled(): Boolean?
+    fun savePrivateViewingEnabled(enabled: Boolean)
     fun loadUseLibass(): Boolean?
     fun saveUseLibass(enabled: Boolean)
     fun loadLibassRenderType(): String?

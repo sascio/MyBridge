@@ -3,8 +3,8 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd -P)"
-engine_version=0.1.2
-engine_checksum=ed35576d962930d3207b2725fa737f71ef080e35dbfa2f0bf6f21ab1719b7029
+engine_version=0.1.5
+engine_checksum=8d2a7d9b5def39bff0f5ee77a4c600bb14791b2ec388d05eeecae6424fdeab36
 engine_root="${NUVIO_ENGINE_ROOT:-${repository_root}/../nuvio-engine}"
 engine_framework="${engine_root}/platform/apple/NuvioEngine.xcframework"
 # MPVKit is the local Swift package the Xcode project references as ../MPVKit.

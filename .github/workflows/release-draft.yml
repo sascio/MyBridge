@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.09)
+        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.10)
         required: true
         type: string
-        default: "v0.1.09"
+        default: "v0.1.10"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -516,14 +516,15 @@ jobs:
           # keeps the YAML indentation, and a release body indented by ten
           # spaces is rendered by GitHub as a code block rather than Markdown.
           release_notes=(
-            '## StreamBridge 0.1.09'
+            '## StreamBridge 0.1.10'
             ''
             "### What's new"
-            '- Fixed Simkl connection authorization.'
-            '- Added a new About Us section.'
-            '- Added the StreamBridge Telegram community link.'
-            '- Updated Settings branding.'
-            '- Updated the app to version 0.1.09.'
+            '- Synced with NuvioMobile 0.6.1-beta and NuvioMobile-Enhanced 0.6.1-beta.'
+            '- Updated StreamBridge branding: footer, tagline and app name in Settings.'
+            '- Licenses & Attribution has its own icon.'
+            '- Fixed the splash logo being cropped on some devices.'
+            '- Profile Overview: missing metadata no longer counts as a failed genre load.'
+            '- Updated the app to version 0.1.10.'
           )
           printf '%s\n' "${release_notes[@]}" > "$notes"
           ipa_assets=(release-assets/*.ipa)

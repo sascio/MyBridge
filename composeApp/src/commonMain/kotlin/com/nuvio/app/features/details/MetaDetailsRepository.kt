@@ -9,10 +9,16 @@ import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.core.poster.withCustomPosterUrls
+import com.nuvio.app.features.addons.supportsResource
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
 import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
+import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.servers.ServerItemRef
+import com.nuvio.app.features.servers.ServerUserStateProjection
+import com.nuvio.app.features.servers.message
+import com.nuvio.app.features.servers.serverFailure
 import com.nuvio.app.features.tmdb.TmdbMetadataService
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
@@ -57,6 +63,10 @@ object MetaDetailsRepository {
         log.d { "load() called — type=$type id=$id" }
         InAppLogger.info("Metadata/MetaDetailsRepository", "Loading meta type=$type id=$id")
         val requestKey = "$type:$id"
+        ServerItemRef.parse(id)?.let { ref ->
+            loadServerMeta(requestKey, ref)
+            return
+        }
         val currentState = _uiState.value
         val mdbListSettings = MdbListSettingsRepository.snapshot()
         val metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(mdbListSettings)
@@ -225,6 +235,12 @@ object MetaDetailsRepository {
         if (useCache) {
             cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
         }
+        ServerItemRef.parse(id)?.let { ref ->
+            return runCatching { ServerCatalog.details(ref).meta }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull()
+                ?.also { if (cacheResult) cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = it) }
+        }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
         val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
@@ -260,6 +276,7 @@ object MetaDetailsRepository {
         }
 
         var throttledUntil: Long? = null
+        var sawTransientFailure = false
         for (manifest in manifests) {
             val host = manifest.transportUrl.addonHost()
             val now = WatchedClock.nowEpochMs()
@@ -274,6 +291,7 @@ object MetaDetailsRepository {
                 type = type,
                 id = metaLookupId,
             )
+            // Logs carry the host and status only: addon URLs can embed access tokens.
             val response = try {
                 withTimeoutOrNull(FETCH_TIMEOUT_MS) {
                     httpRequestRaw(
@@ -287,10 +305,15 @@ object MetaDetailsRepository {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.w(error) { "Lightweight meta request failed url=$url" }
+                log.w(error) { "Lightweight meta request failed host=$host" }
+                sawTransientFailure = true
                 null
             }
-            if (response == null) continue
+            if (response == null) {
+                // Timeout: transient, so the title stays eligible for a later retry.
+                sawTransientFailure = true
+                continue
+            }
 
             if (response.status == 429 || response.status == 503) {
                 val until = now + response.retryAfterMs()
@@ -302,20 +325,27 @@ object MetaDetailsRepository {
                 throttledUntil = minOf(throttledUntil ?: until, until)
                 continue
             }
-            if (response.status !in 200..299 || response.body.isBlank()) continue
+            // 404/410: this addon does not have the title. That is not a failure.
+            if (response.status == 404 || response.status == 410) continue
+            if (response.status !in 200..299 || response.body.isBlank()) {
+                InAppLogger.warn("Metadata/AddonFetch", "Lightweight meta host=$host status=${response.status}")
+                sawTransientFailure = true
+                continue
+            }
 
             val meta = try {
                 withContext(Dispatchers.Default) { MetaDetailsParser.parse(response.body) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.w(error) { "Failed to parse lightweight meta url=$url" }
+                log.w(error) { "Failed to parse lightweight meta host=$host" }
                 null
             }
             if (meta != null) return MetaLookupOutcome.Loaded(meta)
+            sawTransientFailure = true
         }
 
-        return throttledUntil?.let { until -> MetaLookupOutcome.Throttled(until) } ?: MetaLookupOutcome.Failed
+        return lightweightOutcomeWithoutMeta(throttledUntil, sawTransientFailure)
     }
 
     private fun String.addonHost(): String =
@@ -331,6 +361,37 @@ object MetaDetailsRepository {
     private const val DEFAULT_BACKGROUND_BACKOFF_MS = 2L * 60_000L
     private const val MIN_BACKGROUND_BACKOFF_MS = 30_000L
     private const val MAX_BACKGROUND_BACKOFF_MS = 15L * 60_000L
+
+    private fun loadServerMeta(requestKey: String, ref: ServerItemRef) {
+        if (_uiState.value.isLoading && activeRequestKey == requestKey) return
+        activeRequestKey = requestKey
+        _uiState.value = MetaDetailsUiState(
+            isLoading = true,
+            meta = cachedMetaByRequestKey[requestKey]?.baseMeta,
+        )
+        scope.launch {
+            val result = runCatching { ServerCatalog.details(ref) }
+            if (activeRequestKey != requestKey) return@launch
+            result.fold(
+                onSuccess = { details ->
+                    val meta = details.meta
+                    ServerUserStateProjection.apply(details)
+                    cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = meta)
+                    _uiState.value = MetaDetailsUiState(meta = meta)
+                },
+                onFailure = { error ->
+                    if (error is CancellationException) throw error
+                    log.w { "Server details failed: ${error.serverFailure()}" }
+                    val cached = cachedMetaByRequestKey[requestKey]?.baseMeta
+                    _uiState.value = MetaDetailsUiState(
+                        meta = cached,
+                        errorMessage = if (cached == null) getString(error.serverFailure().message()) else null,
+                    )
+                    if (cached == null) activeRequestKey = null
+                },
+            )
+        }
+    }
 
     private const val FETCH_TIMEOUT_MS = 5_000L
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
@@ -419,13 +480,7 @@ object MetaDetailsRepository {
         state.addons
             .enabledAddons()
             .mapNotNull { it.manifest }
-            .filter { manifest ->
-                manifest.resources.any { resource ->
-                    resource.name == "meta" &&
-                        resource.types.contains(type) &&
-                        (resource.idPrefixes.isEmpty() || resource.idPrefixes.any { id.startsWith(it) })
-                }
-            }
+            .filter { manifest -> manifest.supportsResource("meta", type, id) }
 
     private fun com.nuvio.app.features.addons.AddonsUiState.hasPendingEnabledAddonManifests(): Boolean =
         addons.enabledAddons().any { addon -> addon.manifest == null && addon.isRefreshing }
@@ -518,8 +573,13 @@ object MetaDetailsRepository {
                 settings = settings,
             )
         } ?: meta
-        val enrichedMeta = applyMoreLikeThisSource(
+        val imdbRatedMeta = OmdbEpisodeRatingsService.applyTo(
             meta = mdbListEnrichedMeta,
+            fallbackItemId = fallbackItemId,
+            settings = TmdbSettingsRepository.snapshot(),
+        )
+        val enrichedMeta = applyMoreLikeThisSource(
+            meta = imdbRatedMeta,
             fallbackItemId = fallbackItemId,
             fallbackItemType = fallbackItemType,
         )
@@ -635,6 +695,8 @@ object MetaDetailsRepository {
         settings: com.nuvio.app.features.mdblist.MdbListSettings,
     ): Boolean {
         if (shouldFetchMdbListOnMetaScreen(meta, fallbackItemId, settings)) return true
+        TmdbSettingsRepository.ensureLoaded()
+        if (OmdbEpisodeRatingsService.shouldApply(meta, TmdbSettingsRepository.snapshot())) return true
         return shouldApplyMoreLikeThisSource(meta)
     }
 
@@ -668,6 +730,7 @@ object MetaDetailsRepository {
             append("|mdblist_account=${settings.accountScope.takeUnless { settings.hasApiKey }}")
             append("|more_like=${trackingSettings.moreLikeThisSource}:$traktAuthMode")
             append("|tmdb=${tmdbSettings.enabled}:${tmdbSettings.useMoreLikeThis}:${tmdbSettings.language}")
+            append("|omdb=${OmdbEpisodeRatingsService.hasApiKey}:${tmdbSettings.useEpisodeRatings}")
         }
     }
 
@@ -735,6 +798,20 @@ object MetaDetailsRepository {
 
         return emptyList()
     }
+}
+
+/**
+ * Outcome when no addon returned usable metadata. A rate limit wins (retry later);
+ * a transient failure (timeout, network error, 5xx, unparseable body) is [MetaLookupOutcome.Failed];
+ * otherwise every addon answered "not found", which is [MetaLookupOutcome.Unavailable], not a failure.
+ */
+internal fun lightweightOutcomeWithoutMeta(
+    throttledUntil: Long?,
+    sawTransientFailure: Boolean,
+): MetaLookupOutcome = when {
+    throttledUntil != null -> MetaLookupOutcome.Throttled(throttledUntil)
+    sawTransientFailure -> MetaLookupOutcome.Failed
+    else -> MetaLookupOutcome.Unavailable
 }
 
 internal sealed interface MetaLookupOutcome {

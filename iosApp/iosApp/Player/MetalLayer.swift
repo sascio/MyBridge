@@ -1,8 +1,66 @@
 import Foundation
 import UIKit
 import QuartzCore
+import CoreVideo
+import Metal
 
 class MetalLayer: CAMetalLayer {
+    weak var pictureInPictureSink: PlayerPictureInPictureController?
+    private let pictureInPictureLock = NSLock()
+    private var consumesVideo = false
+    private var presentationGeneration: UInt = 0
+    private var presentationObserver: (generation: UInt, callback: (TimeInterval) -> Void)?
+
+    func observeNextPresentedDrawable(_ callback: @escaping (TimeInterval) -> Void) {
+        pictureInPictureLock.lock()
+        presentationGeneration &+= 1
+        presentationObserver = (presentationGeneration, callback)
+        pictureInPictureLock.unlock()
+    }
+
+    func cancelPresentationObserver() {
+        pictureInPictureLock.lock()
+        presentationGeneration &+= 1
+        presentationObserver = nil
+        pictureInPictureLock.unlock()
+    }
+
+    private func attachPresentationObserver(to drawable: CAMetalDrawable, generation: UInt?) {
+        guard let generation else { return }
+        pictureInPictureLock.lock()
+        let observer = presentationObserver?.generation == generation ? presentationObserver : nil
+        if observer != nil { presentationObserver = nil }
+        pictureInPictureLock.unlock()
+        guard let observer else { return }
+        drawable.addPresentedHandler { [weak self] presented in
+            let time = presented.presentedTime
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pictureInPictureLock.lock()
+                let current = self.presentationGeneration == generation
+                self.pictureInPictureLock.unlock()
+                if current { observer.callback(time) }
+            }
+        }
+    }
+
+    @objc var nuvioPiPConsumesVideo: Bool {
+        get {
+            pictureInPictureLock.lock()
+            defer { pictureInPictureLock.unlock() }
+            return consumesVideo
+        }
+        set {
+            pictureInPictureLock.lock()
+            consumesVideo = newValue
+            pictureInPictureLock.unlock()
+        }
+    }
+
+    @objc func nuvioEnqueuePiPFrame(_ pixelBuffer: CVPixelBuffer, presentationTime: Double, isPictureInPictureFrame: Bool) {
+        pictureInPictureSink?.submit(pixelBuffer, pts: presentationTime, isPictureInPictureFrame: isPictureInPictureFrame)
+    }
+
     var onDrawablePresented: ((CAMetalDrawable) -> Void)?
 
     var onRenderingSuspensionChanged: ((Bool, String) -> Void)?
@@ -125,7 +183,11 @@ class MetalLayer: CAMetalLayer {
             captureLock.unlock()
         }
 
+        pictureInPictureLock.lock()
+        let observerGeneration = presentationObserver?.generation
+        pictureInPictureLock.unlock()
         let drawable = super.nextDrawable()
+        if let drawable { attachPresentationObserver(to: drawable, generation: observerGeneration) }
         let acquisitionFailed = drawable == nil
 
         captureLock.lock()

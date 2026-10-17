@@ -70,9 +70,27 @@ internal object VersionUtils {
 
     fun isPrerelease(raw: String?): Boolean = parse(raw)?.prerelease?.isNotEmpty() == true
 
+    fun isSameBaseVersion(left: String?, right: String?): Boolean {
+        val leftVersion = parse(left) ?: return false
+        val rightVersion = parse(right) ?: return false
+        return leftVersion.major == rightVersion.major &&
+            leftVersion.minor == rightVersion.minor &&
+            leftVersion.patch == rightVersion.patch
+    }
+
     fun isRemoteNewer(remote: String?, local: String?): Boolean {
         val remoteVersion = parse(remote) ?: return false
         val localVersion = parse(local) ?: return false
         return remoteVersion > localVersion
     }
 }
+
+/**
+ * User-facing title for an update. Always StreamBridge + version, never the
+ * GitHub release name: release names come from upstream/CI metadata and must
+ * not leak a foreign application label (e.g. "Nuvio …") into the updater UI.
+ */
+internal const val UPDATE_DISPLAY_NAME = "StreamBridge"
+
+internal fun updateDisplayTitle(tag: String): String =
+    if (tag.isBlank()) UPDATE_DISPLAY_NAME else "$UPDATE_DISPLAY_NAME $tag"

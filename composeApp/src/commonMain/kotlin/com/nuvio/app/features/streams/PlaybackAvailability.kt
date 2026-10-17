@@ -11,17 +11,16 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.cloudstream.CloudStreamAggregatorBridge
 import com.nuvio.app.features.cloudstream.CloudStreamExtension
 import com.nuvio.app.features.cloudstream.CloudStreamExtensionsRepository
+import com.nuvio.app.features.addons.supportsResource
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.PluginsUiState
+import com.nuvio.app.features.servers.ServerRepository
+import com.nuvio.app.features.servers.ServerStreams
 
 internal fun AddonManifest.supportsStream(type: String, videoId: String): Boolean =
-    resources.any { resource ->
-        resource.name == "stream" &&
-            resource.types.contains(type) &&
-            (resource.idPrefixes.isEmpty() || resource.idPrefixes.any { videoId.startsWith(it) })
-    }
+    supportsResource("stream", type, videoId)
 
 internal fun hasCompatiblePlaybackSource(
     addons: List<ManagedAddon>,
@@ -46,7 +45,8 @@ internal class PlaybackAvailability(
 ) {
     fun canStream(type: String, videoId: String): Boolean =
         hasCompatiblePlaybackSource(addons, plugins, type, videoId, cloudStreamExtensions) ||
-            MetaDetailsRepository.findEmbeddedStreams(videoId).isNotEmpty()
+            MetaDetailsRepository.findEmbeddedStreams(videoId).isNotEmpty() ||
+            ServerStreams.canServe(type, videoId)
 
     /**
      * Explains, without leaking user data, why [canStream] refused a title.
@@ -127,13 +127,15 @@ internal fun rememberPlaybackAvailability(): PlaybackAvailability {
         DownloadsRepository.ensureLoaded()
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
-    // Observed, not snapshotted: installing or enabling an extension has to
-    // light up the Play button without reopening the screen or restarting.
     val cloudStream by remember {
         CloudStreamExtensionsRepository.initialize()
         CloudStreamExtensionsRepository.uiState
     }.collectAsStateWithLifecycle()
-    return remember(addons, plugins, downloads, cloudStream) {
+    val servers by remember {
+        ServerRepository.ensureLoaded()
+        ServerRepository.uiState
+    }.collectAsStateWithLifecycle()
+    return remember(addons, plugins, downloads, cloudStream, servers.revision) {
         PlaybackAvailability(addons.addons, plugins, cloudStream.extensions)
     }
 }

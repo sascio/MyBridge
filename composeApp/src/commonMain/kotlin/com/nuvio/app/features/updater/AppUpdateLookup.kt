@@ -90,7 +90,7 @@ internal object AppUpdateReleaseSelector {
             val asset = chooseBestApkAsset(release.assets, supportedAbis) ?: continue
             val candidate = AppUpdate(
                 tag = tag,
-                title = release.name?.takeIf { it.isNotBlank() } ?: tag,
+                title = updateDisplayTitle(tag),
                 notes = release.body.orEmpty(),
                 releaseUrl = release.htmlUrl,
                 assetName = asset.name,
