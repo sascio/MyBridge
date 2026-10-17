@@ -1,6 +1,16 @@
 StreamBridge
 Copyright (c) 2026 Stream Bridge contributors
 
+StreamBridge is an independent project maintained at
+https://github.com/sascio/MyBridge. It is not an official NuvioMobile
+release and is not endorsed by NuvioMedia.
+
+The StreamBridge repository history includes commits imported from the
+upstream projects below during the 0.1.10 source sync. Those commits
+remain the work and copyright of their original authors; their inclusion
+in this repository does not transfer authorship to StreamBridge. See
+docs/REPOSITORY-IDENTITY-AUDIT.md for the full record.
+
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, version 3 of the License.
@@ -20,10 +30,11 @@ imported from:
 
   https://github.com/NuvioMedia/NuvioMobile
   branch: cmp-rewrite
-  commit: 5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8
-  tag: 0.5.5-beta
-  previous pins: bb3c1e4c (0.5.2-beta), b88fef2e (0.5.1),
-                 ec441c7b (0.4.25-beta), d177eb57 (0.4.17)
+  commit: 79b750f3ed9e196c600bc1f5fd97979d6336760f
+  tag: 0.6.1-beta
+  previous pins: 5c6028f2 (0.5.5-beta), bb3c1e4c (0.5.2-beta),
+                 b88fef2e (0.5.1), ec441c7b (0.4.25-beta),
+                 d177eb57 (0.4.17)
   license: GNU General Public License v3.0
 
 Copyright (c) NuvioMedia and NuvioMobile contributors.
@@ -41,13 +52,13 @@ download location / Wi-Fi-only, etc.) were overlaid from:
 
   https://github.com/luqmanfadlli/NuvioMobile-Enhanced
   branch: enhanced
-  commit: 8b3bd867e172757c9fd7373da301e6489914f3fc
-  tag: 0.5.5-beta
-  previous pins: 3da8d06f (0.5.2-beta), 9d311c18 (0.5.1-beta),
-                 ce4492ec (0.4.23-beta)
+  commit: 504014d360bf1a1f844246f527c27c208738246e
+  tag: 0.6.1-beta
+  previous pins: 8b3bd867 (0.5.5-beta), 3da8d06f (0.5.2-beta),
+                 9d311c18 (0.5.1-beta), ce4492ec (0.4.23-beta)
   license: GNU General Public License v3.0
 
-Official NuvioMobile 0.5.5-beta is contained in that tag; the Enhanced
+Official NuvioMobile 0.6.1-beta is contained in that tag; the Enhanced
 overlay adds unique features on top. StreamBridge identity, empty default
 addons, and updater source `sascio/MyBridge` are preserved.
 
