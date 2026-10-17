@@ -32,12 +32,12 @@ internal data class GitHubAssetDto(
 
 internal class NoChannelReleaseException : IllegalStateException()
 
-private const val GITHUB_API_BASE = "https://api.github.com"
+internal const val GITHUB_API_BASE = "https://api.github.com"
 // StreamBridge in-app updates must resolve against StreamBridge releases only.
 // Never point this at NuvioMedia/NuvioMobile or the Enhanced fork: their APKs are
 // signed with a different certificate and cannot install over StreamBridge.
-private const val GITHUB_OWNER = "sascio"
-private const val GITHUB_REPO = "MyBridge"
+internal const val GITHUB_OWNER = "sascio"
+internal const val GITHUB_REPO = "MyBridge"
 
 internal object AppUpdaterRepository {
     private val json = Json {

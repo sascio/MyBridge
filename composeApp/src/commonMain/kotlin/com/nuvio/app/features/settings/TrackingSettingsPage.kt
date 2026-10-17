@@ -592,6 +592,8 @@ private fun librarySourceModeLabel(source: LibrarySourceMode): String = when (so
     LibrarySourceMode.LOCAL -> stringResource(Res.string.trakt_library_source_nuvio)
     LibrarySourceMode.SIMKL -> stringResource(Res.string.tracking_source_simkl)
     LibrarySourceMode.MDBLIST -> stringResource(Res.string.tracking_source_mdblist)
+    LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_title)
+    LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_title)
 }
 
 @Composable
@@ -600,6 +602,8 @@ private fun watchProgressSourceLabel(source: WatchProgressSource): String = when
     WatchProgressSource.NUVIO_SYNC -> stringResource(Res.string.trakt_watch_progress_source_nuvio)
     WatchProgressSource.SIMKL -> stringResource(Res.string.tracking_source_simkl)
     WatchProgressSource.MDBLIST -> stringResource(Res.string.tracking_source_mdblist)
+    WatchProgressSource.ANILIST -> stringResource(Res.string.library_anilist_title)
+    WatchProgressSource.WETRAKR -> stringResource(Res.string.library_wetrakr_title)
 }
 
 @Composable

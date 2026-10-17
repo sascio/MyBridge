@@ -985,7 +985,6 @@ private fun MobileSettingsScreen(
                     simklUiState = simklAuthUiState,
                     settingsUiState = trackingSettingsUiState,
                     commentsEnabled = traktCommentsEnabled,
-                    mdbListConnected = mdbListConnected,
                     onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                 )
                 SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
@@ -1485,7 +1484,6 @@ private fun TabletSettingsScreen(
                         simklUiState = simklAuthUiState,
                         settingsUiState = trackingSettingsUiState,
                         commentsEnabled = traktCommentsEnabled,
-                        mdbListConnected = mdbListConnected,
                         onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                     )
                     SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
