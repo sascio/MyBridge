@@ -86,6 +86,44 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
+    fun `release year sorting keeps items without a year last in both directions`() {
+        val items = listOf(
+            item("unknown"),
+            item("old", releaseInfo = "1994"),
+            item("range", releaseInfo = "2008-2013"),
+        )
+        assertEquals(
+            listOf("range", "old", "unknown"),
+            sortLibraryItems(items, LibrarySortOption.RELEASED_DESC, LibrarySourceMode.MDBLIST).map { it.id },
+        )
+        assertEquals(
+            listOf("old", "range", "unknown"),
+            sortLibraryItems(items, LibrarySortOption.RELEASED_ASC, LibrarySourceMode.MDBLIST).map { it.id },
+        )
+    }
+
+    @Test
+    fun `release sorts are offered only for MDBList and fall back elsewhere`() {
+        val released = setOf(LibrarySortOption.RELEASED_DESC, LibrarySortOption.RELEASED_ASC)
+        assertEquals(released, availableLibrarySortOptions(LibrarySourceMode.MDBLIST).toSet() intersect released)
+        for (source in listOf(LibrarySourceMode.LOCAL, LibrarySourceMode.TRAKT, LibrarySourceMode.SIMKL)) {
+            assertEquals(emptySet(), availableLibrarySortOptions(source).toSet() intersect released)
+        }
+        assertEquals(
+            LibrarySortOption.RELEASED_ASC,
+            effectiveLibrarySortOption(LibrarySortOption.RELEASED_ASC, LibrarySourceMode.MDBLIST),
+        )
+        assertEquals(
+            LibrarySortOption.DEFAULT,
+            effectiveLibrarySortOption(LibrarySortOption.RELEASED_DESC, LibrarySourceMode.TRAKT),
+        )
+        assertEquals(
+            LibrarySortOption.ADDED_DESC,
+            effectiveLibrarySortOption(LibrarySortOption.RELEASED_DESC, LibrarySourceMode.LOCAL),
+        )
+    }
+
+    @Test
     fun `added sorting works in both directions`() {
         val input = listOf(
             item("middle", savedAt = 2L),
@@ -205,11 +243,13 @@ class LibraryDisplaySettingsTest {
         name: String = id,
         savedAt: Long = 0L,
         traktRank: Int? = null,
+        releaseInfo: String? = null,
     ): LibraryItem =
         LibraryItem(
             id = id,
             type = type,
             name = name,
+            releaseInfo = releaseInfo,
             savedAtEpochMs = savedAt,
             traktRank = traktRank,
         )

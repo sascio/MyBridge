@@ -48,7 +48,7 @@ None. Overlay copy of the upstream diff, then StreamBridge deltas re-applied.
 
 - User-facing version **exactly `0.1.01`** (versionCode 101)
 - Splash overlay: horizontal `[transparent mark] StreamBridge`, tagline
-  “Your App, Your Way” underneath. No credits/legal/based-on-Nuvio on splash.
+  “Your Media, Your Way” underneath. No credits/legal/based-on-Nuvio on splash.
 - Android 12 splash: transparent glyph on dark splash background
 - Adaptive launcher: padded transparent foreground + `sb_launcher_background`
 - About footer credits: same horizontal lockup; NuvioMobile / NuvioMedia

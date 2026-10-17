@@ -8,8 +8,10 @@ import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
+import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.io.StringReader
 import java.security.MessageDigest
@@ -97,6 +99,11 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
 
     @get:Input
     abstract val mdblistClientId: Property<String>
+
+    // Base URL of the StreamBridge GIF search proxy (NOT a secret). The provider key
+    // lives only on that server. Blank means GIF search is not configured.
+    @get:Input
+    abstract val gifSearchProxyUrl: Property<String>
 
     /**
      * Escapes a resolved config value for embedding in a Kotlin string literal.
@@ -199,6 +206,19 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |
                 |object MdbListConfig {
                 |    const val CLIENT_ID = "${mdblistClientId.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
+
+        outDir.resolve("com/nuvio/app/features/profiles").apply {
+            mkdirs()
+            resolve("GifSearchConfig.kt").writeText(
+                """
+                |package com.nuvio.app.features.profiles
+                |
+                |object GifSearchConfig {
+                |    const val PROXY_URL = "${gifSearchProxyUrl.asKotlinLiteral()}"
                 |}
                 """.trimMargin()
             )
@@ -539,6 +559,10 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     // supply it as its own GitHub Secret. Do not narrow it to
     // runtimeLocalPropertyValue() without also updating release-draft.yml.
     mdblistClientId.set(runtimeConfigValue("MDBLIST_CLIENT_ID"))
+
+    // GIF search proxy base URL. Non-secret, so it may come from local.properties, an
+    // environment variable, or a -P property like other NUVIO_* values.
+    gifSearchProxyUrl.set(runtimeConfigValue("NUVIO_GIF_SEARCH_PROXY_URL"))
 }
 
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
@@ -621,12 +645,18 @@ kotlin {
             baseName = "ComposeApp"
             isStatic = true
             freeCompilerArgs += listOf("-Xbinary=bundleId=$iosFrameworkBundleId")
+
+            // Biometric authentication and the profile PIN cache use Apple Security,
+            // LocalAuthentication, and CoreFoundation APIs on every iOS distribution.
+            linkerOpts(
+                "-framework", "Security",
+                "-framework", "LocalAuthentication",
+                "-framework", "CoreFoundation",
+            )
             if (iosDistribution == "full") {
                 linkerOpts(
                     "-lc++",
-                    "-framework", "Security",
                     "-framework", "SystemConfiguration",
-                    "-framework", "CoreFoundation",
                 )
             }
         }
@@ -657,20 +687,26 @@ kotlin {
                 implementation(libs.androidx.activity.compose)
                 implementation(libs.androidx.core.splashscreen)
                 implementation(libs.androidx.work.runtime)
+                implementation(libs.androidx.biometric)
                 implementation(libs.coil.gif)
                 implementation("androidx.recyclerview:recyclerview:1.4.0")
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
                 implementation("com.google.code.gson:gson:2.11.0")
                 implementation("io.github.peerless2012:ass-media:0.5.1")
+                implementation("io.github.peerless2012:ass-kt:0.5.1")
                 implementation(libs.ktor.client.okhttp)
                 implementation(libs.sentry.android)
+                implementation(libs.play.services.cast.framework)
+                implementation(libs.androidx.mediarouter)
                 implementation(libs.androidx.media3.exoplayer.hls)
                 implementation(libs.androidx.media3.exoplayer.dash)
                 implementation(libs.androidx.media3.exoplayer.smoothstreaming)
                 implementation(libs.androidx.media3.exoplayer.rtsp)
                 implementation(libs.androidx.media3.datasource)
+                implementation(libs.androidx.media3.database)
                 implementation(libs.androidx.media3.datasource.okhttp)
                 implementation(libs.androidx.media3.decoder)
+                implementation(libs.androidx.media3.effect)
                 implementation(libs.androidx.media3.session)
                 implementation(libs.androidx.media3.common)
                 implementation(libs.androidx.media3.container)
@@ -754,6 +790,7 @@ kotlin {
             implementation(libs.androidx.savedstate.compose)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.atomicfu)
             implementation(libs.kmpalette.core)
             implementation(libs.androidx.navigation3.ui)
@@ -762,13 +799,32 @@ kotlin {
             implementation(libs.supabase.auth)
             implementation(libs.supabase.functions)
             implementation(libs.supabase.storage)
+            implementation(libs.supabase.realtime)
             implementation(libs.reorderable)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.kotlinx.coroutines.get()}")
+            implementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
         }
     }
+}
+
+// iOS simulators only exist on macOS hosts. On Linux (CI check job) `xcrun` is missing,
+// so the boot step and its dependency are skipped there.
+val isMacHost = System.getProperty("os.name").lowercase().contains("mac")
+
+val bootIosTestSimulator by tasks.registering(Exec::class) {
+    onlyIf { isMacHost }
+    val device = tasks.named<KotlinNativeSimulatorTest>("iosSimulatorArm64Test").flatMap { it.device }
+    commandLine("xcrun", "simctl", "boot")
+    argumentProviders.add(CommandLineArgumentProvider { listOf(device.get()) })
+    isIgnoreExitValue = true
+}
+
+tasks.withType<KotlinNativeSimulatorTest>().configureEach {
+    standalone.set(false)
+    if (isMacHost) dependsOn(bootIosTestSimulator)
 }
 
 configurations.matching { it.name == "iosMainImplementation" }.configureEach {

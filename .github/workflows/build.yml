@@ -120,6 +120,16 @@ jobs:
           set -o pipefail
           ./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease --stacktrace 2>&1 | tee -a gradle-build.log
 
+      - name: Run Android lint (full release)
+        env:
+          NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+          NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+          NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          set -o pipefail
+          ./gradlew :androidApp:lintFullRelease --stacktrace 2>&1 | tee -a gradle-build.log
+
       - name: Verify the Full APK selects the real CloudStream execution runtime
         run: |
           set -euo pipefail
