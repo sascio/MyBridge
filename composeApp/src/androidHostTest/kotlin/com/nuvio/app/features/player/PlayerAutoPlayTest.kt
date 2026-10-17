@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import android.app.Application
 import android.content.Context
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.nuvio.app.features.details.MetaDetails
