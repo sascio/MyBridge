@@ -45,6 +45,8 @@ import com.nuvio.app.features.trakt.normalizeTraktContinueWatchingDaysCap
 import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.library_anilist_title
+import nuvio.composeapp.generated.resources.library_wetrakr_title
 import nuvio.composeapp.generated.resources.tracking_source_mdblist
 import nuvio.composeapp.generated.resources.settings_mdblist_library_description
 import nuvio.composeapp.generated.resources.settings_mdblist_progress_description
