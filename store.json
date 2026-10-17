@@ -16,8 +16,18 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.09/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.10/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
+        {
+          "version": "0.1.10",
+          "buildVersion": "110",
+          "date": "2026-10-17T09:31:57Z",
+          "localizedDescription": "## StreamBridge 0.1.10\n\n### What's new\n- Synced with NuvioMobile 0.6.1-beta and NuvioMobile-Enhanced 0.6.1-beta.\n- Updated StreamBridge branding: footer, tagline and app name in Settings.\n- Licenses & Attribution has its own icon.\n- Fixed the splash logo being cropped on some devices.\n- Profile Overview: missing metadata no longer counts as a failed genre load.\n- Updated the app to version 0.1.10.\n\n### iOS installation\n\nThe iOS build in this release is **unsigned**. Install it with\n[AltStore](https://altstore.io) or [SideStore](https://sidestore.io):\neither signs the IPA with your own Apple ID on your device, so no Apple\nDeveloper account and no App Store listing is involved.\n\nAdd this repository as a source in AltStore or SideStore to get updates\nautomatically:\n\n`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`\n\nSee `docs/RELEASE-IOS.md` for the details.\n\nThe IPA is deliberately unsigned, and no Apple Developer account or\nApp Store submission is involved in this release.\n",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.10/StreamBridge-0.1.10-iOS-unsigned.ipa",
+          "size": 72119899,
+          "sha256": "8ba75abea68832184bed69b192ac49ff95d5e67337b77188e8e59ea333732864",
+          "minOSVersion": "16.1"
+        },
         {
           "version": "0.1.09",
           "buildVersion": "109",
@@ -41,10 +51,13 @@
       ],
       "appPermissions": {
         "entitlements": [],
-        "privacy": {}
+        "privacy": {
+          "NSFaceIDUsageDescription": "Use biometric authentication to unlock your primary Nuvio profile.",
+          "NSLocalNetworkUsageDescription": "Nuvio connects to media servers on your local network."
+        }
       }
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.09/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.10/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
