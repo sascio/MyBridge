@@ -359,7 +359,7 @@ class WhatsNewSnapshotBuilderTest {
             WhatsNewSnapshotBuilder.formatReleaseNoteForDisplay("feat(home): add mobile background selection"),
         )
         assertEquals(
-            "Added TVDB anime ID preference to avoid per-season IMDB splits (#1952)",
+            "Added TVDB anime ID preference to avoid per-season IMDb splits (#1952)",
             WhatsNewSnapshotBuilder.formatReleaseNoteForDisplay("Add TVDB anime ID preference to avoid per-season IMDB splits (#1952)"),
         )
         assertEquals(
@@ -537,7 +537,7 @@ class WhatsNewSnapshotBuilderTest {
             WhatsNewSnapshotBuilder.formatReleaseNoteForDisplay(cleaned.last().text),
         )
         assertEquals(
-            "Added TVDB anime ID preference to avoid per-season IMDB splits (#1952)",
+            "Added TVDB anime ID preference to avoid per-season IMDb splits (#1952)",
             WhatsNewSnapshotBuilder.formatReleaseNoteForDisplay(cleaned[2].text),
         )
     }

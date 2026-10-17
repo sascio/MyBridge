@@ -1711,7 +1711,7 @@
     <string name="addon_already_installed">Taj je dodatak već instaliran.</string>
     <string name="addon_invalid_url">Unesite valjani URL dodatka</string>
     <string name="addon_load_manifest_failed">Nije uspjelo učitavanje manifesta</string>
-    <string name="app_brand_name">Nuvio</string>
+    <string name="app_brand_name">StreamBridge</string>
     <string name="auth_account_deletion_failed">Brisanje računa nije uspjelo</string>
     <string name="auth_sign_in_failed">Prijava nije uspjela</string>
     <string name="auth_sign_out_failed">Odjava nije uspjela</string>

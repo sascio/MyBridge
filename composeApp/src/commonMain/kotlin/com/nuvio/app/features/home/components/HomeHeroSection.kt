@@ -33,11 +33,13 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -53,7 +55,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -68,30 +69,26 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
-import coil3.compose.LocalPlatformContext
-import coil3.request.ImageRequest
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
-import com.nuvio.app.core.ui.LocalDynamicArtworkBackgroundColor
-import com.nuvio.app.core.ui.rememberDynamicArtworkBackgroundEnabled
-import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
+import com.nuvio.app.core.ui.dynamicScrimAlpha
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.details.HeroTrailerAudioState
 import com.nuvio.app.features.details.HeroTrailerSurface
 import com.nuvio.app.features.details.MetaDetailsRepository
-import com.nuvio.app.features.details.components.DetailHeroMetaBadge
+import com.nuvio.app.features.details.components.DetailIconAction
 import com.nuvio.app.features.details.components.HeroTrailerPlayerSurface
 import com.nuvio.app.features.details.selectHeroTrailer
 import com.nuvio.app.features.details.youtubePlaybackUrl
 import com.nuvio.app.features.home.HomeHeroArtworkSource
 import com.nuvio.app.features.home.HomeHeroStyle
 import com.nuvio.app.features.home.MetaPreview
-import com.nuvio.app.features.player.MiniPlayerController
+import com.nuvio.app.features.library.LibraryRepository
+import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.trailer.TrailerPlaybackResolver
 import com.nuvio.app.features.trailer.TrailerPlaybackSource
 import kotlinx.coroutines.CoroutineScope
@@ -118,6 +115,13 @@ private const val MOBILE_HERO_MIN_HEIGHT_DP = 360f
 private const val MOBILE_HERO_MAX_HEIGHT_DP = 760f
 private const val TABLET_LANDSCAPE_HERO_HEIGHT_MULTIPLIER = 1.5f
 
+/**
+ * Home can stay composed underneath other screens/tabs (state preservation, fast tab switching),
+ * so a change in hero trailer settings alone isn't a reliable signal that playback should stop —
+ * Home might not even be recomposing while it's not the visible destination. The app shell (which
+ * is always alive) calls [forceStop] imperatively the moment the user navigates away from Home,
+ * regardless of whether Home's own composition reacts to it.
+ */
 internal object HomeHeroTrailerPlaybackController {
     private var stopCallback: (() -> Unit)? = null
 
@@ -134,6 +138,11 @@ internal object HomeHeroTrailerPlaybackController {
     }
 }
 
+/**
+ * Home's hero item is disposed by the LazyColumn when scrolled far enough out of view, which would
+ * otherwise reset trailer playback to the start. Positions are kept here, outside composition, so
+ * scrolling the hero back into view can resume a trailer where it left off instead of restarting it.
+ */
 private object HomeHeroTrailerPlaybackPositionStore {
     private val positions = mutableMapOf<String, Long>()
 
@@ -148,15 +157,24 @@ private object HomeHeroTrailerPlaybackPositionStore {
     }
 }
 
+/** TMDB posters are 2:3, so height is width * 1.5. Shared with the skeleton/reserved placeholders. */
 internal const val TMDB_POSTER_HEIGHT_RATIO = 1.5f
 
+/** Backdrops are 16:9, so height is width * 0.5625. */
 internal const val BACKDROP_HEIGHT_RATIO = 9f / 16f
 
+/** Stops a 16:9 card from swallowing the whole viewport on a landscape phone. */
 private const val CARD_WIDE_MAX_VIEWPORT_FRACTION = 0.72f
 internal val HERO_CARD_CORNER_RADIUS = 28.dp
 internal val HERO_CARD_HORIZONTAL_PADDING = 12.dp
 internal val HERO_CARD_TOP_PADDING = 8.dp
 
+/**
+ * Card mode follows the shape of the screen: a 2:3 poster in portrait, a 16:9 backdrop in landscape
+ * or on tablets. A portrait poster in landscape would be taller than the viewport itself, which is
+ * why the source is switched along with the ratio. Full-bleed is unaffected and always uses the
+ * backdrop.
+ */
 internal fun heroUsesWideArtwork(
     maxWidth: Dp,
     viewportHeight: Dp?,
@@ -220,8 +238,7 @@ internal fun HomeHeroSection(
     val autoScrollPage = pagerState.settledPage
     val effectiveTrailerPlaybackEnabled = trailerPlaybackEnabled &&
         AppFeaturePolicy.heroTrailerPlaybackSupported &&
-        AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP &&
-        !MiniPlayerController.isActive
+        AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP
 
     LaunchedEffect(pagerState) {
         pagerState.scrollToPage(pagerState.currentPage)
@@ -235,6 +252,8 @@ internal fun HomeHeroSection(
     }
 
     ScreenActivityEffect(autoScrollPage, items.size, effectiveTrailerPlaybackEnabled) { active ->
+        // The carousel only advances by itself when the screen is active and trailer playback is
+        // off; with it on, the current item's trailer plays and only a swipe should move on.
         if (!active || items.size <= 1 || effectiveTrailerPlaybackEnabled) return@ScreenActivityEffect
         delay(HERO_AUTO_SCROLL_INTERVAL_MS)
         while (pagerState.isScrollInProgress) {
@@ -282,6 +301,7 @@ internal fun HomeHeroSection(
                 viewportHeightDp = viewportHeight?.value,
                 mobileBelowSectionHeightHintDp = mobileBelowSectionHeightHint?.value,
             )
+            // In card mode the height is dictated by the artwork ratio, not the viewport.
             val layout = if (isCardStyle) {
                 baseLayout.copy(
                     heroHeight = cardHeroHeight(
@@ -299,6 +319,8 @@ internal fun HomeHeroSection(
                     HomeHeroArtworkSource.BACKDROP
                 else -> HomeHeroArtworkSource.POSTER
             }
+            // The card is sized to the artwork's own ratio, so the zoom and parallax that exist to hide
+            // the edges of a cropped full-bleed backdrop would only crop the artwork for no reason.
             val artworkParallax = if (isCardStyle) 0f else HERO_BACKGROUND_PARALLAX
             val artworkBaseScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE
             val heroWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
@@ -312,49 +334,53 @@ internal fun HomeHeroSection(
                     }
                 }
             }
-            val isHeroScrolledAway by remember(listState, heroHeightPx) {
-                derivedStateOf { scrollOffsetPx >= heroHeightPx * 0.6f }
-            }
+            val heroScrollScale = heroBackgroundScrollScale(scrollOffsetPx)
+            val heroScrollTranslationY = heroBackgroundScrollTranslationY(scrollOffsetPx)
             val currentPage = pagerState.currentPage
-            val visiblePages = remember(currentPage, pagerState.pageCount, items.size) {
-                listOf(
-                    (currentPage - 1).coerceAtLeast(0),
-                    (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
-                    currentPage,
-                ).distinct()
-                    .map { page -> HeroPageLayer(page = page, itemIndex = page % items.size) }
-            }
-            val currentItem = items[currentPage % items.size]
+            val visiblePages = listOf(
+                currentPage,
+                (currentPage - 1).coerceAtLeast(0),
+                (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
+            ).distinct()
+                .mapNotNull { index ->
+                    val pageOffset = heroPageOffset(pagerState, index)
+                    val visibility = (1f - abs(pageOffset)).coerceIn(0f, 1f)
+                    if (visibility <= 0f) {
+                        null
+                    } else {
+                        HeroPageLayer(
+                            itemIndex = index % items.size,
+                            visibility = visibility,
+                            offset = pageOffset,
+                        )
+                    }
+                }
+                .sortedBy(HeroPageLayer::visibility)
+            val currentItem = visiblePages
+                .lastOrNull()
+                ?.itemIndex
+                ?.let(items::get)
+                ?: items[currentPage % items.size]
 
-            val activeArtworkUrl = heroArtworkUrl(items[pagerState.targetPage % items.size], effectiveArtworkSource)
+            val activeArtworkUrl = when (effectiveArtworkSource) {
+                HomeHeroArtworkSource.POSTER -> currentItem.poster ?: currentItem.banner
+                HomeHeroArtworkSource.BACKDROP -> currentItem.banner ?: currentItem.poster
+            }
             LaunchedEffect(onActiveArtworkChange, activeArtworkUrl) {
                 onActiveArtworkChange?.invoke(activeArtworkUrl)
             }
-            if (onActiveArtworkChange != null && rememberDynamicArtworkBackgroundEnabled()) {
-                val heroArtworkUrls = remember(items, effectiveArtworkSource) {
-                    items.mapNotNull { item -> heroArtworkUrl(item, effectiveArtworkSource) }
-                }
-                PrefetchArtworkDominantColors(heroArtworkUrls)
-            }
 
-            val platformContext = LocalPlatformContext.current
-            LaunchedEffect(pagerState.settledPage, items, effectiveArtworkSource) {
-                val settled = pagerState.settledPage
-                val neighbours = listOf(settled + 1, settled - 1)
-                    .filter { page -> page >= 0 && items.size > 1 }
-                    .map { page -> items[page % items.size] }
-                    .distinct()
-                val imageLoader = SingletonImageLoader.get(platformContext)
-                neighbours.forEach { item ->
-                    listOfNotNull(heroArtworkUrl(item, effectiveArtworkSource), item.logo?.takeIf { it.isNotBlank() })
-                        .forEach { url ->
-                            imageLoader.enqueue(ImageRequest.Builder(platformContext).data(url).build())
-                        }
-                }
-                neighbours.forEach { item ->
-                    if (MetaDetailsRepository.peek(item.type, item.id) == null) {
-                        runCatching { MetaDetailsRepository.fetch(item.type, item.id) }
-                    }
+            val libraryUiState by remember {
+                LibraryRepository.ensureLoaded()
+                LibraryRepository.uiState
+            }.collectAsStateWithLifecycle()
+            val isSavedToLibrary = remember(libraryUiState, currentItem.id, currentItem.type) {
+                LibraryRepository.isSaved(currentItem.id, currentItem.type)
+            }
+            val toggleLibrarySaved: () -> Unit = {
+                val item = currentItem.toLibraryItem(savedAtEpochMs = 0L)
+                coroutineScope.launch {
+                    runCatching { LibraryRepository.toggleSaved(item) }
                 }
             }
 
@@ -395,6 +421,9 @@ internal fun HomeHeroSection(
                 heroTrailerReady = false
                 heroTrailerFinished = false
                 if (!effectiveTrailerPlaybackEnabled) return@LaunchedEffect
+                // Fetch metadata and resolve the playable source while the configured delay is
+                // running. Playback still waits for both conditions, avoiding delay + fetch +
+                // resolver latency being added serially.
                 val resolvedSource = async {
                     val meta = runCatching {
                         MetaDetailsRepository.fetch(currentItem.type, currentItem.id)
@@ -441,8 +470,10 @@ internal fun HomeHeroSection(
                     ) {
                         visiblePages.forEach { layer ->
                             val item = items[layer.itemIndex]
-                            val artworkUrl = heroArtworkUrl(item, effectiveArtworkSource)
-                            val isCurrentLayer = layer.page == currentPage
+                            val artworkUrl = when (effectiveArtworkSource) {
+                                HomeHeroArtworkSource.POSTER -> item.poster ?: item.banner
+                                HomeHeroArtworkSource.BACKDROP -> item.banner ?: item.poster
+                            }
                             key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
                                 AsyncImage(
                                     model = artworkUrl,
@@ -450,19 +481,13 @@ internal fun HomeHeroSection(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .graphicsLayer {
-                                            val offset = heroPageOffset(pagerState, layer.page)
-                                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
-                                            alpha = when {
-                                                isCurrentLayer -> visibility
-                                                visibility > 0f -> 1f
-                                                else -> 0f
-                                            }
-                                            translationX = -offset * heroWidthPx * artworkParallax
-                                            translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                            alpha = layer.visibility
+                                            translationX = -layer.offset * heroWidthPx * artworkParallax
+                                            translationY = if (isCardStyle) 0f else heroScrollTranslationY
                                             scaleX = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                                if (isCardStyle) 1f else heroScrollScale
                                             scaleY = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                                if (isCardStyle) 1f else heroScrollScale
                                         },
                                     alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
                                     contentScale = ContentScale.Crop,
@@ -479,6 +504,9 @@ internal fun HomeHeroSection(
                                 animationSpec = tween(durationMillis = 300),
                                 label = "home_hero_trailer_alpha",
                             )
+                            val currentPageOffset = pagerState.currentPageOffsetFraction
+                            val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
+                            val isHeroScrolledAway = scrollOffsetPx >= heroHeightPx * 0.6f
                             HeroTrailerPlayerSurface(
                                 sourceUrl = heroTrailerSourceUrl,
                                 sourceAudioUrl = heroTrailerPlaybackSource?.audioUrl,
@@ -490,13 +518,11 @@ internal fun HomeHeroSection(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .graphicsLayer {
-                                        val currentPageOffset = pagerState.currentPageOffsetFraction
-                                        val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
                                         alpha = trailerReadyAlpha * currentPageVisibility
                                         translationX = -currentPageOffset * heroWidthPx * artworkParallax
-                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                        scaleX = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                        scaleY = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        translationY = if (isCardStyle) 0f else heroScrollTranslationY
+                                        scaleX = artworkBaseScale * if (isCardStyle) 1f else heroScrollScale
+                                        scaleY = artworkBaseScale * if (isCardStyle) 1f else heroScrollScale
                                     },
                                 onReady = {
                                     if (!heroTrailerFinished) heroTrailerReady = true
@@ -519,24 +545,19 @@ internal fun HomeHeroSection(
                     }
 
                     if (!isCardStyle) {
-                        val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
-                        val themeBackground = MaterialTheme.colorScheme.background
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                fade.copy(alpha = 0.02f),
-                                                fade.copy(alpha = 0.12f),
-                                                fade.copy(alpha = 0.34f),
-                                                fade.copy(alpha = 0.78f),
-                                            ),
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.background.copy(alpha = dynamicScrimAlpha(0.02f)),
+                                            MaterialTheme.colorScheme.background.copy(alpha = dynamicScrimAlpha(0.12f)),
+                                            MaterialTheme.colorScheme.background.copy(alpha = dynamicScrimAlpha(0.34f)),
+                                            MaterialTheme.colorScheme.background.copy(alpha = dynamicScrimAlpha(0.78f)),
                                         ),
-                                    )
-                                },
+                                    ),
+                                ),
                         )
 
                         Box(
@@ -544,14 +565,19 @@ internal fun HomeHeroSection(
                                 .fillMaxWidth()
                                 .height(layout.bottomFadeHeight)
                                 .align(Alignment.BottomCenter)
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(Brush.verticalGradient(colors = listOf(fade.copy(alpha = 0f), fade)))
-                                },
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.background.copy(alpha = 0f),
+                                            MaterialTheme.colorScheme.background.copy(alpha = dynamicScrimAlpha(1f)),
+                                        ),
+                                    ),
+                                ),
                         )
                     }
 
                     if (isCardStyle) {
+                        // Clean artwork: the whole card is the touch target instead of a details button.
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -560,13 +586,6 @@ internal fun HomeHeroSection(
                                 },
                         )
                     } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable(enabled = onItemClick != null) {
-                                    onItemClick?.invoke(currentItem)
-                                },
-                        )
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -581,31 +600,66 @@ internal fun HomeHeroSection(
                                 modifier = Modifier
                                     .fillMaxWidth(layout.contentWidthFraction)
                                     .widthIn(max = layout.contentMaxWidth),
-                                contentAlignment = Alignment.BottomStart,
+                                contentAlignment = if (layout.isTablet) Alignment.CenterStart else Alignment.BottomStart,
                             ) {
                                 visiblePages.forEach { layer ->
-                                    val layerItem = items[layer.itemIndex]
-                                    key(layerItem.type, layerItem.id) {
                                     Box(
                                         modifier = Modifier.graphicsLayer {
-                                            val offset = heroPageOffset(pagerState, layer.page)
-                                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
-                                            alpha = ((visibility - 0.5f) * 2f).coerceIn(0f, 1f)
-                                            translationX = -offset * heroWidthPx * HERO_CONTENT_PARALLAX
+                                            alpha = layer.visibility
+                                            translationX = -layer.offset * heroWidthPx * HERO_CONTENT_PARALLAX
                                         },
                                     ) {
                                         HeroContentBlock(
-                                            item = layerItem,
+                                            item = items[layer.itemIndex],
                                             layout = layout,
                                             onItemClick = onItemClick,
                                         )
                                     }
+                                }
+                            }
+
+                            if (!layout.isTablet) {
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .clickable(enabled = onItemClick != null) {
+                                                onItemClick?.invoke(currentItem)
+                                            },
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        contentColor = MaterialTheme.colorScheme.background,
+                                        shape = RoundedCornerShape(40.dp),
+                                    ) {
+                                        Text(
+                                            text = stringResource(Res.string.home_view_details),
+                                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 12.dp),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                        )
                                     }
+
+                                    DetailIconAction(
+                                        label = stringResource(
+                                            if (isSavedToLibrary) {
+                                                Res.string.hero_remove_from_library
+                                            } else {
+                                                Res.string.hero_add_to_library
+                                            },
+                                        ),
+                                        icon = if (isSavedToLibrary) Icons.Default.Check else Icons.Default.Add,
+                                        active = isSavedToLibrary,
+                                        progress = 1f,
+                                        size = 52.dp,
+                                        onClick = toggleLibrarySaved,
+                                    )
                                 }
                             }
 
                             if (items.size > 1) {
-                                Spacer(modifier = Modifier.height(if (layout.isTablet) 16.dp else 18.dp))
+                                Spacer(modifier = Modifier.height(if (layout.isTablet) 14.dp else 12.dp))
                                 HeroPageIndicator(
                                     itemCount = items.size,
                                     pagerState = pagerState,
@@ -646,6 +700,7 @@ internal fun HomeHeroSection(
             }
         }
 
+        // In card mode the indicator sits below the card rather than on top of the artwork.
         if (isCardStyle && items.size > 1) {
             Spacer(modifier = Modifier.height(12.dp))
             HeroPageIndicator(
@@ -691,20 +746,20 @@ private fun HeroPageIndicator(
 }
 
 private data class HeroPageLayer(
-    val page: Int,
     val itemIndex: Int,
+    val visibility: Float,
+    val offset: Float,
 )
-
-private fun heroArtworkUrl(item: MetaPreview, source: HomeHeroArtworkSource): String? = when (source) {
-    HomeHeroArtworkSource.POSTER -> item.poster ?: item.banner
-    HomeHeroArtworkSource.BACKDROP -> item.banner ?: item.poster
-}
 
 private fun heroPageOffset(
     pagerState: PagerState,
     page: Int,
 ): Float = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
 
+/**
+ * How visible an item is, for the dots. Pages are no longer item indices since upstream made the
+ * pager endless, so the item's nearest page has to be resolved first.
+ */
 private fun heroItemVisibility(pagerState: PagerState, itemIndex: Int, itemCount: Int): Float {
     val page = heroPageForItem(pagerState.currentPage, itemIndex, itemCount)
     return (1f - abs(heroPageOffset(pagerState, page))).coerceIn(0f, 1f)
@@ -823,33 +878,7 @@ private fun HeroContentBlock(
             )
         }
 
-        val detailsState = remember(item.type, item.id) {
-            mutableStateOf(MetaDetailsRepository.peek(item.type, item.id))
-        }
-        LaunchedEffect(item.type, item.id) {
-            if (detailsState.value == null) {
-                detailsState.value = runCatching {
-                    MetaDetailsRepository.fetch(item.type, item.id)
-                }.getOrNull()
-            }
-        }
-        val details = detailsState.value
-        val rating = (item.imdbRating ?: details?.imdbRating)
-            ?.takeIf { raw -> raw.toDoubleOrNull()?.let { it > 0.0 } == true }
-        val year = (item.releaseInfo ?: details?.releaseInfo)
-            ?.takeIf { it.isNotBlank() }
-            ?.let(::formatReleaseDateForDisplay)
-        val genre = (item.genres.firstOrNull() ?: details?.genres?.firstOrNull())?.takeIf { it.isNotBlank() }
-        val ageRating = details?.ageRating?.trim()?.takeIf { it.isNotBlank() }
-        val synopsis = (item.description ?: details?.description)?.trim()?.takeIf { it.isNotBlank() }
-        val typeLabel = when (item.type.lowercase()) {
-            "movie" -> stringResource(Res.string.media_movie)
-            "series", "tv", "show" -> stringResource(Res.string.media_series)
-            else -> item.type.replaceFirstChar(Char::uppercase)
-        }
-        val textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center
-
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = if (layout.isTablet) {
@@ -859,76 +888,23 @@ private fun HeroContentBlock(
             },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            var needsDot = false
-            if (rating != null) {
-                Icon(
-                    imageVector = Icons.Rounded.Star,
-                    contentDescription = null,
-                    tint = HeroRatingStar,
-                    modifier = Modifier.size(18.dp),
-                )
-                HeroMetaText(text = rating)
-                needsDot = true
+            HeroMetaText(text = item.type.replaceFirstChar(Char::uppercase))
+            item.genres.firstOrNull()?.let { genre ->
+                HeroMetaDot()
+                HeroMetaText(text = genre)
             }
-            year?.let {
-                if (needsDot) HeroMetaDot()
-                HeroMetaText(text = it)
-                needsDot = true
+            item.releaseInfo?.takeIf { it.isNotBlank() }?.let { info ->
+                HeroMetaDot()
+                HeroMetaText(text = formatReleaseDateForDisplay(info))
             }
-            genre?.let {
-                if (needsDot) HeroMetaDot()
-                HeroMetaText(text = it, modifier = Modifier.weight(1f, fill = false))
-                needsDot = true
-            }
-            ageRating?.let {
-                if (needsDot) HeroMetaDot()
-                DetailHeroMetaBadge(text = it, contentColor = MaterialTheme.colorScheme.onBackground)
-                needsDot = true
-            }
-            if (needsDot) HeroMetaDot()
-            HeroTypePill(text = typeLabel)
-        }
-
-        if (synopsis != null) {
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = synopsis,
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
-                textAlign = textAlign,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
 
 @Composable
-private fun HeroTypePill(text: String) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.16f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            maxLines = 1,
-        )
-    }
-}
-
-private val HeroRatingStar = Color(0xFFF5C518)
-
-@Composable
-private fun HeroMetaText(text: String, modifier: Modifier = Modifier) {
+private fun HeroMetaText(text: String) {
     Text(
         text = text,
-        modifier = modifier,
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onBackground,
         fontWeight = FontWeight.SemiBold,
