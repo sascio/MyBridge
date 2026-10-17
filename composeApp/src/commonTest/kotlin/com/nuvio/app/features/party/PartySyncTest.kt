@@ -212,6 +212,7 @@ class PartySyncTest {
         assertEquals("ABC234", normalizePartyCode(" abc-234 "))
         assertTrue(isValidPartyCode("abc 234"))
         assertFalse(isValidPartyCode("ABC10"))
+        assertFalse(isValidPartyCode("ABC234!"))
         assertEquals("ABC 234", formatPartyCode("abc234"))
     }
 

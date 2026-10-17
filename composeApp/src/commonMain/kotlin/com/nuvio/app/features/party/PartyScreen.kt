@@ -77,7 +77,7 @@ fun PartyScreen(
     val party = state.party
     var joined by remember { mutableStateOf<ActiveParty?>(null) }
     var pendingCode by remember {
-        mutableStateOf(initialCode.takeIf { isValidPartyCode(it) && normalizePartyCode(it) != party?.code }.orEmpty())
+        mutableStateOf(canonicalPartyCode(initialCode)?.takeIf { it != party?.code }.orEmpty())
     }
     var joining by remember { mutableStateOf(party == null || pendingCode.isNotEmpty()) }
     val mode = when {
@@ -201,7 +201,7 @@ private fun JoinContent(
                     preview = result
                     if (result.isFull) error = PartyError.Full
                 }
-                failure != null && failure != PartyError.Network -> reject(failure)
+                failure != null -> reject(failure)
             }
         }
     }

@@ -43,6 +43,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>nuvio</string>
+				<string>streambridge</string>
 				<string>stremio</string>
 			</array>
 		</dict>

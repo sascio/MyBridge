@@ -686,7 +686,7 @@ object PartyRepository {
         )
     }
 
-    private const val DEFAULT_NAME = "Nuvio"
+    private const val DEFAULT_NAME = "StreamBridge"
     private val COLOR_PATTERN = Regex("^#[0-9A-Fa-f]{6}$")
     private val HEARTBEAT_INTERVAL = 2.minutes
     private val PERSIST_DELAY = 1.5.seconds
@@ -700,13 +700,34 @@ object PartyRepository {
 fun normalizePartyCode(input: String): String =
     input.uppercase().filter { it in PARTY_CODE_ALPHABET }
 
-fun isValidPartyCode(input: String): Boolean = normalizePartyCode(input).length == PARTY_CODE_LENGTH
+/**
+ * Canonicalizes an invite code while rejecting characters that normalization
+ * would otherwise silently discard. Spaces and hyphens are accepted for codes
+ * copied from a human-readable invitation.
+ */
+internal fun canonicalPartyCode(input: String): String? {
+    if (input.isBlank()) return null
+    if (input.any { char -> char != '-' && !char.isWhitespace() && char.uppercaseChar() !in PARTY_CODE_ALPHABET }) {
+        return null
+    }
+    return normalizePartyCode(input).takeIf { it.length == PARTY_CODE_LENGTH }
+}
+
+fun isValidPartyCode(input: String): Boolean = canonicalPartyCode(input) != null
 
 fun formatPartyCode(code: String): String =
     normalizePartyCode(code).let { if (it.length == PARTY_CODE_LENGTH) "${it.take(3)} ${it.drop(3)}" else it }
 
-fun partyInviteLink(code: String): String =
-    if (ServerConfigurationRepository.active.value.isCustom) "nuvio://party/$code" else "https://nuvio.tv/party/$code"
+/**
+ * Builds the installed-app invite route. There is no StreamBridge-owned HTTPS
+ * party redirect configured in this repository, so do not publish a guessed
+ * website URL. The streambridge:// route is registered by Android and iOS and
+ * only contains canonical, URL-safe party-code characters.
+ */
+fun partyInviteLink(code: String): String? {
+    val canonicalCode = canonicalPartyCode(code) ?: return null
+    return "streambridge://party/$canonicalCode"
+}
 
 const val PARTY_CODE_LENGTH = 6
 private const val PARTY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

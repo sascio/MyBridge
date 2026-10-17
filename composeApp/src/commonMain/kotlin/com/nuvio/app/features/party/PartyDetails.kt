@@ -102,7 +102,12 @@ internal fun PartyOverview(
 ) {
     val haptic = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
-    val invite = stringResource(Res.string.party_invite_message, formatPartyCode(party.code), partyInviteLink(party.code))
+    val inviteLink = partyInviteLink(party.code)
+    val invite = if (inviteLink != null) {
+        stringResource(Res.string.party_invite_message, formatPartyCode(party.code), inviteLink)
+    } else {
+        null
+    }
     val copiedLabel = stringResource(Res.string.party_invite_copied)
     var copied by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<PartyMember?>(null) }
@@ -112,11 +117,13 @@ internal fun PartyOverview(
             copied = false
         }
     }
-    val copyInvite = {
-        clipboard.setText(AnnotatedString(invite))
-        haptic.performHapticFeedback(HapticFeedbackType.Confirm)
-        copied = true
-        NuvioToastController.show(copiedLabel)
+    val copyInvite: () -> Unit = {
+        invite?.let { message ->
+            clipboard.setText(AnnotatedString(message))
+            haptic.performHapticFeedback(HapticFeedbackType.Confirm)
+            copied = true
+            NuvioToastController.show(copiedLabel)
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {

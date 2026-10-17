@@ -3,13 +3,13 @@
     <string name="party_start_title">Watch together</string>
     <string name="party_start_description">Invite your friends. Everyone plays from their own sources and stays in sync.</string>
     <string name="party_start_action">Start watch party</string>
-    <string name="party_sign_in_required">Sign in to your Nuvio account to use watch parties.</string>
+    <string name="party_sign_in_required">Sign in to your StreamBridge account to use watch parties.</string>
     <string name="party_unavailable">Watch parties aren't available right now.</string>
     <string name="party_experimental">Watch parties are experimental and may not work as expected.</string>
     <string name="party_code_label">Party code</string>
     <string name="party_copy_invite">Copy invite</string>
     <string name="party_invite_copied">Invite copied</string>
-    <string name="party_invite_message">Join my Nuvio watch party with code %1$s\n%2$s</string>
+    <string name="party_invite_message">Join my StreamBridge Watch Party with code %1$s\n%2$s</string>
     <string name="party_seats">%1$d of %2$d seats</string>
     <string name="party_host">Host</string>
     <string name="party_you">You</string>

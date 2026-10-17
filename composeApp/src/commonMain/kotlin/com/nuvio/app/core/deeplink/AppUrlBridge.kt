@@ -1,8 +1,7 @@
 package com.nuvio.app.core.deeplink
 
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
-import com.nuvio.app.features.party.PARTY_CODE_LENGTH
-import com.nuvio.app.features.party.normalizePartyCode
+import com.nuvio.app.features.party.canonicalPartyCode
 import com.nuvio.app.features.player.infusePlaybackCallbacks
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import io.ktor.http.Url
@@ -80,7 +79,18 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
     val host = parsedUrl.host.lowercase()
     val pathSegments = parsedUrl.pathSegments.map(String::trim).filter(String::isNotBlank)
     if (scheme == "https") {
-        return if (host == "nuvio.tv" && pathSegments.firstOrNull() == "party") partyDeepLink(pathSegments.getOrNull(1)) else null
+        return if (host == "nuvio.tv" && pathSegments.firstOrNull() == "party") {
+            partyDeepLink(pathSegments.drop(1))
+        } else {
+            null
+        }
+    }
+    if (scheme == "streambridge") {
+        return if (host == "party") {
+            partyDeepLink(pathSegments, firstParameter(parsedUrl, "code"))
+        } else {
+            null
+        }
     }
     if (scheme != "nuvio") return null
 
@@ -102,7 +112,7 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
 
         "downloads" -> AppDeepLink.Downloads
 
-        "party" -> partyDeepLink(pathSegments.firstOrNull() ?: firstParameter(parsedUrl, "code"))
+        "party" -> partyDeepLink(pathSegments, firstParameter(parsedUrl, "code"))
 
         "auth" -> null
 
@@ -116,8 +126,17 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
     }
 }
 
-private fun partyDeepLink(code: String?): AppDeepLink.Party? =
-    code?.let(::normalizePartyCode)?.takeIf { it.length == PARTY_CODE_LENGTH }?.let(AppDeepLink::Party)
+private fun partyDeepLink(
+    pathSegments: List<String>,
+    queryCode: String? = null,
+): AppDeepLink.Party? {
+    val code = when {
+        pathSegments.isEmpty() -> queryCode
+        pathSegments.size == 1 && queryCode == null -> pathSegments.single()
+        else -> null
+    } ?: return null
+    return canonicalPartyCode(code)?.let(AppDeepLink::Party)
+}
 
 private fun parseMetaFromParameters(parsedUrl: Url): AppDeepLink.Meta? {
     val type = firstParameter(parsedUrl, "type", "mediaType", "media_type")

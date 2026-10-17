@@ -1860,6 +1860,15 @@ internal fun MainAppContent(
                         onPosterLongClick = openPosterActions,
                     )
                 }
+                entry<PartyRoute> { route ->
+                    SettingsDestination(route, navController) { onBack ->
+                        PartyScreen(
+                            initialCode = route.code,
+                            onBack = onBack,
+                            onWatch = ::openPartyMedia,
+                        )
+                    }
+                }
                 entry<HomescreenSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->
                         HomescreenSettingsScreen(onBack = onBack)
