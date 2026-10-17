@@ -22,6 +22,7 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Copyright
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Notifications
@@ -299,7 +300,7 @@ internal fun settingsSearchEntries(
         title = licensesPage,
         description = stringResource(Res.string.about_licenses_attributions_subtitle),
         category = aboutCategory,
-        icon = Icons.Rounded.Info,
+        icon = Icons.Rounded.Copyright,
     )
     addPage(
         page = SettingsPage.PrivacyPolicy,
