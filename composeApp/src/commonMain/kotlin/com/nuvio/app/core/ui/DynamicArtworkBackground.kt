@@ -87,3 +87,14 @@ private fun Color.blendTowards(target: Color, fraction: Float): Color {
         alpha = alpha + (target.alpha - alpha) * clamped,
     )
 }
+
+private const val DYNAMIC_SCRIM_SOFTENING = 0.38f
+
+/**
+ * Softens a scrim alpha when the dynamic background is active so the colour wash stays visible
+ * behind hero gradients. Returns [base] unchanged when the feature is off.
+ * Kept from StreamBridge: the hero section depends on it.
+ */
+@Composable
+fun dynamicScrimAlpha(base: Float): Float =
+    if (LocalDynamicArtworkBackgroundActive.current) base * DYNAMIC_SCRIM_SOFTENING else base
