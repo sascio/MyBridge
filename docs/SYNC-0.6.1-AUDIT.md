@@ -1,6 +1,15 @@
 # Upstream sync audit: NuvioMobile Official and Enhanced 0.6.1-beta
 
-Status: AUDIT ONLY. No upstream code has been merged into StreamBridge yet.
+Status: COMPLETED. This document is the pre-merge audit. The sync was delivered
+as merge `51924933` and reached `main` through PR #212 (`913de2c7`).
+
+Implementation correction: the delivered merge used `504014d3` directly as its
+second parent. Because StreamBridge shares no git history with upstream, this
+was an unrelated-history merge that imported 3,329 upstream commits and their
+authors into `main`. The synthetic-base procedure described in section 3 was
+not used for the final commit. See
+[REPOSITORY-IDENTITY-AUDIT.md](REPOSITORY-IDENTITY-AUDIT.md) for the forensic
+record and the prepared clean-history migration.
 
 ## 1. Verified upstream revisions (checked 2026-10-17)
 
@@ -27,6 +36,14 @@ Current StreamBridge pins (streambridge.version.properties):
 ## 3. Three-way merge audit (git merge-tree, no worktree or branch changes)
 
 StreamBridge does not share git history with upstream (it was built as an overlay copy), so a synthetic commit was created: StreamBridge HEAD tree on top of the upstream base commit. This lets `git merge-tree` compute a real three-way merge. Synthetic commits are local objects only and are not pushed.
+
+> **Delivered implementation (2026-10-17):** merge `51924933` used
+> `504014d3` directly as its second parent instead of the synthetic base
+> described here. Git therefore treated the merge as unrelated history and
+> imported all 3,329 upstream commits. Content-wise the merge was correct (the
+> tree equals PR #212's tree), but its ancestry added upstream authors to
+> GitHub's contributor statistics. See
+> [REPOSITORY-IDENTITY-AUDIT.md](REPOSITORY-IDENTITY-AUDIT.md).
 
 - Official: base `5c6028f2`, ours = StreamBridge `b629fae`, theirs = `79b750f3`. **44 conflicting files.**
 - Enhanced: base `8b3bd867`, ours = StreamBridge `b629fae`, theirs = `504014d3`. **25 conflicting files.** 13 of these also conflict in the Official merge.

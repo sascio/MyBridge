@@ -10,18 +10,25 @@
   Android media client · iOS in 0.1.08+ · GPL-3.0 · version <strong>0.1.10</strong> (110)
 </p>
 
-StreamBridge is a media client for Android, with an iOS release starting in
-0.1.08. You bring catalogs, addons, and plugins. The app does not ship, host, or
-recommend any content.
+StreamBridge is an independent, GPL-3.0 media client for Android, with an iOS
+release starting in 0.1.08. It is developed and published by the StreamBridge
+project at [sascio/MyBridge](https://github.com/sascio/MyBridge). You bring
+catalogs, addons, and plugins. The app does not ship, host, or recommend any
+content.
 
-It is **NuvioMobile core with StreamBridge identity** (name, icon, package,
-iOS bundle identifier, in-app updater). The runnable app is official
-[NuvioMobile](https://github.com/NuvioMedia/NuvioMobile)
-(`cmp-rewrite` `5c6028f2`, **0.5.5-beta**), GPL-3.0, plus unique features
-overlaid from [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced)
-(`enhanced` `8b3bd867`, **0.5.5-beta**).
+StreamBridge is built on the open-source NuvioMobile codebase and adds its own
+identity (name, icon, package, iOS bundle identifier, in-app updater), release
+engineering, and features. The current tree is synced to
+[NuvioMobile](https://github.com/NuvioMedia/NuvioMobile) `cmp-rewrite`
+`79b750f3` (**0.6.1-beta**) and
+[NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced)
+`enhanced` `504014d3` (**0.6.1-beta**), both GPL-3.0. Upstream authors and
+copyright holders are credited in [NOTICE](NOTICE); StreamBridge is not an
+official NuvioMobile release and is not endorsed by NuvioMedia.
+
 Kotlin packages stay `com.nuvio.app`. `applicationId` is `com.streambridge.app`;
-the iOS bundle identifier is `com.streambridge.app`.
+the iOS bundle identifier is `com.streambridge.app`. The repository name
+`MyBridge` is historical; the product is StreamBridge.
 
 The app ships **empty**: no catalogs, no metadata, no streams, no
 providers. Add Stremio-compatible addons and Nuvio-compatible plugin
@@ -173,8 +180,37 @@ release workflow publishes that same file as
 `.github/workflows/update-store-source.yml` records it in `store.json`. See
 [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
 
+## Project identity, upstream credit, and repository history
+
+StreamBridge is its own product, maintained and released by the StreamBridge
+project at `sascio/MyBridge`. It is not an official NuvioMobile release and is
+not published or supported by NuvioMedia.
+
+The two upstream projects credited in [NOTICE](NOTICE) remain separate GPL-3.0
+works:
+
+- [NuvioMobile](https://github.com/NuvioMedia/NuvioMobile), pinned at
+  `79b750f3` (0.6.1-beta)
+- [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced),
+  pinned at `504014d3` (0.6.1-beta)
+
+Their copyright notices, license texts, and attribution are kept in
+[LICENSE](LICENSE), [COPYING](COPYING), and [NOTICE](NOTICE).
+
+**Contributor list note.** StreamBridge was built as an overlay copy and shares
+no git history with either upstream project. The 0.1.10 sync imported the
+upstream source with a real merge of unrelated histories, so thousands of
+upstream commits became reachable from `main`. GitHub calculates its
+Contributors page from commits reachable from the default branch, which is why
+upstream authors appear there alongside StreamBridge maintainers. README edits
+cannot remove those historical authors from that statistic; only rewriting the
+default branch's history would. The forensic findings, the prepared (unapplied)
+clean-history migration, and the rollback procedure are documented in
+[docs/REPOSITORY-IDENTITY-AUDIT.md](docs/REPOSITORY-IDENTITY-AUDIT.md).
+
 ## License
 
 **GPL-3.0** — see [LICENSE](LICENSE), [COPYING](COPYING), and
-[NOTICE](NOTICE). Based on NuvioMobile by NuvioMedia. StreamBridge
-includes modifications and additional functionality.
+[NOTICE](NOTICE). StreamBridge is based on NuvioMobile and
+NuvioMobile-Enhanced, both by their respective authors, and includes
+modifications and additional functionality.

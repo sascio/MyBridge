@@ -6,10 +6,10 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8` |
-| Release | 0.5.5-beta (`bump version`, 2026-09-30) |
-| Enhanced overlay | `8b3bd867` (tag `0.5.5-beta`, 2026-10-01) |
-| Previous pin | 0.5.2-beta (`bb3c1e4c`) + Enhanced `3da8d06f` |
+| Commit | `79b750f3ed9e196c600bc1f5fd97979d6336760f` |
+| Release | 0.6.1-beta (`bump version`, 2026-10-16) |
+| Enhanced overlay | `504014d3` (tag `0.6.1-beta`, 2026-10-16) |
+| Previous pin | 0.5.5-beta (`5c6028f2`) + Enhanced `8b3bd867` |
 
 ## Important: upstream rewrote history (historical note)
 
@@ -31,7 +31,24 @@ is merged with the new upstream tip so `git merge` sees the correct base,
 then conflicts are resolved by hand. The result is committed as regular
 commits so the StreamBridge branch history stays linear.
 
-## 0.5.5-beta / Enhanced 0.5.5-beta integration (this sync)
+## 0.6.1-beta / Enhanced 0.6.1-beta integration (0.1.10)
+
+Pins: NuvioMobile `79b750f3` (tag `0.6.1-beta`) and NuvioMobile-Enhanced
+`504014d3` (tag `0.6.1-beta`). Delivered in merge `51924933` and made public
+on `main` by PR #212 (`913de2c7`).
+
+**Deviation from the documented method:** the delivered merge used
+`504014d3` directly as the second parent. StreamBridge has no merge base with
+it, so Git treated the merge as unrelated history and imported **3,329
+upstream commits** (95 additional author name/email identities) into `main`. That is the cause of the
+contributor-list change. The synthetic-base, linear procedure described below
+was **not** used for this integration.
+
+Future upstream syncs must use the source-level integration below (or a single
+squashed import commit), not an unrelated-history merge. See
+[REPOSITORY-IDENTITY-AUDIT.md](REPOSITORY-IDENTITY-AUDIT.md).
+
+## 0.5.5-beta / Enhanced 0.5.5-beta integration (previous sync)
 
 Base: Enhanced `3da8d06f` (0.5.2-beta) / Official `bb3c1e4c` (0.5.2-beta).
 Theirs: Official NuvioMobile `5c6028f24d3017f27fc4aeb0b6234b18fcfd2ee8`
