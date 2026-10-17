@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import com.nuvio.app.StreamBridgeBrandLockup
 import com.nuvio.app.core.build.AppVersionConfig
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.party_settings_description
+import nuvio.composeapp.generated.resources.party_title
 import nuvio.composeapp.generated.resources.streambridge_credits_made_with
 import nuvio.composeapp.generated.resources.about_us_page_title
 import nuvio.composeapp.generated.resources.about_us_settings_subtitle

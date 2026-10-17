@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.nuvio
-import com.nuvio.app.features.anilist.AniListTracker
 import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.mdblist.MdbListTracker
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -44,17 +43,9 @@ import com.nuvio.app.features.trakt.TraktConnectionMode
 import com.nuvio.app.features.trakt.TraktContinueWatchingDaysOptions
 import com.nuvio.app.features.trakt.normalizeTraktContinueWatchingDaysCap
 import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
-import com.nuvio.app.features.wetrakr.WeTrakrTracker
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.tracking_source_mdblist
-import nuvio.composeapp.generated.resources.tracking_source_anilist
-import nuvio.composeapp.generated.resources.tracking_source_wetrakr
-import nuvio.composeapp.generated.resources.settings_wetrakr_library_description
-import nuvio.composeapp.generated.resources.settings_wetrakr_progress_description
-import nuvio.composeapp.generated.resources.settings_anilist_library_description
-import nuvio.composeapp.generated.resources.settings_anilist_progress_description
-import nuvio.composeapp.generated.resources.settings_anilist_anime_section
 import nuvio.composeapp.generated.resources.settings_mdblist_library_description
 import nuvio.composeapp.generated.resources.settings_mdblist_progress_description
 import nuvio.composeapp.generated.resources.action_retry
@@ -87,10 +78,6 @@ import nuvio.composeapp.generated.resources.settings_tracking_anime_id_mal_descr
 import nuvio.composeapp.generated.resources.settings_tracking_anime_id_subtitle
 import nuvio.composeapp.generated.resources.settings_tracking_anime_id_title
 import nuvio.composeapp.generated.resources.settings_tracking_anime_section
-import nuvio.composeapp.generated.resources.settings_tracking_mdblist_section
-import nuvio.composeapp.generated.resources.settings_mdblist_library_lists
-import nuvio.composeapp.generated.resources.settings_mdblist_library_lists_description
-import nuvio.composeapp.generated.resources.settings_mdblist_library_lists_summary
 import nuvio.composeapp.generated.resources.settings_trakt_comments
 import nuvio.composeapp.generated.resources.settings_trakt_comments_description
 import nuvio.composeapp.generated.resources.tracking_source_simkl
@@ -128,7 +115,6 @@ internal fun LazyListScope.trackingSettingsContent(
     settingsUiState: TrackingSettingsUiState,
     commentsEnabled: Boolean,
     onCommentsEnabledChange: (Boolean) -> Unit,
-    mdbListConnected: Boolean,
 ) {
     item {
         SettingsSection(
@@ -174,32 +160,16 @@ internal fun LazyListScope.trackingSettingsContent(
         }
     }
 
-    item {
-        val aniListConnected by remember { AniListTracker.ensureLoaded(); AniListTracker.isAuthenticated }
-            .collectAsStateWithLifecycle()
-        val simklConnected = simklUiState.mode == SimklConnectionMode.CONNECTED
-        if (simklConnected || aniListConnected) {
+    if (simklUiState.mode == SimklConnectionMode.CONNECTED) {
+        item {
             SettingsSection(
-                title = stringResource(
-                    if (simklConnected) Res.string.settings_tracking_anime_section else Res.string.settings_anilist_anime_section,
-                ),
+                title = stringResource(Res.string.settings_tracking_anime_section),
                 isTablet = isTablet,
             ) {
                 AnimeIdPreferenceSection(
                     isTablet = isTablet,
                     settingsUiState = settingsUiState,
                 )
-            }
-        }
-    }
-
-    if (mdbListConnected) {
-        item {
-            SettingsSection(
-                title = stringResource(Res.string.settings_tracking_mdblist_section),
-                isTablet = isTablet,
-            ) {
-                MdbListLibraryListsSection(isTablet = isTablet)
             }
         }
     }
@@ -226,14 +196,10 @@ private fun TrackingDataSources(
         WatchProgressSourceCoordinator.uiState
     }.collectAsStateWithLifecycle()
     val mdblistConnected by remember { MdbListTracker.ensureLoaded(); MdbListTracker.isAuthenticated }.collectAsStateWithLifecycle()
-    val anilistConnected by remember { AniListTracker.ensureLoaded(); AniListTracker.isAuthenticated }.collectAsStateWithLifecycle()
-    val wetrakrConnected by remember { WeTrakrTracker.ensureLoaded(); WeTrakrTracker.isAuthenticated }.collectAsStateWithLifecycle()
     val connectedProviders = buildSet {
         if (traktConnected) add(TrackingProviderId.TRAKT)
         if (simklConnected) add(TrackingProviderId.SIMKL)
         if (mdblistConnected) add(TrackingProviderId.MDBLIST)
-        if (anilistConnected) add(TrackingProviderId.ANILIST)
-        if (wetrakrConnected) add(TrackingProviderId.WETRAKR)
     }
     val effectiveLibrarySource = effectiveLibrarySourceMode(settingsUiState.librarySourceMode) { provider ->
         provider in connectedProviders
@@ -323,7 +289,7 @@ private fun TrackingDataSources(
             title = stringResource(Res.string.trakt_library_source_dialog_title),
             subtitle = stringResource(Res.string.trakt_library_source_dialog_subtitle),
             selectedValue = effectiveLibrarySource,
-            options = librarySourceOptions(traktConnected, simklConnected, mdblistConnected, anilistConnected, wetrakrConnected),
+            options = librarySourceOptions(traktConnected, simklConnected, mdblistConnected),
             onSelected = TrackingSettingsRepository::setLibrarySourceMode,
             onDismiss = { activePickerName = null },
         )
@@ -332,7 +298,7 @@ private fun TrackingDataSources(
             title = stringResource(Res.string.trakt_watch_progress_dialog_title),
             subtitle = stringResource(Res.string.tracking_watch_progress_dialog_subtitle),
             selectedValue = effectiveProgressSource,
-            options = watchProgressSourceOptions(traktConnected, simklConnected, mdblistConnected, anilistConnected, wetrakrConnected),
+            options = watchProgressSourceOptions(traktConnected, simklConnected, mdblistConnected),
             onSelected = { source ->
                 scope.launch {
                     WatchProgressSourceCoordinator.selectSource(
@@ -497,8 +463,6 @@ private fun librarySourceOptions(
     traktConnected: Boolean,
     simklConnected: Boolean,
     mdblistConnected: Boolean,
-    anilistConnected: Boolean,
-    wetrakrConnected: Boolean,
 ): List<TrackingPickerOption<LibrarySourceMode>> {
     val traktAvailable = isTrackingBrandAvailable(TrackingBrand.TRAKT, traktConnected, simklConnected)
     val simklAvailable = isTrackingBrandAvailable(TrackingBrand.SIMKL, traktConnected, simklConnected)
@@ -529,20 +493,6 @@ private fun librarySourceOptions(
             enabled = mdblistConnected,
             unavailableReason = trackingUnavailableReason(TrackingBrand.MDBLIST, mdblistConnected),
         ),
-        TrackingPickerOption(
-            value = LibrarySourceMode.ANILIST,
-            title = stringResource(Res.string.tracking_source_anilist),
-            description = stringResource(Res.string.settings_anilist_library_description),
-            enabled = anilistConnected,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.ANILIST, anilistConnected),
-        ),
-        TrackingPickerOption(
-            value = LibrarySourceMode.WETRAKR,
-            title = stringResource(Res.string.tracking_source_wetrakr),
-            description = stringResource(Res.string.settings_wetrakr_library_description),
-            enabled = wetrakrConnected,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.WETRAKR, wetrakrConnected),
-        ),
     )
 }
 
@@ -551,8 +501,6 @@ private fun watchProgressSourceOptions(
     traktConnected: Boolean,
     simklConnected: Boolean,
     mdblistConnected: Boolean,
-    anilistConnected: Boolean,
-    wetrakrConnected: Boolean,
 ): List<TrackingPickerOption<WatchProgressSource>> {
     val traktAvailable = isTrackingBrandAvailable(TrackingBrand.TRAKT, traktConnected, simklConnected)
     val simklAvailable = isTrackingBrandAvailable(TrackingBrand.SIMKL, traktConnected, simklConnected)
@@ -582,20 +530,6 @@ private fun watchProgressSourceOptions(
             description = stringResource(Res.string.settings_mdblist_progress_description),
             enabled = mdblistConnected,
             unavailableReason = trackingUnavailableReason(TrackingBrand.MDBLIST, mdblistConnected),
-        ),
-        TrackingPickerOption(
-            value = WatchProgressSource.ANILIST,
-            title = stringResource(Res.string.tracking_source_anilist),
-            description = stringResource(Res.string.settings_anilist_progress_description),
-            enabled = anilistConnected,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.ANILIST, anilistConnected),
-        ),
-        TrackingPickerOption(
-            value = WatchProgressSource.WETRAKR,
-            title = stringResource(Res.string.tracking_source_wetrakr),
-            description = stringResource(Res.string.settings_wetrakr_progress_description),
-            enabled = wetrakrConnected,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.WETRAKR, wetrakrConnected),
         ),
     )
 }
@@ -658,8 +592,6 @@ private fun librarySourceModeLabel(source: LibrarySourceMode): String = when (so
     LibrarySourceMode.LOCAL -> stringResource(Res.string.trakt_library_source_nuvio)
     LibrarySourceMode.SIMKL -> stringResource(Res.string.tracking_source_simkl)
     LibrarySourceMode.MDBLIST -> stringResource(Res.string.tracking_source_mdblist)
-    LibrarySourceMode.ANILIST -> stringResource(Res.string.tracking_source_anilist)
-    LibrarySourceMode.WETRAKR -> stringResource(Res.string.tracking_source_wetrakr)
 }
 
 @Composable
@@ -668,8 +600,6 @@ private fun watchProgressSourceLabel(source: WatchProgressSource): String = when
     WatchProgressSource.NUVIO_SYNC -> stringResource(Res.string.trakt_watch_progress_source_nuvio)
     WatchProgressSource.SIMKL -> stringResource(Res.string.tracking_source_simkl)
     WatchProgressSource.MDBLIST -> stringResource(Res.string.tracking_source_mdblist)
-    WatchProgressSource.ANILIST -> stringResource(Res.string.tracking_source_anilist)
-    WatchProgressSource.WETRAKR -> stringResource(Res.string.tracking_source_wetrakr)
 }
 
 @Composable
@@ -703,43 +633,6 @@ internal fun effectiveTrackingRecommendationsSource(
         }
     }
     return source
-}
-
-@Composable
-private fun MdbListLibraryListsSection(isTablet: Boolean) {
-    var showPicker by rememberSaveable { mutableStateOf(false) }
-    val options by remember { MdbListTracker.library.listOptions }.collectAsStateWithLifecycle(emptyList())
-    val isRefreshing by remember { MdbListTracker.library.isRefreshing }.collectAsStateWithLifecycle(false)
-
-    SettingsGroup(isTablet = isTablet) {
-        TrackingPreferenceActionRow(
-            title = stringResource(Res.string.settings_mdblist_library_lists),
-            description = stringResource(Res.string.settings_mdblist_library_lists_description),
-            value = if (options.isEmpty()) "" else stringResource(
-                Res.string.settings_mdblist_library_lists_summary,
-                options.count { it.visible },
-                options.size,
-            ),
-            isLoading = isRefreshing && options.isEmpty(),
-            isTablet = isTablet,
-            onClick = {
-                MdbListTracker.library.prepare()
-                showPicker = true
-            },
-        )
-    }
-
-    if (showPicker) {
-        MdbListLibraryListsPicker(
-            isTablet = isTablet,
-            options = options,
-            isLoading = isRefreshing,
-            onToggle = { option, onResult ->
-                MdbListTracker.library.setListVisibleAsync(option.key, !option.visible, onResult)
-            },
-            onDismiss = { showPicker = false },
-        )
-    }
 }
 
 @Composable
