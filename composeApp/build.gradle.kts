@@ -810,7 +810,12 @@ kotlin {
     }
 }
 
+// iOS simulators only exist on macOS hosts. On Linux (CI check job) `xcrun` is missing,
+// so the boot step and its dependency are skipped there.
+val isMacHost = System.getProperty("os.name").lowercase().contains("mac")
+
 val bootIosTestSimulator by tasks.registering(Exec::class) {
+    onlyIf { isMacHost }
     val device = tasks.named<KotlinNativeSimulatorTest>("iosSimulatorArm64Test").flatMap { it.device }
     commandLine("xcrun", "simctl", "boot")
     argumentProviders.add(CommandLineArgumentProvider { listOf(device.get()) })
@@ -819,7 +824,7 @@ val bootIosTestSimulator by tasks.registering(Exec::class) {
 
 tasks.withType<KotlinNativeSimulatorTest>().configureEach {
     standalone.set(false)
-    dependsOn(bootIosTestSimulator)
+    if (isMacHost) dependsOn(bootIosTestSimulator)
 }
 
 configurations.matching { it.name == "iosMainImplementation" }.configureEach {
