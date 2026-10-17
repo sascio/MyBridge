@@ -2845,7 +2845,7 @@
     <string name="whats_new_no_release_notes">No release notes were provided for this release.</string>
     <string name="whats_new_no_releases">No releases are available right now.</string>
     <string name="whats_new_unavailable">Release history unavailable</string>
-    <string name="whats_new_load_failed">Nuvio couldn&apos;t load the release history. Check your connection and try again.</string>
+    <string name="whats_new_load_failed">StreamBridge couldn&apos;t load the release history. Check your connection and try again.</string>
     <string name="whats_new_retry">Try again</string>
     <string name="whats_new_cached">Showing cached release history.</string>
     <string name="whats_new_refresh_failed_cached">Couldn&apos;t refresh release history. Showing cached data.</string>
@@ -2925,8 +2925,8 @@
     <string name="profile_edit_accessibility">Edit profile</string>
     <string name="profile_biometric_setup_title">Biometric unlock</string>
     <string name="profile_biometric_setup_failed">Biometric unlock couldn't be enabled. Your PIN is unchanged and remains available.</string>
-    <string name="profile_biometric_disable_failed">Nuvio couldn't confirm removal of the biometric unlock credential. Biometric unlock may still be enabled; try again.</string>
+    <string name="profile_biometric_disable_failed">StreamBridge couldn't confirm removal of the biometric unlock credential. Biometric unlock may still be enabled; try again.</string>
     <string name="profile_enable_biometric_for">Enable biometric unlock for %1$s</string>
     <string name="profile_disable_biometric_for">Disable biometric unlock for %1$s</string>
-    <string name="profile_pin_clear_cleanup_failed">Your profile PIN was removed from your account, but Nuvio couldn't confirm removal of all local profile-lock data. Biometric unlock or saved offline PIN data may still be present; reopen Profile Security and try again.</string>
+    <string name="profile_pin_clear_cleanup_failed">Your profile PIN was removed from your account, but StreamBridge couldn't confirm removal of all local profile-lock data. Biometric unlock or saved offline PIN data may still be present; reopen Profile Security and try again.</string>
 </resources>
