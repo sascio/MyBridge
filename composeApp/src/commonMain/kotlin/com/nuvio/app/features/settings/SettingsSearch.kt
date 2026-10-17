@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.CollectionsBookmark
+import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Hub
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -106,6 +108,7 @@ internal fun settingsSearchEntries(
     val supportersPage = stringResource(Res.string.about_us_page_title)
     val licensesPage = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val privacyPolicyPage = stringResource(Res.string.compose_settings_page_privacy_policy)
+    val whatsNewPage = stringResource(Res.string.compose_settings_page_whats_new)
     val homeLayoutPage = stringResource(Res.string.compose_settings_page_homescreen)
     val detailPage = stringResource(Res.string.compose_settings_page_meta_screen)
     val continueWatchingPage = stringResource(Res.string.compose_settings_page_continue_watching)
@@ -306,6 +309,14 @@ internal fun settingsSearchEntries(
         category = aboutCategory,
         icon = Icons.Rounded.Policy,
     )
+    addPage(
+        page = SettingsPage.WhatsNew,
+        key = "whats-new",
+        title = whatsNewPage,
+        description = stringResource(Res.string.whats_new_root_description),
+        category = aboutCategory,
+        icon = Icons.Rounded.NewReleases,
+    )
     listOf(
         PlaybackSearchRow("nuvio-license", stringResource(Res.string.settings_licenses_attributions_nuvio_title), stringResource(Res.string.settings_licenses_attributions_nuvio_license)),
         PlaybackSearchRow("tmdb-attribution", stringResource(Res.string.settings_licenses_attributions_tmdb_title), stringResource(Res.string.settings_licenses_attributions_tmdb_body)),
@@ -500,6 +511,13 @@ internal fun settingsSearchEntries(
         ),
         icon = Icons.Rounded.Extension,
     )
+    addPage(
+        page = SettingsPage.MediaServers,
+        key = "media-servers",
+        title = stringResource(Res.string.compose_settings_page_media_servers),
+        description = stringResource(Res.string.settings_content_discovery_media_servers_description),
+        icon = Icons.Rounded.Dns,
+    )
     if (pluginsEnabled) {
         addPage(
             page = SettingsPage.Plugins,
@@ -632,6 +650,11 @@ internal fun settingsSearchEntries(
                 stringResource(Res.string.settings_playback_hold_to_speed_description),
             ),
             PlaybackSearchRow(
+                "seek-preview",
+                stringResource(Res.string.settings_playback_seek_preview),
+                stringResource(Res.string.settings_playback_seek_preview_description),
+            ),
+            PlaybackSearchRow(
                 "touch-gestures",
                 stringResource(Res.string.settings_playback_touch_gestures),
                 stringResource(Res.string.settings_playback_touch_gestures_description),
@@ -699,6 +722,7 @@ internal fun settingsSearchEntries(
                 PlaybackSearchRow("decoder-priority", stringResource(Res.string.settings_playback_decoder_priority)),
                 PlaybackSearchRow("dv7-hevc", stringResource(Res.string.settings_playback_map_dv7_to_hevc), stringResource(Res.string.settings_playback_map_dv7_to_hevc_description)),
                 PlaybackSearchRow("tunneled-playback", stringResource(Res.string.settings_playback_tunneled_playback), stringResource(Res.string.settings_playback_tunneled_playback_description)),
+                PlaybackSearchRow("audio-passthrough", stringResource(Res.string.settings_playback_audio_passthrough), stringResource(Res.string.settings_playback_audio_passthrough_description)),
             ),
         )
         addPlaybackRows(

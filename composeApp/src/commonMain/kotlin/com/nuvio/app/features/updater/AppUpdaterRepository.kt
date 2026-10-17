@@ -18,6 +18,7 @@ internal data class GitHubReleaseDto(
     val draft: Boolean = false,
     val prerelease: Boolean = false,
     @SerialName("html_url") val htmlUrl: String? = null,
+    @SerialName("published_at") val publishedAt: String? = null,
     val assets: List<GitHubAssetDto> = emptyList(),
 )
 

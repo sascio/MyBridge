@@ -46,6 +46,8 @@ data class PlayerLaunch(
     val initialPositionMs: Long = 0L,
     val initialProgressFraction: Float? = null,
     val contentLanguage: String? = null,
+    val sourceFilename: String? = null,
+    val stream: com.nuvio.app.features.streams.StreamItem? = null,
 )
 
 object PlayerLaunchStore {
@@ -219,6 +221,7 @@ internal data class PlaybackKey(
     val videoId: String?,
     val seasonNumber: Int?,
     val episodeNumber: Int?,
+    val playbackEngine: AndroidPlaybackEngine? = null,
 )
 
 data class PlayerPlaybackSnapshot(
@@ -232,6 +235,14 @@ data class PlayerPlaybackSnapshot(
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
     val mediaInfoJson: String = "{}",
+    val chapters: List<PlayerChapter> = emptyList(),
+    val castAvailable: Boolean = false,
+    val castDeviceName: String? = null,
+)
+
+data class PlayerChapter(
+    val title: String,
+    val startMs: Long,
 )
 
 data class PlayerNowPlayingInfo(

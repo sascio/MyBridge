@@ -28,10 +28,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import com.nuvio.app.features.ratings.UserRatingSheet
@@ -41,16 +41,12 @@ import com.nuvio.app.features.ratings.rememberCanRate
 import com.nuvio.app.features.ratings.rememberUserRating
 import com.nuvio.app.features.ratings.seasonUserRatingTarget
 import com.nuvio.app.features.ratings.userRatingTarget
-import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
@@ -104,8 +100,7 @@ import com.nuvio.app.core.ui.rememberHeroStretchState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
-import com.nuvio.app.features.details.components.DetailActionButtons
-import com.nuvio.app.features.details.components.DetailSecondaryAction
+import com.nuvio.app.features.details.components.DetailActions
 import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
 import com.nuvio.app.features.details.components.DetailCastSection
@@ -116,9 +111,15 @@ import com.nuvio.app.features.details.components.DetailMetaInfo
 import com.nuvio.app.features.details.components.DetailPosterRailSection
 import com.nuvio.app.features.details.components.DetailProductionSection
 import com.nuvio.app.features.details.components.DetailSeriesContent
+import com.nuvio.app.features.details.components.EpisodeNavigatorState
+import com.nuvio.app.features.details.components.detailEpisodeListItems
+import com.nuvio.app.features.details.components.rememberEpisodeNavigatorState
 import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
+import com.nuvio.app.features.details.components.TabletDetailBackdrop
+import com.nuvio.app.features.details.components.TabletDetailHero
+import com.nuvio.app.features.details.components.TabletDetailHeroActions
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
@@ -163,8 +164,7 @@ import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
-import com.kmpalette.rememberDominantColorState
-import com.kmpalette.extensions.painter.rememberPainterDominantColorState
+import com.nuvio.app.core.ui.rememberArtworkDominantColor
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -621,6 +621,13 @@ fun MetaDetailsScreen(
                     meta.type.lowercase() in setOf("series", "tv", "show", "tvshow") &&
                     (shuffleSettings.enabled || hasShuffleEpisodes)
                 val saveShuffle = rememberShuffleSave(meta.id, shuffleProfileId, shuffleSettings)
+                val onShuffleClick: (() -> Unit)? = if (showShuffleButton) {
+                    {
+                        if (shuffleSettings.enabled) saveShuffle(shuffleSettings.copy(enabled = false)) else showShuffle = true
+                    }
+                } else {
+                    null
+                }
                 val seriesAction = remember(watchProgressUiState.entries, watchedUiState.items, meta, todayIsoDate, cwPrefs.upNextFromFurthestEpisode, watchedUiState.watchedKeys, shuffleSettings, shuffleVisit, shuffleProfileId) {
                     if (shuffleSettings.enabled) meta.shufflePrimaryAction(
                         profileId = shuffleProfileId,
@@ -917,7 +924,6 @@ fun MetaDetailsScreen(
                 val onDownloadClick: (() -> Unit)? = if (showDownloadButton && downloadHandler != null) {
                     {
                         stopHeroTrailerForNavigation()
-                        // Same target as Play, but the stream list opens in download mode.
                         if ((meta.type == "series" || hasEpisodes) && seriesAction != null) {
                             downloadHandler(
                                 meta.type,
@@ -1094,6 +1100,7 @@ fun MetaDetailsScreen(
                     )
                 }
                 val listState = rememberLazyListState()
+                val episodeNavigator = rememberEpisodeNavigatorState(meta.id)
                 val heroStretchState = rememberHeroStretchState(listState)
                 val density = LocalDensity.current
                 val safeAreaTopPx = with(density) {
@@ -1132,48 +1139,21 @@ fun MetaDetailsScreen(
 
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val colorScheme = MaterialTheme.colorScheme
-                    val isTablet = maxWidth >= 720.dp
+                    val useTabletLayout = minOf(maxWidth, maxHeight) >= 600.dp
+                    val isTablet = useTabletLayout || maxWidth >= 720.dp
+                    val tabletViewportHeight = maxHeight
+                    val isTabletLandscape = maxWidth > maxHeight
                     val contentHorizontalPadding = if (isTablet) 32.dp else 18.dp
                     val contentMaxWidth = detailTabletContentMaxWidth(maxWidth, isTablet)
                     val backdropUrl = meta.background ?: meta.poster
                     val backgroundMode = metaScreenSettingsUiState.backgroundMode
                     val dominantColorEnabled = backgroundMode == MetaScreenBackgroundMode.DominantColor &&
-                        deferredMetaWorkAllowed &&
                         !backdropUrl.isNullOrBlank()
-                    var dominantBackdropPainter by remember(meta.id, backdropUrl) {
-                        mutableStateOf<Painter?>(null)
-                    }
-                    var dominantBackdropImageBitmap by remember(meta.id, backdropUrl) {
-                        mutableStateOf<ImageBitmap?>(null)
-                    }
-                    val dominantImageBitmapColorState = rememberDominantColorState(
-                        defaultColor = colorScheme.background,
-                        defaultOnColor = colorScheme.onBackground,
+                    val extractedDominantColor = rememberArtworkDominantColor(
+                        url = backdropUrl,
+                        enabled = dominantColorEnabled,
                     )
-                    val dominantPainterColorState = rememberPainterDominantColorState(
-                        defaultColor = colorScheme.background,
-                        defaultOnColor = colorScheme.onBackground,
-                    )
-                    LaunchedEffect(dominantColorEnabled, dominantBackdropImageBitmap, dominantBackdropPainter) {
-                        val imageBitmap = dominantBackdropImageBitmap
-                        val painter = dominantBackdropPainter
-                        if (dominantColorEnabled) {
-                            when {
-                                imageBitmap != null -> runCatching {
-                                    dominantImageBitmapColorState.updateFrom(imageBitmap)
-                                }
-                                painter != null -> runCatching {
-                                    dominantPainterColorState.updateFrom(painter)
-                                }
-                            }
-                        }
-                    }
-                    val extractedDominantColor = if (dominantBackdropImageBitmap != null) {
-                        dominantImageBitmapColorState.color
-                    } else {
-                        dominantPainterColorState.color
-                    }
-                    val dominantBackdropTargetColor = if (dominantColorEnabled) {
+                    val dominantBackdropTargetColor = if (dominantColorEnabled && extractedDominantColor != null) {
                         dominantBackdropBlendColor(extractedDominantColor, colorScheme.background)
                     } else {
                         colorScheme.background
@@ -1186,10 +1166,46 @@ fun MetaDetailsScreen(
                         ),
                         label = "detail_dominant_backdrop_color",
                     )
+                    val heroGradientColor = dominantBackdropColor.takeIf { dominantColorEnabled }
+                    val heroTrailerPlayWhenReady = {
+                        heroTrailerSourceUrl != null &&
+                            selectedTrailer == null &&
+                            !isLeavingDetails &&
+                            !isHeroCollapsed.value
+                    }
+                    val onBackdropLoaded: (Painter, ImageBitmap?) -> Unit = { _, _ -> }
+                    val onHeroTrailerReady: () -> Unit = {
+                        if (!heroTrailerFinished) {
+                            heroTrailerReady = true
+                        }
+                    }
+                    val onHeroTrailerFinished: () -> Unit = {
+                        heroTrailerReady = false
+                        heroTrailerFinished = true
+                    }
+                    val isSectionEnabled = { key: MetaScreenSectionKey ->
+                        metaScreenSettingsUiState.items.any { it.key == key && it.enabled }
+                    }
 
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(Modifier.fillMaxSize().detailsContentReveal(metaScreenSettingsUiState.posterTransitionEnabled)) {
-                            when (backgroundMode) {
+                            if (useTabletLayout) {
+                                TabletDetailBackdrop(
+                                    meta = meta,
+                                    cinematic = backgroundMode == MetaScreenBackgroundMode.Cinematic,
+                                    scrollOffsetPx = detailScrollOffsetPx,
+                                    heroHeightPx = { heroHeightPx.intValue },
+                                    heroTrailerSourceUrl = heroTrailerSourceUrl,
+                                    heroTrailerSourceAudioUrl = heroTrailerSourceAudioUrl,
+                                    heroTrailerReady = heroTrailerReady,
+                                    heroTrailerPlayWhenReady = heroTrailerPlayWhenReady,
+                                    heroTrailerMuted = heroTrailerMuted,
+                                    heroGradientColor = heroGradientColor,
+                                    onBackdropLoaded = onBackdropLoaded,
+                                    onHeroTrailerReady = onHeroTrailerReady,
+                                    onHeroTrailerFinished = onHeroTrailerFinished,
+                                )
+                            } else when (backgroundMode) {
                                 MetaScreenBackgroundMode.Normal -> Unit
                                 MetaScreenBackgroundMode.Cinematic -> if (deferredMetaWorkAllowed && backdropUrl != null) {
                                     AsyncImage(
@@ -1206,7 +1222,7 @@ fun MetaDetailsScreen(
                                             .background(colorScheme.background.copy(alpha = 0.92f)),
                                     )
                                 }
-                                MetaScreenBackgroundMode.DominantColor -> if (deferredMetaWorkAllowed) {
+                                MetaScreenBackgroundMode.DominantColor -> {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
@@ -1222,54 +1238,81 @@ fun MetaDetailsScreen(
                                     .zIndex(1f),
                             ) {
                                 item(key = "detail-hero") {
-                                    DetailHero(
-                                        meta = meta,
-                                        isTablet = isTablet,
-                                        contentMaxWidth = contentMaxWidth,
-                                        scrollOffset = heroScrollOffset,
-                                        stretchPx = { heroStretchState.stretchPx },
-                                        onHeightChanged = { heroHeightPx.intValue = it },
-                                        heroTrailerSourceUrl = heroTrailerSourceUrl,
-                                        heroTrailerSourceAudioUrl = heroTrailerSourceAudioUrl,
-                                        heroTrailerReady = heroTrailerReady,
-                                        heroTrailerPlayWhenReady = {
-                                            heroTrailerSourceUrl != null &&
-                                                selectedTrailer == null &&
-                                                !isLeavingDetails &&
-                                                !isHeroCollapsed.value
-                                        },
-                                        heroTrailerMuted = heroTrailerMuted,
-                                        heroGradientColor = dominantBackdropColor.takeIf { dominantColorEnabled },
-                                        onBackdropLoaded = { painter, imageBitmap ->
-                                            dominantBackdropPainter = painter
-                                            dominantBackdropImageBitmap = imageBitmap
-                                        },
-                                        onHeroTrailerMuteToggle = {
-                                            HeroTrailerAudioState.toggleMuted(HeroTrailerSurface.Details)
-                                        },
-                                        onHeroTrailerReady = {
-                                            if (!heroTrailerFinished) {
-                                                heroTrailerReady = true
-                                            }
-                                        },
-                                        onHeroTrailerEnded = {
-                                            heroTrailerReady = false
-                                            heroTrailerFinished = true
-                                        },
-                                        onHeroTrailerError = {
-                                            heroTrailerReady = false
-                                            heroTrailerFinished = true
-                                        },
-                                    )
+                                    if (useTabletLayout) {
+                                        TabletDetailHero(
+                                            meta = meta,
+                                            showOverview = isSectionEnabled(MetaScreenSectionKey.OVERVIEW),
+                                            showOverallRatings = metaScreenSettingsUiState.showOverallRatings,
+                                            isMdbListActive = mdbListSettings.isActive,
+                                            horizontalPadding = contentHorizontalPadding,
+                                            viewportHeight = tabletViewportHeight,
+                                            heroTrailerSourceUrl = heroTrailerSourceUrl,
+                                            heroTrailerReady = heroTrailerReady,
+                                            heroTrailerMuted = heroTrailerMuted,
+                                            onHeroTrailerMuteToggle = { HeroTrailerAudioState.toggleMuted(HeroTrailerSurface.Details) },
+                                            onHeightChanged = { heroHeightPx.intValue = it },
+                                            actions = if (isSectionEnabled(MetaScreenSectionKey.ACTIONS)) {
+                                                {
+                                                    TabletDetailHeroActions(
+                                                        playLabel = playButtonLabel,
+                                                        playEnabled = isPrimaryPlayEnabled,
+                                                        isSaved = isSaved,
+                                                        isWatched = isWatched,
+                                                        shuffleEnabled = shuffleSettings.enabled,
+                                                        landscape = isTabletLandscape,
+                                                        onPlayClick = onPrimaryPlayClick,
+                                                        onPlayLongClick = if (showManualPlayOption) onPrimaryPlayLongClick else null,
+                                                        onShuffleClick = onShuffleClick,
+                                                        onWatchedClick = toggleWatched,
+                                                        onSaveClick = toggleSaved,
+                                                        onSaveLongClick = openLibraryListPicker,
+                                                        onDownloadClick = onDownloadClick,
+                                                        onPlayFromStartClick = onPlayFromStartClick,
+                                                        onPlayExternallyClick = onPlayExternallyClick,
+                                                        userRating = titleUserRating,
+                                                        onRateClick = openTitleRating,
+                                                    )
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                        )
+                                    } else {
+                                        DetailHero(
+                                            meta = meta,
+                                            isTablet = isTablet,
+                                            contentMaxWidth = contentMaxWidth,
+                                            scrollOffset = heroScrollOffset,
+                                            stretchPx = { heroStretchState.stretchPx },
+                                            onHeightChanged = { heroHeightPx.intValue = it },
+                                            heroTrailerSourceUrl = heroTrailerSourceUrl,
+                                            heroTrailerSourceAudioUrl = heroTrailerSourceAudioUrl,
+                                            heroTrailerReady = heroTrailerReady,
+                                            heroTrailerPlayWhenReady = heroTrailerPlayWhenReady,
+                                            heroTrailerMuted = heroTrailerMuted,
+                                            heroGradientColor = heroGradientColor,
+                                            onBackdropLoaded = onBackdropLoaded,
+                                            onHeroTrailerMuteToggle = { HeroTrailerAudioState.toggleMuted(HeroTrailerSurface.Details) },
+                                            onHeroTrailerReady = onHeroTrailerReady,
+                                            onHeroTrailerEnded = onHeroTrailerFinished,
+                                            onHeroTrailerError = onHeroTrailerFinished,
+                                        )
+                                    }
                                 }
 
                                 configuredMetaSectionItems(
-                                    settings = metaScreenSettingsUiState,
+                                    settings = if (useTabletLayout) {
+                                        metaScreenSettingsUiState.copy(
+                                            items = metaScreenSettingsUiState.items.filterNot { it.key in tabletHeroSectionKeys },
+                                        )
+                                    } else {
+                                        metaScreenSettingsUiState
+                                    },
                                     isMdbListActive = mdbListSettings.isActive,
                                     meta = meta,
                                     isTablet = isTablet,
                                     contentHorizontalPadding = contentHorizontalPadding,
-                                    contentMaxWidth = if (isTablet) contentMaxWidth else Dp.Unspecified,
+                                    contentMaxWidth = if (isTablet && !useTabletLayout) contentMaxWidth else Dp.Unspecified,
                                     playButtonLabel = playButtonLabel,
                                     isPrimaryPlayEnabled = isPrimaryPlayEnabled,
                                     isSaved = isSaved,
@@ -1278,9 +1321,7 @@ fun MetaDetailsScreen(
                                     onDownloadClick = onDownloadClick,
                                     onPlayFromStartClick = onPlayFromStartClick,
                                     onPlayExternallyClick = onPlayExternallyClick,
-                                    onShuffleClick = if (showShuffleButton) ({
-                                        if (shuffleSettings.enabled) saveShuffle(shuffleSettings.copy(enabled = false)) else showShuffle = true
-                                    }) else null,
+                                    onShuffleClick = onShuffleClick,
                                     shuffleEnabled = shuffleSettings.enabled,
                                     onPrimaryPlayLongClick = onPrimaryPlayLongClick,
                                     onSaveClick = toggleSaved,
@@ -1352,6 +1393,10 @@ fun MetaDetailsScreen(
                                     onCompanyClick = onCompanyClick,
                                     sharedTransitionScope = sharedTransitionScope,
                                     animatedVisibilityScope = animatedVisibilityScope,
+                                    episodeNavigator = episodeNavigator,
+                                    listState = listState,
+                                    leadingItemCount = 1,
+                                    stickyBackground = heroGradientColor ?: colorScheme.background,
                                 )
 
                                 item(key = "detail-bottom-spacer") {
@@ -1359,7 +1404,7 @@ fun MetaDetailsScreen(
                                 }
                             }
 
-                            if (backgroundMode.usesBackdropBackground && deferredMetaWorkAllowed && heroHeightPx.intValue > 0) {
+                            if (!useTabletLayout && backgroundMode.usesBackdropBackground && deferredMetaWorkAllowed && heroHeightPx.intValue > 0) {
                                 val blendColor = dominantBackdropColor.takeIf { dominantColorEnabled }
                                     ?: colorScheme.background
                                 Box(
@@ -1952,7 +1997,6 @@ private fun DetailHeaderOverlay(
     )
 }
 
-/** Lets the previous bottom sheet finish dismissing before the rating sheet is presented. */
 private const val RATING_SHEET_OPEN_DELAY_MS = 350L
 
 @Composable
@@ -2068,8 +2112,13 @@ private fun LazyListScope.configuredMetaSectionItems(
     onCompanyClick: ((MetaCompany, String) -> Unit)?,
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
+    episodeNavigator: EpisodeNavigatorState? = null,
+    listState: LazyListState? = null,
+    leadingItemCount: Int = 0,
+    stickyBackground: Color = Color.Unspecified,
 ) {
     val enabledItems = settings.items.filter { it.enabled }
+    var emittedItemCount = 0
     fun sectionHasContent(key: MetaScreenSectionKey): Boolean =
         metaSectionHasContent(
             key = key,
@@ -2091,6 +2140,7 @@ private fun LazyListScope.configuredMetaSectionItems(
         sectionItems: List<MetaScreenSectionItem>,
         forceTabLayout: Boolean = settings.tabLayout,
     ) {
+        emittedItemCount += 1
         item(key = key) {
             DetailSectionContainer(
                 horizontalPadding = contentHorizontalPadding,
@@ -2159,10 +2209,36 @@ private fun LazyListScope.configuredMetaSectionItems(
         }
     }
 
+    fun addLazyEpisodeItems(): Boolean {
+        if (!hasEpisodes || settings.episodeCardStyle != MetaEpisodeCardStyle.List) return false
+        val navigator = episodeNavigator ?: return false
+        val state = listState ?: return false
+        val emitted = detailEpisodeListItems(
+            meta = meta,
+            navigator = navigator,
+            listState = state,
+            firstItemIndex = leadingItemCount + emittedItemCount,
+            horizontalPadding = contentHorizontalPadding,
+            contentMaxWidth = contentMaxWidth,
+            stickyBackground = stickyBackground,
+            preferredSeasonNumber = preferredEpisodeSeasonNumber,
+            progressByVideoId = progressByVideoId,
+            watchedKeys = watchedKeys,
+            episodeRatingsVisibility = settings.episodeRatingsVisibility,
+            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+            onEpisodeClick = onEpisodeClick,
+            onEpisodeLongPress = onEpisodeLongPress,
+            onSeasonLongPress = onSeasonLongPress,
+        )
+        emittedItemCount += emitted
+        return emitted > 0
+    }
+
     if (!settings.tabLayout) {
         enabledItems
             .filter { sectionHasContent(it.key) }
             .forEach { section ->
+                if (section.key == MetaScreenSectionKey.EPISODES && addLazyEpisodeItems()) return@forEach
                 addSectionItem(
                     key = "detail-section-${section.key.name}",
                     sectionItems = listOf(section),
@@ -2174,9 +2250,10 @@ private fun LazyListScope.configuredMetaSectionItems(
 
     val processedGroups = mutableSetOf<Int>()
     enabledItems.forEach { section ->
-        val groupId = section.tabGroup
+        val groupId = section.tabGroupForRendering(settings.episodeCardStyle)
         if (groupId == null) {
-            if (sectionHasContent(section.key)) {
+            if (section.key == MetaScreenSectionKey.EPISODES && sectionHasContent(section.key) && addLazyEpisodeItems()) {
+            } else if (sectionHasContent(section.key)) {
                 addSectionItem(
                     key = "detail-section-${section.key.name}",
                     sectionItems = listOf(section),
@@ -2186,7 +2263,7 @@ private fun LazyListScope.configuredMetaSectionItems(
         } else if (groupId !in processedGroups) {
             processedGroups.add(groupId)
             val groupMembers = enabledItems.filter { item ->
-                item.tabGroup == groupId && sectionHasContent(item.key)
+                item.tabGroupForRendering(settings.episodeCardStyle) == groupId && sectionHasContent(item.key)
             }
             if (groupMembers.isNotEmpty()) {
                 addSectionItem(
@@ -2335,99 +2412,23 @@ private fun ConfiguredMetaSections(
     fun RenderSection(key: MetaScreenSectionKey, showHeader: Boolean = true) {
         when (key) {
             MetaScreenSectionKey.ACTIONS -> {
-                val shuffleAction = onShuffleClick?.let { onClick ->
-                    DetailSecondaryAction(
-                        label = stringResource(if (shuffleEnabled) Res.string.shuffle_stop else Res.string.random_episode_title),
-                        icon = Icons.Default.Shuffle,
-                        isActive = shuffleEnabled,
-                        onClick = onClick,
-                    )
-                }
-                val iconActions = buildList {
-                    onDownloadClick?.let { download ->
-                        add(DetailSecondaryAction(
-                            label = stringResource(Res.string.details_download_action),
-                            icon = Icons.Rounded.Download,
-                            onClick = download,
-                        ))
-                    }
-                    onPlayFromStartClick?.let { playFromStart ->
-                        add(DetailSecondaryAction(
-                            label = stringResource(Res.string.details_action_start_from_beginning),
-                            icon = Icons.Rounded.Replay,
-                            onClick = playFromStart,
-                        ))
-                    }
-                    shuffleAction?.let(::add)
-                    onPlayExternallyClick?.let { playExternally ->
-                        add(DetailSecondaryAction(
-                            label = stringResource(Res.string.streams_open_external_player),
-                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                            onClick = playExternally,
-                        ))
-                    }
-                    add(DetailSecondaryAction(
-                        label = if (isWatched) {
-                            stringResource(Res.string.hero_mark_unwatched)
-                        } else {
-                            stringResource(Res.string.hero_mark_watched)
-                        },
-                        icon = if (isWatched) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                        isActive = isWatched,
-                        onClick = onWatchedClick,
-                    ))
-                    add(DetailSecondaryAction(
-                        label = if (isSaved) {
-                            stringResource(Res.string.hero_remove_from_library)
-                        } else {
-                            stringResource(Res.string.hero_add_to_library)
-                        },
-                        icon = Icons.Default.Add,
-                        drawable = Res.drawable.sidebar_library.takeIf { isSaved },
-                        isActive = isSaved,
-                        onClick = onSaveClick,
-                        onLongClick = onSaveLongClick,
-                    ))
-                }
-                DetailActionButtons(
-                    playLabel = if (isPrimaryPlayEnabled) playButtonLabel else stringResource(Res.string.playback_unavailable),
+                DetailActions(
+                    playLabel = playButtonLabel,
                     playEnabled = isPrimaryPlayEnabled,
-                    pinnedAction = shuffleAction?.takeIf { shuffleEnabled },
-                    iconActionRow = settings.iconActionRow,
-                    iconActions = iconActions,
-                    secondaryActions = buildList {
-                        if (!shuffleEnabled) shuffleAction?.let(::add)
-                        add(DetailSecondaryAction(
-                            label = if (isWatched) {
-                                stringResource(Res.string.hero_mark_unwatched)
-                            } else {
-                                stringResource(Res.string.hero_mark_watched)
-                            },
-                            icon = if (isWatched) {
-                                Icons.Default.Visibility
-                            } else {
-                                Icons.Default.VisibilityOff
-                            },
-                            isActive = isWatched,
-                            onClick = onWatchedClick,
-                        ))
-                        add(DetailSecondaryAction(
-                            label = if (isSaved) {
-                                stringResource(Res.string.hero_remove_from_library)
-                            } else {
-                                stringResource(Res.string.hero_add_to_library)
-                            },
-                            icon = Icons.Default.Add,
-                            drawable = Res.drawable.sidebar_library.takeIf { isSaved },
-                            isActive = isSaved,
-                            onClick = onSaveClick,
-                            onLongClick = onSaveLongClick,
-                        ))
-                    },
+                    isSaved = isSaved,
+                    isWatched = isWatched,
                     isTablet = isTablet,
+                    shuffleEnabled = shuffleEnabled,
                     onPlayClick = onPrimaryPlayClick,
-                    onDownloadClick = onDownloadClick.takeIf { !settings.iconActionRow },
+                    onDownloadClick = onDownloadClick,
                     onPlayLongClick = if (showManualPlayOption) onPrimaryPlayLongClick else null,
+                    onShuffleClick = onShuffleClick,
+                    onWatchedClick = onWatchedClick,
+                    onSaveClick = onSaveClick,
+                    onSaveLongClick = onSaveLongClick,
+                    onPlayFromStartClick = onPlayFromStartClick,
+                    onPlayExternallyClick = onPlayExternallyClick,
+                    iconActionRow = settings.iconActionRow,
                     userRating = userRating,
                     onRateClick = onRateClick,
                 )
@@ -2546,25 +2547,20 @@ private fun ConfiguredMetaSections(
     }
 
     if (!settings.tabLayout) {
-        // Standard mode: render sections individually in order
         enabledItems.forEach { section -> RenderSection(section.key) }
     } else {
-        // Tab layout mode: group sections by tabGroup, render grouped ones as tabs
         val processedGroups = mutableSetOf<Int>()
 
         enabledItems.forEach { section ->
             val groupId = section.tabGroup
             if (groupId == null) {
-                // Standalone section
                 RenderSection(section.key)
             } else if (groupId !in processedGroups) {
-                // First encounter of this group — render the whole tabbed group
                 processedGroups.add(groupId)
                 val groupMembers = enabledItems
                     .filter { it.tabGroup == groupId && sectionHasContent(it.key) }
                 if (groupMembers.isEmpty()) return@forEach
                 if (groupMembers.size == 1) {
-                    // Only one member with content — render standalone
                     RenderSection(groupMembers.first().key)
                 } else {
                     TabbedSectionGroup(
@@ -2574,7 +2570,6 @@ private fun ConfiguredMetaSections(
                     }
                 }
             }
-            // else: already processed as part of group, skip
         }
     }
 }
@@ -2596,7 +2591,6 @@ private fun TabbedSectionGroup(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Tab row using the same style as DetailSectionTitle
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val titleSize = if (maxWidth >= 720.dp) 22.sp else 20.sp
             val headerStyle = MaterialTheme.typography.titleLarge.copy(
@@ -2634,7 +2628,6 @@ private fun TabbedSectionGroup(
             }
         }
 
-        // Content with crossfade
         Crossfade(
             targetState = tabs[selectedIndex].first,
             animationSpec = tween(durationMillis = 200),
@@ -2644,6 +2637,11 @@ private fun TabbedSectionGroup(
         }
     }
 }
+
+private val tabletHeroSectionKeys = setOf(
+    MetaScreenSectionKey.ACTIONS,
+    MetaScreenSectionKey.OVERVIEW,
+)
 
 private fun detailTabletContentMaxWidth(maxWidth: Dp, isTablet: Boolean): Dp =
     if (!isTablet) {

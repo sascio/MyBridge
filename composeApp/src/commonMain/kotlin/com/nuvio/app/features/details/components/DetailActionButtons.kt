@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -58,8 +60,22 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_download_action
 import nuvio.composeapp.generated.resources.details_actions_menu_label
+import nuvio.composeapp.generated.resources.hero_add_to_library
+import nuvio.composeapp.generated.resources.hero_mark_unwatched
+import nuvio.composeapp.generated.resources.hero_mark_watched
+import nuvio.composeapp.generated.resources.hero_remove_from_library
+import nuvio.composeapp.generated.resources.playback_unavailable
+import nuvio.composeapp.generated.resources.random_episode_title
+import nuvio.composeapp.generated.resources.shuffle_stop
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.rounded.Replay
+import nuvio.composeapp.generated.resources.details_action_start_from_beginning
+import nuvio.composeapp.generated.resources.sidebar_library
+import nuvio.composeapp.generated.resources.streams_open_external_player
 import org.jetbrains.compose.resources.stringResource
 
 data class DetailSecondaryAction(
@@ -121,37 +137,12 @@ fun DetailActionButtons(
                 modifier = Modifier.fillMaxWidth(),
             )
             if (iconActions.isNotEmpty()) {
-                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                    val layout = fitIconActionRow(
-                        count = iconActions.size,
-                        availableWidth = maxWidth,
-                        preferredSize = iconButtonSize,
-                        preferredSpacing = if (isTablet) 20.dp else 16.dp,
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (layout.fits) Modifier else Modifier.horizontalScroll(rememberScrollState())),
-                        horizontalArrangement = Arrangement.spacedBy(
-                            space = layout.spacing,
-                            alignment = Alignment.CenterHorizontally,
-                        ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        iconActions.forEach { action ->
-                            DetailIconAction(
-                                label = action.label,
-                                icon = action.icon,
-                                drawable = action.drawable,
-                                active = action.isActive,
-                                progress = 1f,
-                                size = layout.size,
-                                onClick = action.onClick,
-                                onLongClick = action.onLongClick,
-                            )
-                        }
-                    }
-                }
+                DetailIconActionRow(
+                    actions = iconActions,
+                    preferredSize = iconButtonSize,
+                    preferredSpacing = if (isTablet) 20.dp else 16.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             onRateClick?.let { rate ->
                 UserRatingStars(
@@ -324,6 +315,295 @@ fun DetailActionButtons(
                 onClick = rate,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
+        }
+    }
+}
+
+// Upstream's single entry point for the detail actions (phone sections and the tablet hero).
+// Fork additions: download / play from start / external player in the icon row, the icon-row
+// layout itself, the user rating stars, and the fork's watched/library icons.
+@Composable
+fun DetailActions(
+    playLabel: String,
+    playEnabled: Boolean,
+    isSaved: Boolean,
+    isWatched: Boolean,
+    isTablet: Boolean,
+    shuffleEnabled: Boolean,
+    onPlayClick: () -> Unit,
+    onPlayLongClick: (() -> Unit)?,
+    onShuffleClick: (() -> Unit)?,
+    onWatchedClick: () -> Unit,
+    onSaveClick: () -> Unit,
+    onSaveLongClick: (() -> Unit)?,
+    onDownloadClick: (() -> Unit)? = null,
+    onPlayFromStartClick: (() -> Unit)? = null,
+    onPlayExternallyClick: (() -> Unit)? = null,
+    iconActionRow: Boolean = false,
+    userRating: Int? = null,
+    onRateClick: (() -> Unit)? = null,
+) {
+    val actionSet = detailActionSet(
+        isSaved = isSaved,
+        isWatched = isWatched,
+        shuffleEnabled = shuffleEnabled,
+        onShuffleClick = onShuffleClick,
+        onWatchedClick = onWatchedClick,
+        onSaveClick = onSaveClick,
+        onSaveLongClick = onSaveLongClick,
+        onDownloadClick = onDownloadClick,
+        onPlayFromStartClick = onPlayFromStartClick,
+        onPlayExternallyClick = onPlayExternallyClick,
+    )
+    val shuffleAction = actionSet.shuffle
+    val watchedAction = actionSet.watched
+    val saveAction = actionSet.save
+    val iconActions = actionSet.icons
+    DetailActionButtons(
+        playLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable),
+        playEnabled = playEnabled,
+        pinnedAction = shuffleAction?.takeIf { shuffleEnabled },
+        iconActionRow = iconActionRow,
+        iconActions = iconActions,
+        secondaryActions = buildList {
+            if (!shuffleEnabled) shuffleAction?.let(::add)
+            add(watchedAction)
+            add(saveAction)
+        },
+        isTablet = isTablet,
+        onPlayClick = onPlayClick,
+        onDownloadClick = onDownloadClick.takeIf { !iconActionRow },
+        onPlayLongClick = onPlayLongClick,
+        userRating = userRating,
+        onRateClick = onRateClick,
+    )
+}
+
+private class DetailActionSet(
+    val shuffle: DetailSecondaryAction?,
+    val watched: DetailSecondaryAction,
+    val save: DetailSecondaryAction,
+    val icons: List<DetailSecondaryAction>,
+)
+
+@Composable
+private fun detailActionSet(
+    isSaved: Boolean,
+    isWatched: Boolean,
+    shuffleEnabled: Boolean,
+    onShuffleClick: (() -> Unit)?,
+    onWatchedClick: () -> Unit,
+    onSaveClick: () -> Unit,
+    onSaveLongClick: (() -> Unit)?,
+    onDownloadClick: (() -> Unit)?,
+    onPlayFromStartClick: (() -> Unit)?,
+    onPlayExternallyClick: (() -> Unit)?,
+): DetailActionSet {
+    val shuffleAction = onShuffleClick?.let { onClick ->
+        DetailSecondaryAction(
+            label = stringResource(if (shuffleEnabled) Res.string.shuffle_stop else Res.string.random_episode_title),
+            icon = Icons.Default.Shuffle,
+            isActive = shuffleEnabled,
+            onClick = onClick,
+        )
+    }
+    val watchedAction = DetailSecondaryAction(
+        label = stringResource(if (isWatched) Res.string.hero_mark_unwatched else Res.string.hero_mark_watched),
+        icon = if (isWatched) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+        isActive = isWatched,
+        onClick = onWatchedClick,
+    )
+    val saveAction = DetailSecondaryAction(
+        label = stringResource(if (isSaved) Res.string.hero_remove_from_library else Res.string.hero_add_to_library),
+        icon = Icons.Default.Add,
+        drawable = Res.drawable.sidebar_library.takeIf { isSaved },
+        isActive = isSaved,
+        onClick = onSaveClick,
+        onLongClick = onSaveLongClick,
+    )
+    val downloadLabel = stringResource(Res.string.details_download_action)
+    val playFromStartLabel = stringResource(Res.string.details_action_start_from_beginning)
+    val externalLabel = stringResource(Res.string.streams_open_external_player)
+    val iconActions = buildList {
+        onDownloadClick?.let { download ->
+            add(DetailSecondaryAction(label = downloadLabel, icon = Icons.Rounded.Download, onClick = download))
+        }
+        onPlayFromStartClick?.let { playFromStart ->
+            add(DetailSecondaryAction(label = playFromStartLabel, icon = Icons.Rounded.Replay, onClick = playFromStart))
+        }
+        shuffleAction?.let(::add)
+        onPlayExternallyClick?.let { playExternally ->
+            add(
+                DetailSecondaryAction(
+                    label = externalLabel,
+                    icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                    onClick = playExternally,
+                ),
+            )
+        }
+        add(watchedAction)
+        add(saveAction)
+    }
+    return DetailActionSet(shuffleAction, watchedAction, saveAction, iconActions)
+}
+
+@Composable
+fun TabletDetailHeroActions(
+    playLabel: String,
+    playEnabled: Boolean,
+    isSaved: Boolean,
+    isWatched: Boolean,
+    shuffleEnabled: Boolean,
+    landscape: Boolean,
+    onPlayClick: () -> Unit,
+    onPlayLongClick: (() -> Unit)?,
+    onShuffleClick: (() -> Unit)?,
+    onWatchedClick: () -> Unit,
+    onSaveClick: () -> Unit,
+    onSaveLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    onDownloadClick: (() -> Unit)? = null,
+    onPlayFromStartClick: (() -> Unit)? = null,
+    onPlayExternallyClick: (() -> Unit)? = null,
+    userRating: Int? = null,
+    onRateClick: (() -> Unit)? = null,
+) {
+    val actionSet = detailActionSet(
+        isSaved = isSaved,
+        isWatched = isWatched,
+        shuffleEnabled = shuffleEnabled,
+        onShuffleClick = onShuffleClick,
+        onWatchedClick = onWatchedClick,
+        onSaveClick = onSaveClick,
+        onSaveLongClick = onSaveLongClick,
+        onDownloadClick = onDownloadClick,
+        onPlayFromStartClick = onPlayFromStartClick,
+        onPlayExternallyClick = onPlayExternallyClick,
+    )
+    val playPainter = appIconPainter(AppIconResource.PlayerPlay)
+    val buttonHeight = 56.dp
+    val playShape = RoundedCornerShape(40.dp)
+    val resolvedPlayLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable)
+
+    if (landscape) {
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(TabletHeroActionGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PlayButton(
+                playLabel = resolvedPlayLabel,
+                playEnabled = playEnabled,
+                playPainter = playPainter,
+                playShape = playShape,
+                buttonHeight = buttonHeight,
+                isTablet = true,
+                onPlayClick = onPlayClick,
+                onPlayLongClick = onPlayLongClick,
+                modifier = Modifier.weight(1f),
+            )
+            if (onRateClick != null) {
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    UserRatingStars(rating = userRating, onClick = onRateClick, starSize = TabletRatingStarSize)
+                }
+                DetailIconActionRow(
+                    actions = actionSet.icons,
+                    preferredSize = buttonHeight,
+                    preferredSpacing = 16.dp,
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                DetailIconActionRow(
+                    actions = actionSet.icons,
+                    preferredSize = buttonHeight,
+                    preferredSpacing = 16.dp,
+                    horizontalAlignment = Alignment.Start,
+                    modifier = Modifier.weight(2f),
+                )
+            }
+        }
+    } else {
+        Column(
+            modifier = modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            PlayButton(
+                playLabel = resolvedPlayLabel,
+                playEnabled = playEnabled,
+                playPainter = playPainter,
+                playShape = playShape,
+                buttonHeight = buttonHeight,
+                isTablet = true,
+                onPlayClick = onPlayClick,
+                onPlayLongClick = onPlayLongClick,
+                modifier = Modifier
+                    .widthIn(max = TabletPortraitActionsMaxWidth)
+                    .fillMaxWidth(),
+            )
+            DetailIconActionRow(
+                actions = actionSet.icons,
+                preferredSize = buttonHeight,
+                preferredSpacing = 20.dp,
+                modifier = Modifier
+                    .widthIn(max = TabletPortraitActionsMaxWidth)
+                    .fillMaxWidth(),
+            )
+            onRateClick?.let { rate ->
+                UserRatingStars(rating = userRating, onClick = rate, starSize = TabletRatingStarSize)
+            }
+        }
+    }
+}
+
+private val TabletHeroActionGap = 24.dp
+private val TabletPortraitActionsMaxWidth = 520.dp
+private val TabletRatingStarSize = 34.dp
+
+@Composable
+private fun DetailIconActionRow(
+    actions: List<DetailSecondaryAction>,
+    preferredSize: Dp,
+    preferredSpacing: Dp,
+    modifier: Modifier = Modifier,
+    horizontalAlignment: Alignment.Horizontal = Alignment.CenterHorizontally,
+) {
+    if (actions.isEmpty()) {
+        Spacer(modifier = modifier)
+        return
+    }
+    BoxWithConstraints(modifier = modifier) {
+        val layout = fitIconActionRow(
+            count = actions.size,
+            availableWidth = maxWidth,
+            preferredSize = preferredSize,
+            preferredSpacing = preferredSpacing,
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (layout.fits) Modifier else Modifier.horizontalScroll(rememberScrollState())),
+            horizontalArrangement = Arrangement.spacedBy(
+                space = layout.spacing,
+                alignment = horizontalAlignment,
+            ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            actions.forEach { action ->
+                DetailIconAction(
+                    label = action.label,
+                    icon = action.icon,
+                    drawable = action.drawable,
+                    active = action.isActive,
+                    progress = 1f,
+                    size = layout.size,
+                    onClick = action.onClick,
+                    onLongClick = action.onLongClick,
+                )
+            }
         }
     }
 }

@@ -11,9 +11,12 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.NewReleases
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.People
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -60,11 +63,13 @@ import nuvio.composeapp.generated.resources.compose_settings_root_advanced_descr
 import nuvio.composeapp.generated.resources.compose_settings_root_advanced_section
 import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
 import nuvio.composeapp.generated.resources.compose_settings_page_tracking
+import nuvio.composeapp.generated.resources.compose_settings_page_whats_new
 import nuvio.composeapp.generated.resources.settings_playback_subtitle
 import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
 import nuvio.composeapp.generated.resources.about_licenses_attributions_subtitle
 import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description_streambridge
+import nuvio.composeapp.generated.resources.whats_new_root_description
 import org.jetbrains.compose.resources.stringResource
 
 internal fun LazyListScope.settingsRootContent(
@@ -79,10 +84,12 @@ internal fun LazyListScope.settingsRootContent(
     onSupportersContributorsClick: () -> Unit,
     onLicensesAttributionsClick: () -> Unit,
     onPrivacyPolicyClick: () -> Unit,
+    onWhatsNewClick: () -> Unit,
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onAccountClick: () -> Unit,
     onSwitchProfileClick: (() -> Unit)? = null,
+    onWatchPartyClick: (() -> Unit)? = null,
     showAccountSection: Boolean = true,
     showGeneralSection: Boolean = true,
     showAboutSection: Boolean = true,
@@ -113,6 +120,16 @@ internal fun LazyListScope.settingsRootContent(
                         isTablet = isTablet,
                         onClick = onAccountClick,
                     )
+                    if (onWatchPartyClick != null) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.party_title),
+                            description = stringResource(Res.string.party_settings_description),
+                            icon = Icons.Rounded.Groups,
+                            isTablet = isTablet,
+                            onClick = onWatchPartyClick,
+                        )
+                    }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_tracking),
@@ -192,6 +209,14 @@ internal fun LazyListScope.settingsRootContent(
                         )
                         SettingsGroupDivider(isTablet = isTablet)
                     }
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_settings_page_whats_new),
+                        description = stringResource(Res.string.whats_new_root_description),
+                        icon = Icons.Rounded.NewReleases,
+                        isTablet = isTablet,
+                        onClick = onWhatsNewClick,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_privacy_policy),
                         description = stringResource(Res.string.compose_settings_root_privacy_policy_description_streambridge),

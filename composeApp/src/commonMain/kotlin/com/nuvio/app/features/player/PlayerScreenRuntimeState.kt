@@ -23,6 +23,7 @@ import com.nuvio.app.features.watched.WatchedUiState
 import com.nuvio.app.features.watchprogress.WatchProgressUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlin.time.TimeMark
 
 internal class PlayerScreenRuntime(
     args: PlayerScreenArgs,
@@ -122,6 +123,7 @@ internal class PlayerScreenRuntime(
     var activeTorrentInfoHash by mutableStateOf(torrentInfoHash)
     var activeTorrentFileIdx by mutableStateOf(torrentFileIdx)
     var activeTorrentFilename by mutableStateOf(torrentFilename)
+    var activeSourceFilename by mutableStateOf(args.sourceFilename ?: torrentFilename)
     var activeTorrentTrackers by mutableStateOf(torrentTrackers)
     var p2pResolvedSourceUrl by mutableStateOf<String?>(null)
     var activeSourceIdentityKey by mutableStateOf(
@@ -134,6 +136,7 @@ internal class PlayerScreenRuntime(
     var activeProviderName by mutableStateOf(providerName)
     var activeProviderAddonId by mutableStateOf(providerAddonId)
     var activeLogo by mutableStateOf(logo)
+    var activeStream by mutableStateOf(args.stream)
     var currentStreamBingeGroup by mutableStateOf(initialBingeGroup)
     var activeSeasonNumber by mutableStateOf(seasonNumber)
     var activeEpisodeNumber by mutableStateOf(episodeNumber)
@@ -152,6 +155,7 @@ internal class PlayerScreenRuntime(
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)
     var isScrubbingTimeline by mutableStateOf(false)
+    var isTouchingTimeline by mutableStateOf(false)
     var scrubbingPositionMs by mutableStateOf<Long?>(null)
     var pausedOverlayVisible by mutableStateOf(false)
     var gestureFeedback by mutableStateOf<GestureFeedbackState?>(null)
@@ -163,6 +167,7 @@ internal class PlayerScreenRuntime(
     var seekProgressSyncJob by mutableStateOf<Job?>(null)
     var accumulatedSeekState by mutableStateOf<PlayerAccumulatedSeekState?>(null)
     var initialLoadCompleted by mutableStateOf(false)
+    var isMiniPresentation by mutableStateOf(false)
     var speedBoostRestoreSpeed by mutableStateOf<Float?>(null)
     var isHoldToSpeedGestureActive by mutableStateOf(false)
     var initialSeekApplied by mutableStateOf(
@@ -178,7 +183,9 @@ internal class PlayerScreenRuntime(
 
     var showSourcesPanel by mutableStateOf(false)
     var showQualityPanel by mutableStateOf(false)
+    var showSpeedPanel by mutableStateOf(false)
     var showEpisodesPanel by mutableStateOf(false)
+    var showChaptersPanel by mutableStateOf(false)
     var showLiveChannelsPanel by mutableStateOf(false)
     var showSubmitIntroModal by mutableStateOf(false)
     var submitIntroSegmentType by mutableStateOf("intro")
@@ -201,12 +208,15 @@ internal class PlayerScreenRuntime(
     var nextEpisodeCardDismissed by mutableStateOf(false)
     var showMovieRecommendationCard by mutableStateOf(false)
     var movieRecommendationDismissedStage by mutableStateOf(0)
+    var movieRecommendationStage by mutableStateOf(0)
     val isMoviePlayback: Boolean get() = parentMetaType == "movie" && !isLiveTvPlayback
     var nextEpisodeAutoPlaySearching by mutableStateOf(false)
     var nextEpisodeAutoPlaySourceName by mutableStateOf<String?>(null)
     var nextEpisodeAutoPlayCountdown by mutableStateOf<Int?>(null)
     var nextEpisodeAutoPlayJob by mutableStateOf<Job?>(null)
     var nextEpisodeAutoPlayAutomatic by mutableStateOf(false)
+    var nextEpisodePreloadJob by mutableStateOf<Job?>(null)
+    var nextEpisodePreloadTriggered by mutableStateOf(false)
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
@@ -216,7 +226,22 @@ internal class PlayerScreenRuntime(
     var showVideoSettingsModal by mutableStateOf(false)
     var showStreamInfoModal by mutableStateOf(false)
     var showUserRatingSheet by mutableStateOf(false)
+    var showStreamInfo by mutableStateOf(false)
+    var showPartyPanel by mutableStateOf(false)
+    var partyBehind by mutableStateOf(false)
+    var partyBehindMs by mutableStateOf<Long?>(null)
+    var partyRateNudge: Float? = null
+    var partyPreviousKey: String? = null
+    var partyAppInBackground = false
+    var playbackSnapshotMark: TimeMark? = null
+    var pendingSeekTarget: Pair<Long, TimeMark>? = null
+    var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
+    var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
+    var serverAudioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
+    var serverSubtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
+    var serverTrackSwitchJob by mutableStateOf<Job?>(null)
+    var serverAudioPreferenceKey: String? = null
     var subtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
     var selectedAudioIndex by mutableStateOf(-1)
     var selectedSubtitleIndex by mutableStateOf(-1)
@@ -246,10 +271,13 @@ internal class PlayerScreenRuntime(
             showSubtitleModal ||
             showVideoSettingsModal ||
             showStreamInfoModal ||
+            showStreamInfo ||
             showUserRatingSheet ||
             showSourcesPanel ||
             showQualityPanel ||
+            showSpeedPanel ||
             showEpisodesPanel ||
+            showChaptersPanel ||
             showLiveChannelsPanel ||
             showSubmitIntroModal ||
             showParentalGuide ||

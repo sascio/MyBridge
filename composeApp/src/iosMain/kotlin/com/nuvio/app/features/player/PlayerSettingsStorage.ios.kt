@@ -29,6 +29,7 @@ actual object PlayerSettingsStorage {
     private const val holdToSpeedValueKey = "hold_to_speed_value"
     private const val touchGesturesEnabledKey = "touch_gestures_enabled"
     private const val swipeToSeekEnabledKey = "swipe_to_seek_enabled"
+    private const val seekPreviewEnabledKey = "seek_preview_enabled"
     private const val movieRecommendationsEnabledKey = "movie_recommendations_enabled"
     private const val autoShowSubtitlesOnRewindEnabledKey = "auto_show_subtitles_on_rewind_enabled"
     private const val autoShowSubtitlesOnMuteEnabledKey = "auto_show_subtitles_on_mute_enabled"
@@ -60,6 +61,7 @@ actual object PlayerSettingsStorage {
     private const val decoderPriorityKey = "decoder_priority"
     private const val mapDV7ToHevcKey = "map_dv7_to_hevc"
     private const val tunnelingEnabledKey = "tunneling_enabled"
+    private const val androidAudioPassthroughEnabledKey = "android_audio_passthrough_enabled"
     private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlaySourceKey = "stream_auto_play_source"
     private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
@@ -81,6 +83,9 @@ actual object PlayerSettingsStorage {
     private const val nextEpisodeThresholdModeKey = "next_episode_threshold_mode"
     private const val nextEpisodeThresholdPercentKey = "next_episode_threshold_percent_v2"
     private const val nextEpisodeThresholdMinutesBeforeEndKey = "next_episode_threshold_minutes_before_end_v2"
+    private const val preloadNextEpisodeSourcesKey = "preload_next_episode_sources"
+    private const val miniPlayerEnabledKey = "mini_player_enabled"
+    private const val privateViewingEnabledKey = "private_viewing_enabled"
     private const val useLibassKey = "use_libass"
     private const val libassRenderTypeKey = "libass_render_type"
     private const val iosVideoOutputPresetKey = "ios_video_output_preset"
@@ -154,6 +159,8 @@ actual object PlayerSettingsStorage {
         nextEpisodeThresholdModeKey,
         nextEpisodeThresholdPercentKey,
         nextEpisodeThresholdMinutesBeforeEndKey,
+        preloadNextEpisodeSourcesKey,
+        miniPlayerEnabledKey,
         useLibassKey,
         libassRenderTypeKey,
         iosVideoOutputPresetKey,
@@ -323,6 +330,12 @@ actual object PlayerSettingsStorage {
 
     actual fun saveSwipeToSeekEnabled(enabled: Boolean) {
         saveBoolean(swipeToSeekEnabledKey, enabled)
+    }
+
+    actual fun loadSeekPreviewEnabled(): Boolean? = loadBoolean(seekPreviewEnabledKey)
+
+    actual fun saveSeekPreviewEnabled(enabled: Boolean) {
+        saveBoolean(seekPreviewEnabledKey, enabled)
     }
 
     actual fun loadMovieRecommendationsEnabled(): Boolean? = loadBoolean(movieRecommendationsEnabledKey)
@@ -639,6 +652,20 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setInteger(priority.toLong(), forKey = ProfileScopedKey.of(decoderPriorityKey))
     }
 
+    actual fun loadAndroidAudioPassthroughEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(androidAudioPassthroughEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveAndroidAudioPassthroughEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(androidAudioPassthroughEnabledKey))
+    }
+
     actual fun loadMapDV7ToHevc(): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(mapDV7ToHevcKey)
@@ -923,6 +950,23 @@ actual object PlayerSettingsStorage {
     actual fun saveNextEpisodeThresholdMinutesBeforeEnd(minutes: Float) {
         NSUserDefaults.standardUserDefaults.setFloat(minutes, forKey = ProfileScopedKey.of(nextEpisodeThresholdMinutesBeforeEndKey))
     }
+    actual fun loadPreloadNextEpisodeSources(): Boolean? = loadBoolean(preloadNextEpisodeSourcesKey)
+
+    actual fun savePreloadNextEpisodeSources(enabled: Boolean) {
+        saveBoolean(preloadNextEpisodeSourcesKey, enabled)
+    }
+
+    actual fun loadMiniPlayerEnabled(): Boolean? = loadBoolean(miniPlayerEnabledKey)
+
+    actual fun saveMiniPlayerEnabled(enabled: Boolean) {
+        saveBoolean(miniPlayerEnabledKey, enabled)
+    }
+
+    actual fun loadPrivateViewingEnabled(): Boolean? = loadBoolean(privateViewingEnabledKey)
+
+    actual fun savePrivateViewingEnabled(enabled: Boolean) {
+        saveBoolean(privateViewingEnabledKey, enabled)
+    }
 
     actual fun loadUseLibass(): Boolean? = null
 
@@ -931,6 +975,50 @@ actual object PlayerSettingsStorage {
     actual fun loadLibassRenderType(): String? = null
 
     actual fun saveLibassRenderType(renderType: String) {}
+
+    actual fun loadExoNativeMemoryEnabled(): Boolean? = null
+
+    actual fun saveExoNativeMemoryEnabled(value: Boolean) {}
+
+    actual fun loadCustomPlaybackBuffersEnabled(): Boolean? = null
+
+    actual fun saveCustomPlaybackBuffersEnabled(value: Boolean) {}
+
+    actual fun loadVodDiskCacheEnabled(): Boolean? = null
+
+    actual fun saveVodDiskCacheEnabled(value: Boolean) {}
+
+    actual fun loadVodDiskCacheAutoSize(): Boolean? = null
+
+    actual fun saveVodDiskCacheAutoSize(value: Boolean) {}
+
+    actual fun loadPlaybackMinBufferSeconds(): Int? = null
+
+    actual fun savePlaybackMinBufferSeconds(value: Int) {}
+
+    actual fun loadPlaybackMaxBufferSeconds(): Int? = null
+
+    actual fun savePlaybackMaxBufferSeconds(value: Int) {}
+
+    actual fun loadPlaybackStartBufferSeconds(): Int? = null
+
+    actual fun savePlaybackStartBufferSeconds(value: Int) {}
+
+    actual fun loadPlaybackRebufferSeconds(): Int? = null
+
+    actual fun savePlaybackRebufferSeconds(value: Int) {}
+
+    actual fun loadPlaybackBackBufferSeconds(): Int? = null
+
+    actual fun savePlaybackBackBufferSeconds(value: Int) {}
+
+    actual fun loadPlaybackTargetBufferMb(): Int? = null
+
+    actual fun savePlaybackTargetBufferMb(value: Int) {}
+
+    actual fun loadVodDiskCacheSizeMb(): Int? = null
+
+    actual fun saveVodDiskCacheSizeMb(value: Int) {}
 
     actual fun loadIosVideoOutputPreset(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(iosVideoOutputPresetKey))
@@ -1094,6 +1182,8 @@ actual object PlayerSettingsStorage {
         loadNextEpisodeThresholdMode()?.let { put(nextEpisodeThresholdModeKey, encodeSyncString(it)) }
         loadNextEpisodeThresholdPercent()?.let { put(nextEpisodeThresholdPercentKey, encodeSyncFloat(it)) }
         loadNextEpisodeThresholdMinutesBeforeEnd()?.let { put(nextEpisodeThresholdMinutesBeforeEndKey, encodeSyncFloat(it)) }
+        loadPreloadNextEpisodeSources()?.let { put(preloadNextEpisodeSourcesKey, encodeSyncBoolean(it)) }
+        loadMiniPlayerEnabled()?.let { put(miniPlayerEnabledKey, encodeSyncBoolean(it)) }
         loadUseLibass()?.let { put(useLibassKey, encodeSyncBoolean(it)) }
         loadLibassRenderType()?.let { put(libassRenderTypeKey, encodeSyncString(it)) }
         loadIosVideoOutputPreset()?.let { put(iosVideoOutputPresetKey, encodeSyncString(it)) }
@@ -1178,6 +1268,8 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncString(nextEpisodeThresholdModeKey)?.let(::saveNextEpisodeThresholdMode)
         payload.decodeSyncFloat(nextEpisodeThresholdPercentKey)?.let(::saveNextEpisodeThresholdPercent)
         payload.decodeSyncFloat(nextEpisodeThresholdMinutesBeforeEndKey)?.let(::saveNextEpisodeThresholdMinutesBeforeEnd)
+        payload.decodeSyncBoolean(preloadNextEpisodeSourcesKey)?.let(::savePreloadNextEpisodeSources)
+        payload.decodeSyncBoolean(miniPlayerEnabledKey)?.let(::saveMiniPlayerEnabled)
         payload.decodeSyncBoolean(useLibassKey)?.let(::saveUseLibass)
         payload.decodeSyncString(libassRenderTypeKey)?.let(::saveLibassRenderType)
         payload.decodeSyncString(iosVideoOutputPresetKey)?.let(::saveIosVideoOutputPreset)

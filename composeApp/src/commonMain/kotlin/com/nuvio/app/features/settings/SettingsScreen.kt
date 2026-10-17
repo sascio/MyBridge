@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.whatsnew.WhatsNewSettingsScreen
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
@@ -75,6 +76,7 @@ import com.nuvio.app.features.home.buildAddonCatalogRefreshSignature
 import com.nuvio.app.features.livetv.LiveTvRepository
 import com.nuvio.app.features.mdblist.MdbListSettings
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
+import com.nuvio.app.features.mdblist.MdbListTracker
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsUiState
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -93,6 +95,7 @@ import com.nuvio.app.features.details.OmdbSettingsRepository
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesUiState
+import com.nuvio.app.features.party.PartyRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_page_root
 import kotlinx.coroutines.delay
@@ -105,6 +108,12 @@ import org.jetbrains.compose.resources.stringResource
 private val SettingsSearchRevealThreshold = 28.dp
 private const val SettingsSearchRevealAnimationMillis = 240L
 private const val SettingsSearchRevealHapticDelayMillis = 90L
+
+@Composable
+private fun watchPartyRow(onClick: () -> Unit): (() -> Unit)? {
+    val available by PartyRepository.available.collectAsStateWithLifecycle()
+    return onClick.takeIf { available }
+}
 
 private fun SettingsPage.isEnabledByPolicy(): Boolean =
     when (this) {
@@ -147,9 +156,11 @@ fun SettingsScreen(
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onPrivacyPolicyClick: () -> Unit = {},
+    onWhatsNewClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
+    onWatchPartyClick: () -> Unit = {},
 ) {
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
@@ -215,6 +226,10 @@ fun SettingsScreen(
         val traktCommentsEnabled by remember {
             TraktCommentsSettings.ensureLoaded()
             TraktCommentsSettings.enabled
+        }.collectAsStateWithLifecycle()
+        val mdbListConnected by remember {
+            MdbListTracker.ensureLoaded()
+            MdbListTracker.isAuthenticated
         }.collectAsStateWithLifecycle()
         val trackingSettingsUiState by remember {
             TrackingSettingsRepository.ensureLoaded()
@@ -366,6 +381,11 @@ fun SettingsScreen(
         } else {
             onPrivacyPolicyClick
         }
+        val openWhatsNew = if (onNavigatePage != null) {
+            { openPage(SettingsPage.WhatsNew) }
+        } else {
+            onWhatsNewClick
+        }
 
         LaunchedEffect(page, currentPage) {
             if (page.name != currentPage) {
@@ -458,6 +478,7 @@ fun SettingsScreen(
                         traktAuthUiState = traktAuthUiState,
                         simklAuthUiState = simklAuthUiState,
                         traktCommentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         trackingSettingsUiState = trackingSettingsUiState,
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
@@ -477,9 +498,11 @@ fun SettingsScreen(
                         onSupportersContributorsClick = openSupportersContributors,
                         onLicensesAttributionsClick = openLicensesAttributions,
                         onPrivacyPolicyClick = openPrivacyPolicy,
+                        onWhatsNewClick = openWhatsNew,
                         onCheckForUpdatesClick = onCheckForUpdatesClick,
                         onTestUpdateBannerClick = onTestUpdateBannerClick,
                         onCollectionsClick = onCollectionsClick,
+                        onWatchPartyClick = onWatchPartyClick,
                     )
                 } else {
                     MobileSettingsScreen(
@@ -535,6 +558,7 @@ fun SettingsScreen(
                         traktAuthUiState = traktAuthUiState,
                         simklAuthUiState = simklAuthUiState,
                         traktCommentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         trackingSettingsUiState = trackingSettingsUiState,
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
@@ -562,9 +586,11 @@ fun SettingsScreen(
                         onSupportersContributorsClick = openSupportersContributors,
                         onLicensesAttributionsClick = openLicensesAttributions,
                         onPrivacyPolicyClick = openPrivacyPolicy,
+                        onWhatsNewClick = openWhatsNew,
                         onCheckForUpdatesClick = onCheckForUpdatesClick,
                         onTestUpdateBannerClick = onTestUpdateBannerClick,
                         onCollectionsClick = onCollectionsClick,
+                        onWatchPartyClick = onWatchPartyClick,
                     )
                 }
             }
@@ -626,6 +652,7 @@ private fun MobileSettingsScreen(
     traktAuthUiState: TraktAuthUiState,
     simklAuthUiState: SimklAuthUiState,
     traktCommentsEnabled: Boolean,
+    mdbListConnected: Boolean,
     trackingSettingsUiState: TrackingSettingsUiState,
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
@@ -653,12 +680,17 @@ private fun MobileSettingsScreen(
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onPrivacyPolicyClick: () -> Unit = {},
+    onWhatsNewClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
+    onWatchPartyClick: () -> Unit = {},
 ) {
     val saveableStateHolder = rememberSaveableStateHolder()
     saveableStateHolder.SaveableStateProvider(page.name) {
+        if (page == SettingsPage.WhatsNew) {
+            WhatsNewSettingsScreen(onBack = onNavigateBack)
+        } else {
         var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
         var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
         var rootSearchRevealAnimating by rememberSaveable { mutableStateOf(false) }
@@ -692,6 +724,7 @@ private fun MobileSettingsScreen(
                     }
                     SettingsPage.LicensesAttributions -> onLicensesAttributionsClick()
                     SettingsPage.PrivacyPolicy -> onPrivacyPolicyClick()
+                    SettingsPage.WhatsNew -> onWhatsNewClick()
                     SettingsPage.ContinueWatching -> onContinueWatchingClick()
                     SettingsPage.Addons -> onAddonsClick()
                     SettingsPage.Plugins -> {
@@ -724,6 +757,7 @@ private fun MobileSettingsScreen(
             }
         }
 
+        val watchPartyRowClick = watchPartyRow(onWatchPartyClick)
         val profileDrawsOwnChrome = page == SettingsPage.Profile && showInternalHeader && !LocalUseNativeNavigation.current
         ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
         NuvioScreen(
@@ -780,6 +814,7 @@ private fun MobileSettingsScreen(
                             onSupportersContributorsClick = onSupportersContributorsClick,
                             onLicensesAttributionsClick = onLicensesAttributionsClick,
                             onPrivacyPolicyClick = onPrivacyPolicyClick,
+                            onWhatsNewClick = onWhatsNewClick,
                             onCheckForUpdatesClick = onCheckForUpdatesClick,
                             onTestUpdateBannerClick = onTestUpdateBannerClick,
                             onAccountClick = onAccountClick,
@@ -788,6 +823,7 @@ private fun MobileSettingsScreen(
                             } else {
                                 null
                             },
+                            onWatchPartyClick = watchPartyRowClick,
                             showSupportersContributorsPage = AppFeaturePolicy.supportersContributorsPageEnabled,
                         )
                     }
@@ -813,6 +849,7 @@ private fun MobileSettingsScreen(
                 SettingsPage.PrivacyPolicy -> privacyPolicyContent(
                     isTablet = false,
                 )
+                SettingsPage.WhatsNew -> Unit
                 SettingsPage.Playback -> playbackSettingsContent(
                     isTablet = false,
                     showLoadingOverlay = showLoadingOverlay,
@@ -834,9 +871,7 @@ private fun MobileSettingsScreen(
                     tunnelingEnabled = tunnelingEnabled,
                     useLibass = useLibass,
                     libassRenderType = libassRenderType,
-                ).also {
-                    experimentalPictureInPictureSettingsContent()
-                }
+                )
                 SettingsPage.Streams -> streamsSettingsContent(
                     isTablet = false,
                 )
@@ -903,8 +938,17 @@ private fun MobileSettingsScreen(
                     onAddonsClick = onAddonsClick,
                     onPluginsClick = onPluginsClick,
                     onCloudStreamClick = onCloudStreamClick,
+                    onMediaServersClick = { onPageChange(SettingsPage.MediaServers) },
                 )
                 SettingsPage.Addons -> addonsSettingsContent()
+                SettingsPage.MediaServers -> mediaServersSettingsContent(
+                    isTablet = false,
+                    onServerClick = { onPageChange(SettingsPage.MediaServer) },
+                )
+                SettingsPage.MediaServer -> mediaServerSettingsContent(
+                    isTablet = false,
+                    onBack = onNavigateBack,
+                )
                 SettingsPage.Plugins -> if (AppFeaturePolicy.pluginsEnabled) pluginsSettingsContent() else addonsSettingsContent()
                 SettingsPage.CloudStream -> cloudStreamSettingsContent()
                 SettingsPage.Homescreen -> homescreenSettingsContent(
@@ -941,6 +985,7 @@ private fun MobileSettingsScreen(
                     simklUiState = simklAuthUiState,
                     settingsUiState = trackingSettingsUiState,
                     commentsEnabled = traktCommentsEnabled,
+                    mdbListConnected = mdbListConnected,
                     onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                 )
                 SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
@@ -962,6 +1007,7 @@ private fun MobileSettingsScreen(
             }
         }
         }
+    }
     }
 }
 
@@ -1061,6 +1107,7 @@ private fun TabletSettingsScreen(
     traktAuthUiState: TraktAuthUiState,
     simklAuthUiState: SimklAuthUiState,
     traktCommentsEnabled: Boolean,
+    mdbListConnected: Boolean,
     trackingSettingsUiState: TrackingSettingsUiState,
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
@@ -1080,9 +1127,11 @@ private fun TabletSettingsScreen(
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onPrivacyPolicyClick: () -> Unit = {},
+    onWhatsNewClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
+    onWatchPartyClick: () -> Unit = {},
 ) {
     var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.General.name) }
     val activeCategory = SettingsCategory.valueOf(selectedCategory)
@@ -1144,6 +1193,9 @@ private fun TabletSettingsScreen(
         }
 
         saveableStateHolder.SaveableStateProvider(page.name) {
+            if (page == SettingsPage.WhatsNew) {
+                WhatsNewSettingsScreen(onBack = onNavigateBack)
+            } else {
             var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
             var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
             var rootSearchRevealAnimating by rememberSaveable { mutableStateOf(false) }
@@ -1191,6 +1243,7 @@ private fun TabletSettingsScreen(
                     listState.animateScrollToItem(0)
                 }
             }
+            val watchPartyRowClick = watchPartyRow(onWatchPartyClick)
             ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
             LazyColumn(
                 state = listState,
@@ -1258,6 +1311,7 @@ private fun TabletSettingsScreen(
                                 onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
                                 onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
                                 onPrivacyPolicyClick = { openInlinePage(SettingsPage.PrivacyPolicy) },
+                                onWhatsNewClick = { openInlinePage(SettingsPage.WhatsNew) },
                                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                                 onAccountClick = { openInlinePage(SettingsPage.Account) },
@@ -1266,6 +1320,7 @@ private fun TabletSettingsScreen(
                                 } else {
                                     null
                                 },
+                                onWatchPartyClick = watchPartyRowClick,
                                 showAccountSection = activeCategory == SettingsCategory.Account,
                                 showGeneralSection = activeCategory == SettingsCategory.General,
                                 showAboutSection = activeCategory == SettingsCategory.About,
@@ -1294,6 +1349,7 @@ private fun TabletSettingsScreen(
                     SettingsPage.PrivacyPolicy -> privacyPolicyContent(
                         isTablet = true,
                     )
+                    SettingsPage.WhatsNew -> Unit
                     SettingsPage.Playback -> playbackSettingsContent(
                         isTablet = true,
                         showLoadingOverlay = showLoadingOverlay,
@@ -1315,9 +1371,7 @@ private fun TabletSettingsScreen(
                         tunnelingEnabled = tunnelingEnabled,
                         useLibass = useLibass,
                         libassRenderType = libassRenderType,
-                    ).also {
-                        experimentalPictureInPictureSettingsContent()
-                    }
+                    )
                     SettingsPage.Streams -> streamsSettingsContent(
                         isTablet = true,
                     )
@@ -1384,8 +1438,17 @@ private fun TabletSettingsScreen(
                         onAddonsClick = { openInlinePage(SettingsPage.Addons) },
                         onPluginsClick = { openInlinePage(SettingsPage.Plugins) },
                         onCloudStreamClick = { openInlinePage(SettingsPage.CloudStream) },
+                        onMediaServersClick = { openInlinePage(SettingsPage.MediaServers) },
                     )
                     SettingsPage.Addons -> addonsSettingsContent()
+                    SettingsPage.MediaServers -> mediaServersSettingsContent(
+                        isTablet = true,
+                        onServerClick = { openInlinePage(SettingsPage.MediaServer) },
+                    )
+                    SettingsPage.MediaServer -> mediaServerSettingsContent(
+                        isTablet = true,
+                        onBack = onNavigateBack,
+                    )
                     SettingsPage.Plugins -> if (AppFeaturePolicy.pluginsEnabled) pluginsSettingsContent() else addonsSettingsContent()
                     SettingsPage.CloudStream -> cloudStreamSettingsContent()
                     SettingsPage.Homescreen -> homescreenSettingsContent(
@@ -1422,6 +1485,7 @@ private fun TabletSettingsScreen(
                         simklUiState = simklAuthUiState,
                         settingsUiState = trackingSettingsUiState,
                         commentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                     )
                     SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
@@ -1443,6 +1507,7 @@ private fun TabletSettingsScreen(
                 }
             }
             }
+        }
         }
     }
 }

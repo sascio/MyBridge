@@ -62,6 +62,8 @@ import com.nuvio.app.features.player.IosHardwareDecoderMode
 import com.nuvio.app.features.player.localizedLabel
 import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
+import com.nuvio.app.features.player.PlaybackMemoryInfo
+import com.nuvio.app.features.player.safeBufferLimitMb
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
@@ -88,6 +90,7 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.foundation.layout.height
@@ -272,6 +275,25 @@ internal fun SettingsSliderRow(
 }
 
 @Composable
+private fun PlaybackSettingsNote(
+    text: String,
+    color: Color,
+    isTablet: Boolean,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = if (isTablet) 20.dp else 16.dp,
+                vertical = 8.dp,
+            ),
+    )
+}
+
+@Composable
 private fun subtitleColorLabel(color: Color): String {
     return if (color.alpha == 0f) {
         stringResource(Res.string.settings_playback_subtitle_color_transparent)
@@ -411,6 +433,25 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setMovieRecommendationsEnabled,
                 )
+                if (!isIos) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_mini_player),
+                        description = stringResource(Res.string.settings_playback_mini_player_description),
+                        checked = autoPlayPlayerSettings.miniPlayerEnabled,
+                        enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setMiniPlayerEnabled,
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_private_viewing),
+                    description = stringResource(Res.string.settings_playback_private_viewing_description),
+                    checked = autoPlayPlayerSettings.privateViewingEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPrivateViewingEnabled,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Player preference picker: Internal / External
                 SettingsNavigationRow(
@@ -455,6 +496,15 @@ private fun PlaybackSettingsSection(
                         onCheckedChange = PlayerSettingsRepository::setExternalPlayerSendSkipSegments,
                     )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_seek_preview),
+                    description = stringResource(Res.string.settings_playback_seek_preview_description),
+                    checked = autoPlayPlayerSettings.seekPreviewEnabled,
+                    enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setSeekPreviewEnabled,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_touch_gestures),
@@ -552,6 +602,14 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onClick = { showSecondarySubtitleDialog = true },
                 )
+                if (!isIos) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    AutoSyncPlaybackSettingsRows( // AutoSync hook
+                        isTablet = isTablet,
+                        enabled = otherSubtitleOptionsEnabled && androidPlaybackEngine != AndroidPlaybackEngine.Libmpv,
+                        preferredSubtitleLanguage = preferredSubtitleLanguage,
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_subtitle_strip_sdh),
@@ -1017,6 +1075,155 @@ private fun PlaybackSettingsSection(
                         isTablet = isTablet,
                         onCheckedChange = PlayerSettingsRepository::setTunnelingEnabled,
                     )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_audio_passthrough),
+                        description = stringResource(Res.string.settings_playback_audio_passthrough_description),
+                        checked = autoPlayPlayerSettings.androidAudioPassthroughEnabled,
+                        enabled = exoOptionsEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setAndroidAudioPassthroughEnabled,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_exo_native_memory),
+                        description = stringResource(Res.string.settings_playback_exo_native_memory_description),
+                        checked = autoPlayPlayerSettings.exoNativeMemoryEnabled,
+                        enabled = exoOptionsEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setExoNativeMemoryEnabled,
+                    )
+                    val safeBufferLimitMb = remember { PlaybackMemoryInfo.safeBufferLimitMb() }
+                    val targetBufferLimitMb = remember(autoPlayPlayerSettings.exoNativeMemoryEnabled) {
+                        val limit = if (autoPlayPlayerSettings.exoNativeMemoryEnabled) {
+                            safeBufferLimitMb
+                        } else {
+                            minOf(safeBufferLimitMb, PlaybackMemoryInfo.javaHeapBufferLimitMb())
+                        }
+                        (limit / 50 * 50).coerceAtLeast(100)
+                    }
+                    PlaybackSettingsNote(
+                        text = stringResource(
+                            Res.string.settings_playback_exo_native_memory_info,
+                            ceil(PlaybackMemoryInfo.deviceMemoryMb() / 1024.0).toInt().toString(),
+                            safeBufferLimitMb.toString(),
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        isTablet = isTablet,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_custom_buffers),
+                        description = stringResource(Res.string.settings_playback_custom_buffers_description),
+                        checked = autoPlayPlayerSettings.customPlaybackBuffersEnabled,
+                        enabled = exoOptionsEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setCustomPlaybackBuffersEnabled,
+                    )
+                    if (autoPlayPlayerSettings.customPlaybackBuffersEnabled) {
+                        PlaybackSettingsNote(
+                            text = stringResource(Res.string.settings_playback_custom_buffers_warning),
+                            color = MaterialTheme.colorScheme.error,
+                            isTablet = isTablet,
+                        )
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.settings_playback_min_buffer),
+                            value = autoPlayPlayerSettings.playbackMinBufferSeconds,
+                            valueText = "${autoPlayPlayerSettings.playbackMinBufferSeconds}s",
+                            valueRange = 5..1200,
+                            step = 5,
+                            isTablet = isTablet,
+                            enabled = exoOptionsEnabled,
+                            onValueChange = PlayerSettingsRepository::setPlaybackMinBufferSeconds,
+                        )
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.settings_playback_max_buffer),
+                            value = autoPlayPlayerSettings.playbackMaxBufferSeconds,
+                            valueText = "${autoPlayPlayerSettings.playbackMaxBufferSeconds}s",
+                            valueRange = 5..1200,
+                            step = 5,
+                            isTablet = isTablet,
+                            enabled = exoOptionsEnabled,
+                            onValueChange = PlayerSettingsRepository::setPlaybackMaxBufferSeconds,
+                        )
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.settings_playback_start_buffer),
+                            value = autoPlayPlayerSettings.playbackStartBufferSeconds,
+                            valueText = "${autoPlayPlayerSettings.playbackStartBufferSeconds}s",
+                            valueRange = 1..30,
+                            step = 1,
+                            isTablet = isTablet,
+                            enabled = exoOptionsEnabled,
+                            onValueChange = PlayerSettingsRepository::setPlaybackStartBufferSeconds,
+                        )
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.settings_playback_buffer_after_stall),
+                            value = autoPlayPlayerSettings.playbackRebufferSeconds,
+                            valueText = "${autoPlayPlayerSettings.playbackRebufferSeconds}s",
+                            valueRange = 1..60,
+                            step = 1,
+                            isTablet = isTablet,
+                            enabled = exoOptionsEnabled,
+                            onValueChange = PlayerSettingsRepository::setPlaybackRebufferSeconds,
+                        )
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.settings_playback_back_buffer),
+                            value = autoPlayPlayerSettings.playbackBackBufferSeconds,
+                            valueText = "${autoPlayPlayerSettings.playbackBackBufferSeconds}s",
+                            valueRange = 0..120,
+                            step = 5,
+                            isTablet = isTablet,
+                            enabled = exoOptionsEnabled,
+                            onValueChange = PlayerSettingsRepository::setPlaybackBackBufferSeconds,
+                        )
+                        SettingsSliderRow(
+                            title = stringResource(Res.string.settings_playback_target_buffer_size),
+                            value = autoPlayPlayerSettings.playbackTargetBufferMb.coerceIn(50, targetBufferLimitMb),
+                            valueText = "${autoPlayPlayerSettings.playbackTargetBufferMb.coerceIn(50, targetBufferLimitMb)} MB",
+                            valueRange = 50..targetBufferLimitMb,
+                            step = 50,
+                            isTablet = isTablet,
+                            enabled = exoOptionsEnabled,
+                            onValueChange = PlayerSettingsRepository::setPlaybackTargetBufferMb,
+                        )
+                    }
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_vod_disk_cache),
+                        description = stringResource(Res.string.settings_playback_vod_disk_cache_description),
+                        checked = autoPlayPlayerSettings.vodDiskCacheEnabled,
+                        enabled = exoOptionsEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setVodDiskCacheEnabled,
+                    )
+                    if (autoPlayPlayerSettings.vodDiskCacheEnabled) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        SettingsSwitchRow(
+                            title = stringResource(Res.string.settings_playback_vod_disk_cache_auto_size),
+                            description = stringResource(Res.string.settings_playback_vod_disk_cache_auto_size_description),
+                            checked = autoPlayPlayerSettings.vodDiskCacheAutoSize,
+                            enabled = exoOptionsEnabled,
+                            isTablet = isTablet,
+                            onCheckedChange = PlayerSettingsRepository::setVodDiskCacheAutoSize,
+                        )
+                        if (!autoPlayPlayerSettings.vodDiskCacheAutoSize) {
+                            SettingsSliderRow(
+                                title = stringResource(Res.string.settings_playback_vod_disk_cache_size),
+                                value = autoPlayPlayerSettings.vodDiskCacheSizeMb,
+                                valueText = "${autoPlayPlayerSettings.vodDiskCacheSizeMb} MB",
+                                valueRange = 256..20480,
+                                step = 256,
+                                isTablet = isTablet,
+                                enabled = exoOptionsEnabled,
+                                onValueChange = PlayerSettingsRepository::setVodDiskCacheSizeMb,
+                            )
+                        }
+                        PlaybackSettingsNote(
+                            text = stringResource(Res.string.settings_playback_vod_disk_cache_note),
+                            color = MaterialTheme.colorScheme.error,
+                            isTablet = isTablet,
+                        )
+                    }
                 }
             }
         }
@@ -1204,6 +1411,14 @@ private fun PlaybackSettingsSection(
                         onCheckedChange = PlayerSettingsRepository::setStreamAutoPlayReuseBingeGroup,
                     )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_preload_next_episode),
+                    description = stringResource(Res.string.settings_playback_preload_next_episode_description),
+                    checked = autoPlayPlayerSettings.preloadNextEpisodeSources,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPreloadNextEpisodeSources,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 var showThresholdModeDialog by remember { mutableStateOf(false) }
                 SettingsNavigationRow(
