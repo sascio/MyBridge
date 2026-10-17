@@ -1701,7 +1701,7 @@ private class ProfileInsightsCore(
     }
 }
 
-private data class ProfileTitleHydrationRequest(
+internal data class ProfileTitleHydrationRequest(
     val seedKeys: List<String>,
     val genreTitleKeys: List<String>,
     val genreTargetKeys: List<String>,
@@ -2572,7 +2572,7 @@ private fun List<String>.profileCleanGenres(): List<String> =
         .map { genre -> profileGenreAliases[genre.lowercase()] ?: genre }
         .distinctBy { genre -> genre.lowercase() }
 
-private class ProfileTitleFacts(
+internal class ProfileTitleFacts(
     val genres: List<String>,
     val runtimeMinutes: Int?,
     val episodeRuntimeMinutes: Map<Long, Int>,
@@ -2935,7 +2935,7 @@ private object ProfileTitleFactsStore {
 }
 
 // How far genre/runtime hydration has got, so partial numbers are not mistaken for final ones.
-private class ProfileTitleFactsProgress(
+internal class ProfileTitleFactsProgress(
     val detailsResolved: Int,
     val detailsTotal: Int,
     val detailsPending: Boolean,
@@ -2944,24 +2944,27 @@ private class ProfileTitleFactsProgress(
     val genresPending: Boolean,
 )
 
-private fun profileTitleFactsProgress(
+internal fun profileTitleFactsProgress(
     request: ProfileTitleHydrationRequest,
     facts: Map<String, ProfileTitleFacts>,
     failedKeys: Set<String>,
 ): ProfileTitleFactsProgress {
     fun isFetched(key: String) = facts[key]?.partial == false
-    val detailsResolved = request.fetchTargetKeys.count(::isFetched)
-    val detailsFailed = request.fetchTargetKeys.count { key -> !isFetched(key) && key in failedKeys }
+    // Counts are over unique title keys, so a key listed twice is never counted twice.
+    val fetchTargets = request.fetchTargetKeys.distinct()
+    val genreTitles = request.genreTitleKeys.distinct()
+    val detailsResolved = fetchTargets.count(::isFetched)
+    val detailsFailed = fetchTargets.count { key -> !isFetched(key) && key in failedKeys }
     val genreTargets = request.genreTargetKeys.toHashSet()
-    val genreResolved = request.genreTitleKeys.count { key -> key !in genreTargets || isFetched(key) }
-    val genreFailed = request.genreTitleKeys.count { key -> key in genreTargets && !isFetched(key) && key in failedKeys }
+    val genreResolved = genreTitles.count { key -> key !in genreTargets || isFetched(key) }
+    val genreFailed = genreTitles.count { key -> key in genreTargets && !isFetched(key) && key in failedKeys }
     return ProfileTitleFactsProgress(
         detailsResolved = detailsResolved,
-        detailsTotal = request.fetchTargetKeys.size,
-        detailsPending = detailsResolved + detailsFailed < request.fetchTargetKeys.size,
+        detailsTotal = fetchTargets.size,
+        detailsPending = detailsResolved + detailsFailed < fetchTargets.size,
         genreResolved = genreResolved,
-        genreTotal = request.genreTitleKeys.size,
-        genresPending = genreResolved + genreFailed < request.genreTitleKeys.size,
+        genreTotal = genreTitles.size,
+        genresPending = genreResolved + genreFailed < genreTitles.size,
     )
 }
 

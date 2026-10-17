@@ -276,6 +276,7 @@ object MetaDetailsRepository {
         }
 
         var throttledUntil: Long? = null
+        var sawTransientFailure = false
         for (manifest in manifests) {
             val host = manifest.transportUrl.addonHost()
             val now = WatchedClock.nowEpochMs()
@@ -290,6 +291,7 @@ object MetaDetailsRepository {
                 type = type,
                 id = metaLookupId,
             )
+            // Logs carry the host and status only: addon URLs can embed access tokens.
             val response = try {
                 withTimeoutOrNull(FETCH_TIMEOUT_MS) {
                     httpRequestRaw(
@@ -303,10 +305,15 @@ object MetaDetailsRepository {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.w(error) { "Lightweight meta request failed url=$url" }
+                log.w(error) { "Lightweight meta request failed host=$host" }
+                sawTransientFailure = true
                 null
             }
-            if (response == null) continue
+            if (response == null) {
+                // Timeout: transient, so the title stays eligible for a later retry.
+                sawTransientFailure = true
+                continue
+            }
 
             if (response.status == 429 || response.status == 503) {
                 val until = now + response.retryAfterMs()
@@ -318,20 +325,27 @@ object MetaDetailsRepository {
                 throttledUntil = minOf(throttledUntil ?: until, until)
                 continue
             }
-            if (response.status !in 200..299 || response.body.isBlank()) continue
+            // 404/410: this addon does not have the title. That is not a failure.
+            if (response.status == 404 || response.status == 410) continue
+            if (response.status !in 200..299 || response.body.isBlank()) {
+                InAppLogger.warn("Metadata/AddonFetch", "Lightweight meta host=$host status=${response.status}")
+                sawTransientFailure = true
+                continue
+            }
 
             val meta = try {
                 withContext(Dispatchers.Default) { MetaDetailsParser.parse(response.body) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.w(error) { "Failed to parse lightweight meta url=$url" }
+                log.w(error) { "Failed to parse lightweight meta host=$host" }
                 null
             }
             if (meta != null) return MetaLookupOutcome.Loaded(meta)
+            sawTransientFailure = true
         }
 
-        return throttledUntil?.let { until -> MetaLookupOutcome.Throttled(until) } ?: MetaLookupOutcome.Failed
+        return lightweightOutcomeWithoutMeta(throttledUntil, sawTransientFailure)
     }
 
     private fun String.addonHost(): String =
@@ -784,6 +798,20 @@ object MetaDetailsRepository {
 
         return emptyList()
     }
+}
+
+/**
+ * Outcome when no addon returned usable metadata. A rate limit wins (retry later);
+ * a transient failure (timeout, network error, 5xx, unparseable body) is [MetaLookupOutcome.Failed];
+ * otherwise every addon answered "not found", which is [MetaLookupOutcome.Unavailable], not a failure.
+ */
+internal fun lightweightOutcomeWithoutMeta(
+    throttledUntil: Long?,
+    sawTransientFailure: Boolean,
+): MetaLookupOutcome = when {
+    throttledUntil != null -> MetaLookupOutcome.Throttled(throttledUntil)
+    sawTransientFailure -> MetaLookupOutcome.Failed
+    else -> MetaLookupOutcome.Unavailable
 }
 
 internal sealed interface MetaLookupOutcome {

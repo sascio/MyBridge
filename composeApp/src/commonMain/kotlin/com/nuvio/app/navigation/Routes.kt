@@ -119,6 +119,7 @@ data class LicensesAttributionsSettingsRoute(override val title: String = "") : 
 
 @Serializable
 data class PrivacyPolicySettingsRoute(override val title: String = "") : SettingsDestinationRoute
+@Serializable
 data class WhatsNewSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable

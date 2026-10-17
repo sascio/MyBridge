@@ -69,9 +69,6 @@ internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
         playbackEngine = playbackEngineOverride,
     )
 
-internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
-    get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true)
-
 internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
     get() = WatchProgressPlaybackSession(
         profileId = profileId,
