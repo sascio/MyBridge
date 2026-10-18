@@ -160,6 +160,35 @@ class ProfileInsightsAggregationTest {
     }
 
     @Test
+    fun profileUpcomingEpisodesUseTheDeduplicatedAggregateLibrary() {
+        val traktItem = libraryItem(
+            id = "tt0000042",
+            type = "series",
+            name = "Example Series",
+            releaseInfo = "2026",
+            imdbId = "tt0000042",
+            tmdbId = 42,
+        )
+        val simklItem = libraryItem(
+            id = "tmdb:42",
+            type = "series",
+            name = "Example Series",
+            releaseInfo = "2026",
+            tmdbId = 42,
+            savedAt = 2L,
+        )
+        val aggregate = aggregate(
+            source("trakt", libraryItems = listOf(traktItem)),
+            source("simkl", libraryItems = listOf(simklItem)),
+        )
+
+        val upcomingLibraryItems = profileInsightsUpcomingLibraryItems(aggregate)
+
+        assertEquals(1, upcomingLibraryItems.size)
+        assertEquals("tt0000042", upcomingLibraryItems.single().id)
+    }
+
+    @Test
     fun savedLibraryItemsDoNotCountAsWatched() {
         val aggregate = aggregate(
             source("nuvio", libraryStatus = ProfileInsightsFetchStatus.LOCAL, libraryItems = listOf(libraryItem("tt0000002"))),

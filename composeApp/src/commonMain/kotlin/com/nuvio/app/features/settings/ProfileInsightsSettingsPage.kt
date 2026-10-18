@@ -160,6 +160,11 @@ import org.jetbrains.compose.resources.stringResource
 
 private val profileInsightsLog = Logger.withTag("ProfileInsights")
 
+internal fun profileInsightsUpcomingLibraryItems(
+    aggregate: ProfileInsightsAggregate?,
+): List<LibraryItem> =
+    aggregate?.libraryItems.orEmpty().filter(LibraryItem::isProfileInsightContent)
+
 internal fun LazyListScope.profileInsightsContent(
     isTablet: Boolean,
     onSwitchProfile: (() -> Unit)?,
@@ -223,7 +228,7 @@ private fun ProfileInsightsBody(
         }
     }
     val profileLibraryItems = remember(profileAggregate?.libraryItems) {
-        profileAggregate?.libraryItems.orEmpty().filter(LibraryItem::isProfileInsightContent)
+        profileInsightsUpcomingLibraryItems(profileAggregate)
     }
     LaunchedEffect(activeProfileIndex, profileLibraryItems) {
         warmLibraryReleaseSchedule(profileLibraryItems)
@@ -2753,8 +2758,7 @@ private object ProfileInsightsRefresher {
                 val latestSources = ProfileInsightsSourcesRepository.state.value
                 val refreshedLibraryItems = if (latestSources.profileId == target.profileId) {
                     runCatching {
-                        aggregateProfileInsights(latestSources.sources).libraryItems
-                            .filter(LibraryItem::isProfileInsightContent)
+                        profileInsightsUpcomingLibraryItems(aggregateProfileInsights(latestSources.sources))
                     }.getOrDefault(target.libraryItems)
                 } else {
                     target.libraryItems

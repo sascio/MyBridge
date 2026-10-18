@@ -2578,6 +2578,24 @@ private data class LibraryReleaseCalendarCacheState(
     val failedSeriesKeys: Set<String> = emptySet(),
 )
 
+internal fun libraryReleaseCalendarCacheKey(
+    profileId: Int,
+    nearbyMonthKeys: Iterable<String>,
+    items: List<LibraryItem>,
+): String {
+    val nearbyMonths = nearbyMonthKeys.joinToString(separator = ",")
+    val itemFingerprint = items.joinToString(separator = "|") { item ->
+        "${item.type}:${item.id}:${item.releaseInfo.orEmpty()}"
+    }
+    return "$profileId:$nearbyMonths:$itemFingerprint"
+}
+
+internal fun <T> libraryReleaseCalendarCacheValueForKey(
+    cachedKey: String?,
+    expectedKey: String,
+    cachedValue: T,
+): T? = cachedValue.takeIf { cachedKey == expectedKey }
+
 private object LibraryReleaseCalendarCache {
     private val retryDelaysMs = longArrayOf(60_000L, 5L * 60_000L, 15L * 60_000L)
 
@@ -2596,17 +2614,19 @@ private object LibraryReleaseCalendarCache {
     private var retryAttempt = 0
     private var addonWatcher: Job? = null
 
-    fun cacheKeyFor(items: List<LibraryItem>): String {
-        val nearbyMonths = libraryCalendarWarmMonthKeys().joinToString(separator = ",")
-        val itemFingerprint = items.joinToString(separator = "|") { item ->
-            "${item.type}:${item.id}:${item.releaseInfo.orEmpty()}"
-        }
-        return "${ProfileRepository.activeProfileId}:$nearbyMonths:$itemFingerprint"
-    }
+    fun cacheKeyFor(items: List<LibraryItem>): String = libraryReleaseCalendarCacheKey(
+        profileId = ProfileRepository.activeProfileId,
+        nearbyMonthKeys = libraryCalendarWarmMonthKeys(),
+        items = items,
+    )
 
     fun upcomingEpisodesFor(items: List<LibraryItem>, days: Int): Flow<List<LibraryUpcomingEpisode>> =
         state.map { snapshot ->
-            if (snapshot.cacheKey == cacheKeyFor(items)) snapshot.events.upcomingEpisodes(days) else emptyList()
+            libraryReleaseCalendarCacheValueForKey(
+                cachedKey = snapshot.cacheKey,
+                expectedKey = cacheKeyFor(items),
+                cachedValue = snapshot.events,
+            )?.upcomingEpisodes(days).orEmpty()
         }.distinctUntilChanged()
 
     suspend fun warm(items: List<LibraryItem>) {
