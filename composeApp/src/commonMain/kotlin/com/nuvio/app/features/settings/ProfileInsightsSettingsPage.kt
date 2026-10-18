@@ -2303,7 +2303,7 @@ internal class ProfileTitleFacts(
     val partial: Boolean = false,
 )
 
-private fun profileEpisodeKey(season: Int, episode: Int): Long =
+internal fun profileEpisodeKey(season: Int, episode: Int): Long =
     (season.toLong() shl 32) or (episode.toLong() and 0xFFFFFFFFL)
 
 private fun profileEpisodeKeySeason(key: Long): Int = (key shr 32).toInt()

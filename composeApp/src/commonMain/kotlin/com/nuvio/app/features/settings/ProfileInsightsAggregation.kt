@@ -747,14 +747,16 @@ private fun calculateProfileInsightsWatchTime(
         val kind = profileInsightsKind(item.type) ?: return@forEach
         val factsForTitle = facts["$kind:${item.id}"]
         if (factsForTitle?.partial != false) return@forEach
-        val runtimeMs = if (kind == "movie") {
-            factsForTitle.runtimeMinutes?.takeIf { it > 0 }?.toLong()?.times(60_000L)
-        } else if (item.season != null && item.episode != null) {
-            factsForTitle.episodeRuntimeMinutes[profileEpisodeKey(item.season, item.episode)]
-                ?.takeIf { it > 0 }?.toLong()?.times(60_000L)
-        } else {
-            null
-        } ?: return@forEach
+        val runtimeMs: Long = (
+            if (kind == "movie") {
+                factsForTitle.runtimeMinutes?.takeIf { it > 0 }?.toLong()?.times(60_000L)
+            } else if (item.season != null && item.episode != null) {
+                factsForTitle.episodeRuntimeMinutes[profileEpisodeKey(item.season, item.episode)]
+                    ?.takeIf { it > 0 }?.toLong()?.times(60_000L)
+            } else {
+                null
+            }
+        ) ?: return@forEach
         record(activityKey, WatchTimeValue(runtimeMs, kind == "movie", estimated = true))
     }
 
