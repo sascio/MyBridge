@@ -2604,6 +2604,11 @@ private object LibraryReleaseCalendarCache {
         return "${ProfileRepository.activeProfileId}:$nearbyMonths:$itemFingerprint"
     }
 
+    fun upcomingEpisodesFor(items: List<LibraryItem>, days: Int): Flow<List<LibraryUpcomingEpisode>> =
+        state.map { snapshot ->
+            if (snapshot.cacheKey == cacheKeyFor(items)) snapshot.events.upcomingEpisodes(days) else emptyList()
+        }.distinctUntilChanged()
+
     suspend fun warm(items: List<LibraryItem>) {
         if (items.isEmpty()) return
         lastItems = items
@@ -3254,11 +3259,15 @@ internal suspend fun warmLibraryReleaseSchedule(items: List<LibraryItem>) {
 }
 
 /**
- * Episodes of saved series airing from today through the next [days] days (today included),
- * read from the same release-calendar cache the Library calendar shows, so both always agree.
+ * Episodes of saved series airing from today through the next [days] days (today included).
+ * The shared calendar cache is read only when its key matches these exact items, preventing a
+ * previous profile or Library source from supplying stale upcoming episodes.
  */
-internal fun libraryUpcomingEpisodesFlow(days: Int = 7): Flow<List<LibraryUpcomingEpisode>> =
-    LibraryReleaseCalendarCache.state.map { state -> state.events.upcomingEpisodes(days) }
+internal fun libraryUpcomingEpisodesFlow(
+    items: List<LibraryItem>,
+    days: Int = 7,
+): Flow<List<LibraryUpcomingEpisode>> =
+    LibraryReleaseCalendarCache.upcomingEpisodesFor(items = items, days = days)
 
 private fun List<LibraryCalendarEvent>.upcomingEpisodes(days: Int): List<LibraryUpcomingEpisode> {
     val today = parseLibraryCalendarDate(CurrentDateProvider.todayIsoDate()) ?: return emptyList()

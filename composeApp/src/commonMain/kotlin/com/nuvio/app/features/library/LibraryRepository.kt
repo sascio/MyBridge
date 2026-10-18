@@ -9,6 +9,7 @@ import com.nuvio.app.features.library.sync.SupabaseLibrarySyncAdapter
 import com.nuvio.app.features.library.sync.consumeCursorPages
 import com.nuvio.app.features.library.sync.libraryDeltaPageSize
 import com.nuvio.app.features.library.sync.librarySnapshotPageSize
+import com.nuvio.app.features.library.sync.toLibrarySyncKey
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.features.servers.ServerItemRef
@@ -32,6 +33,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -66,9 +68,16 @@ object LibraryRepository {
     private val nuvioSyncMutex = Mutex()
     private val persistenceLock = SynchronizedObject()
     private val lastPersistedRevisionByProfile = mutableMapOf<Int, Long>()
+    private var loadedNuvioRemoteAccountId: String? = null
+    private var nuvioAccountScopeKnown = false
     internal var syncAdapter: LibrarySyncAdapter = SupabaseLibrarySyncAdapter
 
     init {
+        syncScope.launch {
+            AuthRepository.state.collect { authState ->
+                synchronizeNuvioAccountScope(authState)
+            }
+        }
         ensureTrackingProvidersRegistered()
         syncScope.launch {
             TrackingProviderRegistry.connectedProviderIds.collectLatest {
@@ -126,6 +135,7 @@ object LibraryRepository {
             if (snapshot.hasLoaded && snapshot.token.profileId == activeProfileId) break
             loadFromDisk(activeProfileId)
         }
+        synchronizeNuvioAccountScope(AuthRepository.state.value)
         TrackingProviderRegistry.connectedLibraryProviders().forEach(TrackingLibraryProvider::prepare)
         activeLibraryProvider()?.let(::refreshLibraryProviderAsync)
     }
@@ -141,7 +151,11 @@ object LibraryRepository {
     }
 
     fun clearLocalState() {
-        val transition = synchronized(loadLock) { localState.reset() }
+        val transition = synchronized(loadLock) {
+            loadedNuvioRemoteAccountId = null
+            nuvioAccountScopeKnown = false
+            localState.reset()
+        }
         transition.detachedPushJob?.cancel()
         TrackingProviderRegistry.libraryProviders().forEach(TrackingLibraryProvider::clearLocalState)
         _uiState.value = LibraryUiState()
@@ -149,6 +163,8 @@ object LibraryRepository {
 
     internal fun runAccountStorageWipe(wipeStorage: () -> Unit) {
         synchronized(loadLock) {
+            loadedNuvioRemoteAccountId = null
+            nuvioAccountScopeKnown = false
             val transition = localState.reset()
             transition.detachedPushJob?.cancel()
             synchronized(persistenceLock) {
@@ -161,41 +177,135 @@ object LibraryRepository {
         }
     }
 
-    private fun loadFromDisk(profileId: Int): Boolean {
+    private fun loadFromDisk(profileId: Int, force: Boolean = false): Boolean {
         var shouldPublish = false
+        var snapshotToPersist: LibraryLocalSnapshot? = null
         val loaded = synchronized(loadLock) {
             if (ProfileRepository.activeProfileId != profileId) return@synchronized false
             val current = localState.snapshot()
-            if (current.hasLoaded && current.token.profileId == profileId) {
+            if (!force && current.hasLoaded && current.token.profileId == profileId) {
                 return@synchronized true
+            }
+            val pendingOverlay = if (force && current.hasLoaded && current.token.profileId == profileId) {
+                current.pendingUpsertKeys.mapNotNull { key ->
+                    current.items.firstOrNull { item -> libraryItemKey(item.id, item.type) == libraryItemKey(key.contentId, key.contentType) }
+                }
+            } else {
+                emptyList()
             }
 
             val transition = localState.beginProfileLoad(profileId)
             transition.detachedPushJob?.cancel()
-            shouldPublish = completeLoadFromDisk(transition.snapshot.token)
+            val result = completeLoadFromDisk(
+                token = transition.snapshot.token,
+                authState = AuthRepository.state.value,
+                pendingOverlay = pendingOverlay,
+            )
+            shouldPublish = result.snapshot != null
+            snapshotToPersist = result.snapshot.takeIf { result.shouldPersist }
             shouldPublish
         }
+        snapshotToPersist?.let(::persist)
         if (shouldPublish) publish()
         return loaded
     }
 
-    private fun completeLoadFromDisk(token: LibraryProfileToken): Boolean {
-        val payload = LibraryStorage.loadPayload(token.profileId).orEmpty().trim()
-        val storedPayload = if (payload.isNotEmpty()) {
-            LibraryStoragePayloadCodec.decode(payload)
-        } else {
-            StoredLibraryPayload()
+    private data class LibraryLoadResult(
+        val snapshot: LibraryLocalSnapshot?,
+        val shouldPersist: Boolean,
+    )
+
+    private data class LibraryPersistScope(val accountId: String?)
+
+    private fun completeLoadFromDisk(
+        token: LibraryProfileToken,
+        authState: AuthState,
+        pendingOverlay: List<LibraryItem>,
+    ): LibraryLoadResult {
+        val rawPayload = LibraryStorage.loadPayload(token.profileId).orEmpty().trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { LibraryStoragePayloadCodec.decode(it) }
+            ?: StoredLibraryPayload()
+        val accountScopeKnown = authState != AuthState.Loading
+        var scopedPayload = scopeLibraryPayloadToNuvioAccount(
+            payload = rawPayload,
+            activeAccountId = nuvioRemoteAccountId(authState),
+            accountScopeKnown = accountScopeKnown,
+        )
+        if (pendingOverlay.isNotEmpty()) {
+            val overlayByKey = pendingOverlay.associateBy { item -> libraryItemKey(item.id, item.type) }
+            val mergedItems = (scopedPayload.items.filterNot { item -> libraryItemKey(item.id, item.type) in overlayByKey } + pendingOverlay)
+            val overlayKeys = pendingOverlay.map { item -> item.toLibrarySyncKey() }
+            scopedPayload = scopedPayload.copy(
+                items = mergedItems,
+                pendingUpsertKeys = (scopedPayload.pendingUpsertKeys + overlayKeys).distinctBy { key ->
+                    libraryItemKey(key.contentId, key.contentType)
+                },
+            )
         }
 
-        return localState.completeProfileLoad(
+        val snapshot = localState.completeProfileLoad(
             token = token,
             activeProfileId = ProfileRepository.activeProfileId,
-            items = storedPayload.items,
-            deltaCursorEventId = storedPayload.deltaCursorEventId,
-            deltaInitialized = storedPayload.deltaInitialized,
-            pendingUpsertKeys = storedPayload.pendingUpsertKeys,
-            pendingDeleteKeys = storedPayload.pendingDeleteKeys,
-        ) != null
+            items = scopedPayload.items,
+            deltaCursorEventId = scopedPayload.deltaCursorEventId,
+            deltaInitialized = scopedPayload.deltaInitialized,
+            pendingUpsertKeys = scopedPayload.pendingUpsertKeys,
+            pendingDeleteKeys = scopedPayload.pendingDeleteKeys,
+        )
+        if (snapshot != null) {
+            loadedNuvioRemoteAccountId = if (accountScopeKnown) {
+                nuvioRemoteAccountId(authState)
+            } else {
+                rawPayload.nuvioRemoteAccountId?.trim()?.takeIf(String::isNotEmpty)
+            }
+            nuvioAccountScopeKnown = accountScopeKnown
+        }
+        return LibraryLoadResult(
+            snapshot = snapshot,
+            shouldPersist = snapshot != null && accountScopeKnown && scopedPayload != rawPayload,
+        )
+    }
+
+    private fun nuvioRemoteAccountId(authState: AuthState): String? =
+        (authState as? AuthState.Authenticated)
+            ?.takeUnless { it.isAnonymous }
+            ?.userId
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+
+    private fun synchronizeNuvioAccountScope(authState: AuthState) {
+        val profileId = ProfileRepository.activeProfileId
+        var transition: LibraryStateTransition? = null
+        var snapshotToPersist: LibraryLocalSnapshot? = null
+        var reloadFromDisk = false
+        synchronized(loadLock) {
+            val current = localState.snapshot()
+            if (!current.hasLoaded || current.token.profileId != profileId) return@synchronized
+
+            if (authState == AuthState.Loading) {
+                if (nuvioAccountScopeKnown) {
+                    transition = localState.resetForNuvioAccountChange()
+                    nuvioAccountScopeKnown = false
+                }
+            } else if (!nuvioAccountScopeKnown) {
+                // Auth was unresolved while the cache was loaded. Re-read the original payload so
+                // a matching account can reuse its cache, while a different account cannot see it.
+                reloadFromDisk = true
+            } else {
+                val activeAccountId = nuvioRemoteAccountId(authState)
+                if (activeAccountId != loadedNuvioRemoteAccountId) {
+                    transition = localState.resetForNuvioAccountChange()
+                    loadedNuvioRemoteAccountId = activeAccountId
+                    nuvioAccountScopeKnown = true
+                    snapshotToPersist = transition?.snapshot
+                }
+            }
+        }
+        transition?.detachedPushJob?.cancel()
+        snapshotToPersist?.let(::persist)
+        if (transition != null) publish()
+        if (reloadFromDisk) loadFromDisk(profileId, force = true)
     }
 
     /** Profile statistics always read Nuvio's own profile-scoped list, regardless of the selected source. */
@@ -218,27 +328,27 @@ object LibraryRepository {
         return refreshNuvioFromServer(
             profileId = profileId,
             forceSnapshot = forceSnapshot,
-            expectedAuthUserId = authState.userId,
+            expectedAuthState = authState,
         )
     }
 
     private suspend fun refreshNuvioFromServer(
         profileId: Int,
         forceSnapshot: Boolean,
-        expectedAuthUserId: String? = null,
+        expectedAuthState: AuthState,
     ): Boolean = nuvioSyncMutex.withLock {
         val token = activeOperationToken(profileId) ?: return@withLock false
-        if (!isNuvioRequestCurrent(token, expectedAuthUserId)) return@withLock false
+        if (!isNuvioRequestCurrent(token, expectedAuthState)) return@withLock false
         val current = localState.snapshot()
         if (forceSnapshot || !current.deltaInitialized) {
             val pullSnapshot = localState.markPullStarted(token) ?: return@withLock false
             val cursorBeforeSnapshot = syncAdapter.getDeltaCursor(profileId)
-            if (!isNuvioRequestCurrent(token, expectedAuthUserId)) return@withLock false
+            if (!isNuvioRequestCurrent(token, expectedAuthState)) return@withLock false
             val serverItems = syncAdapter.pullSnapshot(
                 profileId = profileId,
                 pageSize = librarySnapshotPageSize,
             )
-            if (!isNuvioRequestCurrent(token, expectedAuthUserId)) return@withLock false
+            if (!isNuvioRequestCurrent(token, expectedAuthState)) return@withLock false
             val applyResult = localState.applyServerItems(
                 pullSnapshot = pullSnapshot,
                 serverItems = serverItems,
@@ -254,15 +364,18 @@ object LibraryRepository {
             }
         }
         val serializedToken = activeOperationToken(profileId) ?: return@withLock false
-        if (!isNuvioRequestCurrent(serializedToken, expectedAuthUserId)) return@withLock false
-        pullLibraryDelta(serializedToken, profileId, expectedAuthUserId)
-        isNuvioRequestCurrent(serializedToken, expectedAuthUserId)
+        if (!isNuvioRequestCurrent(serializedToken, expectedAuthState)) return@withLock false
+        pullLibraryDelta(serializedToken, profileId, expectedAuthState)
+        isNuvioRequestCurrent(serializedToken, expectedAuthState)
     }
 
     suspend fun pullFromServer(
         profileId: Int,
         refreshIntent: TrackingRefreshIntent = TrackingRefreshIntent.AUTOMATIC,
     ) {
+        ensureLoaded()
+        val expectedAuthState = AuthRepository.state.value
+        if (expectedAuthState == AuthState.Loading) return
         val operationToken = activeOperationToken(profileId) ?: run {
             log.d { "Skipping library pull for inactive profile $profileId" }
             return
@@ -280,7 +393,11 @@ object LibraryRepository {
         }
 
         try {
-            refreshNuvioFromServer(profileId = profileId, forceSnapshot = false)
+            refreshNuvioFromServer(
+                profileId = profileId,
+                forceSnapshot = false,
+                expectedAuthState = expectedAuthState,
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -291,7 +408,7 @@ object LibraryRepository {
     private suspend fun pullLibraryDelta(
         token: LibraryProfileToken,
         profileId: Int,
-        expectedAuthUserId: String? = null,
+        expectedAuthState: AuthState,
     ) {
         val initialSnapshot = localState.snapshot()
         if (initialSnapshot.token != token) return
@@ -299,7 +416,7 @@ object LibraryRepository {
             initialCursor = initialSnapshot.deltaCursorEventId,
             pageSize = libraryDeltaPageSize,
             fetchPage = { cursor, limit ->
-                if (isNuvioRequestCurrent(token, expectedAuthUserId)) {
+                if (isNuvioRequestCurrent(token, expectedAuthState)) {
                     syncAdapter.pullDelta(
                         profileId = profileId,
                         sinceEventId = cursor,
@@ -310,7 +427,7 @@ object LibraryRepository {
                 }
             },
             applyPage = { events, _ ->
-                if (!isNuvioRequestCurrent(token, expectedAuthUserId)) {
+                if (!isNuvioRequestCurrent(token, expectedAuthState)) {
                     null
                 } else {
                     localState.applyDeltaEvents(token, events)?.also { snapshot ->
@@ -332,12 +449,8 @@ object LibraryRepository {
     private fun isActiveOperation(token: LibraryProfileToken): Boolean =
         localState.isCurrent(token) && ProfileRepository.activeProfileId == token.profileId
 
-    private fun isNuvioRequestCurrent(token: LibraryProfileToken, expectedAuthUserId: String?): Boolean {
-        if (!isActiveOperation(token)) return false
-        if (expectedAuthUserId == null) return true
-        val auth = AuthRepository.state.value as? AuthState.Authenticated ?: return false
-        return !auth.isAnonymous && auth.userId == expectedAuthUserId
-    }
+    private fun isNuvioRequestCurrent(token: LibraryProfileToken, expectedAuthState: AuthState): Boolean =
+        isActiveOperation(token) && libraryAuthScopeMatches(expectedAuthState, AuthRepository.state.value)
 
     suspend fun toggleSaved(
         item: LibraryItem,
@@ -603,6 +716,13 @@ object LibraryRepository {
             log.w { "Skipping library push: anonymous auth user=${authState.userId} profile=$profileId" }
             return
         }
+        val accountScopeMatches = synchronized(loadLock) {
+            nuvioAccountScopeKnown && loadedNuvioRemoteAccountId == authState.userId
+        }
+        if (!accountScopeMatches) {
+            log.w { "Skipping library push: account scope is not ready profile=$profileId" }
+            return
+        }
         val pushJob = syncScope.launch(start = CoroutineStart.LAZY) {
             delay(delayMs)
             nuvioSyncMutex.withLock {
@@ -615,10 +735,7 @@ object LibraryRepository {
                     }
                     return@withLock
                 }
-                val currentAuthState = AuthRepository.state.value
-                if (currentAuthState !is AuthState.Authenticated || currentAuthState.isAnonymous) {
-                    return@withLock
-                }
+                if (!libraryAuthScopeMatches(authState, AuthRepository.state.value)) return@withLock
                 runCatching {
                     val itemsByKey = snapshot.items.associateBy { item ->
                         libraryItemKey(item.id, item.type)
@@ -627,7 +744,16 @@ object LibraryRepository {
                         itemsByKey[libraryItemKey(key.contentId, key.contentType)]
                     }.filterNot { ServerItemRef.isServerId(it.id) }
                     syncAdapter.pushItems(profileId, upsertItems)
-                    syncAdapter.deleteItems(profileId, snapshot.pendingDeleteKeys.filterNot { ServerItemRef.isServerId(it.contentId) })
+                    if (!localState.isCurrent(snapshot) || !libraryAuthScopeMatches(authState, AuthRepository.state.value)) {
+                        return@withLock
+                    }
+                    syncAdapter.deleteItems(
+                        profileId,
+                        snapshot.pendingDeleteKeys.filterNot { ServerItemRef.isServerId(it.contentId) },
+                    )
+                    if (!localState.isCurrent(snapshot) || !libraryAuthScopeMatches(authState, AuthRepository.state.value)) {
+                        return@withLock
+                    }
                     localState.markPushCompleted(snapshot)?.let(::persist)
                     log.i {
                         "Library delta push completed profile=$profileId " +
@@ -700,7 +826,14 @@ object LibraryRepository {
     }
 
     private fun persist(snapshot: LibraryLocalSnapshot) {
-        val payload = LibraryStoragePayloadCodec.encode(snapshot)
+        val scope = synchronized(loadLock) {
+            if (!nuvioAccountScopeKnown || !localState.isCurrent(snapshot)) {
+                null
+            } else {
+                LibraryPersistScope(loadedNuvioRemoteAccountId)
+            }
+        } ?: return
+        val payload = LibraryStoragePayloadCodec.encode(snapshot, nuvioRemoteAccountId = scope.accountId)
         synchronized(persistenceLock) {
             val profileId = snapshot.token.profileId
             val lastPersistedRevision = lastPersistedRevisionByProfile[profileId] ?: Long.MIN_VALUE

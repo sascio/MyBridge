@@ -195,6 +195,26 @@ internal class LibraryLocalState {
         )
     }
 
+    /** Discards account-owned snapshot rows but keeps unsynced local additions. */
+    fun resetForNuvioAccountChange(): LibraryStateTransition = synchronized(lock) {
+        val detachedPushJob = pushJob
+        pushJob = null
+        val localItems = itemsById.filterKeys { key -> key in pendingUpsertKeysByKey }
+        itemsById = localItems.toMutableMap()
+        pendingUpsertKeysByKey = pendingUpsertKeysByKey.filterKeys { key -> key in localItems }.toMutableMap()
+        pendingDeleteKeysByKey.clear()
+        deltaCursorEventId = 0L
+        deltaInitialized = false
+        profileGeneration += 1L
+        revision += 1L
+        contentRevision += 1L
+        isLoading = false
+        LibraryStateTransition(
+            snapshot = snapshotLocked(),
+            detachedPushJob = detachedPushJob,
+        )
+    }
+
     fun markPullStarted(token: LibraryProfileToken): LibraryLocalSnapshot? = synchronized(lock) {
         if (!isCurrentLocked(token)) return@synchronized null
         snapshotLocked()

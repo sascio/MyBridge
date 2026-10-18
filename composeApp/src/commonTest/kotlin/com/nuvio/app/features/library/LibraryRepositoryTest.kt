@@ -1,8 +1,10 @@
 package com.nuvio.app.features.library
 
+import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.features.details.MetaDetails
-import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.home.PosterShape
+import com.nuvio.app.features.library.sync.toLibrarySyncKey
 import com.nuvio.app.features.tracking.TrackingLibraryTab
 import com.nuvio.app.features.tracking.TrackingLibraryTabKind
 import com.nuvio.app.features.tracking.TrackingProviderId
@@ -99,6 +101,159 @@ class LibraryRepositoryTest {
             ),
             membership,
         )
+    }
+
+    @Test
+    fun `stored Nuvio library payload round trips its account identity`() {
+        val state = LibraryLocalState()
+        val load = state.beginProfileLoad(profileId = 1).snapshot
+        val snapshot = assertNotNull(
+            state.completeProfileLoad(
+                token = load.token,
+                activeProfileId = 1,
+                items = listOf(libraryItem(id = "cached", savedAtEpochMs = 1L)),
+            ),
+        )
+
+        val restored = LibraryStoragePayloadCodec.decode(
+            LibraryStoragePayloadCodec.encode(snapshot, nuvioRemoteAccountId = "user-a"),
+        )
+
+        assertEquals("user-a", restored.nuvioRemoteAccountId)
+        assertEquals(snapshot.items, restored.items)
+    }
+
+    @Test
+    fun `same Nuvio account retains cached library when a refresh fails`() {
+        val remote = libraryItem(id = "remote", savedAtEpochMs = 1L)
+        val payload = StoredLibraryPayload(
+            items = listOf(remote),
+            deltaCursorEventId = 42L,
+            deltaInitialized = true,
+            nuvioRemoteAccountId = "user-a",
+        )
+
+        val scoped = scopeLibraryPayloadToNuvioAccount(payload, activeAccountId = "user-a")
+
+        assertEquals(payload, scoped)
+    }
+
+    @Test
+    fun `Nuvio account change removes old remote rows but keeps pending local additions`() {
+        val remote = libraryItem(id = "private-to-a", savedAtEpochMs = 1L)
+        val local = libraryItem(id = "local-pending", savedAtEpochMs = 2L)
+        val payload = StoredLibraryPayload(
+            items = listOf(remote, local),
+            deltaCursorEventId = 42L,
+            deltaInitialized = true,
+            pendingUpsertKeys = listOf(local.toLibrarySyncKey()),
+            pendingDeleteKeys = listOf(libraryItem(id = "deleted-on-a", savedAtEpochMs = 3L).toLibrarySyncKey()),
+            nuvioRemoteAccountId = "user-a",
+        )
+
+        val scoped = scopeLibraryPayloadToNuvioAccount(payload, activeAccountId = "user-b")
+
+        assertEquals(listOf(local), scoped.items)
+        assertEquals(listOf(local.toLibrarySyncKey()), scoped.pendingUpsertKeys)
+        assertTrue(scoped.pendingDeleteKeys.isEmpty())
+        assertEquals(0L, scoped.deltaCursorEventId)
+        assertFalse(scoped.deltaInitialized)
+        assertEquals("user-b", scoped.nuvioRemoteAccountId)
+    }
+
+    @Test
+    fun `legacy local library is kept and queued when first attached to a remote account`() {
+        val local = libraryItem(id = "offline-save", savedAtEpochMs = 1L)
+        val payload = StoredLibraryPayload(
+            items = listOf(local),
+            pendingDeleteKeys = listOf(libraryItem(id = "local-delete", savedAtEpochMs = 2L).toLibrarySyncKey()),
+        )
+
+        val scoped = scopeLibraryPayloadToNuvioAccount(payload, activeAccountId = "user-a")
+
+        assertEquals(listOf(local), scoped.items)
+        assertEquals(listOf(local.toLibrarySyncKey()), scoped.pendingUpsertKeys)
+        assertTrue(scoped.pendingDeleteKeys.isEmpty())
+        assertEquals("user-a", scoped.nuvioRemoteAccountId)
+    }
+
+    @Test
+    fun `unknown auth hides remote cache in memory without changing persisted snapshot`() {
+        val remote = libraryItem(id = "cached-remote", savedAtEpochMs = 1L)
+        val local = libraryItem(id = "local-pending", savedAtEpochMs = 2L)
+        val payload = StoredLibraryPayload(
+            items = listOf(remote, local),
+            deltaCursorEventId = 42L,
+            deltaInitialized = true,
+            pendingUpsertKeys = listOf(local.toLibrarySyncKey()),
+            nuvioRemoteAccountId = "user-a",
+        )
+
+        val hidden = scopeLibraryPayloadToNuvioAccount(
+            payload = payload,
+            activeAccountId = null,
+            accountScopeKnown = false,
+        )
+
+        assertEquals(listOf(local), hidden.items)
+        assertEquals("user-a", hidden.nuvioRemoteAccountId)
+        assertEquals(listOf(remote, local), payload.items)
+        assertEquals(42L, payload.deltaCursorEventId)
+    }
+
+    @Test
+    fun `legacy remote cache without an identity is not restored to another account`() {
+        val remote = libraryItem(id = "legacy-remote", savedAtEpochMs = 1L)
+        val local = libraryItem(id = "legacy-local-pending", savedAtEpochMs = 2L)
+        val payload = StoredLibraryPayload(
+            items = listOf(remote, local),
+            deltaCursorEventId = 42L,
+            deltaInitialized = true,
+            pendingUpsertKeys = listOf(local.toLibrarySyncKey()),
+        )
+
+        val scoped = scopeLibraryPayloadToNuvioAccount(payload, activeAccountId = "user-b")
+
+        assertEquals(listOf(local), scoped.items)
+        assertEquals(listOf(local.toLibrarySyncKey()), scoped.pendingUpsertKeys)
+        assertEquals(0L, scoped.deltaCursorEventId)
+    }
+
+    @Test
+    fun `late library request is scoped to the exact auth state`() {
+        val userA = AuthState.Authenticated("user-a", "a@example.test", isAnonymous = false)
+        val userB = AuthState.Authenticated("user-b", "b@example.test", isAnonymous = false)
+
+        assertTrue(libraryAuthScopeMatches(userA, userA.copy()))
+        assertTrue(libraryAuthScopeMatches(userA, userA.copy(email = "new@example.test")))
+        assertFalse(libraryAuthScopeMatches(userA, userB))
+        assertFalse(libraryAuthScopeMatches(userA, AuthState.Unauthenticated))
+        assertFalse(libraryAuthScopeMatches(userA, AuthState.Loading))
+    }
+
+    @Test
+    fun `account transition invalidates a pending pull and preserves only unsynced local saves`() {
+        val state = LibraryLocalState()
+        val token = state.beginProfileLoad(profileId = 1).snapshot.token
+        state.completeProfileLoad(
+            token = token,
+            activeProfileId = 1,
+            items = listOf(libraryItem(id = "old-account", savedAtEpochMs = 1L)),
+            deltaCursorEventId = 12L,
+            deltaInitialized = true,
+        )
+        val local = libraryItem(id = "local-pending", savedAtEpochMs = 2L)
+        state.upsert(local)
+        val stalePull = assertNotNull(state.markPullStarted(token))
+
+        val transition = state.resetForNuvioAccountChange()
+
+        assertFalse(state.isContentCurrent(stalePull))
+        assertEquals(listOf(local), transition.snapshot.items)
+        assertEquals(listOf(local.toLibrarySyncKey()), transition.snapshot.pendingUpsertKeys)
+        assertTrue(transition.snapshot.pendingDeleteKeys.isEmpty())
+        assertEquals(0L, transition.snapshot.deltaCursorEventId)
+        assertFalse(transition.snapshot.deltaInitialized)
     }
 
     @Test

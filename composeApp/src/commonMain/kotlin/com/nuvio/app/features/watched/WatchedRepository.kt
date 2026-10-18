@@ -118,6 +118,16 @@ internal fun extraWatchedKeysChanged(
     current: Set<String>,
 ): Boolean = previous.orEmpty() != current
 
+internal fun localExplicitFullyWatchedSeriesKeys(items: Collection<WatchedItem>): Set<String> =
+    items.asSequence()
+        .filter { item ->
+            item.source == WatchedSourceLocal &&
+                item.type.isSeriesLikeWatchedType() &&
+                item.season == null &&
+                item.episode == null
+        }
+        .mapTo(linkedSetOf()) { item -> watchedItemKey(item.type, item.id) }
+
 private const val maxRestorableWatchedPayloadChars = 4 * 1024 * 1024
 
 internal fun shouldRestoreWatchedPayload(payloadLength: Int): Boolean =
@@ -381,8 +391,10 @@ object WatchedRepository {
                         .filterTo(mutableSetOf()) { key -> key in providerItemsByKey }
                 }
             }
-            nuvioFullyWatchedSeriesKeys = if (remoteAccountMatches) storedPayload.fullyWatchedSeriesKeys else emptySet()
-            expandedSiblingKeys = storedPayload.expandedSiblingKeys
+            nuvioFullyWatchedSeriesKeys =
+                (if (remoteAccountMatches) storedPayload.fullyWatchedSeriesKeys else emptySet()) +
+                    localExplicitFullyWatchedSeriesKeys(restoredItems.values)
+            expandedSiblingKeys = if (remoteAccountMatches) storedPayload.expandedSiblingKeys else emptySet()
             restoredProviderPayloads.forEach { (providerId, providerPayload) ->
                 providerFullyWatchedSeriesKeys[providerId] = providerPayload.fullyWatchedSeriesKeys
                 providerExtraWatchedKeys[providerId] =
@@ -407,18 +419,49 @@ object WatchedRepository {
             ?.takeIf(String::isNotEmpty)
 
     private fun ensureNuvioWatchedAccountScopeCurrent() {
-        if (!hasLoaded) return
+        if (!hasLoaded || ProfileRepository.activeProfileId != currentProfileId) return
         val currentAccountId = currentNuvioRemoteAccountId()
         if (loadedNuvioRemoteAccountId == currentAccountId) return
-        loadedNuvioRemoteAccountId = currentAccountId
-        itemsStore.update { nuvioItems, _, dirtyNuvioKeys, _ ->
-            nuvioItems.entries.removeAll { (_, item) -> item.source == WatchedSourceNuvioSync }
-            dirtyNuvioKeys.clear()
+
+        val payload = WatchedStorage.loadPayload(currentProfileId).orEmpty().trim()
+        val storedPayload = payload
+            .takeIf { it.isNotEmpty() && shouldRestoreWatchedPayload(it.length) }
+            ?.let { raw -> runCatching { json.decodeFromString<StoredWatchedPayload>(raw) }.getOrNull() }
+            ?: StoredWatchedPayload()
+        val remoteAccountMatches = shouldRestoreNuvioWatchedHistory(
+            cachedAccountId = storedPayload.nuvioRemoteAccountId,
+            activeAccountId = currentAccountId,
+        )
+        val currentLocalItems = itemsStore.read { nuvioItems, _, _, _ ->
+            nuvioItems.values.filter { item -> item.source != WatchedSourceNuvioSync }
         }
-        nuvioFullyWatchedSeriesKeys = emptySet()
-        lastSuccessfulPushEpochMs = 0L
-        deltaCursorEventId = 0L
-        deltaInitialized = false
+        val restoredRemoteItems = if (remoteAccountMatches) {
+            storedPayload.items.filter { item -> item.source == WatchedSourceNuvioSync }
+        } else {
+            emptyList()
+        }
+        val scopedItems = (restoredRemoteItems + currentLocalItems)
+            .map(WatchedItem::normalizedMarkedAt)
+            .associateBy { item -> watchedItemKey(item.type, item.id, item.season, item.episode) }
+        val localExplicitMarkers = localExplicitFullyWatchedSeriesKeys(currentLocalItems)
+
+        loadedNuvioRemoteAccountId = currentAccountId
+        profileGeneration += 1L
+        itemsStore.update { nuvioItems, _, dirtyNuvioKeys, _ ->
+            nuvioItems.clear()
+            nuvioItems.putAll(scopedItems)
+            dirtyNuvioKeys.clear()
+            if (remoteAccountMatches) {
+                dirtyNuvioKeys += storedPayload.dirtyWatchedKeys.filter { key -> key in scopedItems }
+            }
+        }
+        nuvioFullyWatchedSeriesKeys =
+            (if (remoteAccountMatches) storedPayload.fullyWatchedSeriesKeys else emptySet()) + localExplicitMarkers
+        expandedSiblingKeys = if (remoteAccountMatches) storedPayload.expandedSiblingKeys else emptySet()
+        lastSuccessfulPushEpochMs = if (remoteAccountMatches) storedPayload.lastSuccessfulPushEpochMs else 0L
+        deltaCursorEventId = if (remoteAccountMatches) storedPayload.deltaCursorEventId else 0L
+        deltaInitialized = remoteAccountMatches && storedPayload.deltaInitialized
+        nuvioHasLoaded = true
         nuvioHasLoadedRemote = false
         publish()
     }
@@ -1526,6 +1569,7 @@ object WatchedRepository {
     }
 
     private fun persist() {
+        if (AuthRepository.state.value == AuthState.Loading) return
         ensureNuvioWatchedAccountScopeCurrent()
         ensureProviderAccountScopesCurrent()
         val storedPayload = itemsStore.read { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->

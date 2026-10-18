@@ -115,7 +115,6 @@ import com.nuvio.app.features.details.MetaLookupOutcome
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryItem
-import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.LibraryUiState
 import com.nuvio.app.features.library.LibraryUpcomingEpisode
 import com.nuvio.app.features.library.libraryUpcomingEpisodesFlow
@@ -189,17 +188,6 @@ private fun ProfileInsightsBody(
 ) {
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val avatars by AvatarRepository.avatars.collectAsStateWithLifecycle()
-    val libraryState by remember {
-        LibraryRepository.ensureLoaded()
-        LibraryRepository.uiState
-    }.collectAsStateWithLifecycle()
-    val upcomingEpisodes by remember {
-        libraryUpcomingEpisodesFlow(days = PROFILE_UPCOMING_EPISODE_DAYS)
-    }.collectAsStateWithLifecycle(initialValue = emptyList())
-    LaunchedEffect(libraryState.items) {
-        warmLibraryReleaseSchedule(libraryState.items)
-    }
-
     LaunchedEffect(Unit) {
         AvatarRepository.fetchAvatars()
     }
@@ -234,6 +222,20 @@ private fun ProfileInsightsBody(
             }
         }
     }
+    val profileLibraryItems = remember(profileAggregate?.libraryItems) {
+        profileAggregate?.libraryItems.orEmpty().filter(LibraryItem::isProfileInsightContent)
+    }
+    LaunchedEffect(activeProfileIndex, profileLibraryItems) {
+        warmLibraryReleaseSchedule(profileLibraryItems)
+    }
+    val upcomingFlow = remember(activeProfileIndex, profileLibraryItems) {
+        libraryUpcomingEpisodesFlow(
+            items = profileLibraryItems,
+            days = PROFILE_UPCOMING_EPISODE_DAYS,
+        )
+    }
+    val upcomingEpisodes by upcomingFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+
     val avatarItem = remember(activeProfile?.avatarId, avatars) {
         activeProfile
             ?.avatarId
@@ -320,10 +322,10 @@ private fun ProfileInsightsBody(
     LaunchedEffect(hydrationRequest) {
         hydrationRequest?.let { request -> ProfileTitleFactsStore.hydrate(request) }
     }
-    val refreshContext = remember(activeProfileIndex, libraryState.items, hydrationRequest) {
+    val refreshContext = remember(activeProfileIndex, profileLibraryItems, hydrationRequest) {
         ProfileInsightsRefreshContext(
             profileId = activeProfileIndex,
-            libraryItems = libraryState.items,
+            libraryItems = profileLibraryItems,
             hydrationRequest = hydrationRequest,
         )
     }
@@ -2741,25 +2743,33 @@ private object ProfileInsightsRefresher {
                 if (intent == TrackingRefreshIntent.USER_INITIATED) ProfileTitleFactsStore.clearFailures()
                 val lastFullSnapshotAt = ProfileTitleFactsStore.fullSnapshotAt(target.profileId)
                 val fullSnapshot = lastFullSnapshotAt == null || now - lastFullSnapshotAt >= FULL_SNAPSHOT_INTERVAL_MS
-                val sourceResult = coroutineScope {
-                    val sources = async {
-                        runRefreshStep("sources", ProfileInsightsRefreshResult()) {
-                            ProfileInsightsSourcesRepository.refresh(
-                                profileId = target.profileId,
-                                intent = intent,
-                                forceNuvioSnapshot = fullSnapshot,
-                            )
-                        }
-                    }
+                val sourceResult = runRefreshStep("sources", ProfileInsightsRefreshResult()) {
+                    ProfileInsightsSourcesRepository.refresh(
+                        profileId = target.profileId,
+                        intent = intent,
+                        forceNuvioSnapshot = fullSnapshot,
+                    )
+                }
+                val latestSources = ProfileInsightsSourcesRepository.state.value
+                val refreshedLibraryItems = if (latestSources.profileId == target.profileId) {
+                    runCatching {
+                        aggregateProfileInsights(latestSources.sources).libraryItems
+                            .filter(LibraryItem::isProfileInsightContent)
+                    }.getOrDefault(target.libraryItems)
+                } else {
+                    target.libraryItems
+                }
+                coroutineScope {
                     launch {
-                        runRefreshStep("calendar", Unit) { forceRefreshLibraryReleaseSchedule(target.libraryItems) }
+                        runRefreshStep("calendar", Unit) {
+                            forceRefreshLibraryReleaseSchedule(refreshedLibraryItems)
+                        }
                     }
                     launch {
                         runRefreshStep("titles", Unit) {
                             target.hydrationRequest?.let { ProfileTitleFactsStore.hydrate(it) }
                         }
                     }
-                    sources.await()
                 }
                 if (fullSnapshot && sourceResult.nuvioFullSnapshotSucceeded) {
                     ProfileTitleFactsStore.markFullSnapshot(target.profileId, now)

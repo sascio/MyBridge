@@ -22,6 +22,31 @@ class WatchedRepositoryTest {
     }
 
     @Test
+    fun accountSwitchCanRetainOnlyExplicitLocalWholeSeriesMarkers() {
+        val localWholeSeries = WatchedItem(
+            id = "local-show",
+            type = "series",
+            name = "Local Show",
+            markedAtEpochMs = 1L,
+            source = WatchedSourceLocal,
+        )
+        val syncedWholeSeries = localWholeSeries.copy(
+            id = "account-show",
+            source = WatchedSourceNuvioSync,
+        )
+        val localEpisode = localWholeSeries.copy(
+            id = "episode-show",
+            season = 1,
+            episode = 1,
+        )
+
+        assertEquals(
+            setOf(watchedItemKey("series", "local-show")),
+            localExplicitFullyWatchedSeriesKeys(listOf(localWholeSeries, syncedWholeSeries, localEpisode)),
+        )
+    }
+
+    @Test
     fun providerHistoryRestoresOnlyForItsMatchingAuthenticatedAccount() {
         val identity = "trakt:uuid:user-a"
         val key = com.nuvio.app.features.tracking.trackingAccountCachePartitionKey(TrackingProviderId.TRAKT, identity)
