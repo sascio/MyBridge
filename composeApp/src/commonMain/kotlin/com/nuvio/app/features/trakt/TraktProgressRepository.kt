@@ -89,7 +89,9 @@ object TraktProgressRepository {
     private val optimisticProgress = MutableStateFlow<Map<String, OptimisticProgressEntry>>(emptyMap())
 
     private var hasLoaded = false
+    private var loadedAccountGeneration: Long? = null
     private var refreshRequestId: Long = 0L
+    private var refreshRequestAccountGeneration: Long = 0L
     private val refreshJobMutex = Mutex()
     private var inFlightRefresh: Deferred<Unit>? = null
     private var metadataHydrationJob: Job? = null
@@ -106,7 +108,10 @@ object TraktProgressRepository {
     private var showIdToTraktPathId: Map<String, String> = emptyMap()
     private var showIdSiblingsMap: Map<String, Set<String>> = emptyMap()
 
-    fun getShowIdSiblings(): Map<String, Set<String>> = showIdSiblingsMap
+    fun getShowIdSiblings(): Map<String, Set<String>> {
+        ensureLoaded()
+        return showIdSiblingsMap
+    }
 
     init {
         scope.launch {
@@ -135,11 +140,25 @@ object TraktProgressRepository {
     }
 
     fun ensureLoaded() {
-        if (hasLoaded) return
+        TraktAuthRepository.ensureLoaded()
+        val accountGeneration = TraktAuthRepository.accountGeneration
+        if (loadedAccountGeneration == accountGeneration) {
+            if (!hasLoaded) hasLoaded = true
+            return
+        }
+        invalidateInFlightRefreshes()
         hasLoaded = true
+        loadedAccountGeneration = accountGeneration
+        remoteEntriesSnapshot = emptyList()
+        optimisticProgress.value = emptyMap()
+        hiddenProgressShowIds.value = emptySet()
+        resetActivitySnapshot()
+        resetShowProgressCaches()
+        _uiState.value = TraktProgressUiState()
     }
 
     fun isShowHiddenFromProgress(contentId: String): Boolean {
+        ensureLoaded()
         val ids = hiddenProgressShowIds.value
         if (ids.isEmpty()) return false
         val parsed = parseTraktContentIds(contentId)
@@ -168,6 +187,7 @@ object TraktProgressRepository {
     fun clearLocalState() {
         invalidateInFlightRefreshes()
         hasLoaded = false
+        loadedAccountGeneration = null
         remoteEntriesSnapshot = emptyList()
         optimisticProgress.value = emptyMap()
         hiddenProgressShowIds.value = emptySet()
@@ -220,7 +240,10 @@ object TraktProgressRepository {
         ensureLoaded()
         val normalizedContentId = contentId.trim()
         if (normalizedContentId.isBlank()) return
+        val requestAccountGeneration = TraktAuthRepository.accountGeneration
+        val requestAccountIdentity = TraktAuthRepository.accountIdentity
         val headers = TraktAuthRepository.authorizedHeaders() ?: return
+        if (!isCurrentTraktAccount(requestAccountGeneration, requestAccountIdentity)) return
         val cacheKey = canonicalLookupKey(normalizedContentId)
         val now = TraktPlatformClock.nowEpochMs()
 
@@ -242,6 +265,7 @@ object TraktProgressRepository {
 
         try {
             val entries = fetchEpisodeProgressEntries(headers = headers, contentId = normalizedContentId)
+            if (!isCurrentTraktAccount(requestAccountGeneration, requestAccountIdentity)) return
             remoteEntriesSnapshot = mergeNewestByVideoId(remoteEntriesSnapshot + entries)
             reconcileOptimisticProgress(remoteEntriesSnapshot)
             publishProgressState(entries = remoteEntriesSnapshot)
@@ -252,8 +276,10 @@ object TraktProgressRepository {
                 launchHydration(requestId = refreshRequestId, entries = _uiState.value.entries)
             }
         } finally {
-            episodeProgressMutex.withLock {
-                inFlightEpisodeProgressContentIds.remove(cacheKey)
+            if (isCurrentTraktAccount(requestAccountGeneration, requestAccountIdentity)) {
+                episodeProgressMutex.withLock {
+                    inFlightEpisodeProgressContentIds.remove(cacheKey)
+                }
             }
         }
     }
@@ -329,7 +355,10 @@ object TraktProgressRepository {
     private suspend fun refreshNowInternal() {
         ensureLoaded()
         val requestId = nextRefreshRequestId()
+        val requestAccountGeneration = refreshRequestAccountGeneration
+        val requestAccountIdentity = TraktAuthRepository.accountIdentity
         val headers = TraktAuthRepository.authorizedHeaders()
+        if (!isCurrentTraktAccount(requestAccountGeneration, requestAccountIdentity)) return
         if (headers == null) {
             remoteEntriesSnapshot = emptyList()
             optimisticProgress.value = emptyMap()
@@ -375,7 +404,9 @@ object TraktProgressRepository {
         val completedEntries = runCatching {
             coroutineScope {
                 val history = async { fetchHistoryEntries(headers) }
-                val watchedShowSeeds = async { fetchWatchedShowSeedEntries(headers) }
+                val watchedShowSeeds = async {
+                    fetchWatchedShowSeedEntries(headers, requestAccountGeneration, requestAccountIdentity)
+                }
                 val hiddenShows = async { fetchHiddenShowIds(headers) }
                 
                 val list = history.await() + watchedShowSeeds.await()
@@ -801,10 +832,16 @@ object TraktProgressRepository {
 
     private suspend fun fetchWatchedShowSeedEntries(
         headers: Map<String, String>,
+        requestAccountGeneration: Long,
+        requestAccountIdentity: String?,
     ): List<WatchProgressEntry> = withContext(Dispatchers.Default) {
         ContinueWatchingPreferencesRepository.ensureLoaded()
         val useFurthestEpisode = ContinueWatchingPreferencesRepository.uiState.value.upNextFromFurthestEpisode
-        val watchedShows = TraktWatchedShowSnapshotRepository.get(headers)
+        val cacheIdentity = requestAccountIdentity ?: "trakt:session:$requestAccountGeneration"
+        val watchedShows = TraktWatchedShowSnapshotRepository.get(cacheIdentity, headers)
+        if (!isCurrentTraktAccount(requestAccountGeneration, requestAccountIdentity)) {
+            throw CancellationException("Trakt account changed")
+        }
         updateWatchedShowCaches(watchedShows)
         val mapped = fixAmbiguousWatchedShowSeeds(
             watchedShows.mapNotNull { item ->
@@ -1126,6 +1163,7 @@ object TraktProgressRepository {
 
     private fun nextRefreshRequestId(): Long {
         refreshRequestId += 1L
+        refreshRequestAccountGeneration = TraktAuthRepository.accountGeneration
         return refreshRequestId
     }
 
@@ -1137,7 +1175,12 @@ object TraktProgressRepository {
         metadataHydrationJob = null
     }
 
-    private fun isLatestRefreshRequest(requestId: Long): Boolean = refreshRequestId == requestId
+    private fun isLatestRefreshRequest(requestId: Long): Boolean =
+        refreshRequestId == requestId && refreshRequestAccountGeneration == TraktAuthRepository.accountGeneration
+
+    private fun isCurrentTraktAccount(requestGeneration: Long, requestIdentity: String?): Boolean =
+        TraktAuthRepository.isAccountGenerationCurrent(requestGeneration) &&
+            (requestIdentity == null || requestIdentity == TraktAuthRepository.accountIdentity)
 
     private suspend fun hydrateEntriesFromAddonMeta(
         requestId: Long,

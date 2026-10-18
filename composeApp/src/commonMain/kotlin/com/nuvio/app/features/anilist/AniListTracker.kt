@@ -35,6 +35,8 @@ object AniListTracker : TrackingAuthProvider {
     private val authenticated = MutableStateFlow(store.state.value.isAuthenticated)
     override val isAuthenticated: StateFlow<Boolean> = authenticated.asStateFlow()
     override val accountGeneration: Long get() = store.scope().generation
+    override val accountIdentity: String?
+        get() = store.state.value.viewer?.id?.takeIf { it > 0L }?.let { "anilist:$it" }
     override val descriptor = TrackingProviderDescriptor(
         TrackingProviderId.ANILIST,
         "AniList",

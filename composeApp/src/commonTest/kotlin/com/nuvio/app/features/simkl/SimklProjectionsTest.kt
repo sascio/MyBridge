@@ -337,6 +337,38 @@ class SimklProjectionsTest {
     }
 
     @Test
+    fun `profile history requires explicit Simkl watched timestamps rather than list completion`() {
+        val listOnlyMovie = entry(
+            type = SimklMediaType.MOVIES,
+            status = SimklListStatus.COMPLETED,
+            id = 70001,
+            imdb = "tt0070001",
+        )
+        val listOnlyShow = entry(
+            type = SimklMediaType.SHOWS,
+            status = SimklListStatus.COMPLETED,
+            id = 70002,
+            imdb = "tt0070002",
+            seasons = listOf(SimklSeason(number = 1, episodes = listOf(SimklEpisode(number = 1)))),
+        )
+        val noHistory = SimklSyncSnapshot(entries = listOf(listOnlyMovie, listOnlyShow))
+
+        assertTrue(noHistory.toProfileInsightsWatchedItems().isEmpty())
+
+        val withHistory = noHistory.copy(
+            entries = listOf(
+                listOnlyMovie.copy(lastWatchedAt = "2025-01-02T03:04:05Z"),
+                listOnlyShow.copy(
+                    seasons = listOf(
+                        SimklSeason(number = 1, episodes = listOf(SimklEpisode(number = 1, watchedAt = "2025-01-02T03:04:05Z"))),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(2, withHistory.toProfileInsightsWatchedItems().size)
+    }
+
+    @Test
     fun `timestamp parser accepts UTC fractions and rejects invalid calendar values`() {
         assertEquals(0L, parseSimklUtcEpochMs("1970-01-01T00:00:00Z"))
         assertEquals(951_782_400_123L, parseSimklUtcEpochMs("2000-02-29T00:00:00.123Z"))

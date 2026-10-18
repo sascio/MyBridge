@@ -6,6 +6,7 @@ import com.nuvio.app.features.library.LibrarySection
 import com.nuvio.app.features.tracking.TrackingListStatus
 import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.watched.WatchedItem
+import com.nuvio.app.features.watched.watchedItemKey
 import com.nuvio.app.features.watched.watchedItemKeys
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
@@ -57,6 +58,23 @@ internal fun weTrakrTypeMatches(isMovie: Boolean, contentType: String?): Boolean
 }
 
 internal fun weTrakrShowKey(contentId: String): String = "show:${normalizeWeTrakrContentId(contentId)}"
+
+/** Profile history uses the watched-episode endpoint and positive movie play counts only. */
+internal fun WeTrakrSyncSnapshot.toProfileInsightsWatchedItems(): List<WatchedItem> {
+    val movieEntriesByProviderId = entries
+        .filter { entry ->
+            entry.media.isMovie &&
+                entry.status.equals(WeTrakrStatus.WATCHED, ignoreCase = true) &&
+                entry.watchedCount > 0
+        }
+        .associateBy { entry -> entry.media.providerItemId() }
+    return WeTrakrProjection(this).watchedItems.mapNotNull { item ->
+        if (item.season != null && item.episode != null) return@mapNotNull item
+        val providerItemId = item.trackingProviderItemId ?: return@mapNotNull null
+        val movieEntry = movieEntriesByProviderId[providerItemId] ?: return@mapNotNull null
+        item.copy(markedAtEpochMs = movieEntry.watchedAtEpochMs)
+    }.distinctBy { item -> watchedItemKey(item.type, item.id, item.season, item.episode) }
+}
 
 internal class WeTrakrProjection(val snapshot: WeTrakrSyncSnapshot) {
     val listEntries: List<WeTrakrListEntry> = snapshot.entries

@@ -86,7 +86,8 @@ internal object TraktWatchedShowSnapshotRepository {
         pageClient = TraktWatchedPageClient(platformTraktWatchedHttpEngine),
     )
 
-    suspend fun get(headers: Map<String, String>): List<TraktWatchedShowSnapshotItem> = store.get(headers)
+    suspend fun get(accountCacheIdentity: String, headers: Map<String, String>): List<TraktWatchedShowSnapshotItem> =
+        store.get(accountCacheIdentity, headers)
 
     fun clear() = store.clear()
 }
@@ -101,27 +102,30 @@ internal class TraktWatchedShowSnapshotStore(
         explicitNulls = false
     }
     private val stateLock = SynchronizedObject()
-    private val inFlightByCredential = mutableMapOf<String, CompletableDeferred<List<TraktWatchedShowSnapshotItem>>>()
-    private var cachedSnapshot: CachedWatchedShowSnapshot? = null
+    private val inFlightByAccountIdentity = mutableMapOf<String, CompletableDeferred<List<TraktWatchedShowSnapshotItem>>>()
+    private val cachedSnapshotsByAccountIdentity = mutableMapOf<String, CachedWatchedShowSnapshot>()
     private var generation = 0L
 
-    suspend fun get(headers: Map<String, String>): List<TraktWatchedShowSnapshotItem> {
-        val credentialKey = credentialKey(headers)
+    suspend fun get(
+        accountCacheIdentity: String,
+        headers: Map<String, String>,
+    ): List<TraktWatchedShowSnapshotItem> {
+        val cacheIdentity = accountCacheIdentity.trim().takeIf(String::isNotEmpty)
+            ?: error("Trakt watched cache requires an account-scoped identity")
         val now = nowEpochMs()
         val lease = synchronized(stateLock) {
-            val cached = cachedSnapshot?.takeIf { snapshot ->
-                snapshot.credentialKey == credentialKey &&
-                    now - snapshot.fetchedAtEpochMs in 0..cacheTtlMs
+            val cached = cachedSnapshotsByAccountIdentity[cacheIdentity]?.takeIf { snapshot ->
+                now - snapshot.fetchedAtEpochMs in 0..cacheTtlMs
             }
             if (cached != null) {
                 SnapshotFetchLease(cachedItems = cached.items)
             } else {
-                val existing = inFlightByCredential[credentialKey]
+                val existing = inFlightByAccountIdentity[cacheIdentity]
                 if (existing != null) {
                     SnapshotFetchLease(deferred = existing)
                 } else {
                     val created = CompletableDeferred<List<TraktWatchedShowSnapshotItem>>()
-                    inFlightByCredential[credentialKey] = created
+                    inFlightByAccountIdentity[cacheIdentity] = created
                     SnapshotFetchLease(
                         deferred = created,
                         ownsFetch = true,
@@ -142,22 +146,22 @@ internal class TraktWatchedShowSnapshotStore(
             val items = fetchPages(headers)
             synchronized(stateLock) {
                 if (lease.generation == generation) {
-                    cachedSnapshot = CachedWatchedShowSnapshot(
-                        credentialKey = credentialKey,
+                    cachedSnapshotsByAccountIdentity[cacheIdentity] = CachedWatchedShowSnapshot(
+                        accountCacheIdentity = cacheIdentity,
                         fetchedAtEpochMs = nowEpochMs(),
                         items = items,
                     )
                 }
-                if (inFlightByCredential[credentialKey] === deferred) {
-                    inFlightByCredential.remove(credentialKey)
+                if (inFlightByAccountIdentity[cacheIdentity] === deferred) {
+                    inFlightByAccountIdentity.remove(cacheIdentity)
                 }
             }
             deferred.complete(items)
             items
         } catch (error: Throwable) {
             synchronized(stateLock) {
-                if (inFlightByCredential[credentialKey] === deferred) {
-                    inFlightByCredential.remove(credentialKey)
+                if (inFlightByAccountIdentity[cacheIdentity] === deferred) {
+                    inFlightByAccountIdentity.remove(cacheIdentity)
                 }
             }
             deferred.completeExceptionally(error)
@@ -168,8 +172,8 @@ internal class TraktWatchedShowSnapshotStore(
     fun clear() {
         synchronized(stateLock) {
             generation += 1
-            cachedSnapshot = null
-            inFlightByCredential.clear()
+            cachedSnapshotsByAccountIdentity.clear()
+            inFlightByAccountIdentity.clear()
         }
     }
 
@@ -194,12 +198,6 @@ internal class TraktWatchedShowSnapshotStore(
         return items
     }
 
-    private fun credentialKey(headers: Map<String, String>): String =
-        headers.entries
-            .firstOrNull { (name, _) -> name.equals("authorization", ignoreCase = true) }
-            ?.value
-            ?: headers.hashCode().toString()
-
     private fun RawHttpResponse.headerInt(name: String): Int? =
         headers.entries
             .firstOrNull { (headerName, _) -> headerName.equals(name, ignoreCase = true) }
@@ -217,7 +215,7 @@ private data class SnapshotFetchLease(
 )
 
 private data class CachedWatchedShowSnapshot(
-    val credentialKey: String,
+    val accountCacheIdentity: String,
     val fetchedAtEpochMs: Long,
     val items: List<TraktWatchedShowSnapshotItem>,
 )

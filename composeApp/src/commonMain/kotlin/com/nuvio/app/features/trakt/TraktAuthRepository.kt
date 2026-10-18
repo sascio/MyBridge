@@ -64,6 +64,15 @@ object TraktAuthRepository : TrackingAuthProvider {
 
     private val _isAuthenticated = MutableStateFlow(false)
     override val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+    override val accountGeneration: Long get() = profileGeneration
+    override val accountIdentity: String?
+        get() = authState.userUuid?.trim()?.takeIf(String::isNotEmpty)?.let { "trakt:uuid:$it" }
+            ?: authState.userSlug?.trim()?.takeIf(String::isNotEmpty)?.lowercase()?.let { "trakt:slug:$it" }
+
+    internal fun isAccountGenerationCurrent(expectedGeneration: Long): Boolean {
+        ensureLoaded()
+        return profileGeneration == expectedGeneration && authState.isAuthenticated
+    }
 
     override val descriptor = TrackingProviderDescriptor(
         id = TrackingProviderId.TRAKT,
@@ -276,6 +285,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     suspend fun refreshUserSettings(profileId: Int = currentProfileId): String? {
         ensureLoaded(profileId)
         val headers = authorizedHeaders(profileId) ?: return null
+        val requestGeneration = profileGeneration
         val response = runCatching {
             httpGetTextWithHeaders(
                 url = "$BASE_URL/users/settings",
@@ -289,10 +299,12 @@ object TraktAuthRepository : TrackingAuthProvider {
         val parsed = runCatching {
             json.decodeFromString<TraktUserSettingsResponse>(response)
         }.getOrNull() ?: return null
+        if (requestGeneration != profileGeneration || profileId != currentProfileId) return null
 
         authState = authState.copy(
             username = parsed.user?.username,
             userSlug = parsed.user?.ids?.slug,
+            userUuid = parsed.user?.ids?.uuid,
         )
         persist(profileId)
         publish()
@@ -473,12 +485,16 @@ object TraktAuthRepository : TrackingAuthProvider {
 
         if (parsed.accessToken.isBlank()) return false
 
+        profileGeneration += 1L
         authState = authState.copy(
             accessToken = parsed.accessToken,
             refreshToken = parsed.refreshToken,
             tokenType = parsed.tokenType,
             createdAt = parsed.createdAt,
             expiresIn = parsed.expiresIn,
+            username = null,
+            userSlug = null,
+            userUuid = null,
             pendingAuthorizationState = null,
             pendingAuthorizationStartedAtMillis = null,
         )
@@ -589,12 +605,16 @@ object TraktAuthRepository : TrackingAuthProvider {
             return
         }
 
+        profileGeneration += 1L
         authState = authState.copy(
             accessToken = parsed.accessToken,
             refreshToken = parsed.refreshToken,
             tokenType = parsed.tokenType,
             createdAt = parsed.createdAt,
             expiresIn = parsed.expiresIn,
+            username = null,
+            userSlug = null,
+            userUuid = null,
             pendingAuthorizationState = null,
             pendingAuthorizationStartedAtMillis = null,
         )
@@ -631,6 +651,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             }
         }
 
+        profileGeneration += 1L
         authState = TraktAuthState()
         persist(profileId)
         publish(
@@ -709,6 +730,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private fun invalidateCredentials(profileId: Int) {
+        profileGeneration += 1L
         authState = TraktAuthState()
         persist(profileId)
         publish(
@@ -1014,4 +1036,5 @@ private data class TraktUserDto(
 @Serializable
 private data class TraktUserIdsDto(
     val slug: String? = null,
+    val uuid: String? = null,
 )

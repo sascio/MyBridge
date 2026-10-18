@@ -256,20 +256,17 @@ class AniListSyncRepository internal constructor(
         val authorization = auth.state.value
         if (!authorization.isAuthenticated) {
             clearPublished()
-            storage.remove(scope.profileId) { if (!matchesCurrent(scope)) throw CancellationException("AniList account changed") }
             return null
         }
-        val viewerId = authorization.viewer?.id ?: 0L
+        val viewerId = authorization.viewer?.id?.takeIf { it > 0L } ?: ensureViewer(scope)
         val current = mutableState.value
-        if (current.scope == scope && current.snapshot != null &&
-            (viewerId == 0L || current.snapshot.viewerId == 0L || current.snapshot.viewerId == viewerId)
-        ) {
+        if (current.scope == scope && current.snapshot != null && current.snapshot.viewerId == viewerId) {
             return current.snapshot
         }
         val payload = storage.load(scope.profileId)
         val snapshot = payload
             ?.let { runCatching { aniListJson.decodeFromString(AniListSyncSnapshot.serializer(), it) }.getOrNull() }
-            ?.takeIf { viewerId == 0L || it.viewerId == viewerId || it.viewerId == 0L }
+            ?.takeIf { it.viewerId == viewerId }
             ?: AniListSyncSnapshot(viewerId)
         checkScope(scope)
         val projection = runCatching { AniListProjection(snapshot, preference()) }.getOrNull()

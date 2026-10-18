@@ -54,6 +54,7 @@
 
     <string name="profile_insights_refresh">Refresh</string>
     <string name="profile_insights_refreshing">Refreshing…</string>
+    <string name="profile_insights_sources_partial">Some connected sources are incomplete: %1$s</string>
     <string name="profile_insights_pull_to_refresh">Pull down to refresh from your account</string>
     <string name="profile_insights_updated_just_now">Updated just now</string>
     <string name="profile_insights_updated_minutes">Updated %1$d min ago</string>

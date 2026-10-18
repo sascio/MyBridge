@@ -7,6 +7,9 @@ import com.nuvio.app.features.watching.domain.WatchingContentRef
 import com.nuvio.app.features.watching.domain.watchedKey
 import kotlinx.serialization.Serializable
 
+internal const val WatchedSourceLocal = "local"
+internal const val WatchedSourceNuvioSync = "nuvio_sync"
+
 @Serializable
 data class WatchedItem(
     val id: String,
@@ -21,6 +24,7 @@ data class WatchedItem(
     override val trackingProviderItemId: String? = null,
     override val trackingSourceUrl: String? = null,
     val markedAtEpochMs: Long,
+    val source: String = WatchedSourceLocal,
 ) : TrackingAttributedItem {
     override val trackingContentId: String
         get() = id

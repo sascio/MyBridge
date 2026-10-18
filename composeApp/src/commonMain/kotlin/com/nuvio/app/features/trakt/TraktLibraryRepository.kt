@@ -4,6 +4,8 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.library.LibraryItem
+import com.nuvio.app.features.tracking.TrackingProviderId
+import com.nuvio.app.features.tracking.trackingAccountCacheMatches
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -62,14 +64,24 @@ object TraktLibraryRepository {
     val uiState: StateFlow<TraktLibraryUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private var loadedAccountIdentity: String? = null
+    private var loadedAccountGeneration = Long.MIN_VALUE
     private val refreshMutex = Mutex()
     private var lastRefreshAtMs: Long = 0L
     private var lastListTabsRefreshAtMs: Long = 0L
 
     fun ensureLoaded() {
-        if (hasLoaded) return
+        TraktAuthRepository.ensureLoaded()
+        val accountIdentity = TraktAuthRepository.accountIdentity
+        val accountGeneration = TraktAuthRepository.accountGeneration
+        if (hasLoaded && loadedAccountIdentity == accountIdentity && loadedAccountGeneration == accountGeneration) return
         hasLoaded = true
-        loadSnapshotFromDisk()
+        loadedAccountIdentity = accountIdentity
+        loadedAccountGeneration = accountGeneration
+        lastRefreshAtMs = 0L
+        lastListTabsRefreshAtMs = 0L
+        _uiState.value = TraktLibraryUiState()
+        loadSnapshotFromDisk(accountIdentity)
     }
 
     fun preloadListTabsAsync() {
@@ -94,10 +106,11 @@ object TraktLibraryRepository {
 
     fun clearLocalState() {
         hasLoaded = false
+        loadedAccountIdentity = null
+        loadedAccountGeneration = Long.MIN_VALUE
         lastRefreshAtMs = 0L
         lastListTabsRefreshAtMs = 0L
         _uiState.value = TraktLibraryUiState()
-        TraktLibraryStorage.savePayload("")
     }
 
     fun currentListTabs(): List<TraktListTab> = _uiState.value.listTabs
@@ -119,9 +132,11 @@ object TraktLibraryRepository {
         ensureLoaded()
         refreshMutex.withLock {
             if (_uiState.value.listTabs.isNotEmpty()) return
-
+            val requestGeneration = TraktAuthRepository.accountGeneration
+            val requestIdentity = TraktAuthRepository.accountIdentity
             val headers = TraktAuthRepository.authorizedHeaders() ?: return
             val tabs = fetchListTabs(headers)
+            if (!isCurrentAccountRequest(requestGeneration, requestIdentity)) return
             _uiState.value = _uiState.value.copy(
                 listTabs = tabs,
                 errorMessage = null,
@@ -133,6 +148,8 @@ object TraktLibraryRepository {
     private suspend fun refresh(force: Boolean) {
         ensureLoaded()
         refreshMutex.withLock {
+            val requestAccountGeneration = TraktAuthRepository.accountGeneration
+            val requestAccountIdentity = TraktAuthRepository.accountIdentity
             val now = TraktPlatformClock.nowEpochMs()
             val current = _uiState.value
             val cacheWindowMs = if (force) FORCE_REFRESH_DEDUP_MS else SNAPSHOT_CACHE_TTL_MS
@@ -145,6 +162,7 @@ object TraktLibraryRepository {
             }
 
             val headers = TraktAuthRepository.authorizedHeaders()
+            if (!isCurrentAccountRequest(requestAccountGeneration, requestAccountIdentity)) return
             if (headers == null) {
                 _uiState.value = TraktLibraryUiState()
                 lastRefreshAtMs = 0L
@@ -156,6 +174,7 @@ object TraktLibraryRepository {
 
             val result = runCatching {
                 fetchSnapshot(headers) { partialState ->
+                    if (!isCurrentAccountRequest(requestAccountGeneration, requestAccountIdentity)) return@fetchSnapshot
                     _uiState.value = partialState.copy(
                         isLoading = true,
                         hasLoaded = true,
@@ -165,6 +184,7 @@ object TraktLibraryRepository {
             }
             result.exceptionOrNull()?.let { error ->
                 if (error is CancellationException) throw error
+                if (!isCurrentAccountRequest(requestAccountGeneration, requestAccountIdentity)) return
                 log.w(error) { "Failed to refresh Trakt library" }
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
@@ -175,12 +195,13 @@ object TraktLibraryRepository {
             }
 
             val snapshot = result.getOrThrow()
+            if (!isCurrentAccountRequest(requestAccountGeneration, requestAccountIdentity)) return
             _uiState.value = snapshot.copy(
                 isLoading = false,
                 hasLoaded = true,
                 errorMessage = null,
             )
-            persistSnapshot(_uiState.value)
+            TraktAuthRepository.accountIdentity?.let { identity -> persistSnapshot(_uiState.value, identity) }
             lastRefreshAtMs = now
         }
     }
@@ -377,15 +398,16 @@ object TraktLibraryRepository {
         )
     }
 
-    private fun loadSnapshotFromDisk() {
-        val payload = TraktLibraryStorage.loadPayload().orEmpty().trim()
+    private fun loadSnapshotFromDisk(accountIdentity: String?) {
+        val identity = accountIdentity?.takeIf { TraktAuthRepository.isAuthenticated.value } ?: return
+        val payload = TraktLibraryStorage.loadPayload(identity).orEmpty().trim()
         if (payload.isBlank()) return
 
         val cached = runCatching {
             json.decodeFromString<StoredTraktLibraryPayload>(payload)
         }.onFailure {
             log.w { "Failed to parse cached Trakt library payload: ${it.message}" }
-        }.getOrNull() ?: return
+        }.getOrNull()?.takeIf { stored -> trackingAccountCacheMatches(stored.accountIdentity, identity) } ?: return
 
         val state = rebuildUiState(
             listTabs = cached.listTabs,
@@ -394,12 +416,20 @@ object TraktLibraryRepository {
         _uiState.value = state.copy(isLoading = false, errorMessage = null, hasLoaded = true)
     }
 
-    private fun persistSnapshot(state: TraktLibraryUiState) {
+    private fun persistSnapshot(state: TraktLibraryUiState, accountIdentity: String) {
         val payload = StoredTraktLibraryPayload(
+            accountIdentity = accountIdentity,
             listTabs = state.listTabs,
             entriesByList = state.entriesByList,
         )
-        TraktLibraryStorage.savePayload(json.encodeToString(payload))
+        TraktLibraryStorage.savePayload(accountIdentity, json.encodeToString(payload))
+    }
+
+    private fun isCurrentAccountRequest(requestGeneration: Long, requestIdentity: String?): Boolean {
+        TraktAuthRepository.ensureLoaded()
+        return requestGeneration == TraktAuthRepository.accountGeneration &&
+            (requestIdentity == null || requestIdentity == TraktAuthRepository.accountIdentity) &&
+            TraktAuthRepository.isAuthenticated.value
     }
 
     private suspend fun traktLibraryLoadErrorMessage(error: Throwable): String {
@@ -850,6 +880,7 @@ object TraktLibraryRepository {
 
 @Serializable
 private data class StoredTraktLibraryPayload(
+    val accountIdentity: String? = null,
     val listTabs: List<TraktListTab> = emptyList(),
     val entriesByList: Map<String, List<LibraryItem>> = emptyMap(),
 )

@@ -12,6 +12,7 @@ import kotlinx.serialization.Serializable
 
 internal const val WatchProgressCompletionPercentThreshold = 90f
 internal const val WatchProgressSourceLocal = "local"
+internal const val WatchProgressSourceNuvioSync = "nuvio_sync"
 internal const val WatchProgressSourceTraktPlayback = "trakt_playback"
 internal const val WatchProgressSourceTraktHistory = "trakt_history"
 internal const val WatchProgressSourceTraktShowProgress = "trakt_show_progress"

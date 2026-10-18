@@ -15,6 +15,80 @@ import kotlin.test.assertTrue
 
 class WatchedRepositoryTest {
     @Test
+    fun nuvioWatchedHistoryRequiresTheMatchingAuthenticatedAccount() {
+        assertTrue(shouldRestoreNuvioWatchedHistory("nuvio-user-a", "nuvio-user-a"))
+        assertFalse(shouldRestoreNuvioWatchedHistory("nuvio-user-a", "nuvio-user-b"))
+        assertFalse(shouldRestoreNuvioWatchedHistory("nuvio-user-a", null))
+    }
+
+    @Test
+    fun providerHistoryRestoresOnlyForItsMatchingAuthenticatedAccount() {
+        val identity = "trakt:uuid:user-a"
+        val key = com.nuvio.app.features.tracking.trackingAccountCachePartitionKey(TrackingProviderId.TRAKT, identity)
+        assertTrue(
+            shouldRestoreProviderWatchedPayload(
+                providerId = TrackingProviderId.TRAKT,
+                storageKey = requireNotNull(key),
+                cachedAccountIdentity = identity,
+                activeAccountIdentity = identity,
+                isAuthenticated = true,
+            ),
+        )
+    }
+
+    @Test
+    fun providerHistoryNeverRestoresForAnotherAccountOrWithoutIdentity() {
+        val identity = "trakt:uuid:user-a"
+        val key = requireNotNull(
+            com.nuvio.app.features.tracking.trackingAccountCachePartitionKey(TrackingProviderId.TRAKT, identity),
+        )
+        assertFalse(
+            shouldRestoreProviderWatchedPayload(
+                providerId = TrackingProviderId.TRAKT,
+                storageKey = key,
+                cachedAccountIdentity = identity,
+                activeAccountIdentity = "trakt:uuid:user-b",
+                isAuthenticated = true,
+            ),
+        )
+        assertFalse(
+            shouldRestoreProviderWatchedPayload(
+                providerId = TrackingProviderId.TRAKT,
+                storageKey = key,
+                cachedAccountIdentity = identity,
+                activeAccountIdentity = identity,
+                isAuthenticated = false,
+            ),
+        )
+        assertFalse(
+            shouldRestoreProviderWatchedPayload(
+                providerId = TrackingProviderId.TRAKT,
+                storageKey = key,
+                cachedAccountIdentity = null,
+                activeAccountIdentity = identity,
+                isAuthenticated = true,
+            ),
+        )
+    }
+
+    @Test
+    fun providerHistoryPartitionKeyMustMatchTheTaggedProviderAccount() {
+        val identity = "simkl:42"
+        val key = requireNotNull(
+            com.nuvio.app.features.tracking.trackingAccountCachePartitionKey(TrackingProviderId.SIMKL, identity),
+        )
+        assertFalse(
+            shouldRestoreProviderWatchedPayload(
+                providerId = TrackingProviderId.SIMKL,
+                storageKey = "$key.other",
+                cachedAccountIdentity = identity,
+                activeAccountIdentity = identity,
+                isAuthenticated = true,
+            ),
+        )
+    }
+
+    @Test
     fun oversizedLegacyPayload_isNotRestored() {
         assertTrue(shouldRestoreWatchedPayload(4 * 1024 * 1024))
         assertFalse(shouldRestoreWatchedPayload(4 * 1024 * 1024 + 1))

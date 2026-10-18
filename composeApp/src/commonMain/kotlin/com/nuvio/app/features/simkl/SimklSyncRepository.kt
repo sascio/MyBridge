@@ -44,23 +44,36 @@ object SimklSyncRepository : TrackingProfileStore {
 
     private var hasLoaded = false
     private var profileGeneration = 0L
+    private var loadedAuthGeneration = Long.MIN_VALUE
+    private var loadedAccountId: Long? = null
 
     init {
         TrackingProviderRegistry.registerProfileStore(this)
     }
 
     fun ensureLoaded() {
-        if (hasLoaded) return
+        SimklAuthRepository.ensureLoaded()
+        val authGeneration = SimklAuthRepository.accountGeneration
+        val accountId = SimklAuthRepository.stableAccountId
+        if (hasLoaded && loadedAuthGeneration == authGeneration && loadedAccountId == accountId) return
+        profileGeneration += 1L
         hasLoaded = true
-        val snapshot = SimklSyncStorage.loadPayload()
-            ?.trim()
-            ?.takeIf(String::isNotEmpty)
-            ?.let { payload ->
-                runCatching { json.decodeFromString<SimklSyncSnapshot>(payload) }
-                    .onFailure { error -> log.w { "Failed to parse Simkl sync snapshot: ${error.message}" } }
-                    .getOrNull()
-            }
-            ?: SimklSyncSnapshot()
+        loadedAuthGeneration = authGeneration
+        loadedAccountId = accountId
+        val snapshot = if (SimklAuthRepository.isAuthenticated.value && accountId != null) {
+            SimklSyncStorage.loadPayload()
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+                ?.let { payload ->
+                    runCatching { json.decodeFromString<SimklSyncSnapshot>(payload) }
+                        .onFailure { error -> log.w { "Failed to parse Simkl sync snapshot: ${error.message}" } }
+                        .getOrNull()
+                }
+                ?.takeIf { it.accountId == accountId }
+                ?: SimklSyncSnapshot(accountId = accountId)
+        } else {
+            SimklSyncSnapshot(accountId = accountId)
+        }
         _state.value = SimklSyncUiState(snapshot = snapshot, hasLoaded = true)
         SimklWatchDiagnostics.logSnapshot(stage = "cache-load", snapshot = snapshot)
     }
@@ -87,6 +100,8 @@ object SimklSyncRepository : TrackingProfileStore {
         val requestId = refreshRequestSequence.incrementAndGet()
         val requestedGeneration = profileGeneration
         val requestedProfileId = ProfileRepository.activeProfileId
+        val requestedAuthGeneration = SimklAuthRepository.accountGeneration
+        val requestedAccountId = SimklAuthRepository.stableAccountId
         val before = _state.value
         SimklWatchDiagnostics.logRefreshRequest(
             requestId = requestId,
@@ -104,8 +119,12 @@ object SimklSyncRepository : TrackingProfileStore {
                 val current = _state.value
                 val authenticated = SimklAuthRepository.isAuthenticated.value
                 val nowEpochMs = SimklPlatformClock.nowEpochMs()
-                val eligible = requestedGeneration == profileGeneration &&
-                    authenticated &&
+                val eligible = isRequestCurrent(
+                    profileGeneration = requestedGeneration,
+                    profileId = requestedProfileId,
+                    authGeneration = requestedAuthGeneration,
+                    accountId = requestedAccountId,
+                ) && authenticated &&
                     shouldRunSimklRefresh(
                         intent = intent,
                         lastCheckedAtEpochMs = current.snapshot.lastCheckedAtEpochMs,
@@ -125,7 +144,12 @@ object SimklSyncRepository : TrackingProfileStore {
                 eligible
             },
         ) {
-            refreshSnapshot(requestedGeneration)
+            refreshSnapshot(
+                generation = requestedGeneration,
+                profileId = requestedProfileId,
+                authGeneration = requestedAuthGeneration,
+                accountId = requestedAccountId,
+            )
         }
         SimklWatchDiagnostics.logRefreshCompletion(
             requestId = requestId,
@@ -136,15 +160,20 @@ object SimklSyncRepository : TrackingProfileStore {
             after = _state.value,
         )
         val completed = _state.value
-        return requestedGeneration == profileGeneration &&
-            requestedProfileId == ProfileRepository.activeProfileId &&
-            SimklAuthRepository.isAuthenticated.value &&
-            completed.hasLoaded &&
-            completed.errorMessage == null
+        return isRequestCurrent(
+            profileGeneration = requestedGeneration,
+            profileId = requestedProfileId,
+            authGeneration = requestedAuthGeneration,
+            accountId = requestedAccountId,
+        ) && completed.hasLoaded && completed.errorMessage == null
     }
 
-    private suspend fun refreshSnapshot(generation: Long) = snapshotMutex.withLock {
-        val profileId = ProfileRepository.activeProfileId
+    private suspend fun refreshSnapshot(
+        generation: Long,
+        profileId: Int,
+        authGeneration: Long,
+        accountId: Long?,
+    ) = snapshotMutex.withLock {
         val previous = _state.value
         _state.value = previous.copy(isLoading = true, errorMessage = null)
 
@@ -154,7 +183,7 @@ object SimklSyncRepository : TrackingProfileStore {
             throw error
         } catch (error: Throwable) {
             log.w { "Simkl sync failed: ${error.message}" }
-            if (generation == profileGeneration && profileId == ProfileRepository.activeProfileId) {
+            if (isRequestCurrent(generation, profileId, authGeneration, accountId)) {
                 _state.value = previous.copy(
                     isLoading = false,
                     hasLoaded = true,
@@ -164,16 +193,20 @@ object SimklSyncRepository : TrackingProfileStore {
             return@withLock
         }
 
-        if (generation != profileGeneration || profileId != ProfileRepository.activeProfileId) {
+        if (!isRequestCurrent(generation, profileId, authGeneration, accountId)) {
             return@withLock
         }
         SimklAuthRepository.synchronizeUserSettings(result.activities?.settings?.all)
-        if (generation != profileGeneration || profileId != ProfileRepository.activeProfileId) {
+        if (!isRequestCurrent(generation, profileId, authGeneration, accountId)) {
             return@withLock
         }
-        SimklSyncStorage.savePayload(json.encodeToString(result))
+        val currentAccountId = SimklAuthRepository.stableAccountId
+        val scopedResult = result.copy(accountId = currentAccountId ?: accountId)
+        if (scopedResult.accountId != null) {
+            SimklSyncStorage.savePayload(json.encodeToString(scopedResult))
+        }
         _state.value = SimklSyncUiState(
-            snapshot = result,
+            snapshot = scopedResult,
             hasLoaded = true,
         )
         SimklWatchDiagnostics.logSnapshot(stage = "network-commit", snapshot = result)
@@ -182,12 +215,18 @@ object SimklSyncRepository : TrackingProfileStore {
     internal suspend fun commitPlaybackRemoval(sessionIds: Set<Long>) {
         if (sessionIds.isEmpty()) return
         ensureLoaded()
+        val generation = profileGeneration
+        val profileId = ProfileRepository.activeProfileId
+        val authGeneration = SimklAuthRepository.accountGeneration
+        val accountId = SimklAuthRepository.stableAccountId
         snapshotMutex.withLock {
+            if (!isRequestCurrent(generation, profileId, authGeneration, accountId)) return@withLock
             val current = _state.value
             val updatedPlayback = current.snapshot.playback.filterNot { session -> session.id in sessionIds }
             if (updatedPlayback.size == current.snapshot.playback.size) return@withLock
             val updatedSnapshot = current.snapshot.copy(playback = updatedPlayback)
-            SimklSyncStorage.savePayload(json.encodeToString(updatedSnapshot))
+            if (updatedSnapshot.accountId != null) SimklSyncStorage.savePayload(json.encodeToString(updatedSnapshot))
+            if (!isRequestCurrent(generation, profileId, authGeneration, accountId)) return@withLock
             _state.value = current.copy(snapshot = updatedSnapshot)
             SimklWatchDiagnostics.logSnapshot(stage = "playback-removal", snapshot = updatedSnapshot)
         }
@@ -197,8 +236,10 @@ object SimklSyncRepository : TrackingProfileStore {
         ensureLoaded()
         val generation = profileGeneration
         val profileId = ProfileRepository.activeProfileId
+        val authGeneration = SimklAuthRepository.accountGeneration
+        val accountId = SimklAuthRepository.stableAccountId
         snapshotMutex.withLock {
-            if (generation != profileGeneration || profileId != ProfileRepository.activeProfileId) {
+            if (!isRequestCurrent(generation, profileId, authGeneration, accountId)) {
                 return@withLock
             }
             val current = _state.value
@@ -207,8 +248,8 @@ object SimklSyncRepository : TrackingProfileStore {
                 committedAtEpochMs = SimklPlatformClock.nowEpochMs(),
             )
             if (snapshot == current.snapshot) return@withLock
-            SimklSyncStorage.savePayload(json.encodeToString(snapshot))
-            if (generation == profileGeneration && profileId == ProfileRepository.activeProfileId) {
+            if (snapshot.accountId != null) SimklSyncStorage.savePayload(json.encodeToString(snapshot))
+            if (isRequestCurrent(generation, profileId, authGeneration, accountId)) {
                 _state.value = current.copy(snapshot = snapshot)
                 SimklWatchDiagnostics.logSnapshot(stage = "scrobble-commit", snapshot = snapshot)
             }
@@ -219,8 +260,10 @@ object SimklSyncRepository : TrackingProfileStore {
         ensureLoaded()
         val generation = profileGeneration
         val profileId = ProfileRepository.activeProfileId
+        val authGeneration = SimklAuthRepository.accountGeneration
+        val accountId = SimklAuthRepository.stableAccountId
         snapshotMutex.withLock {
-            if (generation != profileGeneration || profileId != ProfileRepository.activeProfileId) {
+            if (!isRequestCurrent(generation, profileId, authGeneration, accountId)) {
                 return@withLock
             }
             val current = _state.value
@@ -229,13 +272,24 @@ object SimklSyncRepository : TrackingProfileStore {
                 committedAtEpochMs = SimklPlatformClock.nowEpochMs(),
             )
             if (snapshot == current.snapshot) return@withLock
-            SimklSyncStorage.savePayload(json.encodeToString(snapshot))
-            if (generation == profileGeneration && profileId == ProfileRepository.activeProfileId) {
+            if (snapshot.accountId != null) SimklSyncStorage.savePayload(json.encodeToString(snapshot))
+            if (isRequestCurrent(generation, profileId, authGeneration, accountId)) {
                 _state.value = current.copy(snapshot = snapshot)
                 SimklWatchDiagnostics.logSnapshot(stage = "mutation-commit", snapshot = snapshot)
             }
         }
     }
+
+    private fun isRequestCurrent(
+        profileGeneration: Long,
+        profileId: Int,
+        authGeneration: Long,
+        accountId: Long?,
+    ): Boolean = profileGeneration == this.profileGeneration &&
+        profileId == ProfileRepository.activeProfileId &&
+        authGeneration == SimklAuthRepository.accountGeneration &&
+        SimklAuthRepository.isAuthenticated.value &&
+        (accountId == null || accountId == SimklAuthRepository.stableAccountId)
 
     override fun onProfileChanged() {
         profileGeneration += 1L
@@ -247,8 +301,9 @@ object SimklSyncRepository : TrackingProfileStore {
     override fun clearLocalState() {
         profileGeneration += 1L
         hasLoaded = false
+        loadedAuthGeneration = Long.MIN_VALUE
+        loadedAccountId = null
         _state.value = SimklSyncUiState()
-        SimklSyncStorage.savePayload("")
     }
 
     /**

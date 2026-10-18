@@ -58,6 +58,8 @@ object LibraryRepository {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
+    private val _profileInsightsRevision = MutableStateFlow(0L)
+    internal val profileInsightsRevision: StateFlow<Long> = _profileInsightsRevision.asStateFlow()
 
     private val localState = LibraryLocalState()
     private val loadLock = SynchronizedObject()
@@ -196,6 +198,67 @@ object LibraryRepository {
         ) != null
     }
 
+    /** Profile statistics always read Nuvio's own profile-scoped list, regardless of the selected source. */
+    internal fun profileInsightsLocalItems(profileId: Int): List<LibraryItem> {
+        ensureLoaded()
+        if (ProfileRepository.activeProfileId != profileId) return emptyList()
+        val snapshot = localState.snapshot()
+        return snapshot.items.takeIf { snapshot.token.profileId == profileId }.orEmpty()
+    }
+
+    /** Refreshes only Nuvio's local snapshot/delta path; it never changes the selected Library source. */
+    internal suspend fun refreshNuvioForProfileInsights(
+        profileId: Int,
+        forceSnapshot: Boolean,
+    ): Boolean {
+        ensureLoaded()
+        if (ProfileRepository.activeProfileId != profileId) return false
+        val authState = AuthRepository.state.value
+        if (authState !is AuthState.Authenticated || authState.isAnonymous) return true
+        return refreshNuvioFromServer(
+            profileId = profileId,
+            forceSnapshot = forceSnapshot,
+            expectedAuthUserId = authState.userId,
+        )
+    }
+
+    private suspend fun refreshNuvioFromServer(
+        profileId: Int,
+        forceSnapshot: Boolean,
+        expectedAuthUserId: String? = null,
+    ): Boolean = nuvioSyncMutex.withLock {
+        val token = activeOperationToken(profileId) ?: return@withLock false
+        if (!isNuvioRequestCurrent(token, expectedAuthUserId)) return@withLock false
+        val current = localState.snapshot()
+        if (forceSnapshot || !current.deltaInitialized) {
+            val pullSnapshot = localState.markPullStarted(token) ?: return@withLock false
+            val cursorBeforeSnapshot = syncAdapter.getDeltaCursor(profileId)
+            if (!isNuvioRequestCurrent(token, expectedAuthUserId)) return@withLock false
+            val serverItems = syncAdapter.pullSnapshot(
+                profileId = profileId,
+                pageSize = librarySnapshotPageSize,
+            )
+            if (!isNuvioRequestCurrent(token, expectedAuthUserId)) return@withLock false
+            val applyResult = localState.applyServerItems(
+                pullSnapshot = pullSnapshot,
+                serverItems = serverItems,
+                cursorEventId = cursorBeforeSnapshot,
+            ) ?: return@withLock false
+            persist(applyResult.snapshot)
+            publish()
+            if (applyResult.preservedLocalItems) {
+                log.i {
+                    "Merged pending local library changes during snapshot refresh " +
+                        "profile=$profileId items=${applyResult.snapshot.items.size}"
+                }
+            }
+        }
+        val serializedToken = activeOperationToken(profileId) ?: return@withLock false
+        if (!isNuvioRequestCurrent(serializedToken, expectedAuthUserId)) return@withLock false
+        pullLibraryDelta(serializedToken, profileId, expectedAuthUserId)
+        isNuvioRequestCurrent(serializedToken, expectedAuthUserId)
+    }
+
     suspend fun pullFromServer(
         profileId: Int,
         refreshIntent: TrackingRefreshIntent = TrackingRefreshIntent.AUTOMATIC,
@@ -216,43 +279,19 @@ object LibraryRepository {
             return
         }
 
-        nuvioSyncMutex.withLock {
-            val serializedToken = activeOperationToken(profileId) ?: return@withLock
-            val pullSnapshot = localState.markPullStarted(serializedToken) ?: return@withLock
-
-            try {
-                if (!pullSnapshot.deltaInitialized) {
-                    val cursorBeforeSnapshot = syncAdapter.getDeltaCursor(profileId)
-                    val serverItems = syncAdapter.pullSnapshot(
-                        profileId = profileId,
-                        pageSize = librarySnapshotPageSize,
-                    )
-                    val applyResult = localState.applyServerItems(
-                        pullSnapshot = pullSnapshot,
-                        serverItems = serverItems,
-                        cursorEventId = cursorBeforeSnapshot,
-                    ) ?: return@withLock
-                    persist(applyResult.snapshot)
-                    publish()
-                    if (applyResult.preservedLocalItems) {
-                        log.i {
-                            "Merged pending local library changes during snapshot bootstrap " +
-                                "profile=$profileId items=${applyResult.snapshot.items.size}"
-                        }
-                    }
-                }
-                pullLibraryDelta(serializedToken, profileId)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                log.e(error) { "Failed to pull library from server" }
-            }
+        try {
+            refreshNuvioFromServer(profileId = profileId, forceSnapshot = false)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error) { "Failed to pull library from server" }
         }
     }
 
     private suspend fun pullLibraryDelta(
         token: LibraryProfileToken,
         profileId: Int,
+        expectedAuthUserId: String? = null,
     ) {
         val initialSnapshot = localState.snapshot()
         if (initialSnapshot.token != token) return
@@ -260,7 +299,7 @@ object LibraryRepository {
             initialCursor = initialSnapshot.deltaCursorEventId,
             pageSize = libraryDeltaPageSize,
             fetchPage = { cursor, limit ->
-                if (isActiveOperation(token)) {
+                if (isNuvioRequestCurrent(token, expectedAuthUserId)) {
                     syncAdapter.pullDelta(
                         profileId = profileId,
                         sinceEventId = cursor,
@@ -271,7 +310,7 @@ object LibraryRepository {
                 }
             },
             applyPage = { events, _ ->
-                if (!isActiveOperation(token)) {
+                if (!isNuvioRequestCurrent(token, expectedAuthUserId)) {
                     null
                 } else {
                     localState.applyDeltaEvents(token, events)?.also { snapshot ->
@@ -292,6 +331,13 @@ object LibraryRepository {
 
     private fun isActiveOperation(token: LibraryProfileToken): Boolean =
         localState.isCurrent(token) && ProfileRepository.activeProfileId == token.profileId
+
+    private fun isNuvioRequestCurrent(token: LibraryProfileToken, expectedAuthUserId: String?): Boolean {
+        if (!isActiveOperation(token)) return false
+        if (expectedAuthUserId == null) return true
+        val auth = AuthRepository.state.value as? AuthState.Authenticated ?: return false
+        return !auth.isAnonymous && auth.userId == expectedAuthUserId
+    }
 
     suspend fun toggleSaved(
         item: LibraryItem,
@@ -608,6 +654,7 @@ object LibraryRepository {
     }
 
     private fun publish() {
+        _profileInsightsRevision.value += 1L
         val localSnapshot = localState.snapshot()
         val sourceMode = effectiveLibrarySourceMode()
         activeLibraryProvider(sourceMode)?.let { provider ->

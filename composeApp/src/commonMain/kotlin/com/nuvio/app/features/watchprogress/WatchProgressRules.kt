@@ -23,7 +23,28 @@ internal data class StoredWatchProgressPayload(
     val deltaCursorEventId: Long = 0L,
     val deltaInitialized: Boolean = false,
     val dirtyProgressKeys: Set<String> = emptySet(),
+    val nuvioRemoteAccountId: String? = null,
 )
+
+internal fun shouldRestoreNuvioRemoteProgress(
+    cachedAccountId: String?,
+    activeAccountId: String?,
+): Boolean {
+    val active = activeAccountId?.trim()?.takeIf(String::isNotEmpty) ?: return false
+    return cachedAccountId?.trim() == active
+}
+
+internal fun restorableNuvioProgressEntries(
+    entries: Collection<WatchProgressEntry>,
+    cachedAccountId: String?,
+    activeAccountId: String?,
+): List<WatchProgressEntry> {
+    val restoreRemote = shouldRestoreNuvioRemoteProgress(cachedAccountId, activeAccountId)
+    return entries.filter { entry -> entry.source != WatchProgressSourceNuvioSync || restoreRemote }
+}
+
+internal fun isNuvioAuthRequestCurrent(requested: NuvioAuthScope, current: NuvioAuthScope): Boolean =
+    requested == current
 
 internal object WatchProgressCodec {
     private val json = Json {
@@ -65,6 +86,7 @@ internal object WatchProgressCodec {
         deltaCursorEventId: Long,
         deltaInitialized: Boolean,
         dirtyProgressKeys: Set<String> = emptySet(),
+        nuvioRemoteAccountId: String? = null,
     ): String =
         json.encodeToString(
             StoredWatchProgressPayload(
@@ -76,6 +98,7 @@ internal object WatchProgressCodec {
                 deltaCursorEventId = deltaCursorEventId,
                 deltaInitialized = deltaInitialized,
                 dirtyProgressKeys = dirtyProgressKeys,
+                nuvioRemoteAccountId = nuvioRemoteAccountId,
             ),
         )
 }

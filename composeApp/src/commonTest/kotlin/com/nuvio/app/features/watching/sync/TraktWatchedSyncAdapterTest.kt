@@ -104,6 +104,44 @@ class TraktWatchedSyncAdapterTest {
     }
 
     @Test
+    fun `watched movie pagination follows page count and preserves every page`() = runBlocking {
+        val requests = mutableListOf<Pair<Int, Int>>()
+
+        val items = collectTraktWatchedPages<String> { page, limit ->
+            requests += page to limit
+            TraktWatchedPage(
+                items = if (page <= 2) listOf("page-$page") else emptyList(),
+                pageCount = 2,
+            )
+        }
+
+        assertEquals(listOf("page-1", "page-2"), items)
+        assertEquals(listOf(1 to TRAKT_WATCHED_PAGE_LIMIT, 2 to TRAKT_WATCHED_PAGE_LIMIT), requests)
+    }
+
+    @Test
+    fun `unknown page count stops only on an empty page and enforces max pages`() = runBlocking {
+        var requests = 0
+        val items = collectTraktWatchedPages<String>(maxPages = 4) { page, _ ->
+            requests += 1
+            TraktWatchedPage(items = if (page < 3) listOf("item-$page") else emptyList())
+        }
+        assertEquals(listOf("item-1", "item-2"), items)
+        assertEquals(3, requests)
+
+        requests = 0
+        assertFailsWith<IllegalStateException> {
+            runBlocking {
+                collectTraktWatchedPages<String>(maxPages = 2) { page, _ ->
+                    requests += 1
+                    TraktWatchedPage(items = listOf("item-$page"))
+                }
+            }
+        }
+        assertEquals(2, requests)
+    }
+
+    @Test
     fun `watched history responses larger than generic limit remain complete`() = runBlocking {
         val body = "x".repeat(DefaultRawHttpResponseMaxBytes + 1)
         var requestedLimit = 0

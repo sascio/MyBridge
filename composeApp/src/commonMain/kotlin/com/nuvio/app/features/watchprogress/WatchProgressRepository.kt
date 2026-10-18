@@ -191,6 +191,14 @@ private data class RemoteProgressWrite(
     val sentAtEpochMs: Long,
 )
 
+internal enum class NuvioAuthStateKind { LOADING, UNAUTHENTICATED, AUTHENTICATED }
+
+internal data class NuvioAuthScope(
+    val stateKind: NuvioAuthStateKind,
+    val userId: String? = null,
+    val isAnonymous: Boolean = false,
+)
+
 internal class RemoteProgressWriteDeduplicator(
     private val windowMs: Long = WATCH_PROGRESS_REMOTE_WRITE_DEDUP_WINDOW_MS,
 ) {
@@ -238,11 +246,14 @@ object WatchProgressRepository {
 
     private val _uiState = MutableStateFlow(WatchProgressUiState())
     val uiState: StateFlow<WatchProgressUiState> = _uiState.asStateFlow()
+    private val _profileInsightsRevision = MutableStateFlow(0L)
+    internal val profileInsightsRevision: StateFlow<Long> = _profileInsightsRevision.asStateFlow()
 
     private var hasLoaded = false
     private var hasLoadedNuvioRemoteProgress = false
     private var currentProfileId: Int = 1
     private var profileGeneration: Long = 0L
+    private var loadedNuvioRemoteAccountId: String? = null
     private var activeSource: WatchProgressSource = WatchProgressSource.NUVIO_SYNC
     private val _activeSourceState = MutableStateFlow(activeSource)
     internal val activeSourceState: StateFlow<WatchProgressSource> = _activeSourceState.asStateFlow()
@@ -284,6 +295,11 @@ object WatchProgressRepository {
             }
         }
 
+        syncScope.launch {
+            AuthRepository.state.collectLatest {
+                if (hasLoaded) ensureNuvioAccountScopeCurrent()
+            }
+        }
     }
 
     fun ensureLoaded() {
@@ -300,6 +316,37 @@ object WatchProgressRepository {
             )
             loadFromDisk(ProfileRepository.activeProfileId)
         }
+        ensureNuvioAccountScopeCurrent()
+    }
+
+    internal fun profileInsightsNuvioEntries(profileId: Int): List<WatchProgressEntry> {
+        ensureLoaded()
+        if (ProfileRepository.activeProfileId != profileId) return emptyList()
+        if (currentProfileId != profileId || !hasLoaded) loadFromDisk(profileId)
+        ensureNuvioAccountScopeCurrent()
+        return localEntriesSnapshot().filter {
+            it.source == WatchProgressSourceLocal || it.source == WatchProgressSourceNuvioSync
+        }
+    }
+
+    /** Refreshes Nuvio's profile-scoped progress without changing the selected progress source. */
+    internal suspend fun refreshNuvioForProfileInsights(
+        profileId: Int,
+        forceSnapshot: Boolean,
+    ): Boolean {
+        ensureLoaded()
+        if (ProfileRepository.activeProfileId != profileId) return false
+        if (currentProfileId != profileId || !hasLoaded) loadFromDisk(profileId)
+        val operationGeneration = activeOperationGeneration(profileId) ?: return false
+        val authScope = currentNuvioAuthScope()
+        if (authScope.stateKind == NuvioAuthStateKind.LOADING) return false
+        if (authScope.stateKind != NuvioAuthStateKind.AUTHENTICATED || authScope.isAnonymous) return true
+        return refreshNuvioSource(
+            profileId = profileId,
+            operationGeneration = operationGeneration,
+            force = forceSnapshot,
+            expectedAuthScope = authScope,
+        )
     }
 
     fun onProfileChanged(profileId: Int) {
@@ -330,6 +377,7 @@ object WatchProgressRepository {
         hasLoadedNuvioRemoteProgress = false
         currentProfileId = 1
         profileGeneration += 1L
+        loadedNuvioRemoteAccountId = null
         updateActiveSource(WatchProgressSource.NUVIO_SYNC)
         providerMetadataOverlay.clear()
         clearLocalEntries()
@@ -347,6 +395,7 @@ object WatchProgressRepository {
         profileGeneration += 1L
         hasLoaded = true
         hasLoadedNuvioRemoteProgress = false
+        loadedNuvioRemoteAccountId = currentNuvioRemoteAccountId()
         providerMetadataOverlay.clear()
         clearLocalEntries()
 
@@ -354,12 +403,23 @@ object WatchProgressRepository {
         val payload = WatchProgressStorage.loadPayload(profileId).orEmpty().trim()
         if (payload.isNotEmpty()) {
             val storedPayload = WatchProgressCodec.decodePayload(payload)
-            lastSuccessfulPushEpochMs = storedPayload.lastSuccessfulPushEpochMs
-            deltaCursorEventId = storedPayload.deltaCursorEventId
-            deltaInitialized = storedPayload.deltaInitialized
-            val liveTvEntries = storedPayload.entries.filter { it.isLiveTvEntry() }
-            replaceLocalEntries(storedPayload.entries.filterNot { it.isLiveTvEntry() })
-            replaceDirtyProgressKeys(storedPayload.dirtyProgressKeys)
+            val remoteAccountMatches = shouldRestoreNuvioRemoteProgress(
+                cachedAccountId = storedPayload.nuvioRemoteAccountId,
+                activeAccountId = loadedNuvioRemoteAccountId,
+            )
+            lastSuccessfulPushEpochMs = if (remoteAccountMatches) storedPayload.lastSuccessfulPushEpochMs else 0L
+            deltaCursorEventId = if (remoteAccountMatches) storedPayload.deltaCursorEventId else 0L
+            deltaInitialized = remoteAccountMatches && storedPayload.deltaInitialized
+            val restorableEntries = restorableNuvioProgressEntries(
+                entries = storedPayload.entries,
+                cachedAccountId = storedPayload.nuvioRemoteAccountId,
+                activeAccountId = loadedNuvioRemoteAccountId,
+            )
+            val liveTvEntries = restorableEntries.filter { it.isLiveTvEntry() }
+            replaceLocalEntries(restorableEntries.filterNot { it.isLiveTvEntry() })
+            replaceDirtyProgressKeys(
+                if (remoteAccountMatches) storedPayload.dirtyProgressKeys else emptySet(),
+            )
             if (liveTvEntries.isNotEmpty()) {
                 persist()
                 pushDeleteToServer(liveTvEntries)
@@ -377,6 +437,25 @@ object WatchProgressRepository {
         resolveRemoteMetadata()
     }
 
+    private fun ensureNuvioAccountScopeCurrent() {
+        if (!hasLoaded) return
+        val currentAccountId = currentNuvioRemoteAccountId()
+        if (loadedNuvioRemoteAccountId == currentAccountId) return
+        loadedNuvioRemoteAccountId = currentAccountId
+        val retainedLocalEntries = localEntriesSnapshot()
+            .filterNot { entry -> entry.source == WatchProgressSourceNuvioSync }
+        if (retainedLocalEntries.size != localEntryCount()) {
+            replaceLocalEntries(retainedLocalEntries)
+        }
+        replaceDirtyProgressKeys(emptySet())
+        lastSuccessfulPushEpochMs = 0L
+        deltaCursorEventId = 0L
+        deltaInitialized = false
+        hasLoadedNuvioRemoteProgress = false
+        remoteWriteDeduplicator.clear()
+        publish()
+    }
+
     private fun activeOperationGeneration(profileId: Int): Long? {
         if (ProfileRepository.activeProfileId != profileId) return null
         if (!hasLoaded || currentProfileId != profileId) {
@@ -389,6 +468,27 @@ object WatchProgressRepository {
         currentProfileId == profileId &&
             profileGeneration == generation &&
             ProfileRepository.activeProfileId == profileId
+
+    private fun currentNuvioAuthScope(): NuvioAuthScope = when (val authState = AuthRepository.state.value) {
+        AuthState.Loading -> NuvioAuthScope(NuvioAuthStateKind.LOADING)
+        AuthState.Unauthenticated -> NuvioAuthScope(NuvioAuthStateKind.UNAUTHENTICATED)
+        is AuthState.Authenticated -> NuvioAuthScope(
+            stateKind = NuvioAuthStateKind.AUTHENTICATED,
+            userId = authState.userId,
+            isAnonymous = authState.isAnonymous,
+        )
+    }
+
+    private fun currentNuvioRemoteAccountId(): String? = currentNuvioAuthScope()
+        .takeIf { it.stateKind == NuvioAuthStateKind.AUTHENTICATED && !it.isAnonymous }
+        ?.userId
+
+    private fun isNuvioRequestCurrent(
+        profileId: Int,
+        generation: Long,
+        expectedAuthScope: NuvioAuthScope,
+    ): Boolean = isActiveOperation(profileId, generation) &&
+        isNuvioAuthRequestCurrent(expectedAuthScope, currentNuvioAuthScope())
 
     private fun isActiveMetadataTarget(
         profileId: Int,
@@ -430,6 +530,7 @@ object WatchProgressRepository {
         if (!hasLoaded) {
             loadFromDisk(ProfileRepository.activeProfileId)
         }
+        ensureNuvioAccountScopeCurrent()
         if (activeSource == source) {
             publish()
             return
@@ -538,9 +639,10 @@ object WatchProgressRepository {
         profileId: Int,
         operationGeneration: Long,
         force: Boolean,
+        expectedAuthScope: NuvioAuthScope = currentNuvioAuthScope(),
     ): Boolean {
-        val authState = AuthRepository.state.value
-        if (authState !is AuthState.Authenticated || authState.isAnonymous) {
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return false
+        if (expectedAuthScope.stateKind != NuvioAuthStateKind.AUTHENTICATED || expectedAuthScope.isAnonymous) {
             // There is no upstream source for this account, so local state is authoritative.
             hasLoadedNuvioRemoteProgress = true
             publish()
@@ -548,19 +650,22 @@ object WatchProgressRepository {
         }
 
         return nuvioPullMutex.withLock {
+            if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return@withLock false
             try {
                 if (force) {
                     pullNuvioSnapshotFromServer(
                         profileId = profileId,
                         operationGeneration = operationGeneration,
+                        expectedAuthScope = expectedAuthScope,
                     )
                 } else {
                     pullSupabaseDeltaFromServer(
                         profileId = profileId,
                         operationGeneration = operationGeneration,
+                        expectedAuthScope = expectedAuthScope,
                     )
                 }
-                true
+                isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
@@ -573,7 +678,9 @@ object WatchProgressRepository {
     private suspend fun pullNuvioSnapshotFromServer(
         profileId: Int,
         operationGeneration: Long,
+        expectedAuthScope: NuvioAuthScope = currentNuvioAuthScope(),
     ) {
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
         val cursorBeforeSnapshot = try {
             syncAdapter.getDeltaCursor(profileId)
         } catch (error: CancellationException) {
@@ -583,13 +690,15 @@ object WatchProgressRepository {
             null
         }
 
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
         pullFullFromAdapter(
             profileId = profileId,
             resetDeltaState = cursorBeforeSnapshot == null,
             operationGeneration = operationGeneration,
             preserveLocalEntries = true,
+            expectedAuthScope = expectedAuthScope,
         )
-        if (!isActiveOperation(profileId, operationGeneration)) return
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
 
         if (cursorBeforeSnapshot != null) {
             deltaCursorEventId = cursorBeforeSnapshot
@@ -601,8 +710,9 @@ object WatchProgressRepository {
     private suspend fun pullSupabaseDeltaFromServer(
         profileId: Int,
         operationGeneration: Long,
+        expectedAuthScope: NuvioAuthScope = currentNuvioAuthScope(),
     ) {
-        if (!isActiveOperation(profileId, operationGeneration)) return
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
         log.d {
             "Watch progress delta sync start: profile=$profileId entries=${localEntryCount()} " +
                 "deltaInitialized=$deltaInitialized cursor=$deltaCursorEventId lastPush=$lastSuccessfulPushEpochMs"
@@ -623,6 +733,7 @@ object WatchProgressRepository {
                     profileId = profileId,
                     resetDeltaState = true,
                     operationGeneration = operationGeneration,
+                    expectedAuthScope = expectedAuthScope,
                 )
                 return
             }
@@ -632,8 +743,9 @@ object WatchProgressRepository {
                 profileId = profileId,
                 resetDeltaState = false,
                 operationGeneration = operationGeneration,
+                expectedAuthScope = expectedAuthScope,
             )
-            if (!isActiveOperation(profileId, operationGeneration)) return
+            if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
             deltaCursorEventId = cursorBeforeSnapshot
             deltaInitialized = true
             persist()
@@ -668,10 +780,11 @@ object WatchProgressRepository {
                     profileId = profileId,
                     resetDeltaState = true,
                     operationGeneration = operationGeneration,
+                    expectedAuthScope = expectedAuthScope,
                 )
                 return
             }
-            if (!isActiveOperation(profileId, operationGeneration)) return
+            if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
             if (events.isEmpty()) {
                 log.d { "Watch progress delta page $page returned no events for profile $profileId at cursor $cursor" }
                 break
@@ -730,9 +843,11 @@ object WatchProgressRepository {
         resetDeltaState: Boolean,
         operationGeneration: Long,
         preserveLocalEntries: Boolean = true,
+        expectedAuthScope: NuvioAuthScope = currentNuvioAuthScope(),
     ) {
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
         val serverEntries = syncAdapter.pull(profileId = profileId)
-        if (!isActiveOperation(profileId, operationGeneration)) return
+        if (!isNuvioRequestCurrent(profileId, operationGeneration, expectedAuthScope)) return
         log.i {
             "Watch progress snapshot fetched ${serverEntries.size} entries for profile $profileId " +
                 "resetDeltaState=$resetDeltaState preserveLocalEntries=$preserveLocalEntries"
@@ -862,6 +977,11 @@ object WatchProgressRepository {
                             updatedEntry = updated,
                             clearsDirtyProgress = true,
                         )
+                    current.source == WatchProgressSourceLocal ->
+                        WatchProgressDeltaDecision(
+                            type = WatchProgressDeltaDecisionType.PRESERVE_LOCAL,
+                            clearsDirtyProgress = !isLocalDirty,
+                        )
                     isLocalDirty && current.isFresherThan(updated) ->
                         WatchProgressDeltaDecision(WatchProgressDeltaDecisionType.PRESERVE_LOCAL)
                     current == updated ->
@@ -879,6 +999,7 @@ object WatchProgressRepository {
         }
         WATCH_PROGRESS_DELTA_OPERATION_DELETE -> when {
             current == null -> WatchProgressDeltaDecision(WatchProgressDeltaDecisionType.IGNORE)
+            current.source == WatchProgressSourceLocal -> WatchProgressDeltaDecision(WatchProgressDeltaDecisionType.PRESERVE_LOCAL)
             isLocalDirty -> WatchProgressDeltaDecision(WatchProgressDeltaDecisionType.PRESERVE_LOCAL)
             else -> WatchProgressDeltaDecision(
                 type = WatchProgressDeltaDecisionType.DELETE,
@@ -912,6 +1033,7 @@ object WatchProgressRepository {
             pauseDescription = cached?.pauseDescription,
             lastSourceUrl = cached?.lastSourceUrl,
             isCompleted = isWatchProgressComplete(position, duration, false),
+            source = WatchProgressSourceNuvioSync,
             progressKey = resolvedProgressKey(),
         )
 
@@ -953,6 +1075,10 @@ object WatchProgressRepository {
 
         localByProgressKey.forEach { (progressKey, localEntry) ->
             val remoteEntry = merged[progressKey]
+            if (localEntry.source == WatchProgressSourceLocal) {
+                merged[progressKey] = localEntry
+                return@forEach
+            }
             if (progressKey !in effectiveDirtyKeys) return@forEach
             if (remoteEntry == null || localEntry.isFresherThan(remoteEntry)) {
                 merged[progressKey] = localEntry
@@ -1399,6 +1525,7 @@ object WatchProgressRepository {
                 deltaCursorEventId = storedPayload.deltaCursorEventId,
                 deltaInitialized = storedPayload.deltaInitialized,
                 dirtyProgressKeys = storedPayload.dirtyProgressKeys + progressKey,
+                nuvioRemoteAccountId = storedPayload.nuvioRemoteAccountId,
             ),
         )
         return resolvedEntry
@@ -1420,16 +1547,21 @@ object WatchProgressRepository {
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int) {
         if (ServerItemRef.isServerId(entry.parentMetaId)) return
-        val operationGeneration = profileGeneration.takeIf { profileId == currentProfileId }
+        val authScope = currentNuvioAuthScope()
+        if (authScope.stateKind != NuvioAuthStateKind.AUTHENTICATED || authScope.isAnonymous) return
+        val operationGeneration = profileGeneration.takeIf { profileId == currentProfileId } ?: return
         accountScopeSnapshot().launch {
             runCatching {
+                if (!isNuvioRequestCurrent(profileId, operationGeneration, authScope)) return@runCatching
                 syncAdapter.push(profileId = profileId, entries = listOf(entry))
+                if (!isNuvioRequestCurrent(profileId, operationGeneration, authScope)) return@runCatching
                 recordSuccessfulPush(
                     profileId = profileId,
                     operationGeneration = operationGeneration,
                     entries = listOf(entry),
                 )
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 log.e(e) { "Failed to push watch progress scrobble" }
             }
         }
@@ -1437,19 +1569,25 @@ object WatchProgressRepository {
 
     private fun pushDeleteToServer(entries: Collection<WatchProgressEntry>) {
         if (activeSource.providerId != null) return
-        val entries = entries.filterNot { ServerItemRef.isServerId(it.parentMetaId) }
+        val filteredEntries = entries.filterNot { ServerItemRef.isServerId(it.parentMetaId) }
+        if (filteredEntries.isEmpty()) return
         val profileId = currentProfileId
+        val operationGeneration = profileGeneration
+        val authScope = currentNuvioAuthScope()
+        if (authScope.stateKind != NuvioAuthStateKind.AUTHENTICATED || authScope.isAnonymous) return
         accountScopeSnapshot().launch {
             runCatching {
-                if (entries.isEmpty()) return@runCatching
-                syncAdapter.delete(profileId = profileId, entries = entries)
+                if (!isNuvioRequestCurrent(profileId, operationGeneration, authScope)) return@runCatching
+                syncAdapter.delete(profileId = profileId, entries = filteredEntries)
             }.onFailure { e ->
+                if (e is CancellationException) throw e
                 log.e(e) { "Failed to push watch progress delete" }
             }
         }
     }
 
     private fun publish() {
+        _profileInsightsRevision.value += 1L
         val entries = currentEntries()
         val sortedEntries = entries.sortedByDescending { it.lastUpdatedEpochMs }
         val providerSnapshot = activeProgressProvider()?.snapshot()
@@ -1462,6 +1600,7 @@ object WatchProgressRepository {
     }
 
     private fun persist() {
+        ensureNuvioAccountScopeCurrent()
         val pending = PendingWatchProgressPersist(
             profileId = currentProfileId,
             entries = localEntriesSnapshot(),
@@ -1469,6 +1608,7 @@ object WatchProgressRepository {
             deltaCursorEventId = deltaCursorEventId,
             deltaInitialized = deltaInitialized,
             dirtyProgressKeys = dirtyProgressKeysSnapshot(),
+            nuvioRemoteAccountId = loadedNuvioRemoteAccountId,
         )
         val shouldSchedule = synchronized(persistLock) {
             val idle = pendingPersist == null
@@ -1496,6 +1636,7 @@ object WatchProgressRepository {
                         deltaCursorEventId = pending.deltaCursorEventId,
                         deltaInitialized = pending.deltaInitialized,
                         dirtyProgressKeys = pending.dirtyProgressKeys,
+                        nuvioRemoteAccountId = pending.nuvioRemoteAccountId,
                     ),
                 )
             }
@@ -1571,6 +1712,7 @@ object WatchProgressRepository {
                 deltaCursorEventId = storedPayload.deltaCursorEventId,
                 deltaInitialized = storedPayload.deltaInitialized,
                 dirtyProgressKeys = remainingDirtyKeys,
+                nuvioRemoteAccountId = storedPayload.nuvioRemoteAccountId,
             ),
         )
     }
@@ -1820,4 +1962,5 @@ private class PendingWatchProgressPersist(
     val deltaCursorEventId: Long,
     val deltaInitialized: Boolean,
     val dirtyProgressKeys: Set<String>,
+    val nuvioRemoteAccountId: String?,
 )

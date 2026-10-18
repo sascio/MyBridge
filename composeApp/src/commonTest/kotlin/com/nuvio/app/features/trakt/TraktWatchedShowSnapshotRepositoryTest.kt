@@ -27,9 +27,9 @@ class TraktWatchedShowSnapshotRepositoryTest {
             nowEpochMs = { 1_000L },
         )
 
-        val first = async { store.get(headers()) }
+        val first = async { store.get("trakt:test-account", headers()) }
         requestStarted.await()
-        val second = async { store.get(headers()) }
+        val second = async { store.get("trakt:test-account", headers()) }
         yield()
         releaseRequest.complete(Unit)
 
@@ -54,16 +54,36 @@ class TraktWatchedShowSnapshotRepositoryTest {
             nowEpochMs = { now },
         )
 
-        store.get(headers())
+        store.get("trakt:test-account", headers())
         now += 10_000L
-        store.get(headers())
+        store.get("trakt:test-account", headers())
         store.clear()
-        store.get(headers())
+        store.get("trakt:test-account", headers())
 
         assertEquals(2, requests)
     }
 
-    private fun headers(): Map<String, String> = mapOf("Authorization" to "Bearer test")
+
+    @Test
+    fun `account identity partitions cache and rotated credentials do not change the cache key`() = runBlocking {
+        var requests = 0
+        val client = TraktWatchedPageClient(
+            engine = TraktWatchedHttpEngine { url, _, _ ->
+                requests += 1
+                response(url)
+            },
+        )
+        val store = TraktWatchedShowSnapshotStore(pageClient = client, nowEpochMs = { 1_000L })
+
+        store.get("trakt:uuid:account-a", headers("Bearer token-a"))
+        store.get("trakt:uuid:account-a", headers("Bearer rotated-token-a"))
+        store.get("trakt:uuid:account-b", headers("Bearer token-b"))
+
+        assertEquals(2, requests)
+    }
+
+    private fun headers(authorization: String = "Bearer test"): Map<String, String> =
+        mapOf("Authorization" to authorization)
 
     private fun response(url: String): RawHttpResponse = RawHttpResponse(
         status = 200,

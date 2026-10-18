@@ -27,8 +27,33 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 private const val BASE_URL = "https://api.trakt.tv"
-private const val WATCHED_PAGE_LIMIT = 250
-private const val WATCHED_MAX_PAGES = 1_000
+internal const val TRAKT_WATCHED_PAGE_LIMIT = 250
+internal const val TRAKT_WATCHED_MAX_PAGES = 1_000
+
+internal data class TraktWatchedPage<T>(
+    val items: List<T>,
+    val pageCount: Int? = null,
+)
+
+internal suspend fun <T> collectTraktWatchedPages(
+    pageSize: Int = TRAKT_WATCHED_PAGE_LIMIT,
+    maxPages: Int = TRAKT_WATCHED_MAX_PAGES,
+    fetchPage: suspend (page: Int, limit: Int) -> TraktWatchedPage<T>,
+): List<T> {
+    require(pageSize > 0) { "pageSize must be positive" }
+    require(maxPages > 0) { "maxPages must be positive" }
+    val items = mutableListOf<T>()
+    var page = 1
+    while (page <= maxPages) {
+        val result = fetchPage(page, pageSize)
+        if (result.items.isEmpty()) break
+        items += result.items
+        if (result.pageCount != null && page >= result.pageCount) break
+        page += 1
+    }
+    if (page > maxPages) error("Trakt watched movies exceeded max pages")
+    return items
+}
 
 private val platformTraktWatchedHttpEngine = TraktWatchedHttpEngine { url, headers, maxResponseBodyBytes ->
     httpRequestRaw(
@@ -58,15 +83,25 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
         profileId: Int,
         pageSize: Int,
     ): List<WatchedItem> {
+        TraktAuthRepository.ensureLoaded()
+        val requestAccountGeneration = TraktAuthRepository.accountGeneration
+        val accountCacheIdentity = TraktAuthRepository.accountIdentity
+            ?: "trakt:session:$requestAccountGeneration"
         val headers = TraktAuthRepository.authorizedHeaders() ?: run {
             setExtraWatchedKeys(profileId, emptySet())
-            return emptyList()
+            throw IllegalStateException("Trakt authorization is unavailable")
+        }
+        if (!TraktAuthRepository.isAccountGenerationCurrent(requestAccountGeneration)) {
+            throw CancellationException("Trakt account changed")
         }
 
         val (movieItems, showItems) = coroutineScope {
             val movies = async { fetchWatchedMoviePages(headers) }
-            val shows = async { TraktWatchedShowSnapshotRepository.get(headers) }
+            val shows = async { TraktWatchedShowSnapshotRepository.get(accountCacheIdentity, headers) }
             movies.await() to shows.await()
+        }
+        if (!TraktAuthRepository.isAccountGenerationCurrent(requestAccountGeneration)) {
+            throw CancellationException("Trakt account changed")
         }
 
         val candidates = mutableListOf<TraktWatchedProjectionCandidate>()
@@ -128,26 +163,17 @@ object TraktWatchedSyncAdapter : TrackingWatchedProvider {
 
     override fun observeExtraWatchedKeys(profileId: Int) = emptyFlow<Set<String>>()
 
-    private suspend fun fetchWatchedMoviePages(headers: Map<String, String>): List<TraktWatchedMovieDto> {
-        val items = mutableListOf<TraktWatchedMovieDto>()
-        var page = 1
-        while (page <= WATCHED_MAX_PAGES) {
+    private suspend fun fetchWatchedMoviePages(headers: Map<String, String>): List<TraktWatchedMovieDto> =
+        collectTraktWatchedPages { page, limit ->
             val response = pageClient.get(
-                url = "$BASE_URL/sync/watched/movies?page=$page&limit=$WATCHED_PAGE_LIMIT",
+                url = "$BASE_URL/sync/watched/movies?page=$page&limit=$limit",
                 headers = headers,
             )
-            val pageItems = json.decodeFromString<List<TraktWatchedMovieDto>>(response.body)
-            val pageCount = response.headerInt("x-pagination-page-count")
-            if (pageItems.isEmpty()) break
-            items.addAll(pageItems)
-            if (pageCount != null && page >= pageCount) break
-            page += 1
+            TraktWatchedPage(
+                items = json.decodeFromString<List<TraktWatchedMovieDto>>(response.body),
+                pageCount = response.headerInt("x-pagination-page-count"),
+            )
         }
-        if (page > WATCHED_MAX_PAGES) {
-            error("Trakt watched movies exceeded max pages")
-        }
-        return items
-    }
 
     private fun RawHttpResponse.headerInt(name: String): Int? =
         headers[name.lowercase()]

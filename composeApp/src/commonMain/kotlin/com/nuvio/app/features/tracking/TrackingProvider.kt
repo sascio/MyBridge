@@ -62,6 +62,9 @@ interface TrackingProfileStore {
 
 interface TrackingAuthProvider : TrackingProfileStore {
     val descriptor: TrackingProviderDescriptor
+    /** Stable account identity only; never expose a credential as an identity or cache key. */
+    val accountIdentity: String?
+        get() = null
     val accountGeneration: Long
         get() = 0L
     val isAuthenticated: StateFlow<Boolean>

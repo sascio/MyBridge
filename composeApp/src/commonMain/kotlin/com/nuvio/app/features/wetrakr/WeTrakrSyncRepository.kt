@@ -442,20 +442,17 @@ class WeTrakrSyncRepository internal constructor(
         val authorization = auth.state.value
         if (!authorization.isAuthenticated) {
             clearPublished()
-            storage.remove(scope.profileId) { if (!matchesCurrent(scope)) throw CancellationException("WeTrakr account changed") }
             return null
         }
-        val userId = authorization.user?.id ?: 0L
+        val userId = authorization.user?.id?.takeIf { it > 0L } ?: 0L
         val current = mutableState.value
-        if (current.scope == scope && current.snapshot != null &&
-            (userId == 0L || current.snapshot.userId == 0L || current.snapshot.userId == userId)
-        ) {
+        if (userId > 0L && current.scope == scope && current.snapshot?.userId == userId) {
             return current.snapshot
         }
-        val payload = storage.load(scope.profileId)
+        val payload = if (userId > 0L) storage.load(scope.profileId) else null
         val snapshot = payload
             ?.let { runCatching { weTrakrJson.decodeFromString(WeTrakrSyncSnapshot.serializer(), it) }.getOrNull() }
-            ?.takeIf { userId == 0L || it.userId == userId || it.userId == 0L }
+            ?.takeIf { userId > 0L && it.userId == userId }
             ?: WeTrakrSyncSnapshot(userId)
         if (!matchesCurrent(scope)) throw CancellationException("WeTrakr account changed")
         val projection = runCatching { WeTrakrProjection(snapshot) }.getOrNull()

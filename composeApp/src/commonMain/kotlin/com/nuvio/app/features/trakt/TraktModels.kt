@@ -11,6 +11,7 @@ data class TraktAuthState(
     val expiresIn: Int? = null,
     val username: String? = null,
     val userSlug: String? = null,
+    val userUuid: String? = null,
     val pendingAuthorizationState: String? = null,
     val pendingAuthorizationStartedAtMillis: Long? = null,
 ) {

@@ -21,6 +21,29 @@ internal data class SimklWatchedProjection(
     val fullyWatchedSeriesKeys: Set<String>,
 )
 
+/** Profile history is restricted to explicit watched timestamps, never a completed/list status. */
+internal fun SimklSyncSnapshot.toProfileInsightsWatchedItems(): List<WatchedItem> {
+    val projected = toSimklWatchedProjection().items
+    return projected.mapNotNull { item ->
+        val entry = entries.firstOrNull { candidate -> candidate.matchesContentId(item.id) }
+            ?: return@mapNotNull null
+        if (item.season != null && item.episode != null) {
+            val hasExplicitEpisodeHistory = entry.seasons.any { season ->
+                season.episodes.any { episode ->
+                    val seasonNumber = episode.tvdb?.season ?: season.number
+                    val episodeNumber = episode.tvdb?.episode ?: episode.number
+                    seasonNumber == item.season && episodeNumber == item.episode &&
+                        parseSimklUtcEpochMs(episode.watchedAt) != null
+                }
+            }
+            item.takeIf { hasExplicitEpisodeHistory }
+        } else {
+            val explicitWatchedAt = parseSimklUtcEpochMs(entry.lastWatchedAt) ?: return@mapNotNull null
+            item.copy(markedAtEpochMs = explicitWatchedAt)
+        }
+    }.distinctBy { item -> watchedItemKey(item.type, item.id, item.season, item.episode) }
+}
+
 internal fun SimklSyncSnapshot.toSimklWatchedProjection(): SimklWatchedProjection {
     val watchedItems = mutableListOf<WatchedItem>()
     val fullyWatched = linkedSetOf<String>()

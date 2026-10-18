@@ -1,5 +1,8 @@
 package com.nuvio.app.features.watched
 
+import com.nuvio.app.features.tracking.TrackingProviderId
+import com.nuvio.app.features.tracking.trackingAccountCacheMatches
+import com.nuvio.app.features.tracking.trackingAccountCachePartitionKey
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -32,6 +35,7 @@ internal data class StoredWatchedAliasGroup(
 
 @Serializable
 internal data class StoredProviderWatchedPayload(
+    val accountIdentity: String? = null,
     val items: List<WatchedItem> = emptyList(),
     val itemGroups: List<StoredWatchedItemGroup> = emptyList(),
     val fullyWatchedSeriesKeys: Set<String> = emptySet(),
@@ -50,7 +54,26 @@ internal data class StoredWatchedPayload(
     val deltaInitialized: Boolean = false,
     val dirtyWatchedKeys: Set<String> = emptySet(),
     val providerPayloads: Map<String, StoredProviderWatchedPayload> = emptyMap(),
+    val nuvioRemoteAccountId: String? = null,
 )
+
+internal fun shouldRestoreNuvioWatchedHistory(
+    cachedAccountId: String?,
+    activeAccountId: String?,
+): Boolean {
+    val active = activeAccountId?.trim()?.takeIf(String::isNotEmpty) ?: return false
+    return cachedAccountId?.trim() == active
+}
+
+internal fun shouldRestoreProviderWatchedPayload(
+    providerId: TrackingProviderId,
+    storageKey: String,
+    cachedAccountIdentity: String?,
+    activeAccountIdentity: String?,
+    isAuthenticated: Boolean,
+): Boolean = isAuthenticated &&
+    storageKey == trackingAccountCachePartitionKey(providerId, activeAccountIdentity) &&
+    trackingAccountCacheMatches(cachedAccountIdentity, activeAccountIdentity)
 
 internal fun compactProviderWatchedItems(items: Collection<WatchedItem>): List<StoredWatchedItemGroup> =
     items

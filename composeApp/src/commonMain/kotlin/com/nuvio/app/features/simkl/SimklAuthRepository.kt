@@ -41,6 +41,11 @@ object SimklAuthRepository : TrackingAuthProvider {
 
     private val _isAuthenticated = MutableStateFlow(false)
     override val isAuthenticated: StateFlow<Boolean> = _isAuthenticated.asStateFlow()
+    override val accountGeneration: Long get() = accountGenerationValue
+    override val accountIdentity: String?
+        get() = storedState.accountId?.takeIf { it > 0L }?.let { "simkl:$it" }
+    internal val stableAccountId: Long?
+        get() = storedState.accountId?.takeIf { it > 0L }
 
     override val descriptor = TrackingProviderDescriptor(
         id = TrackingProviderId.SIMKL,
@@ -59,6 +64,7 @@ object SimklAuthRepository : TrackingAuthProvider {
     )
 
     private var hasLoaded = false
+    private var accountGenerationValue = 0L
     private var storedState = SimklStoredAuthState()
     private var accessToken: String? = null
     private var authenticationMethod = SimklAuthenticationMethod.BROWSER_REDIRECT
@@ -80,6 +86,7 @@ object SimklAuthRepository : TrackingAuthProvider {
     }
 
     override fun clearLocalState() {
+        accountGenerationValue += 1L
         hasLoaded = false
         pinPollingJob?.cancel()
         pinPollingJob = null
@@ -313,6 +320,7 @@ object SimklAuthRepository : TrackingAuthProvider {
 
     fun onDisconnectRequested() {
         ensureLoaded()
+        accountGenerationValue += 1L
         refreshJob?.cancel()
         refreshJob = null
         accessToken = null
@@ -447,6 +455,7 @@ object SimklAuthRepository : TrackingAuthProvider {
         expiresInSeconds: Long?,
         refreshToken: String? = null,
     ) {
+        accountGenerationValue += 1L
         accessToken = token
         SimklAuthStorage.saveAccessToken(token)
         // Exactly what this grant issued. A null clears any refresh token left over
@@ -454,6 +463,10 @@ object SimklAuthRepository : TrackingAuthProvider {
         SimklAuthStorage.saveRefreshToken(refreshToken?.takeIf(String::isNotBlank))
         clearPendingAuthorization()
         storedState = storedState.copy(
+            username = null,
+            accountId = null,
+            hasFetchedUserSettings = false,
+            settingsActivityWatermark = null,
             tokenExpiresAtEpochMs = expiresInSeconds
                 ?.takeIf { seconds -> seconds > 0L }
                 ?.let { seconds -> SimklPlatformClock.nowEpochMs() + seconds * 1_000L },
@@ -539,6 +552,7 @@ object SimklAuthRepository : TrackingAuthProvider {
     }
 
     private suspend fun fetchAndStoreUserSettings(activityWatermark: String? = null): Boolean {
+        val requestGeneration = accountGenerationValue
         val response = try {
             SimklApi.client.execute(
                 SimklApiRequest(
@@ -554,6 +568,7 @@ object SimklAuthRepository : TrackingAuthProvider {
         }
         val settings = runCatching { json.decodeFromString<SimklUserSettingsResponse>(response.body) }
             .getOrNull() ?: return false
+        if (requestGeneration != accountGenerationValue || accessToken.isNullOrBlank()) return false
         storedState = storedState.copy(
             username = settings.user?.name,
             accountId = settings.account?.id,
@@ -566,6 +581,7 @@ object SimklAuthRepository : TrackingAuthProvider {
     }
 
     private fun loadFromDisk() {
+        accountGenerationValue += 1L
         hasLoaded = true
         storedState = SimklAuthStorage.loadMetadataPayload()
             ?.trim()
@@ -615,6 +631,7 @@ object SimklAuthRepository : TrackingAuthProvider {
     }
 
     private fun invalidateCredentials(error: SimklAuthError) {
+        accountGenerationValue += 1L
         refreshJob?.cancel()
         refreshJob = null
         accessToken = null
