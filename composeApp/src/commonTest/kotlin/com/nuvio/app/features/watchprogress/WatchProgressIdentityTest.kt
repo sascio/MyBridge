@@ -371,6 +371,7 @@ class WatchProgressIdentityTest {
             progressKey = "opaque",
             lastUpdatedEpochMs = 100L,
             lastPositionMs = 100L,
+            source = WatchProgressSourceNuvioSync,
         )
         val event = deltaEvent(
             operation = "upsert",
@@ -407,7 +408,11 @@ class WatchProgressIdentityTest {
     @Test
     fun `delta delete removes a clean remote-loaded entry even without a push watermark`() {
         val decision = WatchProgressRepository.decideWatchProgressDeltaEvent(
-            current = entry(progressKey = "opaque", lastUpdatedEpochMs = 100L),
+            current = entry(
+                progressKey = "opaque",
+                lastUpdatedEpochMs = 100L,
+                source = WatchProgressSourceNuvioSync,
+            ),
             event = ProgressDeltaEvent(
                 eventId = 1L,
                 operation = "delete",
@@ -426,6 +431,7 @@ class WatchProgressIdentityTest {
                 progressKey = "opaque",
                 lastUpdatedEpochMs = 200L,
                 lastPositionMs = 800L,
+                source = WatchProgressSourceNuvioSync,
             ),
             event = deltaEvent(
                 operation = "upsert",
@@ -445,7 +451,7 @@ class WatchProgressIdentityTest {
     fun `authoritative snapshot drops a clean cached row when watermark is zero`() {
         val merged = WatchProgressRepository.mergeWatchProgressEntriesPreservingUnsynced(
             serverEntries = emptyList(),
-            localEntries = listOf(entry(progressKey = "opaque")),
+            localEntries = listOf(entry(progressKey = "opaque", source = WatchProgressSourceNuvioSync)),
             dirtyProgressKeys = emptySet(),
         )
 
@@ -528,6 +534,7 @@ class WatchProgressIdentityTest {
         progressKey: String? = null,
         lastUpdatedEpochMs: Long = 10L,
         lastPositionMs: Long = 100L,
+        source: String = WatchProgressSourceLocal,
     ): WatchProgressEntry =
         WatchProgressEntry(
             contentType = "series",
@@ -540,6 +547,7 @@ class WatchProgressIdentityTest {
             lastPositionMs = lastPositionMs,
             durationMs = 1_000L,
             lastUpdatedEpochMs = lastUpdatedEpochMs,
+            source = source,
             progressKey = progressKey,
         )
 }

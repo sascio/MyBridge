@@ -9,6 +9,8 @@ import com.nuvio.app.features.tracking.sharesIdentityWith
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.watchedItemKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressSourceLocal
+import com.nuvio.app.features.watchprogress.WatchProgressSourceNuvioSync
 
 internal const val PROFILE_INSIGHTS_NUVIO_SOURCE_ID = "nuvio"
 
@@ -564,16 +566,16 @@ private fun isProfileInsightsProgressEligible(
     sourceId: String,
     entry: WatchProgressEntry,
 ): Boolean {
-    val expectedSource = when (sourceId) {
-        PROFILE_INSIGHTS_NUVIO_SOURCE_ID -> "local"
-        TrackingProviderId.TRAKT.storageId -> "trakt_playback"
-        TrackingProviderId.SIMKL.storageId -> "simkl_playback"
-        TrackingProviderId.MDBLIST.storageId -> "mdblist_playback"
-        TrackingProviderId.WETRAKR.storageId -> "wetrakr_playback"
+    val sourceMatches = when (sourceId) {
+        PROFILE_INSIGHTS_NUVIO_SOURCE_ID -> entry.source in setOf(WatchProgressSourceLocal, WatchProgressSourceNuvioSync)
+        TrackingProviderId.TRAKT.storageId -> entry.source == "trakt_playback"
+        TrackingProviderId.SIMKL.storageId -> entry.source == "simkl_playback"
+        TrackingProviderId.MDBLIST.storageId -> entry.source == "mdblist_playback"
+        TrackingProviderId.WETRAKR.storageId -> entry.source == "wetrakr_playback"
         TrackingProviderId.ANILIST.storageId -> return false
         else -> return false
     }
-    if (entry.source != expectedSource) return false
+    if (!sourceMatches) return false
     val attributedProvider = entry.trackingProviderId?.trim()?.lowercase()
     return attributedProvider == null || sourceId == PROFILE_INSIGHTS_NUVIO_SOURCE_ID || attributedProvider == sourceId
 }

@@ -5,6 +5,7 @@ import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.watchedItemKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressSourceNuvioSync
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -332,6 +333,30 @@ class ProfileInsightsAggregationTest {
         assertEquals(30L * 60_000L, result.watchTime.totalMs)
         assertEquals(result.watchTime.totalMs, result.watchTime.estimatedMs)
         assertEquals(0L, result.watchTime.recordedMs)
+    }
+
+    @Test
+    fun nuvioRemoteProgressIsIncludedWithoutBecomingWatchedHistory() {
+        val aggregate = aggregate(
+            source(
+                "nuvio",
+                progressEntries = listOf(
+                    progress(
+                        "tt0000050",
+                        source = WatchProgressSourceNuvioSync,
+                        positionMs = 30_000L,
+                        durationMs = 60_000L,
+                    ),
+                ),
+            ),
+        )
+
+        val result = metrics(aggregate)
+
+        assertEquals(1, aggregate.progressEntries.size)
+        assertEquals(1, result.continueCount)
+        assertEquals(0, result.watchedTitleCount)
+        assertEquals(30_000L, result.watchTime.estimatedMs)
     }
 
     @Test
