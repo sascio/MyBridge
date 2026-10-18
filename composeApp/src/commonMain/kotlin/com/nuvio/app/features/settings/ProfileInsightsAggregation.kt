@@ -129,7 +129,7 @@ private data class ProfileIdentity(val kind: String, val canonicalId: String) {
     val titleKey: String get() = "$kind:$canonicalId"
 }
 
-private class ProfileIdentityIndex(candidates: List<ProfileIdentityCandidate>) {
+private class ProfileIdentityIndex(private val candidates: List<ProfileIdentityCandidate>) {
     private val parent = IntArray(candidates.size) { it }
     private val rank = IntArray(candidates.size)
     private val candidatesWithIds = candidates.map { candidate -> candidate.externalIds() }
