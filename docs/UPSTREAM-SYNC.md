@@ -298,3 +298,20 @@ git fetch nuvio
 git diff --numstat HEAD nuvio/cmp-rewrite -- composeApp | awk -F'\t' '$2==0'  # upstream-only
 git diff --numstat HEAD nuvio/cmp-rewrite -- composeApp | awk -F'\t' '$1==0'  # ours-only
 ```
+
+## 0.1.12 — Simkl dedupe restored from the 0.6.2 tree
+
+The 0.1.11 port reconciled every file upstream changed between Enhanced
+0.6.1 and 0.6.2, but StreamBridge's Simkl layer had always followed official
+NuvioMobile rather than Enhanced, so the multi-season dedupe that Enhanced
+carries (`SimklProjections.seriesContentIdIndex`, retained Simkl ids in
+`mergeDelta`, `SimklSyncRepository.refreshIfHoldingLocalEntries`) was still
+missing. 0.1.12 merges those four files from the 0.6.2 tree on top of the
+StreamBridge-specific Simkl guards (the "never send a whole-series mark to
+Simkl" rule and the explicit-completed-series move), and filters already
+watched titles out of the end-of-movie recommendation card.
+
+`docs/upstream-parity-0.6.2.md` records the measured comparison: 1325 Kotlin
+files identical to the 0.6.2 tree, 99 divergent (13 of them changed by 0.6.2,
+the rest StreamBridge fork decisions), and no upstream 0.6.2 source line
+missing from a file StreamBridge owns.
