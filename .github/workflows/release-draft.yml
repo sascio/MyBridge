@@ -577,31 +577,33 @@ jobs:
           gh release view "${TAG}" --json body --jq '.body' > "$notes"
           if ! grep -q '^### iOS installation' "$notes"; then
             # Drop the Android-only placeholder, then append the real section.
-                        NOTES_FILE="$notes" python3 - <<'PY'
-            import os
-
-            path = os.environ["NOTES_FILE"]
-            text = open(path).read()
-            marker = "### iOS status"
-            if marker in text:
-                text = text.split(marker)[0].rstrip() + "\n"
-            text += """
-            ### iOS installation
-
-            The iOS build in this release is **unsigned**. Install it with
-            [AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with
-            your own Apple ID on your device, so no Apple Developer account and no App Store listing is
-            involved.
-
-            Add this repository as a source in AltStore or SideStore to get updates automatically:
-
-            `https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`
-
-            See `docs/RELEASE-IOS.md` for the details.
-            """
-            open(path, "w").write(text)
-            PY
+            # Written with printf, not a heredoc: a heredoc keeps the YAML block
+            # indentation and the Python payload below would arrive indented.
+            sed -i '/^### iOS status/,$d' "$notes"
+            ios_notes=(
+              '### iOS installation'
+              ''
+              'The iOS build in this release is **unsigned**. Install it with'
+              '[AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with'
+              'your own Apple ID on your device, so no Apple Developer account and no App Store listing is'
+              'involved.'
+              ''
+              'Add this repository as a source in AltStore or SideStore to get updates automatically:'
+              ''
+              '`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`'
+              ''
+              'See `docs/RELEASE-IOS.md` for the details.'
+            )
+            printf '%s\n' "${ios_notes[@]}" >> "$notes"
           fi
+          # Preserve the release's current state: a release that was already
+          # published before the IPA finished must stay published.
+          draft_state="$(gh release view "${TAG}" --json isDraft --jq '.isDraft')"
+          edit_args=(--notes-file "$notes")
+          if [ "$draft_state" = "true" ]; then
+            edit_args+=(--draft)
+          fi
+          gh release edit "${TAG}" "${edit_args[@]}"
           gh release edit "${TAG}" --notes-file "$notes"
           gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
 
