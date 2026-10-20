@@ -16,8 +16,18 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.10/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.12/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
+        {
+          "version": "0.1.12",
+          "buildVersion": "112",
+          "date": "2026-10-20T08:31:41Z",
+          "localizedDescription": "## StreamBridge 0.1.12\n\n### What's new\n- Simkl: multi-season anime now collapses into a single Continue Watching entry, next-up seeds resolve to the series, and Simkl IDs survive library refreshes.\n- Player: the end-of-movie recommendation card no longer offers titles you have already watched.\n- Upstream: finished the 0.6.2 port that shipped in 0.1.11 by restoring the Simkl dedupe present in the upstream 0.6.2 tree.\n- Updated the app to version 0.1.12.\n\n### Android\n\nProduction-signed, one APK per ABI. Install the APK that matches your device; in-place updates need the same signing certificate. Verify downloads against `checksums.sha256`.\n\n### iOS installation\n\nThe unsigned IPA is attached to this release as `StreamBridge-0.1.12-iOS-unsigned.ipa`.\n\nInstall it with AltStore or SideStore from the StreamBridge source:\n\nhttps://raw.githubusercontent.com/sascio/MyBridge/main/store.json\n\nThe IPA is unsigned, so these tools re-sign it with your own Apple ID. An unsigned IPA is never a prerequisite for the Android release.\n",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.12/StreamBridge-0.1.12-iOS-unsigned.ipa",
+          "size": 72545447,
+          "sha256": "163f1b8c75ece9c056e20742dbdbf46fd56be30a2bef52902c580083f19bffb2",
+          "minOSVersion": "16.1"
+        },
         {
           "version": "0.1.10",
           "buildVersion": "110",
@@ -59,5 +69,5 @@
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.10/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.12/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
