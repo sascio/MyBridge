@@ -151,6 +151,15 @@ android {
         noCompress += "cvr"
     }
 
+    externalNativeBuild {
+        cmake {
+            // Built by the upstream 0.6.2 libmpv-libass feature: ass_surface.c
+            // wraps the libass symbols that libmpv already ships on device.
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
     splits {
         abi {
             // Same as NuvioMobile: assemble*Release emits one APK per ABI.

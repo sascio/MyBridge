@@ -97,10 +97,11 @@ data class PlayerSettingsUiState(
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
     val preloadNextEpisodeSources: Boolean = false,
-    val miniPlayerEnabled: Boolean = false,
+    val miniPlayerEnabled: Boolean = true,
     val privateViewingEnabled: Boolean = false,
     val useLibass: Boolean = false,
     val libassRenderType: String = "CUES",
+    val useLibmpvAss: Boolean = false,
     val iosVideoOutputPreset: IosVideoOutputPreset = IosVideoOutputPreset.NativeEdr,
     val iosToneMappingMode: IosToneMappingMode = IosToneMappingMode.Auto,
     val iosTargetPrimaries: IosTargetPrimaries = IosTargetPrimaries.Auto,
@@ -187,10 +188,11 @@ object PlayerSettingsRepository {
     private var nextEpisodeThresholdPercent = 99f
     private var nextEpisodeThresholdMinutesBeforeEnd = 2f
     private var preloadNextEpisodeSources = false
-    private var miniPlayerEnabled = false
+    private var miniPlayerEnabled = true
     private var privateViewingEnabled = false
     private var useLibass = false
     private var libassRenderType = "CUES"
+    private var useLibmpvAss = false
     private var iosVideoOutputPreset = IosVideoOutputPreset.NativeEdr
     private var iosToneMappingMode = IosToneMappingMode.Auto
     private var iosTargetPrimaries = IosTargetPrimaries.Auto
@@ -282,10 +284,11 @@ object PlayerSettingsRepository {
         nextEpisodeThresholdPercent = 99f
         nextEpisodeThresholdMinutesBeforeEnd = 2f
         preloadNextEpisodeSources = false
-        miniPlayerEnabled = false
+        miniPlayerEnabled = true
         privateViewingEnabled = false
         useLibass = false
         libassRenderType = "CUES"
+        useLibmpvAss = false
         iosVideoOutputPreset = IosVideoOutputPreset.NativeEdr
         iosToneMappingMode = IosToneMappingMode.Auto
         iosTargetPrimaries = IosTargetPrimaries.Auto
@@ -434,10 +437,11 @@ object PlayerSettingsRepository {
         nextEpisodeThresholdPercent = PlayerSettingsStorage.loadNextEpisodeThresholdPercent() ?: 99f
         nextEpisodeThresholdMinutesBeforeEnd = PlayerSettingsStorage.loadNextEpisodeThresholdMinutesBeforeEnd() ?: 2f
         preloadNextEpisodeSources = PlayerSettingsStorage.loadPreloadNextEpisodeSources() ?: false
-        miniPlayerEnabled = PlayerSettingsStorage.loadMiniPlayerEnabled() ?: false
+        miniPlayerEnabled = PlayerSettingsStorage.loadMiniPlayerEnabled() ?: true
         privateViewingEnabled = PlayerSettingsStorage.loadPrivateViewingEnabled() ?: false
         useLibass = PlayerSettingsStorage.loadUseLibass() ?: false
         libassRenderType = PlayerSettingsStorage.loadLibassRenderType() ?: "CUES"
+        useLibmpvAss = PlayerSettingsStorage.loadUseLibmpvAss() ?: false
         iosVideoOutputPreset = PlayerSettingsStorage.loadIosVideoOutputPreset()
             ?.let { runCatching { IosVideoOutputPreset.valueOf(it) }.getOrNull() }
             ?: IosVideoOutputPreset.NativeEdr
@@ -1038,6 +1042,14 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.saveLibassRenderType(renderType)
     }
 
+    fun setUseLibmpvAss(enabled: Boolean) {
+        ensureLoaded()
+        if (useLibmpvAss == enabled) return
+        useLibmpvAss = enabled
+        publish()
+        PlayerSettingsStorage.saveUseLibmpvAss(enabled)
+    }
+
     fun setIosVideoOutputPreset(preset: IosVideoOutputPreset) {
         ensureLoaded()
         iosVideoOutputPreset = preset
@@ -1273,6 +1285,7 @@ object PlayerSettingsRepository {
             privateViewingEnabled = privateViewingEnabled,
             useLibass = useLibass,
             libassRenderType = libassRenderType,
+            useLibmpvAss = useLibmpvAss,
             iosVideoOutputPreset = iosVideoOutputPreset,
             iosToneMappingMode = iosToneMappingMode,
             iosTargetPrimaries = iosTargetPrimaries,
