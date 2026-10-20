@@ -134,6 +134,18 @@ hosts are outside the sandbox's allowed network); the signing and asset checks a
 release workflow itself and would have failed the job on a debug certificate or a missing/renamed
 artifact.
 
+### 0.1.12 follow-up
+
+| Check | Evidence |
+|---|---|
+| Code + docs build | `Build Stream Bridge` runs `39378244773` (`cfbf46f`), `39380339784` (`a6cbcfe`), `39385299789` (`cf03f48`), `39387492901` (`b88bb5a`) — all green (unit tests, debug + release APKs, lint, CloudStream runtime checks) |
+| Merge | PR #222 → `ea4787c`; workflow fix PR #223 → `1457a9b` |
+| Release | `v0.1.12`, published `2026-10-20T08:31:41Z`, six assets: four ABI APKs, `checksums.sha256`, `StreamBridge-0.1.12-iOS-unsigned.ipa` |
+| Signing | Release run `39382519342`: production signing steps green (keystore decode, debug-certificate rejection, expected-APK check) |
+| Sideload source | `Update Sideload Source` run `39394045163` published `store.json` 0.1.12 (build 112) with the release IPA |
+| iOS independence | Android APKs were published at 06:55 UTC while the iOS job was still building; the IPA was attached at 08:31 from an independent job |
+| Known anomaly | Push run `39370436322` (`95bbc63`) hung in APK assembly on a runner for hours and was superseded by `39378244773` on the next commit; the integration token cannot cancel runs |
+
 ## Known gaps
 
 * No Android emulator or device is available in this environment; the app was not launched here.
