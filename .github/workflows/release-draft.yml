@@ -17,7 +17,7 @@ on:
         description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.10)
         required: true
         type: string
-        default: "v0.1.11"
+        default: "v0.1.12"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -505,16 +505,13 @@ jobs:
           # keeps the YAML indentation, and a release body indented by ten
           # spaces is rendered by GitHub as a code block rather than Markdown.
           release_notes=(
-            '## StreamBridge 0.1.11'
+            '## StreamBridge 0.1.12'
             ''
             "### What's new"
-            '- Watch Party: chat with everyone in the party, and a fix for the crash when opening Watch Party from Settings or an invite link.'
-            '- Liquid Glass interface on Android, including the player, with a toggle in Settings.'
-            '- Player: pinch to zoom, Fill stretch on the MPV path, an orientation toggle for portrait videos, and optional libmpv/libass ASS/SSA subtitles on ExoPlayer.'
-            '- Tracking: shared anime ID mapping for Trakt, MDBList and WeTrakr, Trakt anime watched sync, and Simkl moves explicitly watched series to Completed.'
-            '- Stream selection matches binge groups by filename and info hash.'
-            '- New Greek and Brazilian Portuguese translations, plus Italian fixes.'
-            '- Updated the app to version 0.1.11.'
+            '- Simkl: multi-season anime now collapses into a single Continue Watching entry, next-up seeds resolve to the series, and Simkl IDs survive library refreshes.'
+            '- Player: the end-of-movie recommendation card no longer offers titles you have already watched.'
+            '- Upstream: finished the 0.6.2 port that shipped in 0.1.11 by restoring the Simkl dedupe that is part of upstream 0.6.2.'
+            '- Updated the app to version 0.1.12.'
             ''
             '### Android'
             ''

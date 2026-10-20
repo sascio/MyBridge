@@ -12,16 +12,38 @@ one was reconciled into StreamBridge for the **0.1.11** release.
 | Previous pin (baseline) | Enhanced `0.6.1-beta` = `504014d360bf1a1f844246f527c27c208738246e` |
 | Commits between pins | **60** (`compare/0.6.1-beta...0.6.2-beta`, ahead 60 / behind 0) |
 | Files changed between pins | **162** (120 modified, 39 added, 3 deleted) |
-| Reconciliation against StreamBridge | **92** copied verbatim, **27** three-way merged, **39** added, **3** deleted, **1** restored (Italian MDBList strings absent from StreamBridge) |
+| Reconciliation against StreamBridge | **162** changed paths: **39** new files present, **120** modified files reconciled, **3** deletions applied; measured file-by-file against the 0.6.2 tree (see [Verification](#verification-against-the-062-tree)) |
 
-Method: the pristine 0.6.1 tree was compared byte-for-byte with this repository. A file that
-StreamBridge had never modified was replaced with the 0.6.2 version (92 files). A file that
-StreamBridge had customised was merged three-way with `git merge-file` using the 0.6.1 tree as
-the base, so StreamBridge-only behaviour survives (27 files: 12 locale XMLs, `MainAppContent`,
-`MainActivity`, the two Gradle builds, the player runtime split, streams/library/detail screens,
-licences page, settings search, Simkl adapter, `store.json`, iOS `Version.xcconfig`). StreamBridge
-owner files were deliberately **not** overwritten: `store.json`, `Version.xcconfig` (version only),
-the release workflows, version properties and branding assets.
+Method: the pristine 0.6.2 tree (`luqmanfadlli/NuvioMobile-Enhanced` at `5d978096`) and the
+official 0.6.2 tree (`NuvioMedia/NuvioMobile` at `1cfae0fe`) were both checked out, and the
+repository was compared file by file against them. Where upstream changed a file StreamBridge
+had never touched, the upstream file was taken as-is. Where StreamBridge had customised it, the
+change was applied on top with `git merge-file` using the official 0.6.2 file as the base, so
+StreamBridge-only behaviour survives. StreamBridge owner files were deliberately **not**
+overwritten: `store.json`, `Version.xcconfig` and `streambridge.version.properties` (version),
+the release workflows, branding assets and the `README`/`NOTICE`.
+
+Status legend: **Integrated** (ported and compiled in this tree), **Merged** (ported on top of a
+StreamBridge customisation), **Upstream-only** (deliberately not shipped), **Blocked**.
+
+## Verification against the 0.6.2 tree
+
+Measured on this tree at `0.1.12`, comparing every Kotlin source file with the upstream 0.6.2
+checkout:
+
+| Check | Result |
+|---|---|
+| Kotlin files identical to upstream 0.6.2 | **1325** |
+| Kotlin files that differ | **99** (13 of them are files upstream changed in 0.6.2; the rest predate it) |
+| Upstream Kotlin files absent here | **2** (`SupportersContributorsPage.kt`, replaced by StreamBridge's About page; `MdbListLibraryListsPicker.kt`, superseded by StreamBridge's picker) |
+| StreamBridge-only Kotlin files | **215** (CloudStream runtime, custom avatar/GIF search, MDBList HTTP engine, updater, branding, tests) |
+| Lines added by upstream 0.6.2 that are missing here | **0** in source files — the only misses are branding strings, `store.json` and the version file, which StreamBridge owns |
+
+The remaining 86 pre-0.6.2 divergences are fork decisions rather than porting gaps: StreamBridge
+keeps its own home hero (library button, dynamic scrim) instead of upstream's artwork-background
+variant, its own MDList HTTP client, its own Trakt/Simkl PKCE flows, its own profiles and avatar
+pipeline, and its CloudStream playback availability layer. They are listed in
+`docs/UPSTREAM-SYNC.md` when they affect an upstream merge.
 
 Status legend: **Integrated** (ported and compiled in this tree), **Merged** (ported on top of a
 StreamBridge customisation), **Upstream-only** (deliberately not shipped), **Blocked**.
@@ -40,7 +62,7 @@ StreamBridge customisation), **Upstream-only** (deliberately not shipped), **Blo
 | 8 | **Optional libmpv libass renderer** for ASS/SSA on ExoPlayer | `f070b9ac` (22 files), `f428c47b` | libass overlay via existing engine | Integrated | `aiostreams/` package (7 files, new), `androidApp/src/main/cpp/` (CMake + JNI, new), `PlayerEngine.android.kt`, playback settings + search row, `proguard-rules.pro` (`-keep …aiostreams.AssSurface`) | CI compile; JNI library built by CMake in release and debug | Requires NDK/CMake 3.22.1 in CI (added to the workflow); runtime subtitle rendering needs device validation |
 | 9 | **Anime ID mapper** for Trakt / MDBList / WeTrakr (+ AniList rating reset, exact season resolver) | `d0d00e0e`, `ac32603b`, `d955445a`, `1f24a881`, `1f0d8841`, `3397ac2c`, `98a18696`, `89c7d720`, `08ecd061`, `0c405c26`, `5f534e30` | Title/ID heuristics without a shared mapper | Integrated | `tracking/TrackingAnimeIdMapper.kt` (new), `TraktRatingsProvider.kt`, `TraktScrobbleRepository.kt`, `TraktWatchedSyncAdapter.kt`, `MdbListTrackingWrites.kt`, `MdbListWatchedSyncAdapter.kt`, `WeTrakr*.kt`, `AniListRatingsProvider.kt` | CI compile | Mapping tables are upstream data; no cross-service live test |
 | 10 | **Trakt anime watched sync** | `c84c1578` | Partial | Integrated | `TraktWatchedSyncAdapter.kt`, `trakt/TraktScrobbleRepository.kt` | CI compile | Needs Trakt account to verify end-to-end |
-| 11 | **Simkl** — move explicitly watched series to Completed | `84b39783`, `c6b52f2b` | Simkl marked episodes only | Integrated | `features/simkl/SimklApplicationAdapters.kt`, `commonTest/.../SimklHistoryPushGuardTest.kt` | CI compile + existing unit tests | Needs Simkl account |
+| 11 | **Simkl** — multi-season anime dedupe (series content-id index), next-up seed resolution, retained ids across refreshes, and move explicitly watched series to Completed | `84b39783`, `c6b52f2b` | Simkl marked episodes only | Integrated | `features/simkl/SimklApplicationAdapters.kt`, `commonTest/.../SimklHistoryPushGuardTest.kt` | CI compile + existing unit tests | Needs Simkl account |
 | 12 | **Binge-group selection by filename + infoHash**, prefetch fixes | `d2cc0fb8`, `a137b1e3` | Episode/season heuristics | Integrated | `streams/FilenameEpisodeMatcher.kt` (new), `StreamsRepository.kt`, `BingeGroupCacheRepository.kt`, `StreamsScreen.kt`, `StreamsTabletLayout.kt`, `StreamCard.kt`, `ProviderFilterRow.kt` | CI compile | Provider-specific file naming remains heuristic |
 | 13 | **Settings sliders show the value while dragging** | `c6242210` | Value on release | Integrated | `settings/PlaybackSettingsPage.kt`, `AppearanceSettingsPage.kt`, `HomescreenSettingsPage.kt`, `MetaScreenSettingsPage.kt`, `NavigationBarSettingsSheet.kt` | CI compile | — |
 | 14 | **Library section titles** resolver | `a137b1e3` | Hard-coded `displayTitle` | Integrated | `library/LibrarySectionTitles.kt` (new), `LibraryScreen.kt`, `LibrarySavedContent.kt`, `MainAppContent.kt` | CI compile | — |
