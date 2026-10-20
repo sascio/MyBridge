@@ -702,6 +702,9 @@
     <string name="settings_licenses_attributions_haze_title">Haze 1.7.2</string>
     <string name="settings_licenses_attributions_haze_body">Used for background blur effects. Created by Chris Banes.</string>
     <string name="settings_licenses_attributions_haze_license">Licensed under the Apache License, Version 2.0.</string>
+    <string name="settings_licenses_attributions_backdrop_title">Backdrop 2.0.1</string>
+    <string name="settings_licenses_attributions_backdrop_body">Used for liquid glass effects. Created by Kyant.</string>
+    <string name="settings_licenses_attributions_backdrop_license">Licensed under the Apache License, Version 2.0.</string>
     <string name="settings_licenses_attributions_nuvio_title">NuvioMobile</string>
     <string name="settings_licenses_attributions_nuvio_body">StreamBridge is based on NuvioMobile by NuvioMedia. NuvioMobile source code and license terms remain available in the upstream repository. StreamBridge does not claim ownership of NuvioMobile.</string>
     <string name="settings_licenses_attributions_nuvio_license">Licensed under the GNU General Public License v3.0.</string>
@@ -727,6 +730,9 @@
     <string name="settings_licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="settings_licenses_attributions_exoplayer_body">Used for playback on Android builds.</string>
     <string name="settings_licenses_attributions_exoplayer_license">Licensed under the Apache License, Version 2.0.</string>
+    <string name="settings_licenses_attributions_aiostreams_title">AIOStreams subtitle renderer</string>
+    <string name="settings_licenses_attributions_aiostreams_body">Optional libmpv/libass renderer for ASS/SSA subtitles on Android, ported from AIOStreams.</string>
+    <string name="settings_licenses_attributions_aiostreams_license">Licensed under the GNU Affero General Public License v3.0.</string>
     <string name="compose_trakt_list_picker_loading">Loading your Trakt lists…</string>
     <string name="compose_trakt_list_picker_subtitle">Choose where to save this title on Trakt</string>
     <string name="compose_tracking_list_picker_loading">Loading lists…</string>
@@ -1340,6 +1346,8 @@
     <string name="settings_playback_duration_hours">%1$d hours</string>
     <string name="settings_playback_enable_libass">Use libass for ASS/SSA subtitles</string>
     <string name="settings_playback_enable_libass_description">Experimental: advanced ASS/SSA rendering (styles, positioning, animations)</string>
+    <string name="settings_playback_enable_libmpv_ass">Use libmpv&apos;s libass for ASS/SSA subtitles</string>
+    <string name="settings_playback_enable_libmpv_ass_description">Experimental: draws ASS/SSA with the libass bundled in libmpv on a frame-synced overlay, replacing ExoPlayer&apos;s ASS rendering</string>
     <string name="settings_playback_external_player">External Player</string>
     <string name="settings_playback_external_player_app">External Player App</string>
     <string name="settings_playback_external_player_description_android">Open new playback with Android&apos;s default video app or system chooser.</string>
@@ -1397,7 +1405,7 @@
     <string name="settings_playback_preload_next_episode">Preload Next Episode Sources</string>
     <string name="settings_playback_preload_next_episode_description">Start searching for sources in the background before the next episode button appears.</string>
     <string name="settings_playback_mini_player">Mini Player</string>
-    <string name="settings_playback_mini_player_description">Leaving the player keeps playback going in a small floating window. Tap it to return to full screen.</string>
+    <string name="settings_playback_mini_player_description">Shows the mini player button in the player so you can keep watching in a floating window while you browse. Picture in Picture when leaving the app works either way.</string>
     <string name="settings_playback_private_viewing">Private Viewing</string>
     <string name="settings_playback_private_viewing_description">Don\'t save watch progress, Continue Watching or watched status, and don\'t sync playback to connected trackers.</string>
     <string name="mini_player_play">Play</string>
@@ -2286,7 +2294,12 @@
     <string name="library_sort_released_asc">Oldest released</string>
     <string name="library_sort_released_desc">Recently released</string>
     <string name="library_sort_title_asc">Title A–Z</string>
-    <string name="library_error_sort_failed">Couldn\'t load sort order. Showing provider order.</string>
+    <string name="library_status_watching">Watching</string>
+    <string name="library_status_plan_to_watch">Plan to Watch</string>
+    <string name="library_status_on_hold">On Hold</string>
+    <string name="library_status_completed">Completed</string>
+    <string name="library_status_dropped">Dropped</string>
+    <string name="library_error_sort_failed">Couldn't load sort order. Showing provider order.</string>
     <string name="library_sort_title_desc">Title Z–A</string>
     <string name="library_sort_provider_order">Tracker order</string>
     <string name="library_source_cloud">Cloud</string>
@@ -2365,6 +2378,8 @@
     <!-- PlayerControls a11y -->
     <string name="player_action_submit_intro">Submit Intro</string>
     <string name="player_action_video_settings">Video settings</string>
+    <string name="player_action_rotate_portrait">Watch in portrait</string>
+    <string name="player_action_rotate_landscape">Watch in landscape</string>
     <!-- CloudLibrary -->
     <string name="cloud_library_provider_unavailable">Cloud library is not available for %1$s.</string>
     <!-- Player iOS video settings modal -->
@@ -2764,6 +2779,29 @@
     <string name="settings_nav_bar_position">Position</string>
     <string name="settings_nav_bar_position_bottom">Bottom</string>
     <string name="settings_nav_bar_position_top">Top</string>
+    <string name="settings_appearance_liquid_glass_effects">Liquid glass effects</string>
+    <string name="settings_appearance_liquid_glass_effects_description">Glass on the navigation bar, sheets, player controls and cinematic screens. Turn off for solid surfaces.</string>
+    <string name="settings_nav_bar_glass">Liquid glass</string>
+    <string name="settings_nav_bar_glass_material_liquid">Liquid</string>
+    <string name="settings_nav_bar_glass_material_frosted">Frosted</string>
+    <string name="settings_nav_bar_glass_material_clear">Clear</string>
+    <string name="settings_nav_bar_glass_material_solid">Solid</string>
+    <string name="settings_nav_bar_glass_blur">Blur</string>
+    <string name="settings_nav_bar_glass_refraction">Refraction</string>
+    <string name="settings_nav_bar_glass_tint">Tint</string>
+    <string name="settings_nav_bar_glass_value_dp">%1$d dp</string>
+    <string name="settings_nav_bar_glass_value_percent">%1$d%</string>
+    <string name="settings_nav_bar_glass_vibrancy">Vibrancy</string>
+    <string name="settings_nav_bar_glass_vibrancy_description">Boosts the colors showing through the glass.</string>
+    <string name="settings_nav_bar_glass_highlight">Edge highlight</string>
+    <string name="settings_nav_bar_glass_highlight_description">Lights the rim of the bar.</string>
+    <string name="settings_nav_bar_glass_shadow">Shadow</string>
+    <string name="settings_nav_bar_glass_shadow_description">Lifts the bar off the content with a soft shadow.</string>
+    <string name="settings_nav_bar_glass_dispersion">Chromatic aberration</string>
+    <string name="settings_nav_bar_glass_dispersion_description">Splits colors at the edges of the glass like a real lens.</string>
+    <string name="settings_nav_bar_glass_selection_lens">Liquid selection</string>
+    <string name="settings_nav_bar_glass_selection_lens_description">Magnifies the glass under the selected tab.</string>
+    <string name="settings_nav_bar_glass_reset">Reset glass to default</string>
     <string name="random_episode_title">Shuffle</string>
     <string name="layout_random_episode_sub">Shuffle episodes from any series. Turning this off pauses shuffle.</string>
     <string name="random_episode_unwatched">Unwatched episodes</string>

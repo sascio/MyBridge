@@ -55,12 +55,22 @@ jobs:
             "$SDKMANAGER" --install "build-tools;${ANDROID_BUILD_TOOLS}"
           fi
 
+          # :androidApp builds the optional libmpv/libass JNI surface through
+          # CMake. AGP needs both that exact CMake version and an NDK; the
+          # runner image usually has them, so only install what is missing.
+          if [ -d "$SDK/cmake/${ANDROID_CMAKE_VERSION}" ]; then
+            echo "cmake ${ANDROID_CMAKE_VERSION} already installed"
+          else
+            "$SDKMANAGER" --install "cmake;${ANDROID_CMAKE_VERSION}"
+          fi
+
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
         env:
           ANDROID_COMPILE_SDK: '37'
           ANDROID_COMPILE_SDK_MINOR: '0'
           ANDROID_BUILD_TOOLS: '36.0.0'
+          ANDROID_CMAKE_VERSION: '3.22.1'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6

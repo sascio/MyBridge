@@ -7,210 +7,211 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android media client · iOS in 0.1.08+ · GPL-3.0 · version <strong>0.1.10</strong> (110)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.11</strong> (111)
 </p>
 
-StreamBridge is an independent, GPL-3.0 media client for Android, with an iOS
-release starting in 0.1.08. It is developed and published by the StreamBridge
-project at [sascio/MyBridge](https://github.com/sascio/MyBridge). You bring
-catalogs, addons, and plugins. The app does not ship, host, or recommend any
-content.
+StreamBridge is an independent media client. You connect your own catalogs, addons and
+plugin sources; StreamBridge brings them together in one place with a player, a library,
+watch progress, downloads and optional tracking.
 
-StreamBridge is built on the open-source NuvioMobile codebase and adds its own
-identity (name, icon, package, iOS bundle identifier, in-app updater), release
-engineering, and features. The current tree is synced to
-[NuvioMobile](https://github.com/NuvioMedia/NuvioMobile) `cmp-rewrite`
-`79b750f3` (**0.6.1-beta**) and
-[NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced)
-`enhanced` `504014d3` (**0.6.1-beta**), both GPL-3.0. Upstream authors and
-copyright holders are credited in [NOTICE](NOTICE); StreamBridge is not an
-official NuvioMobile release and is not endorsed by NuvioMedia.
+It ships empty. There are no built-in catalogs, no bundled providers and no recommended
+streams: what you see is what you configured. StreamBridge does not host, provide or
+endorse any content. Use it only with material you are legally entitled to access.
 
-Kotlin packages stay `com.nuvio.app`. `applicationId` is `com.streambridge.app`;
-the iOS bundle identifier is `com.streambridge.app`. The repository name
-`MyBridge` is historical; the product is StreamBridge.
+## Highlights in 0.1.11
 
-The app ships **empty**: no catalogs, no metadata, no streams, no
-providers. Add Stremio-compatible addons and Nuvio-compatible plugin
-repositories yourself. Optional TMDB, MDBList, Trakt, and Simkl stay
-**off** unless you supply keys.
-
-> StreamBridge provides no content of its own. Use only content you are
-> legally entitled to access.
+- **Watch Party** — create or join a party, chat while you watch, and keep playback in sync.
+  Opening Watch Party from Settings or from an invite link works again; the previous release
+  could crash on that tap.
+- **Liquid Glass** — the Android interface (including the player) uses the new glass surface
+  system, with a toggle in Settings for anyone who prefers the flat look.
+- **Player controls** — pinch to zoom, Fill stretch on the MPV path, an orientation toggle for
+  portrait videos, and an optional libmpv/libass renderer for ASS/SSA subtitles on the ExoPlayer
+  path.
+- **Tracking** — a shared anime ID mapper for Trakt, MDBList and WeTrakr, Trakt anime watched
+  sync, and Simkl now moves explicitly watched series to Completed.
+- **Stream selection** — binge groups are matched by filename and info hash, so the right episode
+  is picked more often.
+- **Languages** — new Greek and Brazilian Portuguese coverage, plus Italian fixes.
 
 ## Features
 
-Implemented in this tree. Live TV providers and metadata services depend
-on configuration you add. Avatar images need a working account backend.
-
 **Home and discovery**
-- Home catalogs from your addons, Continue Watching, and configurable hero styles (full-bleed or card)
-- Search
-- Title details, trailers, and episode shuffle for series
+- Catalogs from your addons, Continue Watching, and configurable hero layouts
+- Search, title details, trailers, and episode shuffle for series
+- Collections and folders for organising what you keep
 
 **Playback**
-- Nuvio ExoPlayer pipeline (the only Android playback path)
-- HLS quality chooser when a stream exposes HLS master variants
-- Timeline tap-to-seek, picture-in-picture, background playback, and an optional external player
-- Subtitle controls including per-episode restore, styling, and "sync by ear" alignment
+- Media3/ExoPlayer playback on Android, with an MPV path for formats ExoPlayer handles poorly
+- HLS quality selection when a stream exposes master variants
+- Gestures: tap-to-seek, pinch zoom, double-tap seek, brightness/volume swipes
+- Picture-in-picture, background playback, and an optional external player
+- Subtitle styling, per-episode restore, sync-by-ear alignment, and optional libass rendering
 
-**Live TV**
-- Channels, EPG, and Live TV settings when you configure sources
-- Channel layout and navigation options
-- Provider availability is **configuration-dependent** — nothing is bundled
+**Watch Party**
+- Create a party from a title or join with a six-character code or invite link
+- Host-controlled or shared playback control, member list, and in-party chat
+- Stream sharing between members when the host enables it
 
 **Library and tracking**
-- Library, calendar, lists, and the downloads entry point
-- In-app ratings synced with Trakt, Simkl, and MDBList
-- Optional Trakt device-code sign-in and Simkl PIN/device sign-in (off by default)
+- Library, calendar, lists and downloads
+- Ratings and watch progress synced with Trakt, Simkl and MDBList
+- Optional Trakt device-code sign-in and Simkl PIN/device sign-in
+- AniList ratings alongside TMDB/IMDb sources
 
-**Profiles**
-- Multiple profiles
-- Avatar catalog loaded from the official Nuvio backend (public client configuration) with Ready, Empty, and Failed states plus retry; supporter avatars require a membership
-- Custom profile background URL where the profile entitlement allows it
-- Profile Insights computed off the main thread and cached across launches
+**Live TV**
+- Channels, EPG and Live TV settings for the sources you configure
 
-**Downloads**
-- Download manager and a Wi-Fi-only (no mobile data) setting
+**Profiles and customisation**
+- Multiple profiles with avatars, optional custom avatar URLs and GIF search
+- Themes, navigation styles, poster cards and Liquid Glass toggles
+- Profile insights computed off the main thread
 
-**Addons, plugins, and settings**
-- Empty addon and plugin lists until you add them
-- Separate Plugin and Addon entries in Settings
-- Plugin runtime with async timers (`setTimeout`) for Nuvio-compatible plugins
-- In-app Privacy & Policy page describing what the app stores and which services it can contact
-- Licenses and attributions (StreamBridge as the app; NuvioMobile as upstream)
+**Downloads and cloud**
+- Download manager with Wi-Fi-only and storage-location settings
+- Cloud library playback for configured servers
 
-**Updates**
-- In-app updates from published GitHub Releases of `sascio/MyBridge` only
-- Drafts and prereleases are ignored
-- The client selects the newest compatible stable APK for the device ABI
+**Plugins and extensions**
+- Plugin and addon management, kept as separate settings sections
+- Plugin runtime with asynchronous timers for Nuvio-compatible plugins
+- CloudStream extension support in the sideload (full) distribution, including the
+  embedded execution runtime
 
-**iOS (new in 0.1.08)**
-- Same Kotlin core and MPV/ExoPlayer-equivalent playback pipeline as Android
-- `StreamBridge.app`, bundle identifier `com.streambridge.app`, version 0.1.10
-- Downloads Live Activity extension and bundled Noto subtitle fonts
-- Distributed as an unsigned IPA through AltStore/SideStore, not the App Store
-- Built by `.github/workflows/ios-release.yml`; see [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md)
+**Updates and privacy**
+- In-app updates from the published GitHub Releases of `sascio/MyBridge` only
+- A Privacy & Policy page describing what is stored locally and which services can be contacted
 
 ## Install
 
 ### Android
 
-Production builds are the **published** GitHub Releases of this repository.
-Each release attaches one APK per ABI:
+Production builds are the published GitHub Releases of this repository. Each release attaches one
+APK per ABI plus a checksum file:
 
-- `androidApp-full-arm64-v8a-release.apk` (most phones)
-- `androidApp-full-armeabi-v7a-release.apk`
-- `androidApp-full-x86_64-release.apk`
-- `androidApp-full-x86-release.apk`
+| File | Device |
+|---|---|
+| `androidApp-full-arm64-v8a-release.apk` | Most modern phones and tablets |
+| `androidApp-full-armeabi-v7a-release.apk` | Older 32-bit devices |
+| `androidApp-full-x86_64-release.apk` | x86_64 emulators / ChromeOS |
+| `androidApp-full-x86-release.apk` | x86 emulators |
+| `checksums.sha256` | SHA-256 of the four APKs |
 
-Plus `checksums.sha256`. Branch CI APKs are **debug-signed compile
-artifacts**, not production. In-place updates need the same production
-certificate. See [docs/SIGNING.md](docs/SIGNING.md).
+Install the APK that matches your device. In-place updates require the same signing certificate,
+so install future releases over the existing app rather than uninstalling it.
+
+APKs built by branch CI are debug-signed compile artifacts, not production builds. See
+[docs/SIGNING.md](docs/SIGNING.md) for the signing and verification model.
 
 ### iOS
 
 iOS builds are published as an **unsigned** IPA on the
-[published GitHub Releases](https://github.com/sascio/MyBridge/releases) of this
-repository:
+[published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.10-iOS-unsigned.ipa`
+- `StreamBridge-0.1.11-iOS-unsigned.ipa`
 
-There is no App Store listing. Install the IPA with **AltStore** or
-**SideStore**, which sign it on your device with your own Apple ID:
+There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
+with your own Apple ID on your device:
 
-1. Install [AltStore](https://altstore.io) (or [SideStore](https://sidestore.io))
-   on your iPhone or iPad and complete its setup. Both work with a regular,
-   free Apple ID; AltStore needs AltServer on a computer on the same network,
-   SideStore pairs once and then works on its own.
-2. In the app, add this repository as a source:
+1. Install [AltStore](https://altstore.io) or [SideStore](https://sidestore.io) and complete its
+   setup. Both work with a free Apple ID; AltStore needs AltServer on a computer on the same
+   network, SideStore pairs once.
+2. Add this repository as a source:
    `https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`
-   StreamBridge then appears as an installable, updatable app.
-3. Tap Install. AltStore/SideStore signs the IPA with your Apple ID as it
-   installs, so no Apple Developer account or Apple-issued certificate is
-   involved.
-4. To install the IPA file directly instead, or to re-sign it yourself, use the
-   "Install from file" action with the downloaded `.ipa`.
+3. Install StreamBridge from the source, or use "Install from file" with the downloaded IPA.
 
-A free Apple ID signs for **7 days** at a time, and AltStore/SideStore can
-refresh StreamBridge automatically before it expires when it can reach your
-device. Apple also limits a free account to 3 sideloaded apps and 10 new App IDs
-per week. An Apple Developer account only changes those limits; StreamBridge
-itself is the same build either way.
+A free Apple ID signs for 7 days at a time; AltStore/SideStore refresh the app before it expires.
+Free accounts are limited to 3 sideloaded apps and 10 new App IDs per week. A paid Apple Developer
+account only changes those limits — the app is the same build.
 
-Because the IPA is not signed by an Apple-issued certificate, it cannot be
-installed by double-clicking it in Finder, and it cannot be distributed through
-TestFlight or the App Store. That is by design: the sideloading route is the one
-that requires no paid account from anyone.
+`store.json` is regenerated from each published release by
+`.github/workflows/update-store-source.yml`, so it always points at the real IPA of the newest
+version, with its size and SHA-256. See [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
 
-`store.json` in this repository is the sideload source. It is regenerated by
-`.github/workflows/update-store-source.yml` from each published release, so it
-always points at the real IPA of the newest version, with that file's size and
-SHA-256. See [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
+## Build from source
 
-## Build
-
-### Android
+Requirements: JDK 21, Android SDK with the platform/build-tools versions from
+`gradle/libs.versions.toml`, and — for the libmpv/libass module — the Android NDK and CMake 3.22.1.
 
 ```bash
+# Debug
 ./gradlew :androidApp:assembleFullDebug
-```
 
-Debug output: `androidApp/build/outputs/apk/full/debug/`
-
-```bash
+# Release, one APK per ABI (debug-signed unless production secrets are configured)
 ./gradlew :androidApp:assembleFullRelease
 ```
 
-Release output is **one APK per ABI** under
-`androidApp/build/outputs/apk/full/release/`. A production GitHub Release
-is a **manual** workflow and **fails** unless upload-keystore GitHub
-Secrets are set.
+Outputs land in `androidApp/build/outputs/apk/full/{debug,release}/`.
 
-### iOS
+The Play Store flavor is built without the CloudStream execution runtime:
+
+```bash
+./gradlew :androidApp:assemblePlaystoreDebug -Pnuvio.android.distribution=playstore
+```
+
+iOS builds run on macOS:
 
 ```bash
 ./scripts/prepare-ios-dependencies.sh
 ./scripts/build-ios-ipa.sh
 ```
 
-Output: `build/ios-ipa/streambridge-0.1.10-full-release.ipa`, unsigned. The
-release workflow publishes that same file as
-`StreamBridge-0.1.10-iOS-unsigned.ipa` and
-`.github/workflows/update-store-source.yml` records it in `store.json`. See
-[docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
+The IPA is written to `build/ios-ipa/` unsigned. See [docs/RELEASE-IOS.md](docs/RELEASE-IOS.md).
 
-## Project identity, upstream credit, and repository history
+## Releases
 
-StreamBridge is its own product, maintained and released by the StreamBridge
-project at `sascio/MyBridge`. It is not an official NuvioMobile release and is
-not published or supported by NuvioMedia.
+- Android and iOS are released from the same tag (`v0.1.11`), but their builds are independent.
+  The production release workflow publishes the Android APKs as soon as the verified Android job
+  succeeds; the unsigned iOS IPA is attached when its own build finishes, so an iOS build can never
+  hold up an Android release.
+- Production releases are signed with the StreamBridge upload key and fail closed if the signing
+  secrets are absent. No debug-signed APK is ever attached to a release.
+- Release notes and artifacts are listed on the
+  [releases page](https://github.com/sascio/MyBridge/releases).
 
-The two upstream projects credited in [NOTICE](NOTICE) remain separate GPL-3.0
-works:
+## Project layout
 
-- [NuvioMobile](https://github.com/NuvioMedia/NuvioMobile), pinned at
-  `79b750f3` (0.6.1-beta)
-- [NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced),
-  pinned at `504014d3` (0.6.1-beta)
+| Path | Contents |
+|---|---|
+| `composeApp/` | Kotlin Multiplatform app: shared UI and logic, Android and iOS source sets |
+| `androidApp/` | Android application module, manifest, native libmpv/libass module |
+| `iosApp/` | SwiftUI host, player bridge, Xcode project |
+| `branding/` | Canonical StreamBridge marks |
+| `docs/` | Signing, iOS release, CloudStream, upstream sync and parity documentation |
+| `scripts/` | Asset optimisation, iOS packaging and sideload-source tooling |
 
-Their copyright notices, license texts, and attribution are kept in
-[LICENSE](LICENSE), [COPYING](COPYING), and [NOTICE](NOTICE).
+## Privacy and network services
 
-**Contributor list note.** StreamBridge was built as an overlay copy and shares
-no git history with either upstream project. The 0.1.10 sync imported the
-upstream source with a real merge of unrelated histories, so thousands of
-upstream commits became reachable from `main`. GitHub calculates its
-Contributors page from commits reachable from the default branch, which is why
-upstream authors appear there alongside StreamBridge maintainers. README edits
-cannot remove those historical authors from that statistic; only rewriting the
-default branch's history would. The forensic findings, the prepared (unapplied)
-clean-history migration, and the rollback procedure are documented in
-[docs/REPOSITORY-IDENTITY-AUDIT.md](docs/REPOSITORY-IDENTITY-AUDIT.md).
+StreamBridge stores your profiles, library, watch progress and settings on your device. Some
+optional features talk to services you enable:
 
-## License
+- Your own addons and plugin sources, at the URLs you add.
+- Your own media servers (Jellyfin/Emby-style), if you connect one.
+- The account backend used for sign-in, profiles and sync. The default is the public
+  `api.nuvio.tv` service operated by NuvioMedia; StreamBridge is not its operator, and a custom
+  backend can be configured instead.
+- Tracking providers you connect (Trakt, Simkl, MDBList), review services and supporter
+  membership, only after you sign in.
 
-**GPL-3.0** — see [LICENSE](LICENSE), [COPYING](COPYING), and
-[NOTICE](NOTICE). StreamBridge is based on NuvioMobile and
-NuvioMobile-Enhanced, both by their respective authors, and includes
-modifications and additional functionality.
+Crash reporting is opt-in and can be disabled in Settings → Advanced. The in-app Privacy & Policy
+page documents each category, and [NOTICE](NOTICE) lists the third-party components.
+
+## Contributing
+
+Issues and pull requests are welcome. Please keep changes buildable:
+`:composeApp:check`, `:androidApp:assembleFullDebug` and `:androidApp:lintFullRelease` are the
+minimum gates. Report security issues privately rather than in a public issue.
+
+## Attribution and license
+
+StreamBridge is licensed under **GPL-3.0** — see [LICENSE](LICENSE), [COPYING](COPYING) and
+[NOTICE](NOTICE).
+
+StreamBridge is an independent project maintained at `sascio/MyBridge`. It is not an official
+Nuvio release and is not affiliated with or endorsed by NuvioMedia. Its core is derived from the
+GPL-3.0 NuvioMobile and NuvioMobile-Enhanced projects; the exact pins, copyright holders and
+license texts are recorded in [NOTICE](NOTICE) and the upstream parity notes in
+[docs/upstream-parity-0.6.2.md](docs/upstream-parity-0.6.2.md). Portions of the optional
+libmpv/libass subtitle renderer come from AIOStreams and remain under AGPL-3.0; see
+`third_party/AIOStreams/`.
+
+<p align="center"><sub>Made with ❤️ by Saif</sub></p>
