@@ -30,7 +30,7 @@ StreamBridge customisation), **Upstream-only** (deliberately not shipped), **Blo
 
 | # | Upstream feature / change | Upstream evidence | StreamBridge baseline | Status | Files affected | Verification | Remaining limitation |
 |---|---|---|---|---|---|---|---|
-| 1 | **Watch Party chat** — message send/list RPCs, realtime `chat` event, unread badge, chat tab in the party panel | `b253a7c5` (19 files), `PartyChat.kt`, `PartyChatContent.kt`, `strings_party.xml` keys `party_tab_chat`…`party_chat_new_messages` | None | Integrated | `features/party/PartyChat.kt`, `PartyChatContent.kt`, `PartyApi.kt`, `PartyChannel.kt`, `PartyModels.kt`, `PartyPanel.kt`, `PartyRepository.kt`, `PartyScreen.kt`, `commonTest/.../PartyChatTest.kt` | `PartyChatTest` in `:composeApp:check`; CI build run | Needs a live Supabase backend to exercise end-to-end |
+| 1 | **Watch Party chat** — message send/list RPCs, realtime `chat` event, unread badge, chat tab in the party panel | `b253a7c5` (19 files), `PartyChat.kt`, `PartyChatContent.kt`, `strings_party.xml` keys `party_tab_chat`…`party_chat_new_messages` | None | Integrated | `features/party/PartyChat.kt`, `PartyChatContent.kt`, `PartyApi.kt`, `PartyChannel.kt`, `PartyModels.kt`, `PartyPanel.kt`, `PartyRepository.kt`, `PartyScreen.kt`, `commonTest/.../PartyChatTest.kt` | `PartyChatTest` in `:composeApp:check`; CI run 39364540708 | Needs a live Supabase backend to exercise end-to-end |
 | 2 | **Watch Party fixes** — no-addons toast, episode selector for shows, stream list when the host shares a stream | `dcc32c0d`, `3c30a7a1`, `74e9f96c`, `07f293b2`, `7411ec72` | None | Integrated | `PartyScreen.kt`, `PartyPanel.kt`, `StreamsScreen.kt`, `PlayerScreenRuntime*.kt`, `StreamsRepository.kt` | CI compile + unit tests | Multi-device flows need manual verification |
 | 3 | **Watch Party + PiP sync on iOS** | `3715e4c8`, `22d195d9` | None | Integrated | `iosApp/iosApp/Player/PlayerPictureInPictureController.swift`, `Player/PlayerPictureInPictureParking.swift` (new), `PlayerScreenRuntimeParty.kt` | iOS workflow (not a release gate) | Not device-tested here |
 | 4 | **Liquid Glass UI on Android** with a global toggle, replacing Haze | `5fedbcda` (47 files), `b9937242`; dependency `dev.chrisbanes.haze:haze:1.7.2` → `io.github.kyant0:backdrop:2.0.1` | Haze-based sheet blur | Integrated | `core/ui/glass/LiquidGlass.kt` (new), `GlassBarSurface.kt`, `BottomSheet.kt`, `NavigationBar.kt`, `FloatingNavigationBar.kt`, `Main*`, settings/appearance/player surfaces; `composeApp/build.gradle.kts`; 3 platform glass files deleted | CI compile; visual check on device outstanding | No emulator in this environment — layout/visual regressions not observed directly |
@@ -95,10 +95,28 @@ it fails `:composeApp:check` if the regression returns.
   imported.
 * **Upstream `0.6.2-beta` version strings** — StreamBridge stays on its own `0.1.x` line.
 
+## Release verification (0.1.11)
+
+| Check | Evidence |
+|---|---|
+| Release build compiles and tests pass | `Build Stream Bridge` runs `39363269001` (`baeae8c`) and `39364540708` (`cbe5c3e`): `:composeApp:check`, debug + release APKs, lint, Play Store variant, CloudStream runtime checks — all green |
+| Main branch | PR #220 merged into `main` as `322c236` |
+| Tag | `v0.1.11` → commit `322c236` (annotated tag, not moved afterwards) |
+| Production signing | Release run `39366216569`, job "Production-signed full APK", steps "Require production signing secrets", "Decode upload keystore", "Reject debug certificates…" (pins the upload certificate SHA-256 `5da621d8…`) and "Require expected production APKs" all passed |
+| Artifacts | `androidApp-full-arm64-v8a-release.apk`, `-armeabi-v7a-`, `-x86-`, `-x86_64-` plus `checksums.sha256`, published on the release |
+| Version | Tag check `0.1.11` == `STREAMBRIDGE_VERSION_NAME`; version code `111` from `streambridge.version.properties` |
+| iOS independence | The `draft` job ran with `needs: [android]` and the release was published with Android assets while the iOS job was still building; the release notes carry an explicit "iOS status: pending" section, and `store.json` was left at 0.1.10 by the sideload workflow instead of failing |
+
+The APK bytes could not be downloaded for a second local inspection in this environment (release asset
+hosts are outside the sandbox's allowed network); the signing and asset checks above ran inside the
+release workflow itself and would have failed the job on a debug certificate or a missing/renamed
+artifact.
+
 ## Known gaps
 
 * No Android emulator or device is available in this environment; the app was not launched here.
   Verification is the CI build (`:composeApp:check`, debug + release APKs, lint, Play Store variant,
-  CloudStream runtime checks) plus static tests. Device verification remains outstanding.
+  CloudStream runtime checks) plus static tests: run 39363269001 on `baeae8c` and run 39364540708 on
+  `cbe5c3e`, both green. Device verification remains outstanding.
 * Watch Party chat and cross-device sync require the upstream Supabase backend and two signed-in
   accounts; only the code path and unit tests are verified here.
