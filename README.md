@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.11</strong> (111)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.12</strong> (112)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,11 +18,13 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.11
+## Highlights in 0.1.12
 
+- **Simkl** — multi-season anime collapses into one Continue Watching entry, next-up seeds
+  resolve to the series, and Simkl IDs survive library refreshes.
+- **Recommendations** — the end-of-movie card no longer offers titles you have already watched.
 - **Watch Party** — create or join a party, chat while you watch, and keep playback in sync.
-  Opening Watch Party from Settings or from an invite link works again; the previous release
-  could crash on that tap.
+  Opening Watch Party from Settings or from an invite link works again; 0.1.10 could crash on that tap.
 - **Liquid Glass** — the Android interface (including the player) uses the new glass surface
   system, with a toggle in Settings for anyone who prefers the flat look.
 - **Player controls** — pinch to zoom, Fill stretch on the MPV path, an orientation toggle for
@@ -107,7 +109,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.11-iOS-unsigned.ipa`
+- `StreamBridge-0.1.12-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
@@ -159,7 +161,7 @@ The IPA is written to `build/ios-ipa/` unsigned. See [docs/RELEASE-IOS.md](docs/
 
 ## Releases
 
-- Android and iOS are released from the same tag (`v0.1.11`), but their builds are independent.
+- Android and iOS are released from the same tag (`v0.1.12`), but their builds are independent.
   The production release workflow publishes the Android APKs as soon as the verified Android job
   succeeds; the unsigned iOS IPA is attached when its own build finishes, so an iOS build can never
   hold up an Android release.
