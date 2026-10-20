@@ -30,11 +30,11 @@ imported from:
 
   https://github.com/NuvioMedia/NuvioMobile
   branch: cmp-rewrite
-  commit: 79b750f3ed9e196c600bc1f5fd97979d6336760f
-  tag: 0.6.1-beta
-  previous pins: 5c6028f2 (0.5.5-beta), bb3c1e4c (0.5.2-beta),
-                 b88fef2e (0.5.1), ec441c7b (0.4.25-beta),
-                 d177eb57 (0.4.17)
+  commit: 1cfae0fe7402f5e6f1fedad393d50d83775586fa
+  tag: 0.6.2-beta
+  previous pins: 79b750f3 (0.6.1-beta), 5c6028f2 (0.5.5-beta),
+                 bb3c1e4c (0.5.2-beta), b88fef2e (0.5.1),
+                 ec441c7b (0.4.25-beta), d177eb57 (0.4.17)
   license: GNU General Public License v3.0
 
 Copyright (c) NuvioMedia and NuvioMobile contributors.
@@ -52,13 +52,14 @@ download location / Wi-Fi-only, etc.) were overlaid from:
 
   https://github.com/luqmanfadlli/NuvioMobile-Enhanced
   branch: enhanced
-  commit: 504014d360bf1a1f844246f527c27c208738246e
-  tag: 0.6.1-beta
-  previous pins: 8b3bd867 (0.5.5-beta), 3da8d06f (0.5.2-beta),
-                 9d311c18 (0.5.1-beta), ce4492ec (0.4.23-beta)
+  commit: 5d978096f9eb04a62a6bc3a5d6999bdccab4c9cb
+  tag: 0.6.2-beta
+  previous pins: 504014d3 (0.6.1-beta), 8b3bd867 (0.5.5-beta),
+                 3da8d06f (0.5.2-beta), 9d311c18 (0.5.1-beta),
+                 ce4492ec (0.4.23-beta)
   license: GNU General Public License v3.0
 
-Official NuvioMobile 0.6.1-beta is contained in that tag; the Enhanced
+Official NuvioMobile 0.6.2-beta is contained in that tag; the Enhanced
 overlay adds unique features on top. StreamBridge identity, empty default
 addons, and updater source `sascio/MyBridge` are preserved.
 
@@ -81,6 +82,24 @@ XCFramework (0.1.2) fetched by scripts/prepare-ios-dependencies.sh, and
 the MPVKit local Swift package (LGPL-3.0) referenced as ../MPVKit.
 Bundled subtitle fonts (Noto Sans / Noto Sans CJK, SIL Open Font
 License) ship under iosApp/iosApp/SubtitleFonts/ with their license.
+
+AIOStreams (optional subtitle renderer)
+=======================================
+The optional libmpv/libass renderer for ASS/SSA subtitles on Android ports
+code from https://github.com/Viren070/AIOStreams (`packages/android/exoplayer`):
+
+  androidApp/src/main/cpp/ass_surface.c, ass/ass.h, ass/ass_types.h,
+  androidApp/src/main/cpp/CMakeLists.txt
+  composeApp/src/androidMain/kotlin/com/nuvio/app/features/player/aiostreams/
+
+  license: GNU Affero General Public License v3.0
+  full text: third_party/AIOStreams/LICENSE
+  provenance: third_party/AIOStreams/README.md
+  copyright: AIOStreams contributors
+
+AGPL-3.0 section 13 permits combining this code with a GPL-3.0 work; the
+combined StreamBridge distribution is conveyed under GPL-3.0 and this
+notice is retained. The libass headers in that folder are ISC-licensed.
 
 Related upstream (not copied as source trees in Milestone 1):
 

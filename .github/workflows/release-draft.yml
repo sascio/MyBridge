@@ -17,7 +17,7 @@ on:
         description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.10)
         required: true
         type: string
-        default: "v0.1.10"
+        default: "v0.1.11"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -50,6 +50,16 @@ jobs:
           java-version: "21"
 
       - uses: android-actions/setup-android@v4
+
+      - name: Install the CMake the libmpv/libass module needs
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          if [ -d "$SDK/cmake/3.22.1" ]; then
+            echo "cmake 3.22.1 already installed"
+          else
+            sdkmanager --install "cmake;3.22.1"
+          fi
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
@@ -439,8 +449,12 @@ jobs:
           if-no-files-found: error
 
   draft:
-    name: Draft GitHub Release
-    needs: [android, ios]
+    name: Draft GitHub Release (Android first)
+    # Android is the release gate. The iOS IPA is produced by the independent
+    # `ios` job above and attached by `attach-ios` when it finishes, so a slow or
+    # failing iOS build can never hold up an Android release. iOS is still built
+    # from the same tag and the same commit.
+    needs: [android]
     if: ${{ always() && needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -451,25 +465,6 @@ jobs:
         with:
           name: StreamBridge-production-full-release-apk
           path: release-assets
-
-      - name: Download unsigned iOS IPA
-        if: needs.ios.result == 'success'
-        uses: actions/download-artifact@v8
-        with:
-          name: StreamBridge-ios-unsigned-ipa
-          path: release-assets
-
-      - name: Report iOS artifact status
-        run: |
-          set -euo pipefail
-          if [ "${{ needs.ios.result }}" = "success" ]; then
-            echo "Unsigned iOS IPA included in this draft; AltStore/SideStore re-sign it with the installer's Apple ID."
-          elif [ "${{ inputs.include_ios }}" = "false" ]; then
-            echo "::warning::The iOS build was skipped on request (include_ios=false). This draft has no IPA, so publishing it will not update store.json."
-          else
-            echo "::error::The iOS job did not produce an IPA. The release carries the iOS artifact, so it is not created without one: store.json can only be built from a release with exactly one .ipa asset."
-            exit 1
-          fi
 
       - name: Ensure git tag and draft GitHub Release
         env:
@@ -505,64 +500,37 @@ jobs:
             fi
           done
 
-          assets=("${android_assets[@]}")
-          ipa_assets=(release-assets/*.ipa)
-          if [ "${#ipa_assets[@]}" -gt 0 ]; then
-            assets+=("${ipa_assets[@]}")
-          fi
-
           notes="$(mktemp)"
           # Written through printf rather than an indented heredoc. A heredoc
           # keeps the YAML indentation, and a release body indented by ten
           # spaces is rendered by GitHub as a code block rather than Markdown.
           release_notes=(
-            '## StreamBridge 0.1.10'
+            '## StreamBridge 0.1.11'
             ''
             "### What's new"
-            '- Synced with NuvioMobile 0.6.1-beta and NuvioMobile-Enhanced 0.6.1-beta.'
-            '- Updated StreamBridge branding: footer, tagline and app name in Settings.'
-            '- Licenses & Attribution has its own icon.'
-            '- Fixed the splash logo being cropped on some devices.'
-            '- Profile Overview: missing metadata no longer counts as a failed genre load.'
-            '- Updated the app to version 0.1.10.'
+            '- Watch Party: chat with everyone in the party, and a fix for the crash when opening Watch Party from Settings or an invite link.'
+            '- Liquid Glass interface on Android, including the player, with a toggle in Settings.'
+            '- Player: pinch to zoom, Fill stretch on the MPV path, an orientation toggle for portrait videos, and optional libmpv/libass ASS/SSA subtitles on ExoPlayer.'
+            '- Tracking: shared anime ID mapping for Trakt, MDBList and WeTrakr, Trakt anime watched sync, and Simkl moves explicitly watched series to Completed.'
+            '- Stream selection matches binge groups by filename and info hash.'
+            '- New Greek and Brazilian Portuguese translations, plus Italian fixes.'
+            '- Updated the app to version 0.1.11.'
+            ''
+            '### Android'
+            ''
+            'Production-signed, one APK per ABI. Install the APK that matches your device; in-place updates need the same signing certificate. Verify downloads against `checksums.sha256`.'
+            ''
+            '### iOS status'
+            ''
+            'The iOS build is produced from the same tag by an independent job and is attached to this release when it finishes. An unsigned IPA is never a prerequisite for the Android release; if this section is still present, the IPA has not been attached yet.'
           )
           printf '%s\n' "${release_notes[@]}" > "$notes"
-          ipa_assets=(release-assets/*.ipa)
-          if [ "${#ipa_assets[@]}" -gt 0 ]; then
-            {
-              echo ""
-              echo "### iOS installation"
-              echo ""
-              echo "The iOS build in this release is **unsigned**. Install it with"
-              echo "[AltStore](https://altstore.io) or [SideStore](https://sidestore.io):"
-              echo "either signs the IPA with your own Apple ID on your device, so no Apple"
-              echo "Developer account and no App Store listing is involved."
-              echo ""
-              echo "Add this repository as a source in AltStore or SideStore to get updates"
-              echo "automatically:"
-              echo ""
-              echo "\`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json\`"
-              echo ""
-              echo "See \`docs/RELEASE-IOS.md\` for the details."
-              echo ""
-              echo "The IPA is deliberately unsigned, and no Apple Developer account or"
-              echo "App Store submission is involved in this release."
-            } >> "$notes"
-          else
-            {
-              echo ""
-              echo "### iOS status"
-              echo ""
-              echo "The iOS build is produced and validated by CI"
-              echo "(\`.github/workflows/ios-release.yml\`), but this release carries no IPA."
-              echo "\`store.json\` is therefore not updated for this version."
-            } >> "$notes"
-          fi
+
           if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "${assets[@]}" --clobber
+            gh release upload "${TAG}" "${android_assets[@]}" --clobber
             gh release edit "${TAG}" --title "StreamBridge ${TAG}" --notes-file "$notes" --draft
           else
-            gh release create "${TAG}" "${assets[@]}" \
+            gh release create "${TAG}" "${android_assets[@]}" \
               --draft \
               --target "${GITHUB_SHA}" \
               --title "StreamBridge ${TAG}" \
@@ -570,3 +538,85 @@ jobs:
           fi
 
           gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
+
+  attach-ios:
+    name: Attach unsigned iOS IPA (independent)
+    needs: [draft, ios]
+    if: ${{ needs.ios.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download unsigned iOS IPA
+        uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-ios-unsigned-ipa
+          path: ios-assets
+
+      - name: Resolve release tag
+        id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Attach IPA and record iOS installation notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ipa_assets=(ios-assets/*.ipa)
+          if [ "${#ipa_assets[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one iOS IPA artifact, found ${#ipa_assets[@]}."
+            exit 1
+          fi
+          gh release upload "${TAG}" "${ipa_assets[@]}" --clobber
+
+          notes="$(mktemp)"
+          gh release view "${TAG}" --json body --jq '.body' > "$notes"
+          if ! grep -q '^### iOS installation' "$notes"; then
+            # Drop the Android-only placeholder, then append the real section.
+                        NOTES_FILE="$notes" python3 - <<'PY'
+            import os
+
+            path = os.environ["NOTES_FILE"]
+            text = open(path).read()
+            marker = "### iOS status"
+            if marker in text:
+                text = text.split(marker)[0].rstrip() + "\n"
+            text += """
+            ### iOS installation
+
+            The iOS build in this release is **unsigned**. Install it with
+            [AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with
+            your own Apple ID on your device, so no Apple Developer account and no App Store listing is
+            involved.
+
+            Add this repository as a source in AltStore or SideStore to get updates automatically:
+
+            `https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`
+
+            See `docs/RELEASE-IOS.md` for the details.
+            """
+            open(path, "w").write(text)
+            PY
+          fi
+          gh release edit "${TAG}" --notes-file "$notes"
+          gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
+
+      - name: Refresh the sideload source now that an IPA exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # The sideload source only lists releases that carry exactly one IPA.
+          # It is triggered by `release: published`, which does not fire when an
+          # asset is added later, so dispatch it explicitly. Best effort: a
+          # failure here does not invalidate the attached IPA.
+          gh workflow run update-store-source.yml -f tag="${TAG}" \
+            || echo "::warning::Could not dispatch update-store-source.yml; run it manually for ${TAG}."

@@ -58,6 +58,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download and verify published IPA
+        id: ipa
         run: |
           set -euo pipefail
           release_json="${RUNNER_TEMP}/release.json"
@@ -72,8 +73,17 @@ jobs:
           while IFS= read -r name; do
             [[ -n "${name}" ]] && ipa_names+=("${name}")
           done < <(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")
-          if (( ${#ipa_names[@]} != 1 )); then
-            echo "Expected exactly one published IPA, found ${#ipa_names[@]}." >&2
+
+          # Android and iOS are released independently. A release that is still
+          # waiting for its IPA (or an Android-only hotfix) must not fail this
+          # workflow: there is simply nothing to publish into store.json yet.
+          if (( ${#ipa_names[@]} == 0 )); then
+            echo "::notice::Release ${RELEASE_TAG} has no IPA asset yet; store.json is left unchanged."
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          if (( ${#ipa_names[@]} > 1 )); then
+            echo "Expected at most one published IPA, found ${#ipa_names[@]}." >&2
             exit 1
           fi
 
@@ -104,6 +114,7 @@ jobs:
           fi
 
       - name: Update sideload source
+        if: steps.ipa.outputs.skip != 'true'
         run: |
           set -euo pipefail
           release_json="${RUNNER_TEMP}/release.json"
@@ -137,6 +148,7 @@ jobs:
             --icon-url "${icon_url}"
 
       - name: Commit sideload source
+        if: steps.ipa.outputs.skip != 'true'
         run: |
           set -euo pipefail
           if [[ -z "$(git status --porcelain -- store.json)" ]]; then

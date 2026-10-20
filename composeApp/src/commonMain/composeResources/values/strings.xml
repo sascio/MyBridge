@@ -730,6 +730,9 @@
     <string name="settings_licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="settings_licenses_attributions_exoplayer_body">Used for playback on Android builds.</string>
     <string name="settings_licenses_attributions_exoplayer_license">Licensed under the Apache License, Version 2.0.</string>
+    <string name="settings_licenses_attributions_aiostreams_title">AIOStreams subtitle renderer</string>
+    <string name="settings_licenses_attributions_aiostreams_body">Optional libmpv/libass renderer for ASS/SSA subtitles on Android, ported from AIOStreams.</string>
+    <string name="settings_licenses_attributions_aiostreams_license">Licensed under the GNU Affero General Public License v3.0.</string>
     <string name="compose_trakt_list_picker_loading">Loading your Trakt lists…</string>
     <string name="compose_trakt_list_picker_subtitle">Choose where to save this title on Trakt</string>
     <string name="compose_tracking_list_picker_loading">Loading lists…</string>

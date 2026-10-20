@@ -52,6 +52,7 @@ private const val NuvioRepositoryUrl = "https://github.com/NuvioMedia/NuvioMobil
 private const val MpvKitUrl = "https://github.com/mpvkit/MPVKit"
 private const val ApacheLicenseUrl = "https://www.apache.org/licenses/LICENSE-2.0"
 private const val BackdropLicenseUrl = "https://github.com/Kyant0/AndroidLiquidGlass/blob/kmp/LICENSE"
+private const val AioStreamsLicenseUrl = "https://github.com/Viren070/AIOStreams/blob/main/LICENSE"
 
 private data class AttributionItem(
     val titleRes: StringResource,
@@ -135,6 +136,18 @@ private fun LicensesAttributionsBody(
                 item = platformLicenseItem(),
                 isTablet = isTablet,
             )
+            if (!isIos) {
+                PlainStackDivider()
+                LicenseRow(
+                    item = LicenseItem(
+                        titleRes = Res.string.settings_licenses_attributions_aiostreams_title,
+                        bodyRes = Res.string.settings_licenses_attributions_aiostreams_body,
+                        licenseRes = Res.string.settings_licenses_attributions_aiostreams_license,
+                        link = AioStreamsLicenseUrl,
+                    ),
+                    isTablet = isTablet,
+                )
+            }
         }
 
         PlainSettingsStack(

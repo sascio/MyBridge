@@ -6,10 +6,10 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `79b750f3ed9e196c600bc1f5fd97979d6336760f` |
-| Release | 0.6.1-beta (`bump version`, 2026-10-16) |
-| Enhanced overlay | `504014d3` (tag `0.6.1-beta`, 2026-10-16) |
-| Previous pin | 0.5.5-beta (`5c6028f2`) + Enhanced `8b3bd867` |
+| Commit | `1cfae0fe7402f5e6f1fedad393d50d83775586fa` |
+| Release | 0.6.2-beta (`chore(store): publish 0.6.2-beta`, 2026-10-18) |
+| Enhanced overlay | `5d978096f9eb04a62a6bc3a5d6999bdccab4c9cb` (tag `0.6.2-beta`, 2026-10-19) |
+| Previous pin | 0.6.1-beta (`79b750f3`) + Enhanced `504014d3` |
 
 ## Important: upstream rewrote history (historical note)
 
@@ -30,6 +30,32 @@ base commit (tree = StreamBridge HEAD, parent = the previous Enhanced pin)
 is merged with the new upstream tip so `git merge` sees the correct base,
 then conflicts are resolved by hand. The result is committed as regular
 commits so the StreamBridge branch history stays linear.
+
+## 0.6.2-beta / Enhanced 0.6.2-beta integration (0.1.11)
+
+Pins: NuvioMobile `1cfae0fe` (tag `0.6.2-beta`, 2026-10-18) and
+NuvioMobile-Enhanced `5d978096` (tag `0.6.2-beta`, 2026-10-19; merges the
+official tag). 60 upstream commits, 162 changed files.
+
+Method: source-level three-way integration per file, with the pristine 0.6.1
+Enhanced tree as the merge base — 92 files replaced verbatim (StreamBridge had
+never touched them), 27 merged with `git merge-file` to preserve StreamBridge
+customisations, 39 added, 3 deleted, 1 restored. No upstream git history was
+merged; the branch stays linear.
+
+Scope and status: [upstream-parity-0.6.2.md](upstream-parity-0.6.2.md).
+Notable: Watch Party chat and party fixes, Liquid Glass (`haze` → `backdrop`),
+player pinch-zoom / Fill stretch / orientation toggle, optional libmpv-libass
+subtitle renderer with an NDK-built JNI module, anime ID mapper for
+Trakt/MDBList/WeTrakr, Simkl completed-series sync, binge-group filename and
+infoHash matching, and new Greek / pt-BR / Italian translations.
+
+StreamBridge-owned files were not replaced: versioning, `store.json`, signing
+and release workflows, branding, CloudStream runtime.
+
+Watch Party regression fixed in the same release: `entry<PartyRoute>` had been
+overwritten by the inserted `entry<CloudStreamSettingsRoute>`, so navigating to
+Watch Party had no NavDisplay destination and crashed.
 
 ## 0.6.1-beta / Enhanced 0.6.1-beta integration (0.1.10)
 
