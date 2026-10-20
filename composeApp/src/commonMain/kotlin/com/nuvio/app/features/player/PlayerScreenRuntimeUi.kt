@@ -29,11 +29,13 @@ import com.nuvio.app.core.logging.InAppLogger
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.party.PartyRepository
+import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.streamAddonInstanceId
+import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
@@ -763,9 +765,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             showNextEpisodeCard = false
         },
         movieRecommendations = if (isMoviePlayback && args.onOpenMetaDetails != null) {
-            playerMeta?.moreLikeThis.orEmpty()
-                .filterNot { it.id == parentMetaId }
-                .take(MOVIE_RECOMMENDATION_LIMIT)
+            movieRecommendationCandidates
         } else {
             emptyList()
         },
@@ -1121,6 +1121,17 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
 private fun PlayerScreenRuntime.currentUserRatingTarget(): TrackingRatingTarget? =
     remember(parentMetaId, contentType, parentMetaType, activeVideoId, activeSeasonNumber, activeEpisodeNumber) {
         if (isLiveTvPlayback) null else currentTrackingMedia().toUserRatingTarget()
+    }
+
+internal val PlayerScreenRuntime.movieRecommendationCandidates: List<MetaPreview>
+    get() {
+        val watchedKeys = watchedUiState.watchedKeys
+        return playerMeta?.moreLikeThis.orEmpty()
+            .asSequence()
+            .filterNot { it.id == parentMetaId }
+            .filterNot { WatchingState.isPosterWatched(watchedKeys = watchedKeys, item = it) }
+            .take(MOVIE_RECOMMENDATION_LIMIT)
+            .toList()
     }
 
 private const val MOVIE_RECOMMENDATION_LIMIT = 10
