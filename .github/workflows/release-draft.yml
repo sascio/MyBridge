@@ -135,7 +135,7 @@ jobs:
           # Presence-only helper: booleans and property NAMES are printed, values
           # never are. This output is safe in CI logs and step summaries.
           property_present() {
-            grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*\\S" local.properties
+            grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" local.properties
           }
 
           if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" ]; then
@@ -442,7 +442,7 @@ jobs:
           # Same contract as the Android job: decode before Gradle runs, report
           # presence only, never echo a value. See docs/TRAKT-SIMKL-CONFIG.md.
           property_present() {
-            grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*\\S" local.properties
+            grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" local.properties
           }
 
           if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" ]; then
