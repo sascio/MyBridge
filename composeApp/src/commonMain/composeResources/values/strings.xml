@@ -1598,7 +1598,7 @@
     <string name="settings_trakt_features">FEATURES</string>
     <string name="settings_trakt_finish_sign_in">Finish connection approval</string>
     <string name="settings_trakt_intro_description">Sync your watchlist, watch progress, continue watching, scrobbles, and personal lists with Trakt.</string>
-    <string name="settings_trakt_missing_credentials">Missing TRAKT_CLIENT_ID / TRAKT_CLIENT_SECRET in local.properties.</string>
+    <string name="settings_trakt_missing_credentials">Trakt is not configured in this build: TRAKT_CLIENT_ID / TRAKT_CLIENT_SECRET were empty when the app was built. This is a build-time setting, not something the app can change at runtime.</string>
     <string name="settings_trakt_open_login">Open Trakt Login</string>
     <string name="settings_trakt_open_activate">Open Trakt Activate</string>
     <string name="settings_trakt_save_actions_description">Sync your watchlist, watch progress, continue watching, scrobbles, and personal lists with Trakt.</string>
@@ -2123,7 +2123,7 @@
     <string name="trakt_library_load_failed">Failed to load Trakt library</string>
     <string name="trakt_list_fallback_title">List %1$d</string>
     <string name="trakt_missing_auth_code">Trakt did not return an authorization code</string>
-    <string name="trakt_missing_credentials">Missing Trakt credentials</string>
+    <string name="trakt_missing_credentials">Trakt is not configured in this build</string>
     <string name="trakt_progress_load_failed">Failed to load Trakt progress</string>
     <string name="trakt_public_list">Trakt public list</string>
     <string name="trakt_public_list_enter_valid_id_or_url">Enter a valid Trakt list ID or URL</string>
