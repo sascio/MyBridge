@@ -87,6 +87,18 @@ Nothing in the 0.6.3 delta was skipped for complexity. The two things deliberate
 (upstream CI workflows, upstream `store.json`/version) are StreamBridge-owned files, listed under
 [Deliberate deviations](#deliberate-deviations).
 
+## Fixed in 0.1.13 because the new tests exposed it
+
+* **Liquid Glass settings codec dropped `false` flags** (`core/ui/glass/LiquidGlassEffectSettings.kt`).
+  The payload was written with kotlinx-serialization's default "omit values equal to the property
+  default" (`affectTabIcons = false`, `affectFloatingBar = false`), while decoding falls back to the
+  *domain* default for absent keys (`true` for the selection lens). Turning either effect off
+  therefore came back on after a reload — found by upstream's own
+  `ThemeSettingsRepositoryTest.selectedLensBackdropEffectsDefaultOnAndPersistIndependently`, which
+  fails on the pristine 0.6.3 pins. The encoder now writes every field; partial legacy payloads keep
+  falling back to the domain defaults. Covered by
+  `commonTest/.../LiquidGlassEffectSettingsCodecTest.kt`.
+
 ## StreamBridge-only work in 0.1.13
 
 ### Background → return no longer loses the session

@@ -102,6 +102,13 @@ internal object LiquidGlassEffectDefaults {
 
 private val liquidGlassSettingsJson = Json {
     ignoreUnknownKeys = true
+    // Decoding treats an absent key as "use the domain default" (that is what keeps older,
+    // partial payloads meaningful), so a full encode has to write every field. Without this,
+    // any value equal to the property default - notably `affectTabIcons = false` and
+    // `affectFloatingBar = false` - was dropped from the JSON and read back as the domain
+    // default (`true` for the selection lens), silently re-enabling a disabled effect after a
+    // reload.
+    encodeDefaults = true
 }
 
 internal fun encodeLiquidGlassEffectSettings(
