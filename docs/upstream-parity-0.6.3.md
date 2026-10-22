@@ -178,7 +178,7 @@ the authorize/redirect rules require an `https` app/universal link rather than a
 So: **StreamBridge's Trakt support is currently secret-only, PKCE-free, and posts to
 `api.trakt.tv`.** Moving to id-only PKCE (plus `auth.trakt.tv`, S256 challenge, universal-link
 redirect, single-use refresh-token handling, and the device flow's optional-secret contract) is a
-credential-flow rewrite and is scheduled for **0.1.14**; it is explicitly *not* done here. Simkl is
+credential-flow rewrite deferred to a future release; it is explicitly *not* done in 0.1.13. Simkl is
 unaffected: it already uses PKCE with an S256 challenge (`features/simkl/SimklPkce.kt:19-30`).
 
 One documentation error is corrected with this release: the 0.6.2 parity notes claimed a

@@ -1,6 +1,6 @@
 name: Draft production GitHub Release
 
-# Manual only, or from a v* tag push. Never publishes (draft only).
+# Manual only, or from the approved v0.1.13 tag push. Never publishes (draft only).
 #
 # Android: fails closed unless the production upload-keystore GitHub Secrets are
 # set. Debug-signed APKs are never attached. See docs/SIGNING.md.
@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.10)
+        description: Approved release tag (v0.1.13, version code 113)
         required: true
         type: string
-        default: "v0.1.14"
+        default: "v0.1.13"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -30,14 +30,14 @@ on:
         default: false
   push:
     tags:
-      - "v*"
+      - "v0.1.13"
 
 permissions:
   contents: write
 
-# Two runs for the same tag could otherwise race while creating the tag and the
-# draft release. In-flight releases are never cancelled: the tag push and the
-# asset upload must finish.
+# Two runs for the same tag could race while creating a draft or uploading
+# assets. Do not auto-cancel an in-flight run: each asset is verified by digest,
+# and a rerun preserves rather than replaces already attached assets.
 concurrency:
   group: streambridge-release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
@@ -48,6 +48,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Verify approved release target, version, code, and fixes
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          scripts/verify-release-target.sh \
+            --tag "${TAG}" \
+            --commit "${GITHUB_SHA}" \
+            --verify-tag-ref
 
       - uses: actions/setup-java@v5
         with:
@@ -85,22 +95,6 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
-      - name: Verify tag matches StreamBridge version
-        env:
-          TAG: ${{ inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          if [ ! -f streambridge.version.properties ]; then
-            echo "::error::streambridge.version.properties is missing on the checked-out tree."
-            exit 1
-          fi
-          version_name="$(grep '^STREAMBRIDGE_VERSION_NAME=' streambridge.version.properties | cut -d= -f2 | tr -d '\r')"
-          tag="${TAG#v}"
-          if [ "$tag" != "$version_name" ]; then
-            echo "::error::Release tag must match STREAMBRIDGE_VERSION_NAME ($version_name). Got $TAG."
             exit 1
           fi
 
@@ -585,29 +579,62 @@ jobs:
           name: StreamBridge-production-full-release-apk
           path: release-assets
 
-      - name: Ensure git tag and draft GitHub Release
+      - name: Create or verify the draft release without moving the tag
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
-          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
-            tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
-            built="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-            if [ "${tagged}" != "${built}" ]; then
-              # A published release must be reproducible from its tag. Reusing an
-              # existing tag for a newer commit would ship assets that the tag does
-              # not describe, so this fails instead of re-pointing the tag.
-              echo "::error title=Tag does not match the built commit::${TAG} points at ${tagged}, but this run built ${built}. Bump STREAMBRIDGE_VERSION_NAME and create a new tag instead of reusing ${TAG}."
-              exit 1
-            fi
-            echo "Using existing tag ${TAG} -> ${tagged} (matches the built commit)"
-          else
-            git tag "${TAG}" "${GITHUB_SHA}"
-            git push origin "refs/tags/${TAG}"
-            echo "Created tag ${TAG} -> ${GITHUB_SHA}"
+          scripts/verify-release-target.sh \
+            --tag "${TAG}" \
+            --commit "${GITHUB_SHA}" \
+            --verify-tag-ref
+
+          # Resolve draft releases through the list API. The tag-specific
+          # endpoint, and `gh release view/upload` by tag, return 404 for drafts.
+          release_json="$(mktemp)"
+          lookup_status=0
+          scripts/release-api.sh lookup \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${TAG}" \
+            --json "${release_json}" \
+            --attempts 1 \
+            --delay 0 || lookup_status=$?
+
+          if [[ "${lookup_status}" -eq 3 ]]; then
+            # The tag was verified above; create only the draft release record.
+            # Upload assets one by one by release ID so reruns can verify rather
+            # than clobber anything already attached.
+            gh release create "${TAG}" \
+              --draft \
+              --target "${GITHUB_SHA}" \
+              --title "StreamBridge ${TAG}" \
+              --notes-file docs/RELEASE-NOTES-0.1.13.md
+            lookup_status=0
+            scripts/release-api.sh lookup \
+              --repo "${GITHUB_REPOSITORY}" \
+              --tag "${TAG}" \
+              --json "${release_json}" \
+              --attempts 6 \
+              --delay 5 || lookup_status=$?
+          fi
+          if [[ "${lookup_status}" -ne 0 ]]; then
+            echo "::error::Could not resolve exactly one release object for ${TAG} (lookup exit ${lookup_status})."
+            exit "${lookup_status}"
+          fi
+
+          if [[ "$(jq -r '.tag_name' "${release_json}")" != "${TAG}" \
+            || "$(jq -r '.draft' "${release_json}")" != "true" \
+            || "$(jq -r '.name' "${release_json}")" != "StreamBridge ${TAG}" \
+            || "$(jq -r '.target_commitish' "${release_json}")" != "${GITHUB_SHA}" ]]; then
+            echo "::error::Existing release metadata does not match the verified draft target; preserving it without changes."
+            exit 1
+          fi
+          expected_notes="$(cat docs/RELEASE-NOTES-0.1.13.md)"
+          actual_notes="$(jq -r '.body // ""' "${release_json}")"
+          if [[ "${actual_notes}" != "${expected_notes}" ]]; then
+            echo "::error::Existing draft notes differ from the approved 0.1.13 notes; preserving them without changes."
+            exit 1
           fi
 
           # upload-artifact preserves paths relative to the common ancestor of
@@ -625,53 +652,13 @@ jobs:
               echo "::error::Missing required production asset: ${asset}"
               exit 1
             fi
+            scripts/release-api.sh ensure-asset \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json "${release_json}" \
+              --file "${asset}"
           done
 
-          notes="$(mktemp)"
-          # Written through printf rather than an indented heredoc. A heredoc
-          # keeps the YAML indentation, and a release body indented by ten
-          # spaces is rendered by GitHub as a code block rather than Markdown.
-          release_notes=(
-            '## StreamBridge 0.1.14'
-            ''
-            "### What's fixed"
-            '- Watch Party invites: the invite now reads "Join my StreamBridge watch party with code FXR XFV" and shares a StreamBridge-owned `streambridge://party/<code>` deep link instead of "Join my Nuvio watch party" pointing at `nuvio.tv`. The install link in the invite is the fallback for people who do not have the app yet. The party code, creation, joining, chat, companion and backend behaviour are unchanged.'
-            '- Release pipeline: the sideload source is only updated from a published release whose IPA has finished uploading. A draft release, a release that does not exist yet and a release without an IPA are now told apart (the first two used to fail as `gh: Not Found`), a release that appears a moment late is retried, and permission errors still fail loudly.'
-            ''
-            "### What's new"
-            '- Upstream 0.6.3: the official NuvioMobile 0.6.3-beta and NuvioMobile-Enhanced 0.6.3-beta trees are both integrated.'
-            '- Watch Party: in-party chat, plus a phone companion that links to the party with the same profile.'
-            '- Player: badges for what is actually playing, the engine switch moved to the top row behind a confirmation, and centre controls that stay put on pause.'
-            '- Subtitles: import your own subtitle font and tune a text shadow on both the ExoPlayer and libmpv paths.'
-            '- Liquid Glass: configurable navigation-bar glass with a live preview, plus glass search and stream filtering.'
-            '- Library: custom posters now also appear in the library catalog view; binge groups keep the info hash and filename.'
-            '- Discord Rich Presence: optional and off by default (Settings -> Integrations).'
-            '- Backgrounding: pausing a video and switching apps no longer returns you to profile selection or Home; the restored screen keeps its navigation history.'
-            '- Languages: Hungarian and Vietnamese coverage, plus pt-BR additions for party and autosync.'
-            '- Updated the app to version 0.1.14.'
-            ''
-            '### Android'
-            ''
-            'Production-signed, one APK per ABI. Install the APK that matches your device; in-place updates need the same signing certificate. Verify downloads against `checksums.sha256`.'
-            ''
-            '### iOS status'
-            ''
-            'The iOS build is produced from the same tag by an independent job and is attached to this release when it finishes. An unsigned IPA is never a prerequisite for the Android release; if this section is still present, the IPA has not been attached yet.'
-          )
-          printf '%s\n' "${release_notes[@]}" > "$notes"
-
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "${android_assets[@]}" --clobber
-            gh release edit "${TAG}" --title "StreamBridge ${TAG}" --notes-file "$notes" --draft
-          else
-            gh release create "${TAG}" "${android_assets[@]}" \
-              --draft \
-              --target "${GITHUB_SHA}" \
-              --title "StreamBridge ${TAG}" \
-              --notes-file "$notes"
-          fi
-
-          gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
+          jq '{tag_name, name, draft, target_commitish, assets:[.assets[]|{name,size,digest,state}]}' "${release_json}"
 
   attach-ios:
     name: Attach unsigned iOS IPA (independent)
@@ -709,37 +696,45 @@ jobs:
             exit 1
           fi
 
-          # A release that was recreated, renamed or deleted between the draft job
-          # and this one must fail with an actionable message rather than a raw
-          # "release not found" from gh. This is the state v0.1.13 was left in.
-          if ! gh release view "${TAG}" --json tagName >/dev/null 2>&1; then
-            echo "::error title=Release ${TAG} is missing::The release for ${TAG} no longer exists. Re-run the Draft production GitHub Release workflow for ${TAG}; the IPA attachment is skipped until a release exists."
+          scripts/verify-release-target.sh \
+            --tag "${TAG}" \
+            --commit "${GITHUB_SHA}" \
+            --verify-tag-ref
+          version_name="$(grep '^STREAMBRIDGE_VERSION_NAME=' streambridge.version.properties | cut -d= -f2 | tr -d '\r')"
+          expected_ipa="StreamBridge-${version_name}-iOS-unsigned.ipa"
+          if [ "$(basename "${ipa_assets[0]}")" != "${expected_ipa}" ]; then
+            echo "::error::Expected ${expected_ipa}, got $(basename "${ipa_assets[0]}")."
             exit 1
           fi
 
-          # Transient upload failures are retried; a genuinely broken upload still
-          # fails the job after the third attempt.
-          uploaded=false
-          for attempt in 1 2 3; do
-            if gh release upload "${TAG}" "${ipa_assets[@]}" --clobber; then
-              uploaded=true
-              break
-            fi
-            echo "::warning::IPA upload attempt ${attempt} failed; retrying in $((attempt * 5))s."
-            sleep $((attempt * 5))
-          done
-          if [ "${uploaded}" != "true" ]; then
-            echo "::error title=IPA upload failed::Could not upload ${ipa_assets[0]} to ${TAG} after three attempts."
+          # Drafts are absent from the tag-specific release endpoint. Resolve by
+          # list, upload through the draft's upload_url, and never clobber an
+          # existing asset. The helper verifies SHA-256 on reruns.
+          release_json="$(mktemp)"
+          scripts/release-api.sh lookup \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${TAG}" \
+            --json "${release_json}" \
+            --attempts 6 \
+            --delay 5
+          if [[ "$(jq -r '.tag_name' "${release_json}")" != "${TAG}" ]]; then
+            echo "::error::Resolved release does not match ${TAG}."
             exit 1
           fi
+          scripts/release-api.sh ensure-asset \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json "${release_json}" \
+            --file "${ipa_assets[0]}" \
+            --name "${expected_ipa}"
 
           notes="$(mktemp)"
-          gh release view "${TAG}" --json body --jq '.body' > "$notes"
-          if ! grep -q '^### iOS installation' "$notes"; then
-            # Drop the Android-only placeholder, then append the real section.
-            # Written with printf, not a heredoc: a heredoc keeps the YAML block
-            # indentation and the Python payload below would arrive indented.
-            sed -i '/^### iOS status/,$d' "$notes"
+          jq -r '.body // ""' "${release_json}" >"${notes}"
+          if ! grep -q '^### iOS installation' "${notes}"; then
+            if ! grep -q '^### iOS status' "${notes}"; then
+              echo "::error::Release notes have no expected iOS status placeholder; preserving the release unchanged."
+              exit 1
+            fi
+            sed -i '/^### iOS status/,$d' "${notes}"
             ios_notes=(
               '### iOS installation'
               ''
@@ -754,17 +749,14 @@ jobs:
               ''
               'See `docs/RELEASE-IOS.md` for the details.'
             )
-            printf '%s\n' "${ios_notes[@]}" >> "$notes"
+            printf '%s\n' "${ios_notes[@]}" >>"${notes}"
+            scripts/release-api.sh update-body \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json "${release_json}" \
+              --body-file "${notes}"
           fi
-          # Preserve the release's current state: a release that was already
-          # published before the IPA finished must stay published.
-          draft_state="$(gh release view "${TAG}" --json isDraft --jq '.isDraft')"
-          edit_args=(--notes-file "$notes")
-          if [ "$draft_state" = "true" ]; then
-            edit_args+=(--draft)
-          fi
-          gh release edit "${TAG}" "${edit_args[@]}"
-          gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
+
+          jq '{tag_name, name, draft, assets:[.assets[]|{name,size,digest,state}]}' "${release_json}"
 
       - name: Refresh the sideload source now that an IPA exists
         env:

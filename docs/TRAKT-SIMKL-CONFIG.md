@@ -50,8 +50,8 @@ PKCE (S256, `features/simkl/SimklPkce.kt`).
 Trakt's documentation has moved on: apps created today receive a Client ID only,
 PKCE is the recommended sign-in, the client secret is optional and deprecated for
 user sign-in, and OAuth calls should target `auth.trakt.tv`. An ID-only PKCE
-rewrite is scheduled for **0.1.14**; until then a Trakt registration with a
-secret is what this build expects. Do not add a secret that you do not have —
+rewrite is deferred to a future release; the approved 0.1.13 build still expects
+a Trakt registration with a secret. Do not add a secret that you do not have —
 an unconfigured build says so instead of starting an OAuth request that cannot
 succeed. The full comparison is in
 [upstream-parity-0.6.3.md](upstream-parity-0.6.3.md) (section "Trakt").

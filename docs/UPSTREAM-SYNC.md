@@ -346,5 +346,5 @@ New in this release beyond the sync:
   selection / Home" bug). The activity also stops replaying its launch intent
   when it is being restored.
 * Trakt investigated, **not** rewritten: still client-id + client-secret, no
-  PKCE, `api.trakt.tv`; id-only PKCE is scheduled for 0.1.14.
+  PKCE, `api.trakt.tv`; id-only PKCE is deferred and is not part of 0.1.13.
 * Discord Rich Presence is opt-in and disabled by default.

@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.14</strong> (114)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.13</strong> (113)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,15 +18,15 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.14
+## Highlights in 0.1.13
 
 - **Upstream 0.6.3** — the official NuvioMobile 0.6.3-beta and NuvioMobile-Enhanced
   0.6.3-beta trees are both integrated (see
   [docs/upstream-parity-0.6.3.md](docs/upstream-parity-0.6.3.md)).
-- **Watch Party invites** — an invite now reads *"Join my StreamBridge watch party with code ..."*
-  and shares a StreamBridge-owned `streambridge://party/<code>` link, with the release page as a
-  fallback for people who do not have the app. It used to say *"Join my Nuvio watch party"* and
-  point at `nuvio.tv`, a NuvioMedia domain StreamBridge does not control. See
+- **Watch Party invites** — invite text uses StreamBridge branding and a normalized,
+  StreamBridge-owned `streambridge://party/<code>` deep link, with an install fallback. Older
+  `nuvio.tv` invites are still accepted for compatibility. A repository-hosted HTTPS redirect page
+  is ready for GitHub Pages; it is not required for app-to-app invites. See
   [docs/WATCH-PARTY-LINKS.md](docs/WATCH-PARTY-LINKS.md).
 - **Watch Party** — in-party chat, and a phone companion that links to the party with the same
   profile so you can type on your phone while the video plays.
@@ -44,9 +44,10 @@ endorse any content. Use it only with material you are legally entitled to acces
   profile selection or Home: the restored screen and its navigation history survive, and sign-out
   still returns to the profile gate.
 - **Languages** — new Hungarian and Vietnamese coverage, pt-BR additions for party/autosync.
-- **Release pipeline** — the sideload source is now only written from a *published* release whose
-  IPA has finished uploading, with a bounded retry while a release appears. A draft, a missing
-  release and a missing IPA are told apart instead of all failing as `gh: Not Found`.
+- **Release pipeline** — draft releases are resolved through the release list (the tag lookup API
+  returns 404 for drafts), and the iOS IPA is attached by release ID without clobbering existing
+  assets. The sideload source is written only from a published release whose uploaded IPA has been
+  verified.
 
 ## Features
 
@@ -121,7 +122,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.14-iOS-unsigned.ipa`
+- `StreamBridge-0.1.13-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
@@ -173,18 +174,17 @@ The IPA is written to `build/ios-ipa/` unsigned. See [docs/RELEASE-IOS.md](docs/
 
 ## Releases
 
-- Android and iOS are released from the same tag (`v0.1.14`), but their builds are independent.
-  The production release workflow publishes the Android APKs as soon as the verified Android job
-  succeeds; the unsigned iOS IPA is attached when its own build finishes, so an iOS build can never
-  hold up an Android release.
-- Production releases are signed with the StreamBridge upload key and fail closed if the signing
-  secrets are absent. No debug-signed APK is ever attached to a release.
+- Android and iOS builds are produced independently from the same verified tag. The production
+  release workflow creates a draft; it is not public until the release is explicitly published after
+  checks pass. The unsigned iOS IPA can be attached after the Android assets without publishing a
+  partial sideload source.
+- The release workflow verifies the selected tag, app version and version code, and refuses to build
+  assets when an existing tag points at a different commit. Existing release assets are checked by
+  SHA-256 and are never clobbered.
+- Production Android builds are signed with the StreamBridge upload key and fail closed if the
+  signing secrets are absent. No debug-signed APK is ever attached to a release.
 - Release notes and artifacts are listed on the
   [releases page](https://github.com/sascio/MyBridge/releases).
-- 0.1.13 was tagged and briefly published, then withdrawn: the release was deleted while its IPA was
-  still being attached, which left `store.json` pointing at an asset that no longer existed. The tag
-  is preserved, but a tag cannot be re-pointed, so 0.1.14 carries the same 0.1.13 content plus the
-  watch-party invite fix and the release-pipeline repair described above.
 
 ## Project layout
 
