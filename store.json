@@ -16,8 +16,18 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.12/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.13/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
+        {
+          "version": "0.1.13",
+          "buildVersion": "113",
+          "date": "2026-10-22T17:26:36Z",
+          "localizedDescription": "## StreamBridge 0.1.13\r\n\r\n### What's new\r\n- Upstream 0.6.3-beta.\r\n- Watch Party: in-party chat, plus a phone companion that links to the party with the same profile.\r\n- Player: badges for what is actually playing, the engine switch moved to the top row behind a confirmation, and centre controls that stay put on pause.\r\n- Subtitles: import your own subtitle font and tune a text shadow on both the ExoPlayer and libmpv paths.\r\n- Liquid Glass: configurable navigation-bar glass with a live preview, plus glass search and stream filtering.\r\n- Library: custom posters now also appear in the library catalog view; binge groups keep the info hash and filename.\r\n- Discord Rich Presence: optional and off by default (Settings -> Integrations).\r\n- Backgrounding: pausing a video and switching apps no longer returns you to profile selection or Home; the restored screen keeps its navigation history.\r\n- Languages: Hungarian and Vietnamese coverage, plus pt-BR additions for party and autosync.\r\n- Updated the app to version 0.1.13.\r\n\r\n### Android\r\n\r\nProduction-signed, one APK per ABI. Install the APK that matches your device; in-place updates need the same signing certificate. Verify downloads against `checksums.sha256`.\r\n\r\n### iOS installation\r\n\r\nThe iOS build in this release is **unsigned**. Install it with\r\n[AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with\r\nyour own Apple ID on your device, so no Apple Developer account and no App Store listing is\r\ninvolved.\r\n\r\nAdd this repository as a source in AltStore or SideStore to get updates automatically:\r\n\r\n`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`\r\n\r\nSee `docs/RELEASE-IOS.md` for the details.\r\n\r\n## What's Changed\r\n* ci(release): attach the iOS IPA correctly after an early publish by @sascio in https://github.com/sascio/MyBridge/pull/223\r\n* docs: 0.1.12 release evidence and precise release-note wording by @sascio in https://github.com/sascio/MyBridge/pull/224\r\n* StreamBridge 0.1.13: Nuvio 0.6.3 sync, background-return fix, OAuth branding + Trakt diagnostics by @sascio in https://github.com/sascio/MyBridge/pull/225\r\n\r\n\r\n**Full Changelog**: https://github.com/sascio/MyBridge/compare/v0.1.12...v0.1.13",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.13/StreamBridge-0.1.13-iOS-unsigned.ipa",
+          "size": 73041171,
+          "sha256": "3890ed450fb519bcdf0a23a25c6e03b131eb52668e5ee60ad5f5ea5e08a64748",
+          "minOSVersion": "16.1"
+        },
         {
           "version": "0.1.12",
           "buildVersion": "112",
@@ -69,5 +79,5 @@
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.12/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.13/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
