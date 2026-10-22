@@ -70,6 +70,16 @@
 
                 <data android:scheme="nuvio" />
             </intent-filter>
+            <!-- StreamBridge's own deep-link scheme. Watch-party invites are shared
+                 as streambridge://party/<code>; see docs/WATCH-PARTY-LINKS.md. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="streambridge" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
@@ -88,6 +98,21 @@
                     android:scheme="https"
                     android:host="nuvio.tv"
                     android:pathPrefix="/party/" />
+            </intent-filter>
+            <!-- StreamBridge's own invite redirect page. It is not auto-verified:
+                 the page is hosted on a GitHub Pages host, whose App Links
+                 statement StreamBridge cannot publish, so Android offers the app
+                 in the chooser instead of opening it silently. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:scheme="https"
+                    android:host="sascio.github.io"
+                    android:pathPrefix="/MyBridge/party" />
             </intent-filter>
         </activity>
 

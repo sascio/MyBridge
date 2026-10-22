@@ -102,7 +102,15 @@ internal fun PartyOverview(
 ) {
     val haptic = LocalHapticFeedback.current
     val clipboard = LocalClipboardManager.current
-    val invite = stringResource(Res.string.party_invite_message, formatPartyCode(party.code), partyInviteLink(party.code))
+    // The third parameter is the install link that keeps an invite useful for
+    // somebody who does not have StreamBridge yet; the deep link in the second
+    // parameter opens the party directly when the app is installed.
+    val invite = stringResource(
+        Res.string.party_invite_message,
+        formatPartyCode(party.code),
+        partyInviteLink(party.code),
+        STREAMBRIDGE_INSTALL_URL,
+    )
     val copiedLabel = stringResource(Res.string.party_invite_copied)
     var copied by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<PartyMember?>(null) }

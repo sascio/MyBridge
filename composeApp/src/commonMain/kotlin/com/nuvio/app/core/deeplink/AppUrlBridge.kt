@@ -2,6 +2,7 @@ package com.nuvio.app.core.deeplink
 
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.party.PARTY_CODE_LENGTH
+import com.nuvio.app.features.party.STREAMBRIDGE_URL_SCHEME
 import com.nuvio.app.features.party.normalizePartyCode
 import com.nuvio.app.features.player.infusePlaybackCallbacks
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
@@ -80,9 +81,23 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
     val host = parsedUrl.host.lowercase()
     val pathSegments = parsedUrl.pathSegments.map(String::trim).filter(String::isNotBlank)
     if (scheme == "https") {
-        return if (host == "nuvio.tv" && pathSegments.firstOrNull() == "party") partyDeepLink(pathSegments.getOrNull(1)) else null
+        return when {
+            // Legacy invites shared while StreamBridge still advertised Nuvio's
+            // website. Kept so older messages keep working; StreamBridge no longer
+            // generates links on this host.
+            host == LEGACY_PARTY_HOST && pathSegments.firstOrNull() == "party" ->
+                partyDeepLink(pathSegments.getOrNull(1))
+
+            // StreamBridge's own invite redirect page (see
+            // docs/WATCH-PARTY-LINKS.md): accepts both /party/<code> and
+            // /party/?code=<code>, in any letter case for the path segments.
+            host == PARTY_REDIRECT_HOST -> partyRedirectDeepLink(pathSegments, parsedUrl)
+
+            else -> null
+        }
     }
-    if (scheme != "nuvio") return null
+    // The StreamBridge scheme and the legacy Nuvio scheme are parsed identically.
+    if (scheme != "nuvio" && scheme != STREAMBRIDGE_URL_SCHEME) return null
 
     return when (host) {
         "meta" -> {
@@ -114,6 +129,30 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
             }
         }
     }
+}
+
+private const val LEGACY_PARTY_HOST = "nuvio.tv"
+private const val PARTY_REDIRECT_HOST = "sascio.github.io"
+private val PARTY_REDIRECT_PATH_PREFIX = listOf("MyBridge", "party")
+
+/**
+ * Resolves `https://sascio.github.io/MyBridge/party/<code>` and
+ * `https://sascio.github.io/MyBridge/party/?code=<code>`.
+ *
+ * Only the exact StreamBridge Pages path is accepted, so a link that merely
+ * happens to be hosted on the same Pages host cannot open a party.
+ */
+private fun partyRedirectDeepLink(
+    pathSegments: List<String>,
+    parsedUrl: Url,
+): AppDeepLink.Party? {
+    if (pathSegments.size < PARTY_REDIRECT_PATH_PREFIX.size) return null
+    PARTY_REDIRECT_PATH_PREFIX.forEachIndexed { index, expected ->
+        if (!pathSegments[index].equals(expected, ignoreCase = true)) return null
+    }
+    if (pathSegments.size > PARTY_REDIRECT_PATH_PREFIX.size + 1) return null
+    val fromPath = pathSegments.getOrNull(PARTY_REDIRECT_PATH_PREFIX.size)
+    return partyDeepLink(fromPath ?: firstParameter(parsedUrl, "code"))
 }
 
 private fun partyDeepLink(code: String?): AppDeepLink.Party? =
