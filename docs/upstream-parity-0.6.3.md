@@ -213,6 +213,25 @@ One documentation error is corrected with this release: the 0.6.2 parity notes c
   `size` that `InjectionScope` no longer exposes. Behaviour under test is unchanged.
 * **Upstream issue templates, stale bot and legacy workflows** — not imported.
 
+## Verification for 0.1.13
+
+| Check | Command / evidence | Result |
+|---|---|---|
+| Unit tests (common + Android host) | `./gradlew :composeApp:check --continue --stacktrace` | pass — run `39709065188` |
+| Debug + production-shaped release APKs | `./gradlew :androidApp:assembleFullDebug :androidApp:assembleFullRelease` | pass — run `39709065188` |
+| Android lint, full release | `./gradlew :androidApp:lintFullRelease` | pass — run `39709065188` |
+| Play Store flavour without the CloudStream runtime | `./gradlew :androidApp:assemblePlaystoreDebug -Pnuvio.android.distribution=playstore` + `verify-cloudstream-apk.py --expect-no-runtime` | pass — run `39709065188` |
+| Full flavour still selects the real CloudStream runtime | `verify-cloudstream-apk.py` (DEX inspection) | pass — run `39709065188` |
+| Tracking credential pipeline (generated configs) | `./gradlew :composeApp:generateRuntimeConfigs` ×2 in `check-tracking-secrets.yml` | pass — run `39709065188` |
+| Brand assets optimised | CI brand-asset step | pass — run `39709065188` |
+| Pull-request gate on the same commit | `Build Stream Bridge` (pull_request) | pass — run `39709070914` |
+| iOS compile/IPA | `StreamBridge iOS release` | source integrated; not a gate for the Android release (see known gaps) |
+
+Local Gradle could not run in the authoring environment (no JDK, no Android SDK, no dependency
+mirrors reachable), so CI is the build evidence; the earlier failures in this branch were exactly
+the two upstream-broken host tests and the codec bug above, which CI surfaced and this release
+fixes.
+
 ## Known gaps
 
 * No Android device or emulator is reachable from this environment, so the lifecycle fix and every
