@@ -100,6 +100,20 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val mdblistClientId: Property<String>
 
+    /**
+     * Optional per-build overrides for the OAuth client registrations of providers
+     * whose client id is compiled into the app (AniList, WeTrakr). Empty means
+     * "use the registration that is compiled in", so an unset value reproduces the
+     * previous behaviour byte for byte. These are client ids only: neither provider
+     * uses a client secret for the flows this app implements (AniList implicit
+     * token grant, WeTrakr device authorization grant).
+     */
+    @get:Input
+    abstract val anilistClientId: Property<String>
+
+    @get:Input
+    abstract val wetrakrClientId: Property<String>
+
     // Base URL of the StreamBridge GIF search proxy (NOT a secret). The provider key
     // lives only on that server. Blank means GIF search is not configured.
     @get:Input
@@ -267,6 +281,34 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
 
         outDir.resolve("com/nuvio/app/core/build").apply {
             mkdirs()
+            resolve("TrackingClientOverrides.kt").writeText(
+                """
+                |package com.nuvio.app.core.build
+                |
+                |/**
+                | * Optional build-time overrides for tracking client registrations whose ids
+                | * are otherwise compiled into the app (AniList, WeTrakr).
+                | *
+                | * The OAuth server decides what application name to show on its consent or
+                | * activation page from the client id alone: the name is stored in that
+                | * provider's own registration, never sent by this app. Registering a
+                | * "StreamBridge" client therefore only changes the displayed branding once
+                | * its id is supplied here.
+                | *
+                | * An empty string means "no override": AniListConfig / WeTrakrConfig then
+                | * fall back to the registration compiled into the app. Redirect URIs,
+                | * scopes and token handling are unaffected by these values.
+                | */
+                |object TrackingClientOverrides {
+                |    const val ANILIST_CLIENT_ID = "${anilistClientId.asKotlinLiteral()}"
+                |    const val WETRAKR_CLIENT_ID = "${wetrakrClientId.asKotlinLiteral()}"
+                |}
+                """.trimMargin()
+            )
+        }
+
+        outDir.resolve("com/nuvio/app/core/build").apply {
+            mkdirs()
             resolve("AppVersionConfig.kt").writeText(
                 """
                 |package com.nuvio.app.core.build
@@ -309,7 +351,11 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
             "generateRuntimeConfigs: TRAKT_CLIENT_ID present=${traktClientId.get().isNotBlank()} " +
                 "TRAKT_CLIENT_SECRET present=${traktClientSecret.get().isNotBlank()} " +
                 "SIMKL_CLIENT_ID present=${simklClientId.get().isNotBlank()} " +
-                "MDBLIST_CLIENT_ID present=${mdblistClientId.get().isNotBlank()}"
+                "MDBLIST_CLIENT_ID present=${mdblistClientId.get().isNotBlank()} " +
+                // Overrides only; false means the compiled-in client id is used and
+                // is the expected state for a stock build.
+                "ANILIST_CLIENT_ID override=${anilistClientId.get().isNotBlank()} " +
+                "WETRAKR_CLIENT_ID override=${wetrakrClientId.get().isNotBlank()}"
         )
     }
 }
@@ -560,6 +606,14 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     // runtimeLocalPropertyValue() without also updating release-draft.yml.
     mdblistClientId.set(runtimeConfigValue("MDBLIST_CLIENT_ID"))
 
+    // AniList and WeTrakr ids are compiled-in defaults, overridable here so the
+    // app can point at a "StreamBridge" registration without a source edit. Not
+    // secrets (public OAuth client ids), so the generic resolution chain is used:
+    // local.properties -> environment -> -P property. Blank means "keep the
+    // default", and normalisation already maps blank to "".
+    anilistClientId.set(runtimeConfigValue("ANILIST_CLIENT_ID"))
+    wetrakrClientId.set(runtimeConfigValue("WETRAKR_CLIENT_ID"))
+
     // GIF search proxy base URL. Non-secret, so it may come from local.properties, an
     // environment variable, or a -P property like other NUVIO_* values.
     gifSearchProxyUrl.set(runtimeConfigValue("NUVIO_GIF_SEARCH_PROXY_URL"))
@@ -775,7 +829,7 @@ kotlin {
             implementation("io.coil-kt.coil3:coil-svg:${libs.versions.coil.get()}") {
                 exclude(group = "org.jetbrains.skiko", module = "skiko")
             }
-            implementation("io.github.kyant0:backdrop:2.0.1")
+            implementation(libs.kyant.backdrop)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)

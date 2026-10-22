@@ -30,9 +30,10 @@ imported from:
 
   https://github.com/NuvioMedia/NuvioMobile
   branch: cmp-rewrite
-  commit: 1cfae0fe7402f5e6f1fedad393d50d83775586fa
-  tag: 0.6.2-beta
-  previous pins: 79b750f3 (0.6.1-beta), 5c6028f2 (0.5.5-beta),
+  commit: 014fa2e2f8e2f4914e09d117ffe29d1eefcc6275
+  tag: 0.6.3-beta
+  previous pins: 1cfae0fe (0.6.2-beta), 79b750f3 (0.6.1-beta),
+                 5c6028f2 (0.5.5-beta),
                  bb3c1e4c (0.5.2-beta), b88fef2e (0.5.1),
                  ec441c7b (0.4.25-beta), d177eb57 (0.4.17)
   license: GNU General Public License v3.0
@@ -52,15 +53,17 @@ download location / Wi-Fi-only, etc.) were overlaid from:
 
   https://github.com/luqmanfadlli/NuvioMobile-Enhanced
   branch: enhanced
-  commit: 5d978096f9eb04a62a6bc3a5d6999bdccab4c9cb
-  tag: 0.6.2-beta
-  previous pins: 504014d3 (0.6.1-beta), 8b3bd867 (0.5.5-beta),
+  commit: b9504e1a3bfd212cb32a54138b149ea1995b65c7
+  tag: 0.6.3-beta
+  previous pins: 5d978096 (0.6.2-beta), 504014d3 (0.6.1-beta),
+                 8b3bd867 (0.5.5-beta),
                  3da8d06f (0.5.2-beta), 9d311c18 (0.5.1-beta),
                  ce4492ec (0.4.23-beta)
   license: GNU General Public License v3.0
 
-Official NuvioMobile 0.6.2-beta is contained in that tag; the Enhanced
-overlay adds unique features on top. StreamBridge identity, empty default
+Official NuvioMobile 0.6.3-beta is an ancestor of that tag (both trees
+carry the same 0.6.3 feature set); the Enhanced overlay adds unique
+features on top. StreamBridge identity, empty default
 addons, and updater source `sascio/MyBridge` are preserved.
 
 Vendored binaries shipped by those pins (GPL application):
@@ -82,6 +85,23 @@ XCFramework (0.1.2) fetched by scripts/prepare-ios-dependencies.sh, and
 the MPVKit local Swift package (LGPL-3.0) referenced as ../MPVKit.
 Bundled subtitle fonts (Noto Sans / Noto Sans CJK, SIL Open Font
 License) ship under iosApp/iosApp/SubtitleFonts/ with their license.
+
+kyant/backdrop (Liquid Glass surfaces)
+=====================================
+The Liquid Glass surface effects on Android are built on `backdrop`
+(io.github.kyant0:backdrop, 2.0.1), imported from:
+
+  https://github.com/Kyant0/AndroidLiquidGlass
+  https://github.com/Kyant0/AndroidLiquidGlass/blob/kmp/LICENSE
+  license: Apache License 2.0
+  full text: composeApp/src/commonMain/composeResources/files/licenses/
+             kyant-backdrop-apache-2.0.txt
+  copyright: Kyant0 and backdrop contributors
+
+It replaces the previously used Haze library. Apache-2.0 is compatible
+with this GPL-3.0 distribution; the license text is bundled with the app
+and the same license is linked from Settings -> Licenses & attributions.
+
 
 AIOStreams (optional subtitle renderer)
 =======================================

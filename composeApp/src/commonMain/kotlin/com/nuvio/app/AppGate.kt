@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -88,6 +89,7 @@ internal fun AppGate(
     onTabTitles: ((home: String, search: String, library: String, profile: String, switchProfile: String, addProfile: String) -> Unit)?,
     nativeProfileSwitcherController: NativeProfileSwitcherController?,
     appGateController: AppGateController?,
+    restoredFromSavedState: Boolean = false,
 ) {
     if (bypassAppGate) {
         MainAppContent(
@@ -163,6 +165,10 @@ internal fun AppGate(
 
     val gateScope = rememberCoroutineScope()
     var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
+    // Which profile the currently-shown Main gate belongs to. Saved with the gate so a restored
+    // composition can prove the saved Main screen still matches the profile being restored, instead
+    // of replaying the cold-start profile gate (see restoredSessionGateAction).
+    var mainGateProfileIndex by rememberSaveable { mutableIntStateOf(NO_PROFILE_INDEX) }
     var introHoldElapsed by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(AppIntroMinDurationMs)
@@ -305,6 +311,7 @@ internal fun AppGate(
             skipProfileSelectionEnterAnimation = true
             appGateController.beginContentReload()
             ProfileRepository.selectProfile(profile.profileIndex)
+            mainGateProfileIndex = profile.profileIndex
             SyncManager.pullAllForProfile(profile.profileIndex)
             gateScreen = AppGateScreen.Main.name
             onActivate?.invoke(AppScreenTab.Home)
@@ -356,6 +363,9 @@ internal fun AppGate(
             appGateController?.beginContentReload()
         }
         ProfileRepository.selectProfile(profile.profileIndex)
+        // Record which profile this Main gate belongs to; saved with the gate so a restored
+        // composition can verify the saved screen is still valid for the restored profile.
+        mainGateProfileIndex = profile.profileIndex
         if (sync) {
             SyncManager.pullAllForProfile(profile.profileIndex)
         }
@@ -438,6 +448,23 @@ internal fun AppGate(
 
     LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles, introHoldElapsed) {
         if (!introHoldElapsed) return@LaunchedEffect
+        // Android can reclaim the whole process while the app sits in the background (typical after
+        // pausing a video and switching apps on the full/CloudStream build). Compose then restores
+        // this gate as `Main` *with* its navigation back stack, but auth restarts at `Loading`. Without
+        // this guard the `Loading` branch below re-derived the profile gate, unmounted the restored
+        // main content and dropped its back stack — the user came back to profile selection, or to
+        // Home with the player gone. Staying on the restored gate keeps the back stack (the player
+        // entry itself pops safely once its in-memory launch data is gone) and never bypasses auth:
+        // a real sign-out still resolves to `Unauthenticated` and takes the branch below.
+        val keepRestoredMainGate = restoredSessionGateAction(
+            restoredFromSavedState = restoredFromSavedState,
+            gateScreenIsMain = gateScreen == AppGateScreen.Main.name,
+            authPending = authState is AuthState.Loading,
+            mainGateProfileIndex = mainGateProfileIndex,
+            activeProfileIndex = profileState.activeProfile?.profileIndex,
+        ) == RestoredSessionGateAction.KeepRestoredMain
+        if (keepRestoredMainGate) return@LaunchedEffect
+
         val cachedProfiles = profileState.profiles
         val hasCachedProfileAccess =
             cachedProfiles.isNotEmpty() &&

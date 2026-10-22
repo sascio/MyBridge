@@ -81,7 +81,9 @@ class FloatingNavigationBarGestureTest {
                     selected = index == 0,
                     onClick = { clicks += index },
                     content = if (index == 3) {
-                        { onClick ->
+                        // FloatingNavigationItem.content receives the tap handler and the optional
+                        // icon-colour override; the override is irrelevant to this gesture test.
+                        { onClick, _ ->
                             Box(
                                 Modifier.size(28.dp)
                                     .clickable(onClick = onClick)

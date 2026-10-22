@@ -17,12 +17,17 @@ on:
         description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.10)
         required: true
         type: string
-        default: "v0.1.12"
+        default: "v0.1.13"
       include_ios:
         description: Also build the iOS release IPA
         required: false
         type: boolean
         default: true
+      require_tracking_credentials:
+        description: Fail the build instead of warning when Trakt credentials are missing
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -123,20 +128,53 @@ jobs:
       - name: Configure release properties
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+          REQUIRE_TRACKING_CREDENTIALS: ${{ inputs.require_tracking_credentials }}
         run: |
           set -euo pipefail
 
-          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
+          # Presence-only helper: booleans and property NAMES are printed, values
+          # never are. This output is safe in CI logs and step summaries.
+          property_present() {
+            grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" local.properties
+          }
+
+          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" ]; then
+            # Not a build failure: tracking is optional (see
+            # docs/TRAKT-SIMKL-CONFIG.md). It is never a silent success either --
+            # the warning and the step summary below say exactly what the APK
+            # will be missing.
             : > local.properties
-            echo "NUVIO_LOCAL_PROPERTIES_BASE64 not set; using empty local.properties (Trakt/Simkl unconfigured for this build)."
-            exit 0
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set. Building with an empty local.properties, so TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID and MDBLIST_CLIENT_ID are all empty and the app will show the missing-credentials state for Trakt, Simkl and MDBList."
+          else
+            # Decode into a temp file first so a malformed secret can never leave a
+            # half-written local.properties behind for Gradle to consume.
+            decoded="$(mktemp)"
+            if ! printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" | base64 --decode > "${decoded}" 2>/dev/null; then
+              rm -f "${decoded}"
+              echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 is set but is not valid base64, so no local.properties can be produced. Recreate it from the properties file with: base64 -w0 local.properties  (macOS: base64 -i local.properties). See docs/TRAKT-SIMKL-CONFIG.md."
+              exit 1
+            fi
+            mv "${decoded}" local.properties
+
+            # sdk.dir is runner-specific and the keystore is decoded separately above,
+            # so drop any copies carried inside the secret (official does the same).
+            sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+
+            # A secret holding something other than a properties file (a raw key, a
+            # JSON blob, an APK-style encoded string) would otherwise sail through as
+            # "configured" and fail only on the user's device.
+            if ! grep -Eq '^[[:space:]]*[A-Za-z0-9_.-]+[[:space:]]*=' local.properties; then
+              echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 decoded successfully but contains no KEY=value lines, so it is not a local.properties file. Encode the properties file itself, not a single value."
+              exit 1
+            fi
+
+            # Property names only. This proves what the stored secret actually
+            # contains without ever revealing a credential value.
+            echo "Decoded local.properties defines these properties (names only):"
+            grep -E '^[[:space:]]*[A-Za-z0-9_.-]+[[:space:]]*=' local.properties \
+              | sed -E 's/^[[:space:]]*([A-Za-z0-9_.-]+)[[:space:]]*=.*$/\1/' \
+              | sort -u
           fi
-
-          printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
-
-          # sdk.dir is runner-specific and the keystore is decoded separately above,
-          # so drop any copies carried inside the secret (official does the same).
-          sed -i -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
 
           # Tracking properties are optional: a missing TRAKT_CLIENT_ID,
           # TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID or MDBLIST_CLIENT_ID must not fail
@@ -147,13 +185,52 @@ jobs:
           # unavailable in this build." and there is no way to connect. MDBList is a
           # public OAuth device-flow client, so the client id is its only credential
           # -- there is deliberately no MDBLIST_CLIENT_SECRET.
+          missing=()
           for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID MDBLIST_CLIENT_ID; do
-            if grep -Eq "^[[:space:]]*${property_name}[[:space:]]*=[[:space:]]*\\S" local.properties; then
+            if property_present "${property_name}"; then
               echo "${property_name} present=true"
             else
               echo "${property_name} present=false"
+              missing+=("${property_name}")
             fi
           done
+
+          {
+            echo "### Tracking credentials in this build"
+            echo
+            echo "Source: \`NUVIO_LOCAL_PROPERTIES_BASE64\` (presence only, values never printed)."
+            echo
+            echo "| Property | Present |"
+            echo "| --- | --- |"
+            for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID MDBLIST_CLIENT_ID; do
+              if property_present "${property_name}"; then
+                echo "| \`${property_name}\` | yes |"
+              else
+                echo "| \`${property_name}\` | **no** |"
+              fi
+            done
+            echo
+            echo "A missing provider is expected to show its missing-credentials state on device."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::warning::The decoded local.properties is missing: ${missing[*]}. The APK will show the missing-credentials state for those providers. Update the NUVIO_LOCAL_PROPERTIES_BASE64 secret (see docs/TRAKT-SIMKL-CONFIG.md) before shipping this build."
+          fi
+
+          # Opt-in gate for a release that must have working Trakt. Default false so
+          # a Simkl/MDBList-only or tracking-free build still succeeds.
+          if [ "${REQUIRE_TRACKING_CREDENTIALS:-false}" = "true" ]; then
+            gate_failed=0
+            for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
+              if ! property_present "${property_name}"; then
+                echo "::error::${property_name} is missing but require_tracking_credentials=true. Add it to NUVIO_LOCAL_PROPERTIES_BASE64 (docs/TRAKT-SIMKL-CONFIG.md)."
+                gate_failed=1
+              fi
+            done
+            if [ "${gate_failed}" -ne 0 ]; then
+              exit 1
+            fi
+          fi
 
           echo "local.properties configured."
 
@@ -186,10 +263,13 @@ jobs:
       # Presence-only report of what reached the generated runtime config
       # (local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig/MdbListConfig).
       # Tracking credentials are optional, so empty generated values must not fail
-      # the release. Greps the generated Kotlin for an empty literal; never prints a
-      # value. Each line is prefixed with its provider because all three constants
-      # are named CLIENT_ID and would otherwise be indistinguishable in the log.
+      # the release unless the run explicitly asked for them. Greps the generated
+      # Kotlin for an empty literal; never prints a value. Each line is prefixed
+      # with its provider because all three constants are named CLIENT_ID and would
+      # otherwise be indistinguishable in the log.
       - name: Report generated tracking config presence
+        env:
+          REQUIRE_TRACKING_CREDENTIALS: ${{ inputs.require_tracking_credentials }}
         run: |
           set -euo pipefail
           generated="composeApp/build/generated/runtime-config/kotlin"
@@ -197,23 +277,32 @@ jobs:
           simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
           mdblist="$generated/com/nuvio/app/features/mdblist/MdbListConfig.kt"
 
+          # Returns 0 when the generated constant is non-empty, 1 when it is empty.
           report_populated() {
             local provider="$1" file="$2" constant="$3"
             if [ ! -f "$file" ]; then
               echo "::warning::Generated config missing: $file"
-              return
+              return 1
             fi
             if grep -Eq "const val ${constant} = \"\"" "$file"; then
               echo "${provider} ${constant} present=false"
-            else
-              echo "${provider} ${constant} present=true"
+              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is empty, so ${provider} shows its missing-credentials state on device."
+              return 1
             fi
+            echo "${provider} ${constant} present=true"
+            return 0
           }
 
-          report_populated TRAKT "$trakt" CLIENT_ID
-          report_populated TRAKT "$trakt" CLIENT_SECRET
-          report_populated SIMKL "$simkl" CLIENT_ID
-          report_populated MDBLIST "$mdblist" CLIENT_ID
+          trakt_ok=0
+          report_populated TRAKT "$trakt" CLIENT_ID || trakt_ok=1
+          report_populated TRAKT "$trakt" CLIENT_SECRET || trakt_ok=1
+          report_populated SIMKL "$simkl" CLIENT_ID || true
+          report_populated MDBLIST "$mdblist" CLIENT_ID || true
+
+          if [ "${trakt_ok}" -ne 0 ] && [ "${REQUIRE_TRACKING_CREDENTIALS:-false}" = "true" ]; then
+            echo "::error::This build has no Trakt credentials but require_tracking_credentials=true. Set NUVIO_LOCAL_PROPERTIES_BASE64 before releasing (docs/TRAKT-SIMKL-CONFIG.md)."
+            exit 1
+          fi
 
       - name: Reject debug certificates and record public cert identity
         run: |
@@ -350,13 +439,43 @@ jobs:
       - name: Configure runtime properties
         run: |
           set -euo pipefail
-          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64}" ]; then
+          # Same contract as the Android job: decode before Gradle runs, report
+          # presence only, never echo a value. See docs/TRAKT-SIMKL-CONFIG.md.
+          property_present() {
+            grep -Eq "^[[:space:]]*$1[[:space:]]*=[[:space:]]*[^[:space:]]" local.properties
+          }
+
+          if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" ]; then
             : > local.properties
-            echo "NUVIO_LOCAL_PROPERTIES_BASE64 not set; using an empty local.properties."
-            exit 0
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set. The IPA will be built without Trakt/Simkl/MDBList credentials."
+          else
+            decoded="$(mktemp)"
+            if ! printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" | base64 --decode > "${decoded}" 2>/dev/null; then
+              rm -f "${decoded}"
+              echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 is set but is not valid base64. Recreate it with: base64 -w0 local.properties"
+              exit 1
+            fi
+            mv "${decoded}" local.properties
+            sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+            if ! grep -Eq '^[[:space:]]*[A-Za-z0-9_.-]+[[:space:]]*=' local.properties; then
+              echo "::error::NUVIO_LOCAL_PROPERTIES_BASE64 decoded but contains no KEY=value lines, so it is not a local.properties file."
+              exit 1
+            fi
+            echo "Decoded local.properties defines these properties (names only):"
+            grep -E '^[[:space:]]*[A-Za-z0-9_.-]+[[:space:]]*=' local.properties \
+              | sed -E 's/^[[:space:]]*([A-Za-z0-9_.-]+)[[:space:]]*=.*$/\1/' \
+              | sort -u
           fi
-          printf '%s' "${NUVIO_LOCAL_PROPERTIES_BASE64}" | base64 --decode > local.properties
-          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+
+          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID MDBLIST_CLIENT_ID; do
+            if property_present "${property_name}"; then
+              echo "${property_name} present=true"
+            else
+              echo "${property_name} present=false"
+              echo "::warning::${property_name} is missing; the iOS build will show the missing-credentials state for that provider."
+            fi
+          done
+
           echo "local.properties configured."
 
       - name: Prepare iOS dependencies
@@ -505,13 +624,19 @@ jobs:
           # keeps the YAML indentation, and a release body indented by ten
           # spaces is rendered by GitHub as a code block rather than Markdown.
           release_notes=(
-            '## StreamBridge 0.1.12'
+            '## StreamBridge 0.1.13'
             ''
             "### What's new"
-            '- Simkl: multi-season anime now collapses into a single Continue Watching entry, next-up seeds resolve to the series, and Simkl IDs survive library refreshes.'
-            '- Player: the end-of-movie recommendation card no longer offers titles you have already watched.'
-            '- Upstream: finished the 0.6.2 port that shipped in 0.1.11 by restoring the Simkl dedupe present in the upstream 0.6.2 tree.'
-            '- Updated the app to version 0.1.12.'
+            '- Upstream 0.6.3: the official NuvioMobile 0.6.3-beta and NuvioMobile-Enhanced 0.6.3-beta trees are both integrated.'
+            '- Watch Party: in-party chat, plus a phone companion that links to the party with the same profile.'
+            '- Player: badges for what is actually playing, the engine switch moved to the top row behind a confirmation, and centre controls that stay put on pause.'
+            '- Subtitles: import your own subtitle font and tune a text shadow on both the ExoPlayer and libmpv paths.'
+            '- Liquid Glass: configurable navigation-bar glass with a live preview, plus glass search and stream filtering.'
+            '- Library: custom posters now also appear in the library catalog view; binge groups keep the info hash and filename.'
+            '- Discord Rich Presence: optional and off by default (Settings -> Integrations).'
+            '- Backgrounding: pausing a video and switching apps no longer returns you to profile selection or Home; the restored screen keeps its navigation history.'
+            '- Languages: Hungarian and Vietnamese coverage, plus pt-BR additions for party and autosync.'
+            '- Updated the app to version 0.1.13.'
             ''
             '### Android'
             ''
