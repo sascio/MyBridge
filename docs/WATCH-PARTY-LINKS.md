@@ -32,12 +32,13 @@ New to StreamBridge? https://github.com/sascio/MyBridge/releases/latest
 The last line is the fallback: it is an ordinary https link that works for everybody, whether or not
 Pages is enabled and whether or not the app is installed.
 
-### What changed in 0.1.14
+### What changed for the 0.1.13 release target
 
-Before 0.1.14 the invite read *"Join my Nuvio watch party with code FXR XFV"* and linked to
-`https://nuvio.tv/party/FXRXFV`. `nuvio.tv` is NuvioMedia's domain: StreamBridge does not control it,
-cannot point it at its own app, and should not have been handing it out. Both the wording and the URL
-are now StreamBridge's own.
+The original `v0.1.13` tag generated invites that read *"Join my Nuvio watch party with code FXR XFV"*
+and linked to `https://nuvio.tv/party/FXRXFV`. `nuvio.tv` is NuvioMedia's domain: StreamBridge does
+not control it, cannot point it at its own app, and should not hand it out. The corrected invite uses
+StreamBridge branding and the registered `streambridge://party/<code>` scheme. Older Nuvio links remain
+parseable for backward compatibility.
 
 ## What accepts the link
 

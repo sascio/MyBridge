@@ -10,10 +10,10 @@ import kotlin.test.assertTrue
 /**
  * Static guards for the watch-party invitation.
  *
- * The v0.1.13 release shipped invites that read "Join my Nuvio watch party" and
- * linked to `https://nuvio.tv/party/<code>`, a NuvioMedia-owned address. These
- * checks fail `:composeApp:check` if Nuvio branding or the Nuvio website link come
- * back into the invite, or if a platform stops registering the StreamBridge scheme.
+ * The original v0.1.13 tagged source generated invites that read "Join my Nuvio
+ * watch party" and linked to `https://nuvio.tv/party/<code>`, a NuvioMedia-owned
+ * address. These checks fail `:composeApp:check` if Nuvio branding or that URL
+ * comes back into the invite, or if a platform stops registering StreamBridge links.
  */
 class PartyInviteBrandingTest {
 

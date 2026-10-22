@@ -45,6 +45,8 @@ scripts/*
 !scripts/build-ios-ipa.sh
 !scripts/prepare-ios-dependencies.sh
 # Release tooling that the workflows invoke directly.
+!scripts/release-api.sh
+!scripts/verify-release-target.sh
 !scripts/update-store-source.py
 !scripts/optimize-app-assets.py
 iosApp/Configuration/DeviceSigning.local.json
