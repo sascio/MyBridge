@@ -442,3 +442,18 @@ jobs:
             exit 1
           fi
           echo "Missing credentials produce empty configs, which the app reports as the missing-credentials state."
+
+  # Cheap, JDK-free checks for the release plumbing: the release lookup that
+  # publishes store.json (draft / missing / no-IPA / permission failures), the
+  # store metadata itself, and the version wiring between README, Gradle
+  # properties and the release workflow.
+  script-tests:
+    name: Script tests (release lookup, store source, version wiring)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run script tests
+        run: scripts/tests/run-tests.sh

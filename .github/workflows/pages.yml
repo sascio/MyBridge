@@ -1,0 +1,67 @@
+name: Publish invite site
+
+# Publishes the StreamBridge invite redirect page (`site/`) to GitHub Pages, so a
+# watch-party invite can be shared as
+#
+#     https://sascio.github.io/MyBridge/party/?code=FXRXFV
+#
+# and turn into the `streambridge://party/FXRXFV` deep link.
+#
+# Why this is manual: GitHub Pages has to be enabled for the repository by a
+# repository administrator once (Settings -> Pages -> Build and deployment ->
+# Source: GitHub Actions). Neither a workflow token nor the automation token used
+# to prepare this release is allowed to create the Pages site, so a preflight step
+# reports exactly that instead of failing somewhere deep inside a deploy action.
+#
+# The app does not need this site: `partyInviteLink` hands out the deep link
+# directly, and the install link in the invite covers recipients without the app.
+# See docs/WATCH-PARTY-LINKS.md.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: invite-site
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Check that Pages is enabled
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require an enabled Pages site
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/pages" >/dev/null 2>&1; then
+            echo "GitHub Pages is enabled for ${GITHUB_REPOSITORY}."
+            exit 0
+          fi
+          echo "::error title=GitHub Pages is not enabled::Enable Pages once at https://github.com/${GITHUB_REPOSITORY}/settings/pages (Source: GitHub Actions), then re-run this workflow. The app ships the streambridge:// deep link either way, so this is the only step that keeps the https invite form from going live."
+          exit 1
+
+  deploy:
+    name: Deploy site/
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Report the published invite URL
+        run: |
+          echo "::notice title=Invite redirect::https://sascio.github.io/MyBridge/party/?code=<CODE> is live."

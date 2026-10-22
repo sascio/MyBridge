@@ -17,7 +17,7 @@ on:
         description: Release tag matching STREAMBRIDGE_VERSION_NAME (e.g. v0.1.10)
         required: true
         type: string
-        default: "v0.1.13"
+        default: "v0.1.14"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -595,7 +595,15 @@ jobs:
           git fetch origin "refs/tags/${TAG}:refs/tags/${TAG}" 2>/dev/null || true
           if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
             tagged="$(git rev-parse "refs/tags/${TAG}^{commit}")"
-            echo "Using existing tag ${TAG} -> ${tagged}"
+            built="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+            if [ "${tagged}" != "${built}" ]; then
+              # A published release must be reproducible from its tag. Reusing an
+              # existing tag for a newer commit would ship assets that the tag does
+              # not describe, so this fails instead of re-pointing the tag.
+              echo "::error title=Tag does not match the built commit::${TAG} points at ${tagged}, but this run built ${built}. Bump STREAMBRIDGE_VERSION_NAME and create a new tag instead of reusing ${TAG}."
+              exit 1
+            fi
+            echo "Using existing tag ${TAG} -> ${tagged} (matches the built commit)"
           else
             git tag "${TAG}" "${GITHUB_SHA}"
             git push origin "refs/tags/${TAG}"
@@ -624,7 +632,11 @@ jobs:
           # keeps the YAML indentation, and a release body indented by ten
           # spaces is rendered by GitHub as a code block rather than Markdown.
           release_notes=(
-            '## StreamBridge 0.1.13'
+            '## StreamBridge 0.1.14'
+            ''
+            "### What's fixed"
+            '- Watch Party invites: the invite now reads "Join my StreamBridge watch party with code FXR XFV" and shares a StreamBridge-owned `streambridge://party/<code>` deep link instead of "Join my Nuvio watch party" pointing at `nuvio.tv`. The install link in the invite is the fallback for people who do not have the app yet. The party code, creation, joining, chat, companion and backend behaviour are unchanged.'
+            '- Release pipeline: the sideload source is only updated from a published release whose IPA has finished uploading. A draft release, a release that does not exist yet and a release without an IPA are now told apart (the first two used to fail as `gh: Not Found`), a release that appears a moment late is retried, and permission errors still fail loudly.'
             ''
             "### What's new"
             '- Upstream 0.6.3: the official NuvioMobile 0.6.3-beta and NuvioMobile-Enhanced 0.6.3-beta trees are both integrated.'
@@ -636,7 +648,7 @@ jobs:
             '- Discord Rich Presence: optional and off by default (Settings -> Integrations).'
             '- Backgrounding: pausing a video and switching apps no longer returns you to profile selection or Home; the restored screen keeps its navigation history.'
             '- Languages: Hungarian and Vietnamese coverage, plus pt-BR additions for party and autosync.'
-            '- Updated the app to version 0.1.13.'
+            '- Updated the app to version 0.1.14.'
             ''
             '### Android'
             ''
@@ -696,7 +708,30 @@ jobs:
             echo "::error::Expected exactly one iOS IPA artifact, found ${#ipa_assets[@]}."
             exit 1
           fi
-          gh release upload "${TAG}" "${ipa_assets[@]}" --clobber
+
+          # A release that was recreated, renamed or deleted between the draft job
+          # and this one must fail with an actionable message rather than a raw
+          # "release not found" from gh. This is the state v0.1.13 was left in.
+          if ! gh release view "${TAG}" --json tagName >/dev/null 2>&1; then
+            echo "::error title=Release ${TAG} is missing::The release for ${TAG} no longer exists. Re-run the Draft production GitHub Release workflow for ${TAG}; the IPA attachment is skipped until a release exists."
+            exit 1
+          fi
+
+          # Transient upload failures are retried; a genuinely broken upload still
+          # fails the job after the third attempt.
+          uploaded=false
+          for attempt in 1 2 3; do
+            if gh release upload "${TAG}" "${ipa_assets[@]}" --clobber; then
+              uploaded=true
+              break
+            fi
+            echo "::warning::IPA upload attempt ${attempt} failed; retrying in $((attempt * 5))s."
+            sleep $((attempt * 5))
+          done
+          if [ "${uploaded}" != "true" ]; then
+            echo "::error title=IPA upload failed::Could not upload ${ipa_assets[0]} to ${TAG} after three attempts."
+            exit 1
+          fi
 
           notes="$(mktemp)"
           gh release view "${TAG}" --json body --jq '.body' > "$notes"
@@ -729,7 +764,6 @@ jobs:
             edit_args+=(--draft)
           fi
           gh release edit "${TAG}" "${edit_args[@]}"
-          gh release edit "${TAG}" --notes-file "$notes"
           gh release view "${TAG}" --json tagName,isDraft,assets --jq '{tagName,isDraft,assets:[.assets[].name]}'
 
       - name: Refresh the sideload source now that an IPA exists

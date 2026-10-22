@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StreamBridge watch party</title>
+<meta name="description" content="Join a StreamBridge watch party.">
+<meta name="robots" content="noindex">
+<style>
+  :root {
+    color-scheme: dark;
+    --tint: #1E88E5;
+    --bg: #0d1117;
+    --card: #161b22;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --border: #30363d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: radial-gradient(circle at 20% 0%, #123a5e 0%, var(--bg) 55%);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  }
+  main {
+    width: 100%;
+    max-width: 420px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 24px;
+    text-align: center;
+  }
+  svg.mark { width: 56px; height: 56px; }
+  svg.mark text { font: 700 30px/1 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  h1 { font-size: 21px; margin: 16px 0 4px; }
+  p { margin: 0 0 16px; color: var(--muted); }
+  .code {
+    font: 700 30px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 6px;
+    background: #0b2a45;
+    border: 1px solid var(--tint);
+    border-radius: 14px;
+    padding: 14px 8px;
+    margin: 4px 0 20px;
+    word-break: break-all;
+  }
+  a.button, button {
+    display: block;
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    background: var(--tint);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  a.secondary, button.secondary {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text);
+    margin-top: 10px;
+    font-weight: 500;
+  }
+  .note { margin-top: 18px; font-size: 14px; color: var(--muted); }
+  .hidden { display: none !important; }
+  ol.steps { text-align: left; color: var(--text); font-size: 14px; padding-left: 20px; }
+  ol.steps li { margin-bottom: 8px; }
+  code { background: #0b2a45; padding: 1px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <svg class="mark" viewBox="0 0 64 64" role="img" aria-label="StreamBridge">
+    <rect x="2" y="2" width="60" height="60" rx="16" fill="#1E88E5"/>
+    <text x="32" y="42" text-anchor="middle" fill="#fff">SB</text>
+  </svg>
+  <h1 id="title">StreamBridge watch party</h1>
+  <p id="subtitle">Opening StreamBridge&hellip;</p>
+
+  <div id="code-block" class="hidden">
+    <div class="code" id="code">------</div>
+    <a class="button" id="open-link" href="#">Open in StreamBridge</a>
+    <button class="secondary" id="copy" type="button">Copy party code</button>
+  </div>
+
+  <div id="fallback" class="hidden">
+    <p class="note">StreamBridge did not open. You can still join:</p>
+    <ol class="steps">
+      <li>Install StreamBridge from <a id="install" href="https://github.com/sascio/MyBridge/releases/latest">the releases page</a>.</li>
+      <li>Open <em>Watch party</em> and enter the code above.</li>
+    </ol>
+    <a class="button secondary" id="retry" href="#">Try opening the app again</a>
+  </div>
+
+  <div id="invalid" class="hidden">
+    <p>This invite link does not contain a valid party code.</p>
+    <a class="button" href="https://github.com/sascio/MyBridge/releases/latest">Get StreamBridge</a>
+  </div>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // The party-code alphabet used by the app (features/party/PartyRepository.kt).
+  var ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  var CODE_LENGTH = 6;
+  var SCHEME = "streambridge://party/";
+  var INSTALL_URL = "https://github.com/sascio/MyBridge/releases/latest";
+
+  function normalize(raw) {
+    var upper = String(raw || "").toUpperCase();
+    var filtered = "";
+    for (var i = 0; i < upper.length; i++) {
+      if (ALPHABET.indexOf(upper[i]) !== -1) filtered += upper[i];
+    }
+    return filtered;
+  }
+
+  function codeFromLocation() {
+    var params = new URLSearchParams(window.location.search);
+    var fromQuery = params.get("code");
+    if (fromQuery) return normalize(fromQuery);
+
+    // Also accept /party/<code> so a pasted path-style link keeps working.
+    var parts = window.location.pathname.split("/").filter(Boolean);
+    var partyIndex = parts.lastIndexOf("party");
+    if (partyIndex !== -1 && parts.length > partyIndex + 1) {
+      return normalize(parts[partyIndex + 1]);
+    }
+    return "";
+  }
+
+  function formatted(code) {
+    return code.slice(0, 3) + " " + code.slice(3);
+  }
+
+  var code = codeFromLocation();
+  var valid = code.length === CODE_LENGTH;
+  var deepLink = SCHEME + code;
+
+  var title = document.getElementById("title");
+  var subtitle = document.getElementById("subtitle");
+  var codeBlock = document.getElementById("code-block");
+  var codeEl = document.getElementById("code");
+  var openLink = document.getElementById("open-link");
+  var copyButton = document.getElementById("copy");
+  var fallback = document.getElementById("fallback");
+  var invalid = document.getElementById("invalid");
+  var retry = document.getElementById("retry");
+  var install = document.getElementById("install");
+
+  install.href = INSTALL_URL;
+
+  if (!valid) {
+    subtitle.classList.add("hidden");
+    invalid.classList.remove("hidden");
+    return;
+  }
+
+  title.textContent = "You are invited";
+  subtitle.textContent = "Joining a StreamBridge watch party";
+  codeEl.textContent = formatted(code);
+  openLink.href = deepLink;
+  retry.href = deepLink;
+  codeBlock.classList.remove("hidden");
+
+  function openApp() {
+    window.location.href = deepLink;
+  }
+
+  var stillHere = true;
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) stillHere = false;
+  });
+
+  // Attempt the hand-off straight away. Most browsers show a confirmation
+  // before leaving the page, which is why the button stays available.
+  setTimeout(openApp, 250);
+
+  // If the page is still in the foreground a moment later the app is almost
+  // certainly not installed, so show the fallback instead of a dead end.
+  setTimeout(function () {
+    if (!stillHere || document.hidden) return;
+    subtitle.textContent = "Party code " + formatted(code);
+    fallback.classList.remove("hidden");
+  }, 2200);
+
+  copyButton.addEventListener("click", function () {
+    var done = function () {
+      copyButton.textContent = "Copied";
+      setTimeout(function () { copyButton.textContent = "Copy party code"; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(formatted(code)).then(done, done);
+    } else {
+      done();
+    }
+  });
+})();
+</script>
+</body>
+</html>

@@ -711,8 +711,39 @@ fun isValidPartyCode(input: String): Boolean = normalizePartyCode(input).length 
 fun formatPartyCode(code: String): String =
     normalizePartyCode(code).let { if (it.length == PARTY_CODE_LENGTH) "${it.take(3)} ${it.drop(3)}" else it }
 
-fun partyInviteLink(code: String): String =
-    if (ServerConfigurationRepository.active.value.isCustom) "nuvio://party/$code" else "https://nuvio.tv/party/$code"
+/**
+ * StreamBridge's own deep-link scheme.
+ *
+ * Watch-party invites used to be shared on Nuvio's website, a NuvioMedia-owned
+ * address that StreamBridge neither controls nor can redirect.
+ * Invites now use the StreamBridge scheme, which the Android manifest and the
+ * iOS URL types register, so tapping the link opens the party inside StreamBridge.
+ *
+ * `nuvio://` stays registered and parsed for backward compatibility (OAuth
+ * callbacks, previously shared links, notification deep links).
+ */
+const val STREAMBRIDGE_URL_SCHEME = "streambridge"
+
+/** Where a recipient without StreamBridge installed can get the app. */
+const val STREAMBRIDGE_INSTALL_URL = "https://github.com/sascio/MyBridge/releases/latest"
+
+/**
+ * The address of the StreamBridge-hosted invite redirect page.
+ *
+ * The page is published from `site/` in this repository and turns an https invite
+ * into the [STREAMBRIDGE_URL_SCHEME] deep link, with install instructions as a
+ * fallback. It is only reachable once GitHub Pages is enabled for the repository
+ * (see docs/WATCH-PARTY-LINKS.md); [partyInviteLink] therefore hands out the deep
+ * link itself, which works with no web hosting at all.
+ */
+const val STREAMBRIDGE_INVITE_REDIRECT_BASE_URL = "https://sascio.github.io/MyBridge/party/"
+
+/**
+ * The link shared in a watch-party invite: a StreamBridge-owned deep link that
+ * opens the party in the app. The party code is normalised here so the link never
+ * carries spaces, lowercase letters or code-alphabet-excluded characters.
+ */
+fun partyInviteLink(code: String): String = "$STREAMBRIDGE_URL_SCHEME://party/${normalizePartyCode(code)}"
 
 const val PARTY_CODE_LENGTH = 6
 private const val PARTY_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"

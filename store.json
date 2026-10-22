@@ -16,18 +16,8 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.13/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.12/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
-        {
-          "version": "0.1.13",
-          "buildVersion": "113",
-          "date": "2026-10-22T05:56:15Z",
-          "localizedDescription": "## StreamBridge 0.1.13\r\n\r\n### What's new\r\n- Upstream 0.6.3\r\n- Watch Party: in-party chat, plus a phone companion that links to the party with the same profile.\r\n- Player: badges for what is actually playing, the engine switch moved to the top row behind a confirmation, and centre controls that stay put on pause.\r\n- Subtitles: import your own subtitle font and tune a text shadow on both the ExoPlayer and libmpv paths.\r\n- Liquid Glass: configurable navigation-bar glass with a live preview, plus glass search and stream filtering.\r\n- Library: custom posters now also appear in the library catalog view; binge groups keep the info hash and filename.\r\n- Discord Rich Presence: optional and off by default (Settings -> Integrations).\r\n- Backgrounding: pausing a video and switching apps no longer returns you to profile selection or Home; the restored screen keeps its navigation history.\r\n- Languages: Hungarian and Vietnamese coverage, plus pt-BR additions for party and autosync.\r\n- Updated the app to version 0.1.13.\r\n\r\n### Android\r\n\r\nProduction-signed, one APK per ABI. Install the APK that matches your device; in-place updates need the same signing certificate. Verify downloads against `checksums.sha256`.\r\n\r\n### iOS status\r\n\r\nThe iOS build is produced from the same tag by an independent job and is attached to this release when it finishes. An unsigned IPA is never a prerequisite for the Android release; if this section is still present, the IPA has not been attached yet.\r\n",
-          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.13/StreamBridge-0.1.13-iOS-unsigned.ipa",
-          "size": 73041169,
-          "sha256": "6933b5510a55be51302e0ebbf33f9d7edcc25832a4b8bfb8e65c89487dd0aef3",
-          "minOSVersion": "16.1"
-        },
         {
           "version": "0.1.12",
           "buildVersion": "112",
@@ -79,5 +69,5 @@
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.13/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.12/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }

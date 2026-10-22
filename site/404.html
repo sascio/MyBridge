@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StreamBridge</title>
+<link rel="canonical" href="https://sascio.github.io/MyBridge/">
+<script>
+(function () {
+  "use strict";
+  // Static hosting cannot rewrite /party/<code> to the invite page, so this
+  // not-found page forwards path-style invite links to the canonical form and
+  // sends every other unknown path to the site root.
+  var parts = window.location.pathname.split("/").filter(Boolean);
+  var partyIndex = parts.lastIndexOf("party");
+  if (partyIndex !== -1 && parts.length > partyIndex + 1) {
+    var code = parts[partyIndex + 1].toUpperCase();
+    window.location.replace("/MyBridge/party/?code=" + encodeURIComponent(code));
+    return;
+  }
+  window.location.replace("/MyBridge/");
+})();
+</script>
+</head>
+<body>
+<p>Redirecting&hellip; <a href="https://sascio.github.io/MyBridge/">StreamBridge</a></p>
+</body>
+</html>
