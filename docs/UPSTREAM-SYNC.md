@@ -6,10 +6,10 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `1cfae0fe7402f5e6f1fedad393d50d83775586fa` |
-| Release | 0.6.2-beta (`chore(store): publish 0.6.2-beta`, 2026-10-18) |
-| Enhanced overlay | `5d978096f9eb04a62a6bc3a5d6999bdccab4c9cb` (tag `0.6.2-beta`, 2026-10-19) |
-| Previous pin | 0.6.1-beta (`79b750f3`) + Enhanced `504014d3` |
+| Commit | `014fa2e2f8e2f4914e09d117ffe29d1eefcc6275` |
+| Release | 0.6.3-beta (`bump version`, 2026-10-21) |
+| Enhanced overlay | `b9504e1a3bfd212cb32a54138b149ea1995b65c7` (tag `0.6.3-beta`; official 0.6.3 is an ancestor) |
+| Previous pin | 0.6.2-beta (`1cfae0fe`) + Enhanced `5d978096` |
 
 ## Important: upstream rewrote history (historical note)
 
@@ -43,7 +43,7 @@ never touched them), 27 merged with `git merge-file` to preserve StreamBridge
 customisations, 39 added, 3 deleted, 1 restored. No upstream git history was
 merged; the branch stays linear.
 
-Scope and status: [upstream-parity-0.6.2.md](upstream-parity-0.6.2.md).
+Scope and status: [upstream-parity-0.6.3.md](upstream-parity-0.6.3.md).
 Notable: Watch Party chat and party fixes, Liquid Glass (`haze` → `backdrop`),
 player pinch-zoom / Fill stretch / orientation toggle, optional libmpv-libass
 subtitle renderer with an NDK-built JNI module, anime ID mapper for
@@ -311,7 +311,40 @@ StreamBridge-specific Simkl guards (the "never send a whole-series mark to
 Simkl" rule and the explicit-completed-series move), and filters already
 watched titles out of the end-of-movie recommendation card.
 
-`docs/upstream-parity-0.6.2.md` records the measured comparison: 1325 Kotlin
-files identical to the 0.6.2 tree, 99 divergent (13 of them changed by 0.6.2,
-the rest StreamBridge fork decisions), and no upstream 0.6.2 source line
-missing from a file StreamBridge owns.
+The measurement taken at that time was 1325 Kotlin files identical to the 0.6.2
+tree, 99 divergent (13 of them changed by 0.6.2, the rest StreamBridge fork
+decisions), and no upstream 0.6.2 source line missing from a file StreamBridge
+owns. The current numbers live in
+[upstream-parity-0.6.3.md](upstream-parity-0.6.3.md).
+
+## 0.1.13 — official + Enhanced 0.6.3
+
+Pins: NuvioMobile `014fa2e2` (tag `0.6.3-beta`, 2026-10-21) and
+NuvioMobile-Enhanced `b9504e1a` (tag `0.6.3-beta`). Official 0.6.3 is an
+ancestor of Enhanced 0.6.3, so the Enhanced pin carries both.
+
+The delta was measured before anything was copied: official 0.6.2 → 0.6.3 is
+35 commits over 52 files (18 added, 34 modified); Enhanced 0.6.2 → 0.6.3 is 60
+commits over 132 files (45 added, 86 modified, 1 deleted). All 132 paths were
+classified against this tree and integrated with the same three-way method as
+before (official 0.6.2 blob as the merge base): 45 added verbatim, 67 taken
+verbatim because StreamBridge had never touched them, 17 three-way merged, 1
+upstream deletion applied, 2 StreamBridge-owned files skipped (`store.json`,
+`Version.xcconfig`).
+
+Result: 1358 of upstream's 1465 Kotlin files are byte-identical here, and the
+only delta paths that still differ from upstream are the 9 files where a
+StreamBridge customisation was merged in. No upstream 0.6.3 change was skipped
+for difficulty. Full matrix, the background-return fix and the Trakt findings:
+[upstream-parity-0.6.3.md](upstream-parity-0.6.3.md).
+
+New in this release beyond the sync:
+
+* `AppGateSessionRestore.kt` + `AppGate` wiring — a session Android restored
+  after backgrounding keeps its screen and navigation history instead of
+  replaying the cold-start profile gate (the "pause → switch app → profile
+  selection / Home" bug). The activity also stops replaying its launch intent
+  when it is being restored.
+* Trakt investigated, **not** rewritten: still client-id + client-secret, no
+  PKCE, `api.trakt.tv`; id-only PKCE is scheduled for 0.1.14.
+* Discord Rich Presence is opt-in and disabled by default.

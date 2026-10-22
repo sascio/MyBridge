@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.12</strong> (112)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.13</strong> (113)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,23 +18,27 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.12
+## Highlights in 0.1.13
 
-- **Simkl** — multi-season anime collapses into one Continue Watching entry, next-up seeds
-  resolve to the series, and Simkl IDs survive library refreshes.
-- **Recommendations** — the end-of-movie card no longer offers titles you have already watched.
-- **Watch Party** — create or join a party, chat while you watch, and keep playback in sync.
-  Opening Watch Party from Settings or from an invite link works again; 0.1.10 could crash on that tap.
-- **Liquid Glass** — the Android interface (including the player) uses the new glass surface
-  system, with a toggle in Settings for anyone who prefers the flat look.
-- **Player controls** — pinch to zoom, Fill stretch on the MPV path, an orientation toggle for
-  portrait videos, and an optional libmpv/libass renderer for ASS/SSA subtitles on the ExoPlayer
-  path.
-- **Tracking** — a shared anime ID mapper for Trakt, MDBList and WeTrakr, Trakt anime watched
-  sync, and Simkl now moves explicitly watched series to Completed.
-- **Stream selection** — binge groups are matched by filename and info hash, so the right episode
-  is picked more often.
-- **Languages** — new Greek and Brazilian Portuguese coverage, plus Italian fixes.
+- **Upstream 0.6.3** — the official NuvioMobile 0.6.3-beta and NuvioMobile-Enhanced
+  0.6.3-beta trees are both integrated (see
+  [docs/upstream-parity-0.6.3.md](docs/upstream-parity-0.6.3.md)).
+- **Watch Party** — in-party chat, and a phone companion that links to the party with the same
+  profile so you can type on your phone while the video plays.
+- **Player** — badges showing what is actually playing (resolution, HDR, codec, audio, language),
+  the engine switch moved to the top row behind a confirmation, and centre controls that no longer
+  jump when you pause.
+- **Subtitles** — import your own subtitle font, and tune a text shadow for both the ExoPlayer and
+  libmpv paths.
+- **Liquid Glass** — configurable glass for the navigation bar (with a live preview) plus glass
+  search and stream filtering; the search, filter and stream cards are legible over bright artwork.
+- **Library** — custom posters now also appear in the library's catalog view, and binge groups store
+  the info hash and filename reliably.
+- **Discord Rich Presence** — optional, **off by default**; turn it on in Settings → Integrations.
+- **Coming back from the background** — pausing a video and switching apps no longer drops you on
+  profile selection or Home: the restored screen and its navigation history survive, and sign-out
+  still returns to the profile gate.
+- **Languages** — new Hungarian and Vietnamese coverage, pt-BR additions for party/autosync.
 
 ## Features
 
@@ -109,7 +113,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.12-iOS-unsigned.ipa`
+- `StreamBridge-0.1.13-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
@@ -161,7 +165,7 @@ The IPA is written to `build/ios-ipa/` unsigned. See [docs/RELEASE-IOS.md](docs/
 
 ## Releases
 
-- Android and iOS are released from the same tag (`v0.1.12`), but their builds are independent.
+- Android and iOS are released from the same tag (`v0.1.13`), but their builds are independent.
   The production release workflow publishes the Android APKs as soon as the verified Android job
   succeeds; the unsigned iOS IPA is attached when its own build finishes, so an iOS build can never
   hold up an Android release.
@@ -212,7 +216,7 @@ StreamBridge is an independent project maintained at `sascio/MyBridge`. It is no
 Nuvio release and is not affiliated with or endorsed by NuvioMedia. Its core is derived from the
 GPL-3.0 NuvioMobile and NuvioMobile-Enhanced projects; the exact pins, copyright holders and
 license texts are recorded in [NOTICE](NOTICE) and the upstream parity notes in
-[docs/upstream-parity-0.6.2.md](docs/upstream-parity-0.6.2.md). Portions of the optional
+[docs/upstream-parity-0.6.3.md](docs/upstream-parity-0.6.3.md). Portions of the optional
 libmpv/libass subtitle renderer come from AIOStreams and remain under AGPL-3.0; see
 `third_party/AIOStreams/`.
 

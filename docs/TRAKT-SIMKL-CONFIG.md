@@ -39,6 +39,23 @@ client id. MDBList uses the OAuth 2.0 device-authorization grant and only needs 
 client id — **there is no `MDBLIST_CLIENT_SECRET`**, because a device-flow client
 is a public client. Do not add one.
 
+### Trakt: current flow vs Trakt's current documentation
+
+StreamBridge (like both upstream pins, `014fa2e2` and `b9504e1a`) uses the classic
+authorization-code flow with a **client secret**: authorize at
+`https://trakt.tv/oauth/authorize`, exchange/refresh/revoke at
+`https://api.trakt.tv/oauth/*`, and no `code_challenge` anywhere. Only Simkl uses
+PKCE (S256, `features/simkl/SimklPkce.kt`).
+
+Trakt's documentation has moved on: apps created today receive a Client ID only,
+PKCE is the recommended sign-in, the client secret is optional and deprecated for
+user sign-in, and OAuth calls should target `auth.trakt.tv`. An ID-only PKCE
+rewrite is scheduled for **0.1.14**; until then a Trakt registration with a
+secret is what this build expects. Do not add a secret that you do not have —
+an unconfigured build says so instead of starting an OAuth request that cannot
+succeed. The full comparison is in
+[upstream-parity-0.6.3.md](upstream-parity-0.6.3.md) (section "Trakt").
+
 ## Sources and precedence
 
 There are two resolution paths, and they are deliberately different.

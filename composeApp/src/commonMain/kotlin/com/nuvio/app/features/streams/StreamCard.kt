@@ -45,6 +45,9 @@ import com.nuvio.app.core.ui.SkeletonBlock
 import com.nuvio.app.features.debrid.DebridProviders
 import androidx.compose.ui.graphics.compositeOver
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
+import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
 
 internal val LocalStreamHighlight = staticCompositionLocalOf<(StreamItem) -> String?> { { null } }
 
@@ -68,10 +71,9 @@ internal fun StreamCard(
     modifier: Modifier = Modifier,
     isCurrent: Boolean = false,
     currentLabel: String? = null,
+    outlined: Boolean = false,
 ) {
-    val highlightLabel = if (isCurrent) null else LocalStreamHighlight.current(stream)
-    val marked = isCurrent || highlightLabel != null
-    val markedLabel = if (isCurrent) currentLabel else highlightLabel
+    val partyLabel = if (isCurrent) null else LocalStreamHighlight.current(stream)
     val cardShape = RoundedCornerShape(12.dp)
     val badgeImages = stream.badges.filter { it.imageURL.isNotBlank() }
     val hasBadges = badgeImages.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints.videoSize != null)
@@ -88,12 +90,12 @@ internal fun StreamCard(
             .clip(cardShape)
             .ambientLiquidGlass(
                 shape = cardShape,
-                tint = if (marked) {
+                tint = if (isCurrent) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 } else {
                     Color.White.copy(alpha = 0.05f)
-                }.compositeOver(Color.Black.copy(alpha = 0.55f)),
-                fallback = if (marked) {
+                }.compositeOver(Color.Black.copy(alpha = StreamGlassTintAlpha)),
+                fallback = if (isCurrent) {
                     MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 } else {
                     Color.White.copy(alpha = 0.05f)
@@ -101,7 +103,7 @@ internal fun StreamCard(
                 blurRadius = 18.dp,
             )
             .then(
-                if (marked) {
+                if (isCurrent || outlined) {
                     Modifier.border(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.52f),
@@ -133,9 +135,20 @@ internal fun StreamCard(
                 stream = stream,
                 appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
             ) {
-                if (marked && !markedLabel.isNullOrBlank()) {
+                if (isCurrent && !currentLabel.isNullOrBlank()) {
                     Spacer(modifier = Modifier.width(8.dp))
-                    CurrentStreamBadge(label = markedLabel)
+                    CurrentStreamBadge(label = currentLabel)
+                }
+                if (partyLabel != null) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = partyLabel,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
 
@@ -147,8 +160,9 @@ internal fun StreamCard(
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = 12.sp,
                         lineHeight = 18.sp,
+                        shadow = streamGlassTextShadow(),
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White,
                 )
             }
 
@@ -180,8 +194,8 @@ internal fun StreamCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = stream.addonName,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, shadow = streamGlassTextShadow()),
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -238,6 +252,7 @@ private fun StreamNameWithInstantService(
         fontWeight = FontWeight.Bold,
         lineHeight = 20.sp,
         letterSpacing = 0.sp,
+        shadow = streamGlassTextShadow(),
     )
     val instantLabel = if (appendInstantServiceToDefaultName) {
         stream.instantServiceLabel()
@@ -258,7 +273,7 @@ private fun StreamNameWithInstantService(
             text = stream.streamLabel,
             modifier = Modifier.weight(1f, fill = false),
             style = nameStyle,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = Color.White,
         )
         AnimatedVisibility(
             visibleState = visibleState,
@@ -277,7 +292,7 @@ private fun StreamNameWithInstantService(
             Text(
                 text = " ${instantLabel.orEmpty()}",
                 style = nameStyle,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = Color.White,
             )
         }
         trailingContent()
@@ -302,6 +317,18 @@ private fun CurrentStreamBadge(label: String) {
         )
     }
 }
+
+internal const val StreamGlassTintAlpha = 0.55f
+
+private val StreamGlassTextShadow = Shadow(
+    color = Color.Black.copy(alpha = 0.6f),
+    offset = Offset(0f, 1f),
+    blurRadius = 4f,
+)
+
+@Composable
+internal fun streamGlassTextShadow(): Shadow? =
+    if (isAmbientLiquidGlassActive()) StreamGlassTextShadow else null
 
 private fun StreamItem.instantServiceLabel(): String? {
     val status = debridCacheStatus ?: return null

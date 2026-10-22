@@ -974,6 +974,7 @@ private fun MobileSettingsScreen(
                     onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                     onOmdbClick = { onPageChange(SettingsPage.Omdb) },
                     onLiveTvClick = { onPageChange(SettingsPage.LiveTv) },
+                    onDiscordClick = { onPageChange(SettingsPage.DiscordRpc) },
                 )
                 SettingsPage.Debrid -> debridSettingsContent(
                     isTablet = false,
@@ -1002,6 +1003,9 @@ private fun MobileSettingsScreen(
                 SettingsPage.LiveTv -> liveTvSettingsContent(
                     isTablet = false,
                     uiState = liveTvUiState,
+                )
+                SettingsPage.DiscordRpc -> discordRpcSettingsContent(
+                    isTablet = false,
                 )
             }
         }
@@ -1473,6 +1477,7 @@ private fun TabletSettingsScreen(
                         onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                         onOmdbClick = { onPageChange(SettingsPage.Omdb) },
                         onLiveTvClick = { onPageChange(SettingsPage.LiveTv) },
+                        onDiscordClick = { onPageChange(SettingsPage.DiscordRpc) },
                     )
                     SettingsPage.Debrid -> debridSettingsContent(
                         isTablet = true,
@@ -1501,6 +1506,9 @@ private fun TabletSettingsScreen(
                     SettingsPage.LiveTv -> liveTvSettingsContent(
                         isTablet = true,
                         uiState = liveTvUiState,
+                    )
+                    SettingsPage.DiscordRpc -> discordRpcSettingsContent(
+                        isTablet = true,
                     )
                 }
             }

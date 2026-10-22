@@ -43,6 +43,7 @@ fun App(
     onTabTitles: ((home: String, search: String, library: String, profile: String, switchProfile: String, addProfile: String) -> Unit)? = null,
     nativeProfileSwitcherController: NativeProfileSwitcherController? = null,
     appGateController: AppGateController? = null,
+    restoredFromSavedState: Boolean = false,
 ) {
     AppEnvironment {
         AppGate(
@@ -64,6 +65,7 @@ fun App(
             onTabTitles = onTabTitles,
             nativeProfileSwitcherController = nativeProfileSwitcherController,
             appGateController = appGateController,
+            restoredFromSavedState = restoredFromSavedState,
         )
     }
 }

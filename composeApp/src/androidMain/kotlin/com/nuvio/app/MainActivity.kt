@@ -29,6 +29,7 @@ import com.nuvio.app.features.addons.AddonStorage
 import com.nuvio.app.features.collection.CollectionMobileSettingsStorage
 import com.nuvio.app.features.collection.CollectionStorage
 import com.nuvio.app.features.debrid.DebridSettingsStorage
+import com.nuvio.app.features.discord.DiscordRpcStorage
 import com.nuvio.app.features.downloads.DownloadNetworkGuard
 import com.nuvio.app.features.downloads.DownloadsLiveStatusPlatform
 import com.nuvio.app.features.downloads.DownloadsPlatformDownloader
@@ -131,6 +132,7 @@ open class MainActivity : AppCompatActivity() {
         com.nuvio.app.features.shuffle.EpisodeShuffleStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)
         PlayerSettingsStorage.initialize(applicationContext)
+        com.nuvio.app.features.player.SubtitleFontFiles.initialize(applicationContext)
         com.nuvio.app.features.player.seekpreview.SeekPreviewAndroid.initialize(applicationContext)
         PlayerTrackPreferenceStorage.initialize(applicationContext)
         P2pSettingsStorage.initialize(applicationContext)
@@ -174,6 +176,7 @@ open class MainActivity : AppCompatActivity() {
         PlatformAniListSyncStorage.initialize(applicationContext)
         PlatformWeTrakrAuthPersistence.initialize(applicationContext)
         PlatformWeTrakrSyncStorage.initialize(applicationContext)
+        DiscordRpcStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)
         LibraryDisplaySettingsStorage.initialize(applicationContext)
@@ -200,23 +203,30 @@ open class MainActivity : AppCompatActivity() {
         EpisodeReleaseNotificationPlatform.initialize(applicationContext)
         EpisodeReleaseNotificationPlatform.bindActivity(this)
 
+        // A non-null bundle means Android is rebuilding an activity the user already had open
+        // (configuration change or process death while backgrounded). Restored state must win over
+        // cold-start routing, and the launch intent must not be replayed: redelivering the original
+        // deep link here used to yank a restored session away from wherever it was.
+        val restoredFromSavedState = savedInstanceState != null
         if (StartupPreloader.isComplete) {
-            showContent()
+            showContent(restoredFromSavedState)
         } else {
             startupScope.launch {
                 StartupPreloader.awaitReady()
-                if (!isFinishing && !isDestroyed) showContent()
+                if (!isFinishing && !isDestroyed) showContent(restoredFromSavedState)
             }
         }
     }
 
-    private fun showContent() {
-        handleIncomingAppIntent(intent)
+    private fun showContent(restoredFromSavedState: Boolean) {
+        if (!restoredFromSavedState) {
+            handleIncomingAppIntent(intent)
+        }
         setContent {
             val sheetBackdropSource = rememberNuvioBackdrop()
             val sheetBackdrop = remember(sheetBackdropSource) { NuvioSheetBackdrop(sheetBackdropSource) }
             NuvioSheetBackdropHost(sheetBackdrop = sheetBackdrop) {
-                App()
+                App(restoredFromSavedState = restoredFromSavedState)
             }
         }
         contentReady = true
