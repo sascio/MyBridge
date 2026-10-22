@@ -9,6 +9,16 @@ name: Update Sideload Source
 # size are verified against the release metadata, and the script refuses anything
 # that is signed, mis-branded or of the wrong version.
 #
+# Release lookup lives in scripts/release-lookup.sh so its failure modes are
+# covered by scripts/tests/release-lookup-test.sh. The v0.1.13 release failed here
+# because `GET /releases/tags/v0.1.13` answers 404 for a *draft* release, which the
+# previous inline lookup reported as a fatal `gh: Not Found`:
+#
+#   * a draft release    -> skip (store.json must never describe an unpublished release)
+#   * no IPA yet         -> skip (Android and iOS publish independently)
+#   * release missing    -> bounded retry, then a hard failure
+#   * 401/403/5xx        -> hard failure, never a silent skip
+#
 # The release channel is the default branch because AltStore fetches store.json
 # over raw.githubusercontent.com from a stable ref. Set the repository variable
 # STREAMBRIDGE_SOURCE_BRANCH to publish the source from a different branch.
@@ -57,61 +67,50 @@ jobs:
           ref: ${{ env.SOURCE_BRANCH }}
           fetch-depth: 0
 
-      - name: Download and verify published IPA
+      - name: Resolve the published release and its IPA
         id: ipa
+        run: |
+          set -uo pipefail
+          rc=0
+          # Blocks until the release is published, with a bounded retry for the
+          # brief window between "release created" and "release visible". The
+          # script writes skip=true to $GITHUB_OUTPUT for the two skip cases.
+          scripts/release-lookup.sh resolve \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${RELEASE_TAG}" \
+            --json "${RUNNER_TEMP}/release.json" \
+            --attempts 6 \
+            --delay 10 || rc=$?
+          case "${rc}" in
+            0) ;;
+            20|22) exit 0 ;;
+            *) echo "::error::Release lookup for ${RELEASE_TAG} failed with exit ${rc}."; exit "${rc}" ;;
+          esac
+
+      - name: Download and verify the published IPA
+        id: download
+        if: steps.ipa.outputs.skip != 'true'
         run: |
           set -euo pipefail
           release_json="${RUNNER_TEMP}/release.json"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${release_json}"
-
-          if [[ "$(jq -r '.draft' "${release_json}")" != "false" ]]; then
-            echo "Release ${RELEASE_TAG} is not public." >&2
+          ipa_name="${{ steps.ipa.outputs.ipa_name }}"
+          if [[ -z "${ipa_name}" ]]; then
+            echo "::error::No IPA name was resolved for ${RELEASE_TAG}."
             exit 1
           fi
 
-          ipa_names=()
-          while IFS= read -r name; do
-            [[ -n "${name}" ]] && ipa_names+=("${name}")
-          done < <(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")
-
-          # Android and iOS are released independently. A release that is still
-          # waiting for its IPA (or an Android-only hotfix) must not fail this
-          # workflow: there is simply nothing to publish into store.json yet.
-          if (( ${#ipa_names[@]} == 0 )); then
-            echo "::notice::Release ${RELEASE_TAG} has no IPA asset yet; store.json is left unchanged."
-            echo "skip=true" >> "${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          if (( ${#ipa_names[@]} > 1 )); then
-            echo "Expected at most one published IPA, found ${#ipa_names[@]}." >&2
-            exit 1
-          fi
-
-          ipa_name="${ipa_names[0]}"
           mkdir -p source-assets
           gh release download "${RELEASE_TAG}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pattern "${ipa_name}" \
             --dir source-assets
 
-          ipa_file="source-assets/${ipa_name}"
-          remote_size="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .size' "${release_json}")"
-          local_size="$(stat -c '%s' "${ipa_file}")"
-          if [[ "${remote_size}" != "${local_size}" ]]; then
-            echo "Published IPA size ${remote_size} does not match downloaded size ${local_size}." >&2
-            exit 1
-          fi
-
-          # The release asset digest is only exposed on newer API versions; verify
-          # it when present so a corrupted upload can never reach users.
-          remote_digest="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .digest // empty' "${release_json}")"
-          if [[ -n "${remote_digest}" ]]; then
-            local_digest="$(sha256sum "${ipa_file}" | awk '{print $1}')"
-            if [[ "${remote_digest}" != "sha256:${local_digest}" ]]; then
-              echo "Published IPA digest ${remote_digest} does not match sha256:${local_digest}." >&2
-              exit 1
-            fi
-          fi
+          # Size and, when the API exposes it, the SHA-256 digest must match the
+          # release asset before its metadata can reach store.json.
+          scripts/release-lookup.sh verify-asset \
+            --file "source-assets/${ipa_name}" \
+            --name "${ipa_name}" \
+            --json "${release_json}"
 
       - name: Update sideload source
         if: steps.ipa.outputs.skip != 'true'
@@ -119,16 +118,16 @@ jobs:
           set -euo pipefail
           release_json="${RUNNER_TEMP}/release.json"
           release_notes="${RUNNER_TEMP}/release-notes.md"
-          ipa_name="$(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")"
+          ipa_name="${{ steps.ipa.outputs.ipa_name }}"
           release_date="$(jq -r '.published_at // empty' "${release_json}")"
-          download_url="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .browser_download_url' "${release_json}")"
+          download_url="${{ steps.ipa.outputs.ipa_url }}"
 
           if [[ -z "${release_date}" ]]; then
-            echo "Published release ${RELEASE_TAG} has no publication date." >&2
+            echo "::error::Published release ${RELEASE_TAG} has no publication date."
             exit 1
           fi
           if [[ -z "${download_url}" || "${download_url}" == "null" ]]; then
-            echo "Published release ${RELEASE_TAG} has no download URL for ${ipa_name}." >&2
+            echo "::error::Published release ${RELEASE_TAG} has no download URL for ${ipa_name}."
             exit 1
           fi
 
@@ -146,6 +145,30 @@ jobs:
             --release-date "${release_date}" \
             --download-url "${download_url}" \
             --icon-url "${icon_url}"
+
+      - name: Verify the source only advertises downloadable assets
+        if: steps.ipa.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          # store.json is what AltStore follows, so every URL it publishes has to
+          # resolve right now. This also catches a typo in the download URL or a
+          # download URL that github.com has already stopped serving.
+          failed=0
+          while IFS= read -r url; do
+            [[ -z "${url}" || "${url}" == "null" ]] && continue
+            # A one-byte range request keeps the check cheap for a 70 MB IPA while
+            # still proving that github.com serves the asset right now.
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -L -r 0-0 --retry 3 --retry-delay 2 --max-time 60 "${url}" || echo 000)"
+            if [[ "${code}" == "200" ]]; then
+              echo "store.json asset reachable: ${url}"
+            else
+              echo "::error::store.json advertises ${url}, which answered HTTP ${code}."
+              failed=1
+            fi
+          done < <(jq -r '.apps[].versions[] | .downloadURL' store.json)
+          if [[ "${failed}" -ne 0 ]]; then
+            exit 1
+          fi
 
       - name: Commit sideload source
         if: steps.ipa.outputs.skip != 'true'

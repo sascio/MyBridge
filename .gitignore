@@ -38,6 +38,9 @@ AGENTS.md
 PERFORMANCE_FINDINGS.md
 scripts/*
 !scripts/sign-ios-device-app.py
+!scripts/release-lookup.sh
+!scripts/tests/
+!scripts/tests/**
 # iOS release helpers are checked in: they are part of the release workflow.
 !scripts/build-ios-ipa.sh
 !scripts/prepare-ios-dependencies.sh
