@@ -43,8 +43,11 @@ run "the sideload workflow uses the tested lookup instead of an inline releases/
 run "the sideload workflow verifies size and digest before writing store.json" \
   bash -c 'grep -q "verify-asset" .github/workflows/update-store-source.yml'
 
+run "manual sideload-source dispatch derives the release version from its tag input" \
+  bash -c 'grep -Fq '\''RELEASE_VERSION: ${{ inputs.version || inputs.tag || github.event.release.tag_name }}'\'' .github/workflows/update-store-source.yml'
+
 run "the release workflow refuses to reuse a tag for a newer commit" \
-  bash -c 'grep -q "refusing to create or publish a mismatched release" scripts/verify-release-target.sh'
+  bash -c 'grep -q "refusing to build or publish from a mismatched tag" scripts/verify-release-target.sh'
 
 run "draft releases and assets are handled by ID rather than tag-based gh release commands" \
   bash -c 'grep -q "scripts/release-api.sh lookup" .github/workflows/release-draft.yml &&

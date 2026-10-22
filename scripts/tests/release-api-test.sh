@@ -103,7 +103,7 @@ jq -s '.' "${WORKDIR}/draft-release.json" >"${FAKE_RELEASE_LIST_FILE}"
 rm -f "${FAKE_UPLOAD_MARKER}" "${FAKE_PATCH_MARKER}"
 
 lookup_json="${WORKDIR}/lookup.json"
-"${RELEASE_API}" lookup --repo test/repo --tag v0.1.13 --json "${lookup_json}" --attempts 1 --delay 0 >/dev/null
+"${RELEASE_API}" lookup --repo test/repo --tag v0.1.13 --json "${lookup_json}" --attempts 1 --delay 0 >/dev/null 2>&1
 if [[ "$(jq -r '.draft' "${lookup_json}")" == "true" && "$(jq -r '.id' "${lookup_json}")" == "42" ]]; then
   pass "lookup resolves a draft through the release list"
 else
@@ -125,7 +125,7 @@ jq --arg name "$(basename "${asset_file}")" --arg digest "${asset_digest}" --arg
   "${WORKDIR}/draft-release.json" >"${FAKE_RELEASE_FILE}"
 cp "${FAKE_RELEASE_FILE}" "${WORKDIR}/existing.json"
 rm -f "${FAKE_UPLOAD_MARKER}" "${FAKE_CURL_CAPTURE}"
-"${RELEASE_API}" ensure-asset --repo test/repo --json "${WORKDIR}/existing.json" --file "${asset_file}" >/dev/null
+"${RELEASE_API}" ensure-asset --repo test/repo --json "${WORKDIR}/existing.json" --file "${asset_file}" >/dev/null 2>&1
 if [[ ! -e "${FAKE_UPLOAD_MARKER}" ]]; then
   pass "identical uploaded asset is verified and never overwritten"
 else
@@ -152,7 +152,7 @@ jq --arg name "$(basename "${asset_file}")" --arg digest "${asset_digest}" --arg
   "${WORKDIR}/base-no-assets.json" >"${FAKE_RELEASE_AFTER_UPLOAD_FILE}"
 printf '[%s]\n' "$(cat "${FAKE_RELEASE_FILE}")" >"${FAKE_RELEASE_LIST_FILE}"
 rm -f "${FAKE_UPLOAD_MARKER}" "${FAKE_CURL_CAPTURE}"
-"${RELEASE_API}" ensure-asset --repo test/repo --json "${FAKE_RELEASE_FILE}" --file "${asset_file}" >/dev/null
+"${RELEASE_API}" ensure-asset --repo test/repo --json "${FAKE_RELEASE_FILE}" --file "${asset_file}" >/dev/null 2>&1
 if [[ -e "${FAKE_UPLOAD_MARKER}" \
   && "$(jq -r '.assets[0].digest' "${FAKE_RELEASE_FILE}")" == "${asset_digest}" \
   && "$(cat "${FAKE_CURL_CAPTURE}")" == *"uploads.github.com/repos/test/repo/releases/42/assets?name=StreamBridge-0.1.13-iOS-unsigned.ipa"* ]]; then
@@ -167,7 +167,7 @@ new_body="${old_body}"$'\n\n### iOS installation\n\nUnsigned test IPA.'
 printf '%s\n' "${new_body}" >"${WORKDIR}/body.md"
 jq --rawfile body "${WORKDIR}/body.md" '.body=$body' "${FAKE_RELEASE_FILE}" >"${FAKE_RELEASE_AFTER_PATCH_FILE}"
 rm -f "${FAKE_PATCH_MARKER}"
-"${RELEASE_API}" update-body --repo test/repo --json "${FAKE_RELEASE_FILE}" --body-file "${WORKDIR}/body.md" >/dev/null
+"${RELEASE_API}" update-body --repo test/repo --json "${FAKE_RELEASE_FILE}" --body-file "${WORKDIR}/body.md" >/dev/null 2>&1
 if [[ "$(jq -r '.draft' "${FAKE_RELEASE_FILE}")" == "true" \
   && "$(jq -r '.body' "${FAKE_RELEASE_FILE}")" == "${new_body}" \
   && "$(jq -r 'keys | join(",")' "${FAKE_PATCH_CAPTURE}")" == "body" ]]; then

@@ -124,7 +124,7 @@ if [[ "${VERIFY_TAG_REF}" == true ]]; then
   fi
   tag_commit="$(git rev-parse "refs/tags/${TAG}^{commit}")"
   [[ "${tag_commit}" == "${COMMIT}" ]] \
-    || fail "Immutable release tag ${TAG} points to ${tag_commit}, not approved fixes commit ${COMMIT}; refusing to create or publish a mismatched release."
+    || fail "Existing release tag ${TAG} points to ${tag_commit}, not approved fixes commit ${COMMIT}; refusing to build or publish from a mismatched tag."
 fi
 
 printf 'Verified release target: tag=%s version=%s code=%s commit=%s\n' \
