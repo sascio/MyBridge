@@ -187,6 +187,18 @@ One documentation error is corrected with this release: the 0.6.2 parity notes c
   and require a device; StreamBridge ships its own branding and test surface.
 * **`MdbListLibraryListsPicker.kt`, `SupportersContributorsPage.kt`** — superseded by StreamBridge's
   own picker and About/Supporters presentation.
+* **`ProfileAvatarBorderColorTest.kt`** — **dropped**. The file ships in Enhanced 0.6.3 but the
+  function it calls (`resolveProfileAvatarBorderColor`) is declared **nowhere in either upstream
+  tree** (`git grep` over `b9504e1a` and `014fa2e2` matches only the test itself), so it cannot
+  compile against upstream either. Porting it would mean inventing a profile-avatar-ring colour
+  feature that upstream does not have; the test is removed instead of a production symbol being
+  made up for it. If the feature lands upstream later it can be ported with its implementation.
+* **Two upstream host tests adapted to the current API** (upstream's own `androidHostTest` does not
+  compile at these pins):
+  `FloatingNavigationBarGestureTest.kt` now passes the two-argument
+  `FloatingNavigationItem.content` lambda that production code (upstream included) declares, and
+  `NavigationBarGlassSettingsTest.kt` swipes `centerLeft → centerRight` instead of reading a node
+  `size` that `InjectionScope` no longer exposes. Behaviour under test is unchanged.
 * **Upstream issue templates, stale bot and legacy workflows** — not imported.
 
 ## Known gaps

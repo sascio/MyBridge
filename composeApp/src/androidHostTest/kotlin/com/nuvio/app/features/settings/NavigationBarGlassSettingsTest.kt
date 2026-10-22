@@ -6,7 +6,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performTouchInput
@@ -105,9 +104,11 @@ class NavigationBarGlassSettingsTest {
         }
 
         compose.onNodeWithContentDescription("Corner radius").performTouchInput {
+            // `InjectionScope` exposes centre anchors rather than the node `size`; the
+            // slider is what is being dragged, so centre-left to centre-right is the same gesture.
             swipe(
-                start = Offset(size.width * 0.2f, size.height / 2f),
-                end = Offset(size.width * 0.8f, size.height / 2f),
+                start = centerLeft,
+                end = centerRight,
                 durationMillis = 250,
             )
         }
