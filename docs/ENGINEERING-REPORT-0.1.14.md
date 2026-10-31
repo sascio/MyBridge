@@ -14,6 +14,19 @@ Nothing is claimed that a run or a file in this repository does not show.
 | iOS bundle ID | `com.streambridge.app` | `iosApp/iosApp.xcodeproj/project.pbxproj` |
 | Release notes | `docs/RELEASE-NOTES-0.1.14.md` | same script |
 
+### 1a. Preflight baseline (verified through the API before touching anything)
+
+| Fact | Value |
+|---|---|
+| Repository | `sascio/MyBridge`, branch `main` at `77858b5` when the sync started |
+| Last published release | `v0.1.13` (2026-10-22): four per-ABI APKs 51.0–54.1 MB, `checksums.sha256`, `StreamBridge-0.1.13-iOS-unsigned.ipa` 73.0 MB |
+| `v0.1.14` tag | **exists already**: annotated tag `d1665269…` → commit `6e36312` (an earlier, superseded attempt). No release has ever been published for it |
+| GitHub Pages | not enabled (`GET /pages` → 404); the enable call is refused for this token (403) |
+| Workflow secrets | not readable with this token (`GET /actions/secrets` → 403), so the report does not claim which signing secrets exist |
+| Existing workflows | build, iOS release, release draft, store source, PR debug build, upstream watch |
+
+Nothing was moved, deleted or re-tagged during the work.
+
 ## 2. Upstream integration
 
 | | Repository | Reference | Commit |
@@ -70,7 +83,8 @@ redirect page cannot be served yet. The invites themselves are unaffected.
 | Android: unit tests, assemble, lint, CloudStream runtime, Play-Store boundary, size report | Build Stream Bridge | 41234647872 | `1fea81d` | success |
 | iOS unsigned IPA | StreamBridge iOS release | 41234647918 | `1fea81d` | success |
 | Script tests (release target, store source, version wiring) | Build Stream Bridge | same run | `1fea81d` | success |
-| Android (previous code-equivalent commit) | Build Stream Bridge | 41225110993 | `366974d` | success |
+| Android at HEAD (`4e04001`, documentation only) | Build Stream Bridge | 41242979488 | `4e04001` | success |
+| Android (earlier code-equivalent commit) | Build Stream Bridge | 41234647872 | `1fea81d` | success |
 
 ### 5a. iOS toolchain
 
