@@ -117,6 +117,30 @@ was lost in Enhanced's merge resolution:
 - Upstream's Nuvio-branded locales as a whole: the four newly added locale
   files were rebranded (see [BRANDING-AUDIT-0.1.14.md](BRANDING-AUDIT-0.1.14.md)).
 
+## Enhanced-only subsystems deliberately not integrated
+
+These existed in Nuvio Enhanced before 0.6.6 and still were not brought over;
+each is a self-contained subsystem, not a 0.6.6 change:
+
+| Subsystem | Why not integrated |
+|---|---|
+| MDBList library lists (`MdbListLibraryListsPicker`, `MdbListLibraryService.listOptions/setListVisible/setListVisibleAsync`, dynamic/external/liked list models in `MdbListLibraryModels`) | StreamBridge's MDBList layer is the official Nuvio one (library lists sync is Enhanced-only). 0.6.6's tracking page calls the picker, so that one section is omitted; MDBList account, ratings and sync settings are all kept |
+
+The rest of the tracking page 0.6.6 ships (AniList, WeTrakr, PublicMetaDB,
+rating-source preferences, Simkl copy) is integrated.
+
+## Files replaced after the automated pass
+
+The first mechanical pass left a few files inconsistent with the 0.6.6 tree
+because the three-way base for them was already several releases behind:
+
+| File | Resolution |
+|---|---|
+| `features/settings/{PlaybackSettingsPage, AppIconPlatform, SettingsComponents, AppearanceSettingsPage, AppearanceThemePicker, AdvancedSettingsPage, MdbListSettingsPage, PosterCustomizationSettingsPage, RatingsSettings, StreamsSettingsPage, ThemeColorPicker, TmdbSettingsPage}.kt` | Replaced with the 0.6.6 versions. `PlaybackSettingsPage` is now the 0.6.6 shell (the playback settings live in the `Playback*Settings.kt` files 0.6.6 split them into) and no longer declares a second `SettingsSliderRow`; `AppIconPlatform` declares the icon-key accessors the Android/iOS actuals implement |
+| `features/settings/TrackingProviderCards.kt` | 0.6.6 version plus StreamBridge's single delta: the Simkl PIN/device flow stays hidden because it still speaks AUTH V1 and V2 clients reject it |
+| `features/settings/SubtitleFontDialog.kt` | Deleted. 0.6.6 removed it along with `SubtitleFontRepository`; `SubtitleFontPicker` replaced it and is already present |
+| `features/home/components/HomeHeroSection.kt` | StreamBridge's hero kept (library add/check action, trailer stop/position fixes, dynamic artwork scrim). The hero therefore does not call 0.6.6's `HomeHeroMetaRows`; the details screen and its tests do |
+
 ## Known divergence after this sync
 
 - The home hero keeps StreamBridge's implementation, so 0.6.6's hero meta rows
