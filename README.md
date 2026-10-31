@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.13</strong> (113)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.14</strong> (114)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,36 +18,36 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.13
+## Highlights in 0.1.14
 
-- **Upstream 0.6.3** — the official NuvioMobile 0.6.3-beta and NuvioMobile-Enhanced
-  0.6.3-beta trees are both integrated (see
-  [docs/upstream-parity-0.6.3.md](docs/upstream-parity-0.6.3.md)).
-- **Watch Party invites** — invite text uses StreamBridge branding and a normalized,
-  StreamBridge-owned `streambridge://party/<code>` deep link, with an install fallback. Older
-  `nuvio.tv` invites are still accepted for compatibility. A repository-hosted HTTPS redirect page
-  is ready for GitHub Pages; it is not required for app-to-app invites. See
+- **Upstream 0.6.6** — the official NuvioMobile `0.6.6-beta` tree
+  (`2d52c8b7`) and the NuvioMobile-Enhanced `0.6.6-beta` tree (`2fc68109`) are both
+  integrated over the previous `0.6.3-beta` pin (see
+  [docs/upstream-parity-0.6.6.md](docs/upstream-parity-0.6.6.md)).
+- **Subtitles** — a rewritten subtitle path: libass renders styled ASS/SSA tracks through the
+  atlas renderer, and an appearance page controls font, size (1 sp steps), weight, outline,
+  shadow, background and margins with a live preview. Custom fonts can be imported and stay
+  loaded between captions. Replaces the previous peerless2012 `ass-media`/`ass-kt` artifacts.
+- **Chapters and skipping** — chapter panels, Matroska chapter parsing, merged/overlapping
+  skip-interval handling, and a setting for when the Skip Intro button appears. Skip segments
+  now also auto-skip on resolved HLS and P2P streams.
+- **Night mode** — a libmpv audio filter that lifts quiet dialogue and tames peaks, available
+  from the player and in Settings on both engines.
+- **Settings** — the settings root is organised into You / Look / Watch / Services / System,
+  with playback split into its own pages (player, streams, up next, skip, interface, audio,
+  subtitles, video, buffer, P2P). Configuration backup/export lives in Advanced.
+- **Home hero** — episode and unreleased labels, single-decimal IMDb ratings, and the hero meta
+  rows are now a separate, testable component.
+- **Native modules** — the upstream Cargo workspace (`native/`) is compiled with `cargo-ndk`
+  for all four Android ABIs: seek-bar thumbnails decoded from single keyframes and Matroska/MP4
+  container indexes read over bounded HTTP ranges.
+- **Watch Party invites** — invite text, code, deep link and redirect all identify StreamBridge;
+  the generated link is a normalized `streambridge://party/<code>` deep link with an install
+  fallback, and `nuvio.tv` invites shared by older builds still parse. See
   [docs/WATCH-PARTY-LINKS.md](docs/WATCH-PARTY-LINKS.md).
-- **Watch Party** — in-party chat, and a phone companion that links to the party with the same
-  profile so you can type on your phone while the video plays.
-- **Player** — badges showing what is actually playing (resolution, HDR, codec, audio, language),
-  the engine switch moved to the top row behind a confirmation, and centre controls that no longer
-  jump when you pause.
-- **Subtitles** — import your own subtitle font, and tune a text shadow for both the ExoPlayer and
-  libmpv paths.
-- **Liquid Glass** — configurable glass for the navigation bar (with a live preview) plus glass
-  search and stream filtering; the search, filter and stream cards are legible over bright artwork.
-- **Library** — custom posters now also appear in the library's catalog view, and binge groups store
-  the info hash and filename reliably.
-- **Discord Rich Presence** — optional, **off by default**; turn it on in Settings → Integrations.
-- **Coming back from the background** — pausing a video and switching apps no longer drops you on
-  profile selection or Home: the restored screen and its navigation history survive, and sign-out
-  still returns to the profile gate.
-- **Languages** — new Hungarian and Vietnamese coverage, pt-BR additions for party/autosync.
-- **Release pipeline** — draft releases are resolved through the release list (the tag lookup API
-  returns 404 for drafts), and the iOS IPA is attached by release ID without clobbering existing
-  assets. The sideload source is written only from a published release whose uploaded IPA has been
-  verified.
+- **Branding** — every settings footer, About page and locale keeps StreamBridge identity
+  (`Made with ❤️ by Saif`, `Your Media, Your Way`); the privacy policy is an in-app page
+  instead of a link to `nuvio.tv`.
 
 ## Features
 
@@ -122,7 +122,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.13-iOS-unsigned.ipa`
+- `StreamBridge-0.1.14-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:

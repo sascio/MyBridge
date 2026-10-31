@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -89,6 +90,8 @@ import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.LocalVerticalBarPadding
+import com.nuvio.app.core.ui.verticalBarWidth
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.NuvioToastController
@@ -109,6 +112,8 @@ import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
 import com.nuvio.app.features.details.components.DetailCastSection
 import com.nuvio.app.features.details.components.DetailCommentsSection
+import com.nuvio.app.features.details.components.DetailEpisodeRatingMap
+import com.nuvio.app.features.details.components.hasEpisodeRatingMap
 import com.nuvio.app.features.details.components.DetailFloatingHeader
 import com.nuvio.app.features.details.components.DetailHero
 import com.nuvio.app.features.details.components.DetailMetaInfo
@@ -1435,6 +1440,42 @@ fun MetaDetailsScreen(
                                         stickyBackground = heroGradientColor ?: colorScheme.background,
                                     )
 
+                                    if (
+                                        metaScreenSettingsUiState.showRatingMap &&
+                                        metaScreenSettingsUiState.episodeRatingsVisibility.showRatings &&
+                                        hasEpisodes &&
+                                        meta.hasEpisodeRatingMap()
+                                    ) {
+                                        item(key = "detail-rating-map") {
+                                            val ratingMapWatchedKeys = watchedUiState.watchedKeys
+                                            val isRatingMapEpisodeWatched = remember(meta, ratingMapWatchedKeys, progressByVideoId) {
+                                                { episode: MetaVideo ->
+                                                    isEpisodeWatchedForActions(
+                                                        meta = meta,
+                                                        episode = episode,
+                                                        watchedKeys = ratingMapWatchedKeys,
+                                                        progressByVideoId = progressByVideoId,
+                                                    )
+                                                }
+                                            }
+                                            DetailSectionContainer(
+                                                horizontalPadding = contentHorizontalPadding,
+                                                contentMaxWidth = if (isTablet && !useTabletLayout) contentMaxWidth else Dp.Unspecified,
+                                            ) {
+                                                DetailEpisodeRatingMap(
+                                                    meta = meta,
+                                                    episodeRatingsVisibility = metaScreenSettingsUiState.episodeRatingsVisibility,
+                                                    isEpisodeWatched = isRatingMapEpisodeWatched,
+                                                    onEpisodeClick = onEpisodePlayClick,
+                                                    onEpisodeLongPress = { video ->
+                                                        selectedEpisodeZoomAnchor = null
+                                                        selectedEpisodeForActions = video
+                                                    },
+                                                )
+                                            }
+                                        }
+                                    }
+
                                     item(key = "detail-bottom-spacer") {
                                         Spacer(modifier = Modifier.height(nuvioSafeBottomPadding(32.dp)))
                                     }
@@ -2015,6 +2056,7 @@ private fun DetailHeaderOverlay(
         NuvioBackButton(
             onClick = onBack,
             modifier = Modifier
+                .padding(LocalVerticalBarPadding.current)
                 .padding(
                     start = 12.dp,
                     top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
@@ -2025,16 +2067,18 @@ private fun DetailHeaderOverlay(
         )
     }
 
-    DetailFloatingHeader(
-        meta = meta,
-        isSaved = isSaved,
-        progress = headerProgress,
-        backgroundColor = backgroundColor,
-        onBack = onBack,
-        onToggleSaved = onToggleSaved,
-        modifier = Modifier.zIndex(2f),
-        glassBackdrop = glassBackdrop,
-    )
+    if (verticalBarWidth() == 0.dp) {
+        DetailFloatingHeader(
+            meta = meta,
+            isSaved = isSaved,
+            progress = headerProgress,
+            backgroundColor = backgroundColor,
+            onBack = onBack,
+            onToggleSaved = onToggleSaved,
+            modifier = Modifier.zIndex(2f),
+            glassBackdrop = glassBackdrop,
+        )
+    }
 }
 
 private const val RATING_SHEET_OPEN_DELAY_MS = 350L
@@ -2341,7 +2385,7 @@ private fun DetailSectionContainer(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            content()
+            CompositionLocalProvider(LocalVerticalBarPadding provides PaddingValues(), content)
         }
     }
 }

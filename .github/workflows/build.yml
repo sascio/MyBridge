@@ -68,9 +68,22 @@ jobs:
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
         env:
           ANDROID_COMPILE_SDK: '37'
-          ANDROID_COMPILE_SDK_MINOR: '0'
+          ANDROID_COMPILE_SDK_MINOR: '1'
           ANDROID_BUILD_TOOLS: '36.0.0'
           ANDROID_CMAKE_VERSION: '3.22.1'
+
+      # Upstream 0.6.6 compiles the `native/` Cargo workspace into the APK with
+      # cargo-ndk (seek-bar thumbnails, Matroska/MP4 container indexes). The
+      # runner image already has rustup; the four Android targets and cargo-ndk
+      # are what the build needs.
+      - name: Set up Rust for the native module
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          cargo ndk --version
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -331,7 +344,7 @@ jobs:
         # be present even though this job only runs the config generator.
         env:
           ANDROID_COMPILE_SDK: '37'
-          ANDROID_COMPILE_SDK_MINOR: '0'
+          ANDROID_COMPILE_SDK_MINOR: '1'
           ANDROID_BUILD_TOOLS: '36.0.0'
           ANDROID_CMAKE_VERSION: '3.22.1'
         run: |

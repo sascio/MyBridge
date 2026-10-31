@@ -2,6 +2,7 @@ package com.nuvio.app.features.player.seekpreview
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.opengl.GLES20
@@ -11,6 +12,7 @@ import androidx.annotation.OptIn
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.player.aiostreams.Thumbnails
 import androidx.media3.common.ColorInfo
 import androidx.media3.common.Effect
 import androidx.media3.common.Format
@@ -24,7 +26,8 @@ import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.nuvio.app.core.network.SharedOkHttpClient
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
 import androidx.media3.effect.MatrixTransformation
@@ -50,12 +53,22 @@ import java.nio.ByteBuffer
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 private const val FrameTimeoutSeconds = 20L
 private const val NetworkTimeoutMs = 10_000
+
+private val seekPreviewHttpClient by lazy {
+    SharedOkHttpClient.base.newBuilder()
+        .connectTimeout(NetworkTimeoutMs.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+        .readTimeout(NetworkTimeoutMs.toLong(), java.util.concurrent.TimeUnit.MILLISECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+}
 private const val SeekToleranceUs = 2_000_000L
 private const val GrabberMinBufferMs = 1_000
 private const val GrabberMaxBufferMs = 2_000
@@ -78,6 +91,71 @@ internal actual fun openSeekPreviewFrameSource(
     if (scheme !in setOf("http", "https", "file", "content", null)) return null
     val context = SeekPreviewAndroid.appContext ?: return null
     return ExoSeekPreviewFrameSource(context, url, headers)
+}
+
+internal actual fun openSeekPreviewFeed(
+    url: String,
+    headers: Map<String, String>,
+    onThumbnail: (positionMs: Long, bitmap: ImageBitmap?, error: String?) -> Unit,
+): SeekPreviewFeed? {
+    val uri = Uri.parse(url)
+    if (uri.path.orEmpty().endsWith(".m3u8", ignoreCase = true)) return null
+    val target = when (uri.scheme?.lowercase()) {
+        "http", "https", null -> url
+        "file" -> uri.path ?: return null
+        else -> return null
+    }
+    val context = SeekPreviewAndroid.appContext ?: return null
+    return NativeSeekPreviewFeed(context, target, headers, onThumbnail)
+}
+
+private class NativeSeekPreviewFeed(
+    private val context: Context,
+    private val url: String,
+    headers: Map<String, String>,
+    private val onThumbnail: (positionMs: Long, bitmap: ImageBitmap?, error: String?) -> Unit,
+) : SeekPreviewFeed {
+    private val main = Handler(Looper.getMainLooper())
+    private val headers = headers.flatMap { (name, value) -> listOf(name, value) }.toTypedArray()
+    private val thumbnailer = Executors.newSingleThreadExecutor { Thread(it, "thumbnails") }
+    private var handle = 0L
+    private var closed = false
+
+    override fun want(positionMs: Long, showingMs: Long?) {
+        submit { Thumbnails.want(it, positionMs, showingMs ?: -1L) }
+    }
+
+    override fun prepare() {
+        submit { Thumbnails.prepare(it) }
+    }
+
+    override fun close() {
+        runCatching {
+            thumbnailer.execute {
+                if (handle != 0L) Thumbnails.close(handle)
+                handle = 0L
+                closed = true
+            }
+        }
+        thumbnailer.shutdown()
+    }
+
+    private fun submit(block: (Long) -> Unit) {
+        runCatching { thumbnailer.execute { open()?.let(block) } }
+    }
+
+    private fun open(): Long? {
+        if (closed) return null
+        if (handle != 0L) return handle
+        return runCatching {
+            Thumbnails.open(url, headers, Thumbnails.trustedRoots(context)) { at, jpeg, error ->
+                val bitmap = jpeg?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.asImageBitmap()
+                if (jpeg == null || bitmap != null) main.post { onThumbnail(at, bitmap, error) }
+            }
+        }.onFailure { error ->
+            main.post { onThumbnail(-1L, null, error.toString()) }
+        }.getOrNull()?.also { handle = it }
+    }
 }
 
 private class ExoSeekPreviewFrameSource(
@@ -149,10 +227,7 @@ private class ExoFrameGrabber(
 
     init {
         val userAgent = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(NetworkTimeoutMs)
-            .setReadTimeoutMs(NetworkTimeoutMs)
+        val httpFactory = OkHttpDataSource.Factory(seekPreviewHttpClient)
             .setDefaultRequestProperties(headers.filterKeys { !it.equals("User-Agent", ignoreCase = true) })
             .apply { if (userAgent != null) setUserAgent(userAgent) }
         val mediaSourceFactory = DefaultMediaSourceFactory(

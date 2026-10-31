@@ -1,58 +1,55 @@
 package com.nuvio.app.features.settings
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.NewReleases
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Hub
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Power
+import androidx.compose.material.icons.filled.QueuePlayNext
+import androidx.compose.material.icons.filled.RoundedCorner
+import androidx.compose.material.icons.filled.SmartDisplay
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.VideoSettings
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
-import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.compose_settings_category_about
-import nuvio.composeapp.generated.resources.compose_settings_category_general
-import nuvio.composeapp.generated.resources.compose_settings_page_account
-import nuvio.composeapp.generated.resources.compose_settings_page_addons
-import nuvio.composeapp.generated.resources.compose_settings_page_advanced
-import nuvio.composeapp.generated.resources.compose_settings_page_appearance
-import nuvio.composeapp.generated.resources.compose_settings_page_content_discovery
-import nuvio.composeapp.generated.resources.compose_settings_page_debug_logs
-import nuvio.composeapp.generated.resources.compose_settings_page_debrid
-import nuvio.composeapp.generated.resources.compose_settings_page_discord_rpc
-import nuvio.composeapp.generated.resources.compose_settings_page_continue_watching
-import nuvio.composeapp.generated.resources.compose_settings_page_homescreen
-import nuvio.composeapp.generated.resources.compose_settings_page_integrations
-import nuvio.composeapp.generated.resources.compose_settings_page_licenses_attributions
-import nuvio.composeapp.generated.resources.compose_settings_page_whats_new
-import nuvio.composeapp.generated.resources.compose_settings_page_live_tv
-import nuvio.composeapp.generated.resources.compose_settings_page_mdblist_ratings
-import nuvio.composeapp.generated.resources.compose_settings_page_media_server
-import nuvio.composeapp.generated.resources.compose_settings_page_media_servers
-import nuvio.composeapp.generated.resources.compose_settings_page_meta_screen
-import nuvio.composeapp.generated.resources.compose_settings_page_notifications
-import nuvio.composeapp.generated.resources.compose_settings_page_omdb
-import nuvio.composeapp.generated.resources.compose_settings_page_playback
-import nuvio.composeapp.generated.resources.compose_settings_page_cloudstream
-import nuvio.composeapp.generated.resources.compose_settings_page_plugins
-import nuvio.composeapp.generated.resources.compose_settings_page_poster_customization
-import nuvio.composeapp.generated.resources.compose_settings_page_privacy_policy
-import nuvio.composeapp.generated.resources.compose_settings_page_profile
-import nuvio.composeapp.generated.resources.compose_settings_page_root
-import nuvio.composeapp.generated.resources.compose_settings_page_streams
-import nuvio.composeapp.generated.resources.about_us_page_title
-import nuvio.composeapp.generated.resources.compose_settings_page_tmdb_enrichment
-import nuvio.composeapp.generated.resources.compose_settings_page_trakt
-import nuvio.composeapp.generated.resources.compose_settings_page_tracking
-import nuvio.composeapp.generated.resources.compose_settings_root_downloads_title
-import nuvio.composeapp.generated.resources.settings_account
+import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 
 internal enum class SettingsCategory(
     val labelRes: StringResource,
     val icon: ImageVector,
 ) {
-    Account(Res.string.settings_account, Icons.Rounded.AccountCircle),
-    General(Res.string.compose_settings_category_general, Icons.Rounded.Settings),
-    About(Res.string.compose_settings_category_about, Icons.Rounded.Info),
-    Advanced(Res.string.compose_settings_page_advanced, Icons.Rounded.Tune),
+    You(Res.string.settings_group_you, Icons.Default.Person),
+    Look(Res.string.settings_group_look, Icons.Default.Palette),
+    Watch(Res.string.settings_group_watch, Icons.Rounded.PlayArrow),
+    Services(Res.string.settings_group_services, Icons.Default.Link),
+    System(Res.string.settings_group_system, Icons.Rounded.Settings),
 }
 
 internal enum class SettingsPage(
@@ -62,163 +59,226 @@ internal enum class SettingsPage(
 ) {
     Root(
         titleRes = Res.string.compose_settings_page_root,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Look,
         parentPage = null,
+    ),
+    Layout(
+        titleRes = Res.string.compose_settings_page_layout,
+        category = SettingsCategory.Look,
+        parentPage = Root,
+    ),
+    About(
+        titleRes = Res.string.compose_settings_category_about,
+        category = SettingsCategory.System,
+        parentPage = Root,
     ),
     Account(
         titleRes = Res.string.compose_settings_page_account,
-        category = SettingsCategory.Account,
+        category = SettingsCategory.You,
         parentPage = Root,
     ),
     Profile(
         titleRes = Res.string.compose_settings_page_profile,
-        category = SettingsCategory.Account,
+        category = SettingsCategory.You,
         parentPage = Root,
     ),
     SupportersContributors(
-        titleRes = Res.string.about_us_page_title,
-        category = SettingsCategory.About,
-        parentPage = Root,
+        titleRes = Res.string.compose_settings_page_supporters_contributors,
+        category = SettingsCategory.System,
+        parentPage = About,
     ),
     LicensesAttributions(
         titleRes = Res.string.compose_settings_page_licenses_attributions,
-        category = SettingsCategory.About,
-        parentPage = Root,
+        category = SettingsCategory.System,
+        parentPage = About,
     ),
+    // StreamBridge addition: the in-app privacy policy page (upstream linked out
+    // to nuvio.tv, which is not StreamBridge's to hand out).
     PrivacyPolicy(
         titleRes = Res.string.compose_settings_page_privacy_policy,
-        category = SettingsCategory.About,
-        parentPage = Root,
+        category = SettingsCategory.System,
+        parentPage = About,
     ),
     WhatsNew(
         titleRes = Res.string.compose_settings_page_whats_new,
-        category = SettingsCategory.About,
-        parentPage = Root,
+        category = SettingsCategory.System,
+        parentPage = About,
     ),
     Playback(
         titleRes = Res.string.compose_settings_page_playback,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = Root,
     ),
+    PlaybackPlayer(
+        titleRes = Res.string.settings_playback_page_player,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackStreamSelection(
+        titleRes = Res.string.settings_playback_page_stream_selection,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackUpNext(
+        titleRes = Res.string.settings_playback_page_up_next,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackSkipSegments(
+        titleRes = Res.string.settings_playback_page_skip,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackInterface(
+        titleRes = Res.string.settings_playback_page_interface,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackAudio(
+        titleRes = Res.string.settings_playback_page_audio,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackSubtitles(
+        titleRes = Res.string.settings_playback_page_subtitles,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackVideo(
+        titleRes = Res.string.settings_playback_page_video,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackBuffer(
+        titleRes = Res.string.settings_playback_page_buffer,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
+    PlaybackP2p(
+        titleRes = Res.string.settings_playback_page_p2p,
+        category = SettingsCategory.Watch,
+        parentPage = Playback,
+    ),
     Appearance(
-        titleRes = Res.string.compose_settings_page_appearance,
-        category = SettingsCategory.General,
+        titleRes = Res.string.settings_appearance_title,
+        category = SettingsCategory.Look,
         parentPage = Root,
     ),
     Streams(
         titleRes = Res.string.compose_settings_page_streams,
-        category = SettingsCategory.General,
-        parentPage = Appearance,
+        category = SettingsCategory.Look,
+        parentPage = Layout,
     ),
     Advanced(
         titleRes = Res.string.compose_settings_page_advanced,
-        category = SettingsCategory.Advanced,
+        category = SettingsCategory.System,
         parentPage = Root,
     ),
     DebugLogs(
         titleRes = Res.string.compose_settings_page_debug_logs,
-        category = SettingsCategory.Advanced,
+        category = SettingsCategory.System,
         parentPage = Advanced,
     ),
     Notifications(
         titleRes = Res.string.compose_settings_page_notifications,
-        category = SettingsCategory.General,
+        category = SettingsCategory.System,
         parentPage = Root,
     ),
     Downloads(
         titleRes = Res.string.compose_settings_root_downloads_title,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = Root,
     ),
     ContinueWatching(
         titleRes = Res.string.compose_settings_page_continue_watching,
-        category = SettingsCategory.General,
-        parentPage = Appearance,
+        category = SettingsCategory.Look,
+        parentPage = Layout,
     ),
     PosterCustomization(
         titleRes = Res.string.compose_settings_page_poster_customization,
-        category = SettingsCategory.General,
-        parentPage = Appearance,
+        category = SettingsCategory.Look,
+        parentPage = Layout,
     ),
     ContentDiscovery(
         titleRes = Res.string.compose_settings_page_content_discovery,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = Root,
     ),
     Addons(
         titleRes = Res.string.compose_settings_page_addons,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = ContentDiscovery,
     ),
     Plugins(
         titleRes = Res.string.compose_settings_page_plugins,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = ContentDiscovery,
     ),
+    // StreamBridge addition: the CloudStream (.cs3) extension manager, sideload
+    // distribution only. Kept as its own settings page across the 0.6.6 sync.
     CloudStream(
         titleRes = Res.string.compose_settings_page_cloudstream,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = ContentDiscovery,
     ),
     MediaServers(
         titleRes = Res.string.compose_settings_page_media_servers,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = ContentDiscovery,
     ),
     MediaServer(
         titleRes = Res.string.compose_settings_page_media_server,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Watch,
         parentPage = MediaServers,
     ),
     Homescreen(
         titleRes = Res.string.compose_settings_page_homescreen,
-        category = SettingsCategory.General,
-        parentPage = Appearance,
+        category = SettingsCategory.Look,
+        parentPage = Layout,
     ),
     MetaScreen(
         titleRes = Res.string.compose_settings_page_meta_screen,
-        category = SettingsCategory.General,
-        parentPage = Appearance,
+        category = SettingsCategory.Look,
+        parentPage = Layout,
     ),
     Integrations(
         titleRes = Res.string.compose_settings_page_integrations,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Root,
     ),
     TmdbEnrichment(
         titleRes = Res.string.compose_settings_page_tmdb_enrichment,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Integrations,
     ),
     MdbListRatings(
         titleRes = Res.string.compose_settings_page_mdblist_ratings,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Integrations,
     ),
     Omdb(
         titleRes = Res.string.compose_settings_page_omdb,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Integrations,
     ),
     Debrid(
         titleRes = Res.string.compose_settings_page_debrid,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Integrations,
     ),
     LiveTv(
         titleRes = Res.string.compose_settings_page_live_tv,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Integrations,
     ),
     DiscordRpc(
         titleRes = Res.string.compose_settings_page_discord_rpc,
-        category = SettingsCategory.General,
+        category = SettingsCategory.Services,
         parentPage = Integrations,
     ),
     TraktAuthentication(
-        // Keep the enum name for saved navigation-state compatibility.
         titleRes = Res.string.compose_settings_page_tracking,
-        category = SettingsCategory.Account,
+        category = SettingsCategory.Services,
         parentPage = Root,
     ),
 }
@@ -227,3 +287,58 @@ internal val SettingsPage.opensInlineOnTablet: Boolean
     get() = parentPage != null
 
 internal fun SettingsPage.previousPage(): SettingsPage? = parentPage
+
+internal fun settingsCategoryForName(name: String): SettingsCategory = when (name) {
+    "Account" -> SettingsCategory.You
+    "General" -> SettingsCategory.Look
+    "About", "Advanced" -> SettingsCategory.System
+    else -> SettingsCategory.entries.firstOrNull { it.name == name } ?: SettingsCategory.Look
+}
+
+internal val SettingsPage.icon: ImageVector
+    get() = when (this) {
+        SettingsPage.Root -> Icons.Rounded.Settings
+        SettingsPage.Account -> Icons.Default.Person
+        SettingsPage.SupportersContributors -> Icons.Default.Favorite
+        SettingsPage.LicensesAttributions -> Icons.Default.Info
+        SettingsPage.Playback -> Icons.Rounded.PlayArrow
+        SettingsPage.Appearance -> Icons.Default.Palette
+        SettingsPage.Layout -> Icons.Default.GridView
+        SettingsPage.About -> Icons.Default.Info
+        SettingsPage.Streams -> Icons.AutoMirrored.Filled.ViewList
+        SettingsPage.Advanced -> Icons.Default.Build
+        SettingsPage.Notifications -> Icons.Rounded.Notifications
+        SettingsPage.ContinueWatching -> Icons.Default.History
+        SettingsPage.PosterCustomization -> Icons.Default.RoundedCorner
+        SettingsPage.ContentDiscovery -> Icons.Default.Explore
+        SettingsPage.Addons -> Icons.Default.Extension
+        SettingsPage.Plugins -> Icons.Default.Power
+        SettingsPage.CloudStream -> Icons.Default.Extension
+        SettingsPage.PrivacyPolicy -> Icons.Rounded.Policy
+        SettingsPage.MediaServers -> Icons.Default.Dns
+        SettingsPage.MediaServer -> Icons.Default.Dns
+        SettingsPage.Homescreen -> Icons.Default.Dashboard
+        SettingsPage.MetaScreen -> Icons.Default.Description
+        SettingsPage.Integrations -> Icons.Default.Link
+        SettingsPage.TmdbEnrichment -> Icons.Default.Link
+        SettingsPage.MdbListRatings -> Icons.Default.Link
+        SettingsPage.Debrid -> Icons.Default.Link
+        SettingsPage.TraktAuthentication -> Icons.Default.Sync
+        SettingsPage.PlaybackPlayer -> Icons.Default.SmartDisplay
+        SettingsPage.PlaybackStreamSelection -> Icons.AutoMirrored.Filled.PlaylistPlay
+        SettingsPage.PlaybackUpNext -> Icons.Default.QueuePlayNext
+        SettingsPage.PlaybackSkipSegments -> Icons.Default.FastForward
+        SettingsPage.PlaybackInterface -> Icons.Default.Layers
+        SettingsPage.PlaybackAudio -> Icons.AutoMirrored.Filled.VolumeUp
+        SettingsPage.PlaybackSubtitles -> Icons.Default.Subtitles
+        SettingsPage.PlaybackVideo -> Icons.Default.VideoSettings
+        SettingsPage.PlaybackBuffer -> Icons.Default.NetworkCheck
+        SettingsPage.PlaybackP2p -> Icons.Default.Hub
+        SettingsPage.Profile -> Icons.Default.Person
+        SettingsPage.WhatsNew -> Icons.Default.NewReleases
+        SettingsPage.DebugLogs -> Icons.Default.BugReport
+        SettingsPage.Downloads -> Icons.Default.Download
+        SettingsPage.Omdb -> Icons.Default.Link
+        SettingsPage.LiveTv -> Icons.Default.LiveTv
+        SettingsPage.DiscordRpc -> Icons.Default.Link
+    }
