@@ -594,7 +594,7 @@
     <string name="settings_notifications_test_requires_saved_show">Speichere zuerst eine Serie in deiner Bibliothek, um Benachrichtigungen zu testen.</string>
     <string name="settings_notifications_test_title">Test-Benachrichtigung</string>
     <string name="community_section_title">Community</string>
-    <string name="community_section_description">Sieh dir die Menschen an, die Nuvio auf Mobile, TV und Web entwickeln und unterstützen.</string>
+    <string name="community_section_description">Sieh dir die Menschen an, die StreamBridge auf Mobile, TV und Web entwickeln und unterstützen.</string>
     <string name="community_supporters_not_configured">Supporters-API ist nicht konfiguriert. Füge DONATIONS_BASE_URL zu local.properties hinzu.</string>
     <string name="community_tab_contributors">Mitwirkende</string>
     <string name="community_tab_supporters">Unterstützer</string>

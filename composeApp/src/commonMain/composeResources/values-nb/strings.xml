@@ -32,7 +32,7 @@
     <string name="action_save">Lagre</string>
     <string name="action_saved">Lagret</string>
     <string name="action_saving">Lagrer…</string>
-    <string name="action_support_nuvio">Støtt Nuvio</string>
+    <string name="action_support_nuvio">Støtt StreamBridge</string>
     <string name="action_switch">Bytt</string>
     <string name="action_update">Oppdater</string>
     <string name="action_validate">Valider</string>
@@ -459,9 +459,9 @@
     <string name="community_loading_contributors">Laster bidragsytere…</string>
     <string name="community_loading_donation_progress">Laster finansieringsfremdrift...</string>
     <string name="community_loading_supporters">Laster støttespillere…</string>
-    <string name="community_membership_connected_description">Ingen aktiv Nuvio-nivå ble funnet på denne Patreon-kontoen. Se tilgjengelige alternativer, eller oppdater etter at du har endret Patreon-medlemskapet.</string>
+    <string name="community_membership_connected_description">Ingen aktiv StreamBridge-nivå ble funnet på denne Patreon-kontoen. Se tilgjengelige alternativer, eller oppdater etter at du har endret Patreon-medlemskapet.</string>
     <string name="community_membership_connected_title">Patreon er tilkoblet</string>
-    <string name="community_membership_description">Å støtte Nuvio bidrar til infrastruktur og videreutvikling, samtidig som kjerneopplevelsen forblir gratis for alle.</string>
+    <string name="community_membership_description">Å støtte StreamBridge bidrar til infrastruktur og videreutvikling, samtidig som kjerneopplevelsen forblir gratis for alle.</string>
     <string name="community_membership_manage">Administrer medlemskap</string>
     <string name="community_membership_refresh">Oppdater</string>
     <string name="community_membership_refreshing">Oppdaterer</string>
@@ -469,7 +469,7 @@
     <string name="community_membership_thank_you">Takk.</string>
     <string name="community_membership_tier_supporter">Supporter</string>
     <string name="community_membership_tier_supporter_plus">Supporter Plus</string>
-    <string name="community_membership_title">Nuvio Supporter-medlemskap</string>
+    <string name="community_membership_title">StreamBridge Supporter-medlemskap</string>
     <string name="community_membership_unable_load">Kunne ikke laste medlemskapsstatus. Prøv på nytt.</string>
     <string name="community_membership_you_are">Du er en</string>
     <string name="community_month_apr">Apr</string>
@@ -486,7 +486,7 @@
     <string name="community_month_sep">Sep</string>
     <string name="community_no_message_attached">Ingen melding vedlagt.</string>
     <string name="community_open_github">Åpne GitHub</string>
-    <string name="community_section_description">Se menneskene som bygger og støtter Nuvio på mobil, TV og web.</string>
+    <string name="community_section_description">Se menneskene som bygger og støtter StreamBridge på mobil, TV og web.</string>
     <string name="community_section_title">Fellesskap</string>
     <string name="community_supporters_not_configured">Supporters API er ikke konfigurert. Legg til DONATIONS_BASE_URL i local.properties.</string>
     <string name="community_tab_contributors">Bidragsytere</string>
@@ -1963,10 +1963,10 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="settings_simkl_sign_in_failed">Kunne ikke fullføre Simkl-innlogging. Prøv igjen.</string>
     <string name="settings_simkl_sync_info_action">Slik fungerer synkronisering</string>
     <string name="settings_simkl_sync_info_activity">Hver oppdatering sjekker først om Simkl melder om endringer, og laster kun ned oppdateringene. Dette følger Simkls API-regler, reduserer unødvendig databruk og bidrar til å holde tjenesten stabil.</string>
-    <string name="settings_simkl_sync_info_description">Nuvio sjekker Simkl automatisk maksimalt én gang per %1$d minutter. Endringer gjort via en annen app eller Simkl-nettstedet kan ta så lang tid før de vises.</string>
+    <string name="settings_simkl_sync_info_description">StreamBridge sjekker Simkl automatisk maksimalt én gang per %1$d minutter. Endringer gjort via en annen app eller Simkl-nettstedet kan ta så lang tid før de vises.</string>
     <string name="settings_simkl_sync_info_docs">Les Simkl-synkroniseringsguiden</string>
     <string name="settings_simkl_sync_info_library_statuses">Serier plassert i Simkls On Hold- eller Dropped-lister skjules fra Fortsett å se. De forblir skjult så lenge de står i én av listene.</string>
-    <string name="settings_simkl_sync_info_manual">Endringer gjort i Nuvio sendes til Simkl umiddelbart. Bruk Synkroniser nå når du vil at Nuvio skal sjekke etter eksterne endringer tidligere.</string>
+    <string name="settings_simkl_sync_info_manual">Endringer gjort i StreamBridge sendes til Simkl umiddelbart. Bruk Synkroniser nå når du vil at StreamBridge skal sjekke etter eksterne endringer tidligere.</string>
     <string name="settings_simkl_sync_info_title">Slik fungerer Simkl-synkronisering</string>
     <string name="settings_simkl_sync_now">Synkroniser nå</string>
     <string name="settings_simkl_visit">Besøk Simkl</string>
@@ -2040,7 +2040,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="settings_tracking_approval_redirect">Etter godkjenning blir du automatisk sendt tilbake.</string>
     <string name="settings_tracking_connect_first">Koble til %1$s først</string>
     <string name="settings_tracking_data_sources">Kilder</string>
-    <string name="settings_tracking_disconnect_description">Dette fjerner tilkoblingen fra Nuvio. Dataene dine på %1$s forblir intakte, og utilgjengelige bibliotek- eller fremdriftskilder faller midlertidig tilbake til Nuvio.</string>
+    <string name="settings_tracking_disconnect_description">Dette fjerner tilkoblingen fra StreamBridge. Dataene dine på %1$s forblir intakte, og utilgjengelige bibliotek- eller fremdriftskilder faller midlertidig tilbake til StreamBridge.</string>
     <string name="settings_tracking_disconnect_title">Koble fra %1$s?</string>
     <string name="settings_tracking_features">KILDEPREFERANSER</string>
     <string name="settings_tracking_nuvio_library_description">Behold lagrede titler i Nuvio-biblioteket ditt.</string>
@@ -2064,7 +2064,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="settings_trakt_connected_as">Tilkoblet som %1$s</string>
     <string name="settings_trakt_default_user">Trakt-bruker</string>
     <string name="settings_trakt_disconnect">Koble fra</string>
-    <string name="settings_trakt_disconnect_description">Dette kobler Trakt-kontoen din fra Nuvio.</string>
+    <string name="settings_trakt_disconnect_description">Dette kobler Trakt-kontoen din fra StreamBridge.</string>
     <string name="settings_trakt_failed_open_browser">Kunne ikke åpne nettleser</string>
     <string name="settings_trakt_features">FUNKSJONER</string>
     <string name="settings_trakt_finish_sign_in">Fullfør Trakt-innlogging i nettleseren din</string>
@@ -2172,7 +2172,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="tracking_remove_confirmation_message">Hvis du fjerner «%1$s» fra %2$s, slettes også %3$s der. Dette kan ikke angres.</string>
     <string name="tracking_remove_confirmation_title">Fjern fra %1$s?</string>
     <string name="tracking_source_simkl">Simkl</string>
-    <string name="tracking_watch_progress_dialog_subtitle">Velg tjenesten Nuvio leser for gjenopptakelse og Fortsett å se. Scrobbling forblir aktiv for alle tilkoblede tjenester.</string>
+    <string name="tracking_watch_progress_dialog_subtitle">Velg tjenesten StreamBridge leser for gjenopptakelse og Fortsett å se. Scrobbling forblir aktiv for alle tilkoblede tjenester.</string>
     <string name="tracking_watch_progress_simkl_selected">Seer-fremdrift satt til Simkl</string>
     <string name="trailer_close">Lukk trailer</string>
     <string name="trailer_enter_fullscreen">Gå til fullskjerm</string>
@@ -2238,7 +2238,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="trakt_public_list_request_failed">Trakt-forespørsel mislyktes</string>
     <string name="trakt_sign_in_complete_failed">Kunne ikke fullføre Trakt-innlogging</string>
     <string name="trakt_user_fallback">Trakt-bruker</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Velg om resume og Fortsett å se skal bruke Trakt eller Nuvio Sync mens Trakt scrobbling er aktiv.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Velg om resume og Fortsett å se skal bruke Trakt eller StreamBridge Sync mens Trakt scrobbling er aktiv.</string>
     <string name="trakt_watch_progress_dialog_title">Seer-fremdrift</string>
     <string name="trakt_watch_progress_nuvio_selected">Seer-fremdrift satt til Nuvio Sync</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>

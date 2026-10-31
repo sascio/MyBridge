@@ -789,7 +789,7 @@
     <string name="settings_notifications_test_requires_saved_show">テスト通知を送るには、シリーズをライブラリに保存してください。</string>
     <string name="settings_notifications_test_title">テスト通知</string>
     <string name="community_section_title">コミュニティ</string>
-    <string name="community_section_description">Mobile・TV・Webを通じてNuvioを構築・支援している人々をご覧ください。</string>
+    <string name="community_section_description">Mobile・TV・Webを通じてStreamBridgeを構築・支援している人々をご覧ください。</string>
     <string name="community_donation_progress_title">今月のサーバー・メンテナンス費用</string>
     <string name="community_donation_progress_complete">達成済み。追加のサポートは開発費に充てられます。</string>
     <string name="community_donation_progress_remaining">100%を超えた追加サポートは開発費に充てられます。</string>
@@ -1040,7 +1040,7 @@
     <string name="trakt_watch_progress_title">視聴進捗</string>
     <string name="trakt_watch_progress_subtitle">再開と「視聴を続ける」に使用する進捗ソースを選択</string>
     <string name="trakt_watch_progress_dialog_title">視聴進捗</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Traktスクロブルが有効な状態で、再開と「視聴を続ける」にTraktまたはNuvio同期のどちらを使用するかを選択してください。</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Traktスクロブルが有効な状態で、再開と「視聴を続ける」にTraktまたはStreamBridge同期のどちらを使用するかを選択してください。</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio同期</string>
     <string name="trakt_watch_progress_trakt_selected">視聴進捗ソースをTraktに設定しました</string>

@@ -815,7 +815,7 @@
     <string name="settings_notifications_test_requires_saved_show">Salvează mai întâi un serial în bibliotecă pentru a testa notificările.</string>
     <string name="settings_notifications_test_title">Notificare de test</string>
     <string name="community_section_title">Comunitate</string>
-    <string name="community_section_description">Vezi persoanele care construiesc și susțin Nuvio pe Mobile, TV și Web.</string>
+    <string name="community_section_description">Vezi persoanele care construiesc și susțin StreamBridge pe Mobile, TV și Web.</string>
     <string name="community_donation_progress_title">Serverul și întreținerea din această lună</string>
     <string name="community_donation_progress_complete">Acoperit. Sprijinul suplimentar merge acum către dezvoltare.</string>
     <string name="community_donation_progress_remaining">După 100%, sprijinul suplimentar merge către dezvoltare.</string>
@@ -1068,7 +1068,7 @@
     <string name="trakt_watch_progress_title">Progres vizionare</string>
     <string name="trakt_watch_progress_subtitle">Alege sursa de progres care alimentează reluarea și continuarea vizionării</string>
     <string name="trakt_watch_progress_dialog_title">Progres vizionare</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Alege dacă reluarea și continuarea vizionării ar trebui să folosească Trakt sau Nuvio Sync în timp ce scrobbling-ul Trakt rămâne activ.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Alege dacă reluarea și continuarea vizionării ar trebui să folosească Trakt sau StreamBridge Sync în timp ce scrobbling-ul Trakt rămâne activ.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
     <string name="trakt_watch_progress_trakt_selected">Sursa progresului vizionării a fost setată la Trakt</string>

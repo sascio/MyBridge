@@ -718,7 +718,7 @@
     <string name="settings_notifications_test_requires_saved_show">Simpan serial ke pustaka Anda terlebih dahulu untuk menguji notifikasi.</string>
     <string name="settings_notifications_test_title">Notifikasi uji coba</string>
     <string name="community_section_title">Komunitas</string>
-    <string name="community_section_description">Lihat orang-orang yang membangun dan mendukung Nuvio di Mobile, TV, dan Web.</string>
+    <string name="community_section_description">Lihat orang-orang yang membangun dan mendukung StreamBridge di Mobile, TV, dan Web.</string>
     <string name="community_supporters_not_configured">API Donatur tidak dikonfigurasi. Tambahkan DONATIONS_BASE_URL ke local.properties.</string>
     <string name="community_tab_contributors">Kontributor</string>
     <string name="community_tab_supporters">Donatur</string>
@@ -945,7 +945,7 @@
     <string name="trakt_watch_progress_title">Progres Menonton</string>
     <string name="trakt_watch_progress_subtitle">Pilih sumber progres mana yang digunakan untuk melanjutkan menonton</string>
     <string name="trakt_watch_progress_dialog_title">Progres Menonton</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Pilih apakah resume dan lanjutkan menonton harus menggunakan Trakt atau Nuvio Sync sementara scrobbling Trakt tetap aktif.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Pilih apakah resume dan lanjutkan menonton harus menggunakan Trakt atau StreamBridge Sync sementara scrobbling Trakt tetap aktif.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
     <string name="trakt_watch_progress_trakt_selected">Sumber progres menonton diatur ke Trakt</string>

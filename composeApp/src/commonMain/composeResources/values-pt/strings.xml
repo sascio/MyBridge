@@ -783,7 +783,7 @@
     <string name="settings_notifications_test_requires_saved_show">Guarda primeiro uma série na tua biblioteca para poderes testar as notificações.</string>
     <string name="settings_notifications_test_title">Notificação de teste</string>
     <string name="community_section_title">Comunidade</string>
-    <string name="community_section_description">Vê as pessoas que constroem e apoiam o Nuvio em versões Mobile, TV e Web.</string>
+    <string name="community_section_description">Vê as pessoas que constroem e apoiam o StreamBridge em versões Mobile, TV e Web.</string>
     <string name="community_supporters_not_configured">A API de Apoiantes não está configurada. Adiciona DONATIONS_BASE_URL ao local.properties.</string>
     <string name="community_tab_contributors">Colaboradores</string>
     <string name="community_tab_supporters">Apoiantes</string>
@@ -1020,7 +1020,7 @@
     <string name="trakt_watch_progress_title">Progresso de visualização</string>
     <string name="trakt_watch_progress_subtitle">Define a fonte de progresso utilizada para retomar e continuar a ver.</string>
     <string name="trakt_watch_progress_dialog_title">Progresso de visualização</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Escolhe se Retomar e Continuar a Ver devem utilizar o Trakt ou o Nuvio Sync enquanto o scrobbling do Trakt permanece ativo.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Escolhe se Retomar e Continuar a Ver devem utilizar o Trakt ou o StreamBridge Sync enquanto o scrobbling do Trakt permanece ativo.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
     <string name="trakt_watch_progress_trakt_selected">Fonte de progresso de visualização definida para Trakt</string>
