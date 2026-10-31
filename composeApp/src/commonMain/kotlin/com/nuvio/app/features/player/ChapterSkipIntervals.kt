@@ -18,7 +18,11 @@ internal object ChapterSkipIntervals {
     private const val PROVIDER = "chapters"
 
     private const val MIN_DURATION_SEC = 5.0
-    private const val MAX_DURATION_SEC = 240.0 // 4 minutes max for OP/ED/recap
+    private const val MAX_DURATION_SEC = 240.0 // 4 minutes max for OP/recap/intro
+    // Credit rolls are the one segment that legitimately runs long: a film's
+    // "Credits" chapter is routinely 5-8 minutes, and capping it at four minutes
+    // meant the skip-credits button simply never appeared for those titles.
+    private const val MAX_CREDITS_DURATION_SEC = 600.0
 
     private val OPENING_PATTERN = Regex("^\\s*(op(ening)?)(\\s*(credits|theme))?\\s*\\d*\\s*$", RegexOption.IGNORE_CASE)
     private val ENDING_PATTERN = Regex("^\\s*(ed|ending)(\\s*(credits|theme))?\\s*\\d*\\s*$", RegexOption.IGNORE_CASE)
@@ -64,7 +68,12 @@ internal object ChapterSkipIntervals {
             val endSec = c.endMs / 1000.0
             val duration = endSec - startSec
             if (duration < MIN_DURATION_SEC) return@mapNotNull null
-            if (c.type != ChapterType.POST_CREDITS && duration > MAX_DURATION_SEC) return@mapNotNull null
+            val maxDuration = if (c.type == ChapterType.ENDING) {
+                MAX_CREDITS_DURATION_SEC
+            } else {
+                MAX_DURATION_SEC
+            }
+            if (c.type != ChapterType.POST_CREDITS && duration > maxDuration) return@mapNotNull null
             SkipInterval(
                 startTime = startSec,
                 endTime = endSec,

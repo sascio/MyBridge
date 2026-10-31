@@ -134,42 +134,58 @@ class SettingsPagesTest {
 
     @Test
     fun playbackNavigationKeepsMobileControlsAndSavesTheirChanges() {
+        // 0.6.6 splits the playback settings over one page per section and lets the
+        // host screen draw the header and the back affordance. The test therefore
+        // drives the pages directly instead of composing a fake Back button that the
+        // real settings screen no longer provides.
         val page = mutableStateOf(SettingsPage.Playback)
         compose.setContent {
             NuvioTheme {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    if (page.value != SettingsPage.Playback) {
-                        item {
-                            Button(onClick = { page.value = page.value.previousPage()!! }) { Text("Back") }
-                        }
-                    }
                     playbackSettingsContent(false, page.value) { page.value = it }
                 }
             }
         }
-        compose.onNodeWithText("Player interface").performScrollTo().performClick()
+
+        // Root page: every section is a navigation row into its own page.
+        mapOf(
+            "Player interface" to SettingsPage.PlaybackInterface,
+            "Audio" to SettingsPage.PlaybackAudio,
+            "Player" to SettingsPage.PlaybackPlayer,
+        ).forEach { (label, destination) ->
+            compose.runOnIdle { page.value = SettingsPage.Playback }
+            compose.onNode(hasText(label) and hasClickAction()).performScrollTo().performClick()
+            assertEquals(destination, page.value)
+        }
+
+        // Interface page: the touch-gesture switch saves immediately.
+        compose.runOnIdle { page.value = SettingsPage.PlaybackInterface }
         compose.onNodeWithText("Touch Gestures").performScrollTo().performClick()
         assertFalse(PlayerSettingsRepository.uiState.value.touchGesturesEnabled)
         assertEquals(false, PlayerSettingsStorage.loadTouchGesturesEnabled())
-        compose.onNodeWithText("Back").performScrollTo().performClick()
-        compose.onNodeWithText("Audio").performScrollTo().performClick()
-        compose.onNodeWithText("Preferred Audio Language").performClick()
+
+        // Audio page: the preferred language picks the original track.
+        compose.runOnIdle { page.value = SettingsPage.PlaybackAudio }
+        compose.onNodeWithText("Preferred Audio Language").performScrollTo().performClick()
         compose.onNodeWithText("Original language").performClick()
         assertEquals("original", PlayerSettingsRepository.uiState.value.preferredAudioLanguage)
+
+        // Player page: the auto-switch switch and the engine dialog both persist.
+        compose.runOnIdle { page.value = SettingsPage.PlaybackPlayer }
+        compose.onNodeWithText("Auto-switch engine on playback error").performScrollTo().performClick()
+        assertFalse(PlayerSettingsRepository.uiState.value.autoSwitchPlaybackEngineOnError)
+        compose.onNodeWithText("Playback Engine").performScrollTo().performClick()
+        compose.onNodeWithText("libmpv").performClick()
+        assertEquals(AndroidPlaybackEngine.Libmpv, PlayerSettingsRepository.uiState.value.androidPlaybackEngine)
+
+        // A profile switch keeps the saved values.
         compose.runOnIdle { PlayerSettingsRepository.onProfileChanged() }
         assertFalse(PlayerSettingsRepository.uiState.value.touchGesturesEnabled)
         assertEquals("original", PlayerSettingsRepository.uiState.value.preferredAudioLanguage)
-        compose.onNodeWithText("Back").performScrollTo().performClick()
-        compose.onNodeWithText("Player").performScrollTo().performClick()
-        compose.onNodeWithText("Auto-switch engine on playback error").performScrollTo().performClick()
         assertFalse(PlayerSettingsRepository.uiState.value.autoSwitchPlaybackEngineOnError)
-        assertEquals(false, PlayerSettingsStorage.loadAutoSwitchPlaybackEngineOnError())
-        compose.runOnIdle { PlayerSettingsRepository.onProfileChanged() }
-        assertFalse(PlayerSettingsRepository.uiState.value.autoSwitchPlaybackEngineOnError)
-        compose.onNodeWithText("Playback Engine").performClick()
-        compose.onNodeWithText("libmpv").performClick()
-        assertEquals(AndroidPlaybackEngine.Libmpv, PlayerSettingsRepository.uiState.value.androidPlaybackEngine)
-        compose.onNodeWithText("Back").performScrollTo().performClick()
+
+        // libmpv has no buffer settings page in the root list.
+        compose.runOnIdle { page.value = SettingsPage.Playback }
         compose.onNodeWithText("Buffer and cache").assertDoesNotExist()
     }
 
