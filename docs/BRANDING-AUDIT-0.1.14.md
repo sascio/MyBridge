@@ -40,7 +40,11 @@ required licence/attribution notice. Only leaks were changed.
 5. **`autoVerify` on `nuvio.tv`.** The legacy invite intent filter claimed App
    Links verification for a domain StreamBridge does not control. The filter
    stays (old invites keep working) but no longer requests verification.
-6. **Xcode test bundle identifier.** `com.nuvio.SubtitleTests` →
+6. **iOS permission prompts.** `NSFaceIDUsageDescription` and
+   `NSLocalNetworkUsageDescription` in `iosApp/iosApp/Info.plist` named Nuvio in
+   the Face ID and local-network prompts iOS shows the user. Both now say
+   StreamBridge.
+7. **Xcode test bundle identifier.** `com.nuvio.SubtitleTests` →
    `com.streambridge.app.SubtitleTests`.
 
 ## Legitimate references kept

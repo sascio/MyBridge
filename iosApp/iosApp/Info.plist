@@ -49,9 +49,9 @@
 		</dict>
 	</array>
 	<key>NSFaceIDUsageDescription</key>
-	<string>Use biometric authentication to unlock your primary Nuvio profile.</string>
+	<string>Use biometric authentication to unlock your primary StreamBridge profile.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Nuvio connects to media servers on your local network.</string>
+	<string>StreamBridge connects to media servers on your local network.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
