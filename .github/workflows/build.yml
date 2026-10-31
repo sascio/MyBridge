@@ -193,7 +193,7 @@ jobs:
           python3 .github/verify-cloudstream-apk.py --apk "$APK" --expect-no-runtime
 
       - name: APK size report
-        run: python3 .github/apk-size-report.py androidApp/build/outputs/apk/full/release
+        run: python3 .github/apk-size-report.py --notice androidApp/build/outputs/apk/full/release
 
       - name: Record that CI release APKs are not production
         run: |

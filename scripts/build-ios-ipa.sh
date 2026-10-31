@@ -404,6 +404,11 @@ else
 fi
 
 echo "Created ${ipa_path}"
+# Publish the size as a check-run annotation: the job log needs log scope, the
+# annotation is part of the check run, so release evidence stays auditable.
+ipa_bytes="$(wc -c <"${ipa_path}" | tr -d ' ')"
+app_bytes="$(du -sk "${app_path}" | cut -f1)"
+echo "::notice title=IPA size::$(basename "${ipa_path}") $(awk -v b="${ipa_bytes}" 'BEGIN {printf "%.2f", b/1048576}') MiB; StreamBridge.app $(awk -v k="${app_bytes}" 'BEGIN {printf "%.2f", k/1024}') MiB"
 if [[ "${required_signing}" == "1" ]]; then
     echo "Signing: signed (${sign_identity})"
 else
