@@ -69,6 +69,21 @@ improvements. Android package `com.streambridge.app`, iOS bundle
 - Upstream's CloudStream-free content-discovery layout: StreamBridge keeps its
   CloudStream row.
 
+## Fixes in this release
+
+- Credit rolls longer than four minutes can be skipped again: the chapter skip
+  derivation only capped openings/recaps at four minutes, so a film's
+  "Credits" chapter (routinely 5-8 minutes) never produced a skip.
+- The iOS build no longer depends on the unreleased iOS 27 SDK. Nuvio 0.6.6's
+  iOS host uses fold/vertical-bar APIs that only exist there, so this build
+  keeps the plain safe-area layout (no behaviour change on any iOS version the
+  app supports).
+- The watch-party invite no longer asks Android to App-Link-verify `nuvio.tv`, a
+  domain StreamBridge does not own. Legacy `https://nuvio.tv/party/<code>`
+  invites are still parsed.
+- Branding: the Face ID and local-network iOS permission prompts, the About
+  footer and four newly added locales now say StreamBridge instead of Nuvio.
+
 ## Branding
 
 Every user-visible Nuvio match was audited; the classification (leak / internal

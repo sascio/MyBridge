@@ -67,9 +67,31 @@ redirect page cannot be served yet. The invites themselves are unaffected.
 
 | What | Workflow | Run | Commit | Result |
 |---|---|---|---|---|
-| Android: unit tests, assemble, lint, CloudStream runtime, Play-Store boundary, size report | Build Stream Bridge | 41225110993 | `366974d` | success |
-| iOS unsigned IPA | StreamBridge iOS release | 41225110786 | `366974d` | see below |
-| Script tests (release target, store source, version wiring) | Build Stream Bridge | same run | `366974d` | success |
+| Android: unit tests, assemble, lint, CloudStream runtime, Play-Store boundary, size report | Build Stream Bridge | 41234647872 | `1fea81d` | success |
+| iOS unsigned IPA | StreamBridge iOS release | 41234647918 | `1fea81d` | see §5a |
+| Script tests (release target, store source, version wiring) | Build Stream Bridge | same run | `1fea81d` | success |
+| Android (previous code-equivalent commit) | Build Stream Bridge | 41225110993 | `366974d` | success |
+
+### 5a. iOS toolchain
+
+The first IPA run of this integration (41225110786) failed in `xcodebuild`, not in
+the Kotlin build:
+
+```
+iosApp/iosApp/ContentView.swift:116: error: cannot find 'UIHingeInteraction' in scope
+iosApp/iosApp/ContentView.swift:155: error: value of type 'UIView' has no member 'reservedRegions'
+iosApp/iosApp/ContentView.swift:111: error: type 'UITraitCollection' has no member 'systemTraitsAffectingVerticalBarEdge'
+```
+
+Nuvio 0.6.6's iOS host uses APIs from the **iOS 27 SDK**. The `macos-26` runner
+image ships at most Xcode 26.6 / iOS SDK 26.5 (checked against
+`actions/runner-images`), and a runtime `#available(iOS 27.1, *)` guard cannot
+help when the symbols are not declared at all. The fold/hinge path is now a
+documented no-op that keeps the plain safe-area layout, so the player and all
+navigation behaviour are unaffected on every iOS version the app supports; the
+comments record exactly what comes back with a newer SDK. The iOS job timeout
+was also raised from 120 to 180 minutes, because this build takes about 110
+minutes on the runner and one run had already been cut by the limit.
 
 Android artefacts produced by that run (compile validation only — the job does
 not inject the production keystore and says so in its own artifact):
