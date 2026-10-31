@@ -68,11 +68,14 @@ redirect page cannot be served yet. The invites themselves are unaffected.
 | What | Workflow | Run | Commit | Result |
 |---|---|---|---|---|
 | Android: unit tests, assemble, lint, CloudStream runtime, Play-Store boundary, size report | Build Stream Bridge | 41234647872 | `1fea81d` | success |
-| iOS unsigned IPA | StreamBridge iOS release | 41234647918 | `1fea81d` | see §5a |
+| iOS unsigned IPA | StreamBridge iOS release | 41234647918 | `1fea81d` | success |
 | Script tests (release target, store source, version wiring) | Build Stream Bridge | same run | `1fea81d` | success |
 | Android (previous code-equivalent commit) | Build Stream Bridge | 41225110993 | `366974d` | success |
 
 ### 5a. iOS toolchain
+
+The IPA builds now: run 41234647918 produced
+`streambridge-0.1.14-full-release.ipa` (69.75 MiB) after the SDK fix below.
 
 The first IPA run of this integration (41225110786) failed in `xcodebuild`, not in
 the Kotlin build:
@@ -126,7 +129,13 @@ compress inside the APK, licence-file exclusion, and `proguard-rules.pro` keeps
 for the reflection-heavy parts only. **No feature, provider, codec, player
 integration or platform was removed to save space.**
 
-iOS IPA size is reported in the same way once the IPA job completes (see §5).
+| IPA | 0.1.13 | 0.1.14 | Δ |
+|---|---:|---:|---:|
+| unsigned IPA | 73,041,171 B (69.66 MiB) | 73,140,919 B (69.75 MiB) | +99,748 B (+0.14 %) |
+
+The IPA is flat because the new native code lands in the already-bundled MPVKit
+frameworks and the payload compresses well; `StreamBridge.app` inflates to
+221.66 MiB before compression, of which 6.3 MB is Compose resources.
 
 ## 7. Performance
 

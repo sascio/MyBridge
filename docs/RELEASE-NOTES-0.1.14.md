@@ -90,6 +90,20 @@ Every user-visible Nuvio match was audited; the classification (leak / internal
 reference / required attribution) and the remaining translation gap are in
 [BRANDING-AUDIT-0.1.14.md](BRANDING-AUDIT-0.1.14.md).
 
+## Download sizes
+
+| Asset | previous release | 0.1.14 |
+|---|---:|---:|
+| `androidApp-full-arm64-v8a-release.apk` | 50.33 MiB | 52.05 MiB |
+| `androidApp-full-armeabi-v7a-release.apk` | 48.68 MiB | 50.26 MiB |
+| `androidApp-full-x86-release.apk` | 50.76 MiB | 52.48 MiB |
+| `androidApp-full-x86_64-release.apk` | 51.63 MiB | 53.48 MiB |
+| `StreamBridge-0.1.14-iOS-unsigned.ipa` | 69.66 MiB | 69.75 MiB |
+
+The Android growth is the native module 0.6.6 adds (Rust thumbnails and
+container indexes, software decoder, libass); no provider, codec, player
+integration or platform was dropped to compensate.
+
 ## Verification
 
 Static checks and builds run in the repository's own CI (unit tests, Android
