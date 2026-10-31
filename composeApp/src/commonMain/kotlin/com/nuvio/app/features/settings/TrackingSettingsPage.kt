@@ -212,16 +212,6 @@ internal fun LazyListScope.trackingSettingsContent(
         }
     }
 
-    if (mdbListConnected) {
-        item {
-            SettingsSection(
-                title = stringResource(Res.string.settings_tracking_mdblist_section),
-                isTablet = isTablet,
-            ) {
-                MdbListLibraryListsSection(isTablet = isTablet)
-            }
-        }
-    }
 }
 
 @Composable
@@ -765,43 +755,6 @@ internal fun effectiveTrackingRecommendationsSource(
         }
     }
     return source
-}
-
-@Composable
-private fun MdbListLibraryListsSection(isTablet: Boolean) {
-    var showPicker by rememberSaveable { mutableStateOf(false) }
-    val options by remember { MdbListTracker.library.listOptions }.collectAsStateWithLifecycle(emptyList())
-    val isRefreshing by remember { MdbListTracker.library.isRefreshing }.collectAsStateWithLifecycle(false)
-
-    SettingsGroup(isTablet = isTablet) {
-        TrackingPreferenceActionRow(
-            title = stringResource(Res.string.settings_mdblist_library_lists),
-            description = stringResource(Res.string.settings_mdblist_library_lists_description),
-            value = if (options.isEmpty()) "" else stringResource(
-                Res.string.settings_mdblist_library_lists_summary,
-                options.count { it.visible },
-                options.size,
-            ),
-            isLoading = isRefreshing && options.isEmpty(),
-            isTablet = isTablet,
-            onClick = {
-                MdbListTracker.library.prepare()
-                showPicker = true
-            },
-        )
-    }
-
-    if (showPicker) {
-        MdbListLibraryListsPicker(
-            isTablet = isTablet,
-            options = options,
-            isLoading = isRefreshing,
-            onToggle = { option, onResult ->
-                MdbListTracker.library.setListVisibleAsync(option.key, !option.visible, onResult)
-            },
-            onDismiss = { showPicker = false },
-        )
-    }
 }
 
 @Composable
