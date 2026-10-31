@@ -1048,8 +1048,6 @@ fun HomeScreen(
                                         animateCollectionGifs,
                                     trailerStartDelaySeconds = homeSettingsUiState.heroTrailerStartDelaySeconds,
                                     trailerStartUnmuted = homeSettingsUiState.heroTrailerStartUnmuted,
-                                    showImdbRating = homeHeroState.showImdbRating,
-                                    showMdbListRatings = homeHeroState.showMdbListRatings,
                                     onItemClick = onPosterClick,
                                     onActiveArtworkChange = onActiveHeroArtworkChange,
                                 )

@@ -151,6 +151,11 @@ fun SettingsScreen(
     onContinueWatchingClick: () -> Unit = {},
     onAddonsClick: () -> Unit = {},
     onPluginsClick: () -> Unit = {},
+    // StreamBridge keeps the CloudStream and privacy-policy pages. 0.6.6 routes every
+    // settings row through the screen's own navigation, so these callbacks stay only so
+    // existing composition call sites keep compiling; the pages are reached through onPageChange.
+    onCloudStreamClick: () -> Unit = {},
+    onPrivacyPolicyClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
