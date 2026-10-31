@@ -1,7 +1,5 @@
 # StreamBridge 0.1.14
 
-## StreamBridge 0.1.14
-
 StreamBridge version 0.1.14 (version code 114), built from the official
 NuvioMobile `0.6.6-beta` tree with the applicable NuvioMobile-Enhanced `0.6.6-beta`
 improvements. Android package `com.streambridge.app`, iOS bundle
@@ -57,6 +55,10 @@ improvements. Android package `com.streambridge.app`, iOS bundle
   `https://nuvio.tv/privacy-policy`.
 - CloudStream (`.cs3`) extension manager page, in-app updater, profiles,
   licenses and attributions pages.
+- New in this release: the legacy `https://nuvio.tv/party/…` intent filter no
+  longer claims `autoVerify`. That domain belongs to NuvioMedia; StreamBridge
+  keeps parsing legacy invites but does not ask Android to verify a domain it
+  does not own.
 
 ## Not integrated
 
@@ -64,6 +66,12 @@ improvements. Android package `com.streambridge.app`, iOS bundle
   StreamBridge owns those. The version stays `0.1.14` / `114`.
 - Upstream's CloudStream-free content-discovery layout: StreamBridge keeps its
   CloudStream row.
+
+## Branding
+
+Every user-visible Nuvio match was audited; the classification (leak / internal
+reference / required attribution) and the remaining translation gap are in
+[BRANDING-AUDIT-0.1.14.md](BRANDING-AUDIT-0.1.14.md).
 
 ## Verification
 
