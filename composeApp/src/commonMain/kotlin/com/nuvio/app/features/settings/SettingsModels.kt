@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.RoundedCorner
 import androidx.compose.material.icons.filled.SmartDisplay
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideoSettings
 import androidx.compose.material.icons.rounded.Notifications

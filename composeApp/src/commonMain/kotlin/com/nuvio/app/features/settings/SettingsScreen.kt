@@ -715,7 +715,7 @@ private fun MobileSettingsScreen(
                 )
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
-                        supportersContributorsContent(isTablet = false)
+                        aboutUsContent(isTablet = false)
                     }
                 }
                 SettingsPage.LicensesAttributions -> licensesAttributionsContent(
@@ -1172,7 +1172,7 @@ private fun TabletSettingsScreen(
                     )
                     SettingsPage.SupportersContributors -> {
                         if (AppFeaturePolicy.supportersContributorsPageEnabled) {
-                            supportersContributorsContent(isTablet = true)
+                            aboutUsContent(isTablet = true)
                         }
                     }
                     SettingsPage.LicensesAttributions -> licensesAttributionsContent(
