@@ -75,6 +75,22 @@ jobs:
           else
             sdkmanager --install "cmake;3.22.1"
           fi
+
+      # Upstream 0.6.6 compiles the `native/` Cargo workspace into the APK with
+      # cargo-ndk (seek-bar thumbnails, Matroska/MP4 container indexes). The
+      # runner image already has rustup; the four Android targets and cargo-ndk
+      # are what the build needs. `buildRust` is a generated jniLibs source
+      # directory for every variant, so without these the release assemble task
+      # fails before it compiles any Kotlin. Identical to build.yml.
+      - name: Set up Rust for the native module
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          cargo ndk --version
+
       - uses: gradle/actions/setup-gradle@v6
         with:
           cache-read-only: false
