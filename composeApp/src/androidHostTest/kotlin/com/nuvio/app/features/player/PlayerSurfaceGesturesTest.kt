@@ -76,7 +76,7 @@ class PlayerSurfaceGesturesTest {
                         playerControlsLockedState = unlocked,
                         touchGesturesEnabledState = rememberUpdatedState(true),
                         swipeToSeekEnabledState = rememberUpdatedState(true),
-                        isHoldToSpeedGestureActiveState = unlocked,
+                        isHoldToSpeedGestureActiveState = rememberUpdatedState(false),
                         currentPositionMsState = rememberUpdatedState(30_000L),
                         currentDurationMsState = rememberUpdatedState(120_000L),
                         deactivateHoldToSpeedState = noop,

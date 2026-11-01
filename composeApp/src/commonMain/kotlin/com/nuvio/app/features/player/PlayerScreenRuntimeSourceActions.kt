@@ -119,6 +119,7 @@ internal fun PlayerScreenRuntime.openExternalSourceUrl(stream: StreamItem): Bool
     openExternalUrl(url)
     showSourcesPanel = false
     showEpisodesPanel = false
+    showChaptersPanel = false
     controlsVisible = true
     PlayerStreamsRepository.pauseSearchForPlayback()
     return true
@@ -191,7 +192,21 @@ internal fun PlayerScreenRuntime.stopActiveP2pStream() {
     activeTorrentFilename = null
     activeTorrentTrackers = emptyList()
     p2pResolvedSourceUrl = null
+    activeStreamFilename = null
 }
+
+/**
+ * Filename used by the auto engine resolver for a direct stream, mirroring NuvioTV:
+ * the stream's `behaviorHints.filename` when present, otherwise the URL path basename
+ * (query string stripped, only when it looks like a file with an extension).
+ */
+internal fun streamPlaybackFilename(stream: StreamItem, url: String): String? =
+    stream.behaviorHints.filename?.takeIf { it.isNotBlank() }
+        ?: sourceFilenameFromUrl(url)
+
+internal fun sourceFilenameFromUrl(url: String?): String? =
+    url?.substringBefore('?')?.substringAfterLast('/')
+        ?.takeIf { it.isNotBlank() && it.contains('.') }
 
 internal fun PlayerScreenRuntime.saveP2pStreamForReuse(
     stream: StreamItem,
@@ -449,6 +464,7 @@ internal fun PlayerScreenRuntime.switchToSource(
     activeSourceFilename = stream.behaviorHints.filename
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
+    activeStreamFilename = streamPlaybackFilename(stream, url)
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activeStream = stream
@@ -566,6 +582,7 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
         episode.title.ifBlank { title }
     }
     activeStreamSubtitle = downloadItem.streamSubtitle
+    activeStreamFilename = sourceFilenameFromUrl(localFileUri)
     activeProviderName = downloadItem.providerName.ifBlank { downloadedLabel }
     activeProviderAddonId = downloadItem.providerAddonId
     activeStream = null
@@ -659,6 +676,7 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
     showSourcesPanel = true
     showEpisodesPanel = false
     showLiveChannelsPanel = false
+    showChaptersPanel = false
     controlsVisible = false
 }
 
@@ -679,6 +697,7 @@ internal fun PlayerScreenRuntime.openEpisodesPanel() {
     showEpisodesPanel = true
     showSourcesPanel = false
     showLiveChannelsPanel = false
+    showChaptersPanel = false
     controlsVisible = false
 }
 
@@ -689,6 +708,7 @@ private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState() {
     showSourcesPanel = false
     showEpisodesPanel = false
     showLiveChannelsPanel = false
+    showChaptersPanel = false
     episodeStreamsPanelState = EpisodeStreamsPanelState()
     cancelNextEpisodeAutoPlay()
     PlayerStreamsRepository.clearEpisodeStreams()
@@ -730,6 +750,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     activeSourceFilename = stream.behaviorHints.filename
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
+    activeStreamFilename = streamPlaybackFilename(stream, stream.playableDirectUrl.orEmpty())
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
     activeStream = stream

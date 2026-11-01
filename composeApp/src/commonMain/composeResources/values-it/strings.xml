@@ -409,6 +409,8 @@
   <string name="settings_mdb_section_api_key">CHIAVE API</string>
   <string name="settings_mdb_section_rating_providers">FORNITORI VALUTAZIONI</string>
   <string name="settings_mdb_section_title">MDBLIST</string>
+  <string name="settings_mdb_show_on_hero">Mostra valutazioni in evidenza</string>
+  <string name="settings_mdb_show_on_hero_description">Mostra le valutazioni MDBList nel contenuto in evidenza della home</string>
   <string name="settings_meta_actions">Azioni</string>
   <string name="settings_meta_actions_description">Controlli di riproduzione e salvataggio.</string>
   <string name="settings_meta_cast">Cast</string>
@@ -457,7 +459,7 @@
   <string name="settings_notifications_test_requires_saved_show">Salva prima una serie nella tua libreria per testare le notifiche.</string>
   <string name="settings_notifications_test_title">Notifica di test</string>
   <string name="community_section_title">Comunità</string>
-  <string name="community_section_description">Scopri le persone che sviluppano e supportano Nuvio su Mobile, TV e Web.</string>
+  <string name="community_section_description">Scopri le persone che sviluppano e supportano StreamBridge su Mobile, TV e Web.</string>
   <string name="community_supporters_not_configured">L'API dei sostenitori non è configurata. Aggiungi DONATIONS_BASE_URL a local.properties.</string>
   <string name="community_tab_contributors">Collaboratori</string>
   <string name="community_tab_supporters">Sostenitori</string>
@@ -555,11 +557,8 @@
   <string name="settings_playback_regex_preset_quality_720p_smaller">720p / Dimensioni ridotte</string>
   <string name="settings_playback_regex_preset_web_sources">Sorgenti WEB</string>
   <string name="settings_playback_render_type">Tipo di rendering</string>
-  <string name="settings_playback_render_type_cues">Standard (Cues)</string>
-  <string name="settings_playback_render_type_effects_canvas">Effetti Canvas</string>
-  <string name="settings_playback_render_type_effects_opengl">Effetti OpenGL</string>
-  <string name="settings_playback_render_type_overlay_canvas">Overlay Canvas</string>
-  <string name="settings_playback_render_type_overlay_opengl">Overlay OpenGL</string>
+  <string name="settings_playback_render_scale">Risoluzione di rendering dei sottotitoli</string>
+  <string name="settings_playback_render_scale_description">Una risoluzione inferiore migliora le prestazioni con sottotitoli dalla formattazione complessa, a scapito della nitidezza</string>
   <string name="settings_playback_reuse_last_link">Riusa l'ultimo link</string>
   <string name="settings_playback_reuse_last_link_description">Riproduci automaticamente l'ultimo flusso funzionante per lo stesso film/episodio se la cache è ancora valida.</string>
   <string name="settings_playback_secondary_audio_language">Lingua audio secondaria</string>
@@ -1371,6 +1370,11 @@
   <string name="settings_stream_badges_section">STILE FUSION</string>
   <string name="settings_stream_size_badges_title">Badge della dimensione</string>
   <string name="settings_stream_size_badges_description">Mostra il badge della dimensione nei risultati stream e nei pannelli origine del player.</string>
+  <string name="settings_stream_badges_in_player_title">Mostra nel player</string>
+  <string name="settings_stream_badges_in_player_description">Mostra i badge del video e dell'audio in riproduzione sotto il titolo del player. Richiede un pacchetto di badge che riconosca il testo semplice, come 2160p o Atmos.</string>
+  <string name="settings_stream_player_badges_title">Badge del player</string>
+  <string name="settings_stream_player_badges_description">Scegli il pacchetto di badge usato dal player.</string>
+  <string name="settings_stream_player_badges_same">Come i badge degli stream</string>
   <string name="settings_stream_addon_logo_title">Logo Addon</string>
   <string name="settings_stream_addon_logo_description">Mostra il logo e il nome dell'addon accanto alle sorgenti degli stream.</string>
   <string name="settings_stream_display_section">DISPLAY</string>
@@ -1421,7 +1425,7 @@
   <string name="trakt_watch_progress_title">Progressi di visione</string>
   <string name="trakt_watch_progress_subtitle">Scegli quale sorgente di progresso gestisce il riprendi visione e inizia a guardare</string>
   <string name="trakt_watch_progress_dialog_title">Progressi di visione</string>
-  <string name="trakt_watch_progress_dialog_subtitle">Scegli se il riprendi visione e inizia a guardare devono utilizzare Trakt o Nuvio Sync, mentre lo scrobbling di Trakt rimane attivo.</string>
+  <string name="trakt_watch_progress_dialog_subtitle">Scegli se il riprendi visione e inizia a guardare devono utilizzare Trakt o StreamBridge Sync, mentre lo scrobbling di Trakt rimane attivo.</string>
   <string name="trakt_watch_progress_source_trakt">Trakt</string>
   <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
   <string name="trakt_watch_progress_trakt_selected">Sorgente dei progressi di visione impostata su Trakt</string>
@@ -1967,6 +1971,8 @@
     <string name="cd_switch_player_engine">Cambia motore player</string>
     <string name="cd_stream_info">Informazioni stream</string>
     <string name="player_engine_switching_manual_message">Passaggio a %1$s...</string>
+    <string name="player_engine_switch_title">Passare a %1$s?</string>
+    <string name="player_engine_switch_message">Il video verrà ricaricato dal punto attuale.</string>
     <string name="stream_info_section_source">SORGENTE</string>
     <string name="stream_info_section_video">VIDEO</string>
     <string name="stream_info_section_audio">AUDIO</string>
@@ -2093,12 +2099,12 @@
     <string name="settings_content_discovery_section_search">Cerca</string>
     <string name="settings_content_discovery_recent_searches">Ricerche recenti</string>
     <string name="settings_stream_background_title">Sfondo</string>
-    <string name="community_membership_title">Iscrizione Supporter di Nuvio</string>
-    <string name="community_membership_description">Sostenere Nuvio aiuta a coprire l'infrastruttura e lo sviluppo continuo, mantenendo l'esperienza principale gratuita per tutti.</string>
+    <string name="community_membership_title">Iscrizione Supporter di StreamBridge</string>
+    <string name="community_membership_description">Sostenere StreamBridge aiuta a coprire l'infrastruttura e lo sviluppo continuo, mantenendo l'esperienza principale gratuita per tutti.</string>
     <string name="community_membership_thank_you">Grazie.</string>
     <string name="community_membership_supporter_since">Supporter dal %1$s.</string>
     <string name="community_membership_connected_title">Patreon è connesso</string>
-    <string name="community_membership_connected_description">Nessun livello Nuvio attivo trovato su questo account Patreon. Visualizza le opzioni disponibili o aggiorna dopo aver modificato la tua iscrizione Patreon.</string>
+    <string name="community_membership_connected_description">Nessun livello StreamBridge attivo trovato su questo account Patreon. Visualizza le opzioni disponibili o aggiorna dopo aver modificato la tua iscrizione Patreon.</string>
     <string name="community_membership_manage">Gestisci iscrizione</string>
     <string name="community_membership_refreshing">Aggiornamento in corso</string>
     <string name="community_membership_unable_load">Impossibile caricare lo stato dell'iscrizione. Riprova.</string>
@@ -2119,7 +2125,7 @@
     <string name="settings_tmdb_api_key_label">Chiave API</string>
     <string name="settings_tracking_viewing_discovery">Funzioni Trakt</string>
     <string name="settings_tracking_services">Account</string>
-    <string name="settings_trakt_disconnect_description">Questo disconnetterà il tuo account Trakt da Nuvio.</string>
+    <string name="settings_trakt_disconnect_description">Questo disconnetterà il tuo account Trakt da StreamBridge.</string>
     <string name="settings_simkl_disconnect_description">Questo rimuove l'account Simkl e i dati Simkl in cache da questo profilo.</string>
     <string name="settings_tracking_trakt_progress_required">Disponibile quando Trakt è la fonte dei progressi di visione</string>
     <string name="settings_tracking_anime_id_title">Preferenza ID anime</string>
@@ -2145,7 +2151,7 @@
     <string name="settings_simkl_sync_now">Sincronizza ora</string>
     <string name="settings_simkl_sync_info_action">Come funziona la sincronizzazione</string>
     <string name="settings_simkl_sync_info_activity">Ogni aggiornamento verifica prima se Simkl segnala modifiche e scarica solo gli aggiornamenti. Questo rispetta le regole dell'API di Simkl, riduce l'uso di dati non necessario e aiuta a mantenere stabile il servizio.</string>
-    <string name="settings_simkl_sync_info_manual">Le modifiche effettuate in Nuvio vengono inviate a Simkl immediatamente. Usa Sincronizza ora ogni volta che vuoi che Nuvio controlli prima le modifiche remote.</string>
+    <string name="settings_simkl_sync_info_manual">Le modifiche effettuate in StreamBridge vengono inviate a Simkl immediatamente. Usa Sincronizza ora ogni volta che vuoi che StreamBridge controlli prima le modifiche remote.</string>
     <string name="settings_simkl_sync_info_library_statuses">I contenuti inseriti nelle liste "In pausa" o "Abbandonati" di Simkl sono nascosti da Continua a guardare. Restano nascosti finché rimangono in una di queste liste.</string>
     <string name="settings_simkl_sync_info_docs">Leggi la guida alla sincronizzazione Simkl</string>
     <string name="settings_simkl_authorization_revoked">L'autorizzazione Simkl è stata revocata. Collegati di nuovo.</string>
@@ -2227,7 +2233,6 @@
     <string name="settings_playback_auto_skip_movie_credits">Titoli di coda</string>
     <string name="player_skip_movie_credits">Salta i titoli di coda</string>
     <string name="player_skip_to_post_credits">Vai alla scena dopo i titoli di coda</string>
-    <string name="compose_player_via">tramite %1$s</string>
     <string name="compose_player_speed">Velocità di riproduzione</string>
     <string name="compose_player_brightness">Luminosità</string>
     <string name="random_episode_title">Riproduzione casuale</string>
@@ -2284,7 +2289,7 @@
     <string name="settings_licenses_attributions_simkl_body">Nuvio si collega a Simkl per l'autenticazione dell'account, le watchlist, la cronologia di visione, i progressi di riproduzione e lo scrobbling. Simkl fornisce dati di tracciamento per film, serie TV e anime. Nuvio non è affiliato a Simkl né approvato da Simkl.</string>
     <string name="compose_tracking_list_picker_loading">Caricamento delle liste…</string>
     <string name="compose_tracking_list_picker_subtitle">Scegli dove salvare questo titolo</string>
-    <string name="action_support_nuvio">Sostieni Nuvio</string>
+    <string name="action_support_nuvio">Sostieni StreamBridge</string>
     <string name="settings_appearance_app_icon">Icona app</string>
     <string name="settings_appearance_app_icon_android_confirmation_message">Passando a %1$s, Nuvio si chiuderà. Tocca OK per continuare.</string>
     <string name="settings_appearance_app_icon_change_failed">Impossibile cambiare l'icona. Riprova.</string>
@@ -2353,7 +2358,7 @@
     <string name="settings_tracking_approval_redirect">Dopo l'approvazione verrai reindirizzato automaticamente all'app.</string>
     <string name="settings_tracking_connect_first">Collega prima %1$s</string>
     <string name="settings_tracking_disconnect_title">Scollegare %1$s?</string>
-    <string name="settings_tracking_disconnect_description">La connessione verrà rimossa da Nuvio. I tuoi dati su %1$s resteranno intatti; le fonti non disponibili per la libreria o i progressi passeranno temporaneamente a Nuvio.</string>
+    <string name="settings_tracking_disconnect_description">La connessione verrà rimossa da StreamBridge. I tuoi dati su %1$s resteranno intatti; le fonti non disponibili per la libreria o i progressi passeranno temporaneamente a StreamBridge.</string>
     <string name="settings_tracking_source_fallback">%1$s non è disponibile. Verrà usato %2$s finché non si riconnette.</string>
     <string name="settings_tracking_progress_refresh_failed">La fonte è stata cambiata, ma non è stato possibile aggiornare gli ultimi progressi di visione.</string>
     <string name="settings_tracking_nuvio_library_description">Mantieni i titoli salvati nella tua libreria Nuvio.</string>
@@ -2377,12 +2382,12 @@
     <string name="settings_simkl_invalid_callback">Simkl non ha accettato la risposta di accesso. Riprova.</string>
     <string name="settings_simkl_sign_in_failed">Impossibile completare l'accesso a Simkl. Riprova.</string>
     <string name="settings_simkl_sync_info_title">Come funziona la sincronizzazione con Simkl</string>
-    <string name="settings_simkl_sync_info_description">Nuvio controlla automaticamente Simkl al massimo una volta ogni %1$d minuti. Le modifiche apportate tramite un'altra app o sul sito Simkl potrebbero impiegare altrettanto tempo ad apparire.</string>
+    <string name="settings_simkl_sync_info_description">StreamBridge controlla automaticamente Simkl al massimo una volta ogni %1$d minuti. Le modifiche apportate tramite un'altra app o sul sito Simkl potrebbero impiegare altrettanto tempo ad apparire.</string>
     <string name="settings_tracking_not_connected">Non collegato</string>
     <string name="tracking_source_simkl">Simkl</string>
     <string name="tracking_library_source_simkl_selected">Lista da guardare Simkl selezionata</string>
     <string name="tracking_watch_progress_simkl_selected">Fonte dei progressi di visione impostata su Simkl</string>
-    <string name="tracking_watch_progress_dialog_subtitle">Scegli il servizio da cui Nuvio legge i progressi per Riprendi e Continua a guardare. La sincronizzazione della cronologia resta attiva per tutti i servizi collegati.</string>
+    <string name="tracking_watch_progress_dialog_subtitle">Scegli il servizio da cui StreamBridge legge i progressi per Riprendi e Continua a guardare. La sincronizzazione della cronologia resta attiva per tutti i servizi collegati.</string>
     <string name="trakt_more_like_this_source_simkl">Simkl</string>
     <string name="source_mal">MyAnimeList</string>
     <string name="theme_custom">Personalizzato</string>

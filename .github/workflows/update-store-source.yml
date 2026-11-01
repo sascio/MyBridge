@@ -159,7 +159,10 @@ jobs:
             # A one-byte range request keeps the check cheap for a 70 MB IPA while
             # still proving that github.com serves the asset right now.
             code="$(curl -sS -o /dev/null -w '%{http_code}' -L -r 0-0 --retry 3 --retry-delay 2 --max-time 60 "${url}" || echo 000)"
-            if [[ "${code}" == "200" ]]; then
+            # A one-byte range request answers 206 Partial Content, not 200, so
+            # both are reachable. Requiring exactly 200 failed every entry,
+            # including all previously published ones.
+            if [[ "${code}" == "200" || "${code}" == "206" ]]; then
               echo "store.json asset reachable: ${url}"
             else
               echo "::error::store.json advertises ${url}, which answered HTTP ${code}."

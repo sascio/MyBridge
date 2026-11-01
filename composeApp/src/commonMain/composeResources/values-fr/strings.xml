@@ -807,7 +807,7 @@
     <string name="settings_notifications_test_requires_saved_show">Enregistrez d’abord une série dans votre bibliothèque pour tester les notifications.</string>
     <string name="settings_notifications_test_title">Notification de test</string>
     <string name="community_section_title">Communauté</string>
-    <string name="community_section_description">Découvrez les personnes qui construisent et soutiennent Nuvio sur Mobile, TV et Web.</string>
+    <string name="community_section_description">Découvrez les personnes qui construisent et soutiennent StreamBridge sur Mobile, TV et Web.</string>
     <string name="community_donation_progress_title">Serveur et maintenance de ce mois-ci</string>
     <string name="community_donation_progress_complete">Couvert. Le soutien supplémentaire va désormais au développement.</string>
     <string name="community_donation_progress_remaining">Au-delà de 100 %, le soutien supplémentaire va au développement.</string>
@@ -932,11 +932,6 @@
     <string name="settings_playback_regex_preset_quality_720p_smaller">720p / plus petit</string>
     <string name="settings_playback_regex_preset_web_sources">Sources WEB</string>
     <string name="settings_playback_render_type">Type de rendu</string>
-    <string name="settings_playback_render_type_cues">Standard (Cues)</string>
-    <string name="settings_playback_render_type_effects_canvas">Canvas avec effets</string>
-    <string name="settings_playback_render_type_effects_opengl">OpenGL avec effets</string>
-    <string name="settings_playback_render_type_overlay_canvas">Canvas superposé</string>
-    <string name="settings_playback_render_type_overlay_opengl">OpenGL superposé</string>
     <string name="settings_playback_reuse_last_link">Réutiliser le dernier lien</string>
     <string name="settings_playback_reuse_last_link_description">Lire automatiquement votre dernier stream fonctionnel pour ce même film/épisode lorsque le cache est encore valide.</string>
     <string name="settings_playback_secondary_audio_language">Langue audio secondaire</string>
@@ -1065,7 +1060,7 @@
     <string name="trakt_watch_progress_title">Progression de visionnage</string>
     <string name="trakt_watch_progress_subtitle">Choisissez quelle source de progression alimente la reprise et Continuer à regarder</string>
     <string name="trakt_watch_progress_dialog_title">Progression de visionnage</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Choisissez si la reprise et Continuer à regarder doivent utiliser Trakt ou Nuvio Sync pendant que le scrobbling Trakt reste actif.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Choisissez si la reprise et Continuer à regarder doivent utiliser Trakt ou StreamBridge Sync pendant que le scrobbling Trakt reste actif.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
     <string name="trakt_watch_progress_trakt_selected">Source de progression réglée sur Trakt</string>

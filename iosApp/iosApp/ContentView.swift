@@ -23,18 +23,24 @@ private enum NuvioComposeHost {
 
     static func wrap(
         _ contentController: UIViewController,
+        backgroundColor: UIColor = nuvioBackgroundColor,
         disablesInteractiveContentPopGesture: Bool = false,
         passesThroughEmptyNavigationBarAreas: Bool = false,
         hidesContainingTabBar: Bool = false,
+        verticalBar: VerticalBar? = nil,
+        hinge: Hinge? = nil,
         onTabBarControllerAvailable: ((UITabBarController) -> Void)? = nil
     ) -> RootComposeViewController {
         _ = registerPlayerBridge
-        contentController.view.backgroundColor = nuvioBackgroundColor
+        contentController.view.backgroundColor = backgroundColor
         return RootComposeViewController(
             contentController: contentController,
+            backgroundColor: backgroundColor,
             disablesInteractiveContentPopGesture: disablesInteractiveContentPopGesture,
             passesThroughEmptyNavigationBarAreas: passesThroughEmptyNavigationBarAreas,
             hidesContainingTabBar: hidesContainingTabBar,
+            verticalBar: verticalBar,
+            hinge: hinge,
             onTabBarControllerAvailable: onTabBarControllerAvailable
         )
     }
@@ -42,23 +48,34 @@ private enum NuvioComposeHost {
 
 final class RootComposeViewController: UIViewController {
     private let contentController: UIViewController
+    private let backgroundColor: UIColor
     private let disablesInteractiveContentPopGesture: Bool
     private let passesThroughEmptyNavigationBarAreas: Bool
     private let hidesContainingTabBar: Bool
+    private let hinge: Hinge?
     private let onTabBarControllerAvailable: ((UITabBarController) -> Void)?
     private var immersiveSystemUIObserver: NSObjectProtocol?
+    private let verticalBar: VerticalBar?
+    private var leadingConstraint: NSLayoutConstraint?
+    private var trailingConstraint: NSLayoutConstraint?
 
     init(
         contentController: UIViewController,
+        backgroundColor: UIColor,
         disablesInteractiveContentPopGesture: Bool,
         passesThroughEmptyNavigationBarAreas: Bool = false,
         hidesContainingTabBar: Bool,
+        verticalBar: VerticalBar?,
+        hinge: Hinge?,
         onTabBarControllerAvailable: ((UITabBarController) -> Void)?
     ) {
         self.contentController = contentController
+        self.backgroundColor = backgroundColor
         self.disablesInteractiveContentPopGesture = disablesInteractiveContentPopGesture
         self.passesThroughEmptyNavigationBarAreas = passesThroughEmptyNavigationBarAreas
         self.hidesContainingTabBar = hidesContainingTabBar
+        self.verticalBar = verticalBar
+        self.hinge = hinge
         self.onTabBarControllerAvailable = onTabBarControllerAvailable
         super.init(nibName: nil, bundle: nil)
     }
@@ -71,18 +88,31 @@ final class RootComposeViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        view.backgroundColor = nuvioBackgroundColor
-        contentController.view.backgroundColor = nuvioBackgroundColor
+        view.backgroundColor = backgroundColor
+        view.isOpaque = backgroundColor != .clear
+        contentController.view.backgroundColor = backgroundColor
 
         addChild(contentController)
         view.addSubview(contentController.view)
         contentController.view.translatesAutoresizingMaskIntoConstraints = false
+        let leadingConstraint = contentController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        let trailingConstraint = contentController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         NSLayoutConstraint.activate([
-            contentController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            contentController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentController.view.topAnchor.constraint(equalTo: view.topAnchor),
             contentController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            leadingConstraint,
+            trailingConstraint,
         ])
+        self.leadingConstraint = leadingConstraint
+        self.trailingConstraint = trailingConstraint
+        // Fold awareness (UIHingeInteraction, UIView.reservedRegions(kind:),
+        // UITraitCollection.systemTraitsAffectingVerticalBarEdge) and the vertical
+        // bar trait it drives only exist in the iOS 27 SDK. The CI image tops out
+        // at Xcode 26.6 / iOS 26.5, where those symbols are not declared at all, so
+        // referencing them behind #available still fails to compile. The Compose
+        // surface therefore uses the plain safe-area layout until a runner with
+        // that SDK is available; updateVerticalBar() still runs on every safe-area
+        // change, and the Kotlin Hinge/VerticalBar bridges simply stay empty.
         contentController.didMove(toParent: self)
 
         immersiveSystemUIObserver = NotificationCenter.default.addObserver(
@@ -98,6 +128,40 @@ final class RootComposeViewController: UIViewController {
         if let immersiveSystemUIObserver {
             NotificationCenter.default.removeObserver(immersiveSystemUIObserver)
         }
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateVerticalBar()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        enforceContainingTabBarVisibility()
+        updateFold()
+    }
+
+    /// Clears the fold bridge: reading the hinge position needs
+    /// `UIView.reservedRegions(kind: .division)` from the iOS 27 SDK (see the fold
+    /// note in viewDidLoad), so there is nothing to report on this toolchain.
+    private func updateFold() {
+        hinge?.clear()
+    }
+
+    private func updateVerticalBar() {
+        let insets = verticalBarInsets
+        if let verticalBar {
+            verticalBar.update(start: Double(insets.leading), end: Double(insets.trailing))
+        } else {
+            leadingConstraint?.constant = insets.leading
+            trailingConstraint?.constant = -insets.trailing
+        }
+    }
+
+    /// `UITraitCollection.verticalBarEdge` is an iOS 27 SDK API and is not declared
+    /// on this toolchain, so the Compose surface keeps the full safe area.
+    private var verticalBarInsets: NSDirectionalEdgeInsets {
+        .zero
     }
 
     override var childForHomeIndicatorAutoHidden: UIViewController? {
@@ -154,11 +218,6 @@ final class RootComposeViewController: UIViewController {
         if let tabBarController {
             onTabBarControllerAvailable?(tabBarController)
         }
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        enforceContainingTabBarVisibility()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1115,6 +1174,7 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
     let appCoordinator: AppNavigationCoordinator
 
     func makeUIViewController(context: Context) -> UIViewController {
+        let verticalBar = VerticalBar()
         let controller = MainViewControllerKt.MainViewController(
             initialTabName: tab.rawValue,
             useNativeTabBar: usesNativeTabBar,
@@ -1145,11 +1205,13 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
                     addProfile: addProfile
                 )
             },
-            appGateController: appCoordinator.appGateController
+            appGateController: appCoordinator.appGateController,
+            verticalBar: verticalBar
         )
         return NuvioComposeHost.wrap(
             controller,
             hidesContainingTabBar: !usesNativeTabBar,
+            verticalBar: verticalBar,
             onTabBarControllerAvailable: { tabBarController in
                 if usesNativeTabBar {
                     appCoordinator.profileTabInteraction.attach(to: tabBarController)
@@ -1168,6 +1230,7 @@ struct AppGateComposeView: UIViewControllerRepresentable {
     let appCoordinator: AppNavigationCoordinator
 
     func makeUIViewController(context: Context) -> UIViewController {
+        let verticalBar = VerticalBar()
         let controller = MainViewControllerKt.AppGateViewController(
             appGateController: appCoordinator.appGateController,
             nativeProfileSwitcherController: appCoordinator.profileSwitcherController,
@@ -1182,11 +1245,11 @@ struct AppGateComposeView: UIViewControllerRepresentable {
             },
             onMainContentVisibleChanged: { visible in
                 appCoordinator.setMainContentVisible(visible.boolValue)
-            }
+            },
+            verticalBar: verticalBar
         )
-        controller.view.backgroundColor = .clear
         controller.view.isOpaque = false
-        return controller
+        return NuvioComposeHost.wrap(controller, backgroundColor: .clear, verticalBar: verticalBar)
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
@@ -1216,6 +1279,8 @@ struct DetailComposeView: UIViewControllerRepresentable {
         let coordinator = coordinator
         let appCoordinator = appCoordinator
         let parking = PlayerPictureInPictureParking.shared
+        let verticalBar = VerticalBar()
+        let hinge = Hinge()
         let controller = MainViewControllerKt.ScreenViewController(
             route: route,
             onNavigate: { newRoute, launchSingleTop in
@@ -1244,12 +1309,16 @@ struct DetailComposeView: UIViewControllerRepresentable {
             },
             appGateController: appCoordinator.appGateController,
             useNativeTabBar: usesNativeTabBar,
-            useTabletFloatingTabBar: usesTabletFloatingTabBar
+            useTabletFloatingTabBar: usesTabletFloatingTabBar,
+            verticalBar: verticalBar,
+            hinge: hinge
         )
         return NuvioComposeHost.wrap(
             controller,
             disablesInteractiveContentPopGesture: true,
-            passesThroughEmptyNavigationBarAreas: true
+            passesThroughEmptyNavigationBarAreas: true,
+            verticalBar: verticalBar,
+            hinge: route is PlayerRoute ? hinge : nil
         )
     }
 
@@ -1398,6 +1467,7 @@ private struct DetailDestinationView: View {
             wrapper.route.hidesNavigationBar ? Visibility.hidden : Visibility.visible,
             for: .navigationBar
         )
+        .verticalBarDisabled(wrapper.route is PlayerRoute)
     }
 
     @ViewBuilder
@@ -1407,6 +1477,17 @@ private struct DetailDestinationView: View {
         } else {
             content
         }
+    }
+}
+
+private extension View {
+    /// Upstream disables the iOS 27 vertical bar with
+    /// `toolbarVerticalBehavior(.disabled)`, which is not declared in the iOS 26.5
+    /// SDK this project builds against. The modifier stays as a no-op so the call
+    /// site keeps its intent and comes back with a newer toolchain.
+    @ViewBuilder
+    func verticalBarDisabled(_ disabled: Bool) -> some View {
+        self
     }
 }
 

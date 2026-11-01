@@ -13,7 +13,24 @@ def mb(n: int) -> str:
     return f"{n / (1024 * 1024):.2f} MiB"
 
 
-def analyze(apk: Path) -> None:
+def notice(apk: Path, buckets: collections.Counter[str], abis: set[str]) -> None:
+    """Emit one GitHub annotation so the size is readable from the Checks API.
+
+    The job log is only visible with log scope; an annotation is part of the
+    published check run, which keeps release evidence auditable.
+    """
+    on_disk = apk.stat().st_size
+    top = ", ".join(
+        f"{key} {buckets[key] / (1024 * 1024):.1f} MiB"
+        for key in sorted(buckets, key=lambda k: buckets[k], reverse=True)[:4]
+    )
+    print(
+        f"::notice title=APK size::{apk.name} {mb(on_disk)} on disk; "
+        f"ABIs {', '.join(sorted(abis)) or '(none)'}; uncompressed {top}"
+    )
+
+
+def analyze(apk: Path, emit_notice: bool = False) -> None:
     on_disk = apk.stat().st_size
     z = zipfile.ZipFile(apk)
     infos = z.infolist()
@@ -56,6 +73,8 @@ def analyze(apk: Path) -> None:
     print("  native .so:")
     for usize, name in sorted(so_rows, reverse=True):
         print(f"    {usize:>12}  {mb(usize):>10}  {name}")
+    if emit_notice:
+        notice(apk, buckets, abis)
     print("  top 20 entries (uncompressed):")
     for usize, csize, name in sorted(entries, reverse=True)[:20]:
         print(f"    {usize:>12}  c={csize:>10}  {name}")
@@ -63,11 +82,14 @@ def analyze(apk: Path) -> None:
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    emit_notice = "--notice" in args
+    args = [a for a in args if a != "--notice"]
+    if not args:
         print("usage: apk-size-report.py <apk-or-dir>...", file=sys.stderr)
         return 2
     apks: list[Path] = []
-    for raw in sys.argv[1:]:
+    for raw in args:
         path = Path(raw)
         if path.is_dir():
             apks.extend(sorted(path.glob("*.apk")))
@@ -77,7 +99,7 @@ def main() -> int:
         print("no APKs found", file=sys.stderr)
         return 1
     for apk in apks:
-        analyze(apk)
+        analyze(apk, emit_notice=emit_notice)
     return 0
 
 

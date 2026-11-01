@@ -718,7 +718,7 @@
     <string name="settings_notifications_test_requires_saved_show">Simpan serial ke pustaka Anda terlebih dahulu untuk menguji notifikasi.</string>
     <string name="settings_notifications_test_title">Notifikasi uji coba</string>
     <string name="community_section_title">Komunitas</string>
-    <string name="community_section_description">Lihat orang-orang yang membangun dan mendukung Nuvio di Mobile, TV, dan Web.</string>
+    <string name="community_section_description">Lihat orang-orang yang membangun dan mendukung StreamBridge di Mobile, TV, dan Web.</string>
     <string name="community_supporters_not_configured">API Donatur tidak dikonfigurasi. Tambahkan DONATIONS_BASE_URL ke local.properties.</string>
     <string name="community_tab_contributors">Kontributor</string>
     <string name="community_tab_supporters">Donatur</string>
@@ -827,11 +827,6 @@
     <string name="settings_playback_regex_preset_quality_720p_smaller">720p / Lebih Kecil</string>
     <string name="settings_playback_regex_preset_web_sources">Sumber WEB</string>
     <string name="settings_playback_render_type">Mode Render Libass</string>
-    <string name="settings_playback_render_type_cues">Cues Standar</string>
-    <string name="settings_playback_render_type_effects_canvas">Effects Canvas</string>
-    <string name="settings_playback_render_type_effects_opengl">Effects OpenGL</string>
-    <string name="settings_playback_render_type_overlay_canvas">Overlay Canvas</string>
-    <string name="settings_playback_render_type_overlay_opengl">Overlay OpenGL (Direkomendasikan)</string>
     <string name="settings_playback_reuse_last_link">Gunakan Ulang Tautan Terakhir</string>
     <string name="settings_playback_reuse_last_link_description">Putar otomatis stream terakhir yang berfungsi untuk film/episode yang sama ketika cache masih valid</string>
     <string name="settings_playback_secondary_audio_language">Bahasa Audio Sekunder</string>
@@ -950,7 +945,7 @@
     <string name="trakt_watch_progress_title">Progres Menonton</string>
     <string name="trakt_watch_progress_subtitle">Pilih sumber progres mana yang digunakan untuk melanjutkan menonton</string>
     <string name="trakt_watch_progress_dialog_title">Progres Menonton</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Pilih apakah resume dan lanjutkan menonton harus menggunakan Trakt atau Nuvio Sync sementara scrobbling Trakt tetap aktif.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Pilih apakah resume dan lanjutkan menonton harus menggunakan Trakt atau StreamBridge Sync sementara scrobbling Trakt tetap aktif.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
     <string name="trakt_watch_progress_trakt_selected">Sumber progres menonton diatur ke Trakt</string>

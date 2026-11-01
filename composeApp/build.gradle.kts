@@ -746,8 +746,9 @@ kotlin {
                 implementation("androidx.recyclerview:recyclerview:1.4.0")
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
                 implementation("com.google.code.gson:gson:2.11.0")
-                implementation("io.github.peerless2012:ass-media:0.5.1")
-                implementation("io.github.peerless2012:ass-kt:0.5.1")
+                // libass atlas renderer, built from NuvioMedia/nuvio-libass. Replaces the
+                // peerless2012 artifacts upstream used up to 0.6.3; see docs/UPSTREAM.md.
+                implementation(files("libs/nuvio-libass-release.aar"))
                 implementation(libs.ktor.client.okhttp)
                 implementation(libs.sentry.android)
                 implementation(libs.play.services.cast.framework)

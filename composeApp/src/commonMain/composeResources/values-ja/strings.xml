@@ -789,7 +789,7 @@
     <string name="settings_notifications_test_requires_saved_show">テスト通知を送るには、シリーズをライブラリに保存してください。</string>
     <string name="settings_notifications_test_title">テスト通知</string>
     <string name="community_section_title">コミュニティ</string>
-    <string name="community_section_description">Mobile・TV・Webを通じてNuvioを構築・支援している人々をご覧ください。</string>
+    <string name="community_section_description">Mobile・TV・Webを通じてStreamBridgeを構築・支援している人々をご覧ください。</string>
     <string name="community_donation_progress_title">今月のサーバー・メンテナンス費用</string>
     <string name="community_donation_progress_complete">達成済み。追加のサポートは開発費に充てられます。</string>
     <string name="community_donation_progress_remaining">100%を超えた追加サポートは開発費に充てられます。</string>
@@ -912,11 +912,6 @@
     <string name="settings_playback_regex_preset_quality_720p_smaller">720p 以下</string>
     <string name="settings_playback_regex_preset_web_sources">WEBソース</string>
     <string name="settings_playback_render_type">libassレンダリングモード</string>
-    <string name="settings_playback_render_type_cues">標準キュー</string>
-    <string name="settings_playback_render_type_effects_canvas">エフェクトキャンバス</string>
-    <string name="settings_playback_render_type_effects_opengl">エフェクトOpenGL</string>
-    <string name="settings_playback_render_type_overlay_canvas">オーバーレイキャンバス</string>
-    <string name="settings_playback_render_type_overlay_opengl">オーバーレイOpenGL（推奨）</string>
     <string name="settings_playback_reuse_last_link">最後のリンクを再利用</string>
     <string name="settings_playback_reuse_last_link_description">キャッシュが有効な場合、同じ映画/エピソードの最後に機能したストリームを自動再生します</string>
     <string name="settings_playback_secondary_audio_language">第2音声言語</string>
@@ -1045,7 +1040,7 @@
     <string name="trakt_watch_progress_title">視聴進捗</string>
     <string name="trakt_watch_progress_subtitle">再開と「視聴を続ける」に使用する進捗ソースを選択</string>
     <string name="trakt_watch_progress_dialog_title">視聴進捗</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Traktスクロブルが有効な状態で、再開と「視聴を続ける」にTraktまたはNuvio同期のどちらを使用するかを選択してください。</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Traktスクロブルが有効な状態で、再開と「視聴を続ける」にTraktまたはStreamBridge同期のどちらを使用するかを選択してください。</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio同期</string>
     <string name="trakt_watch_progress_trakt_selected">視聴進捗ソースをTraktに設定しました</string>

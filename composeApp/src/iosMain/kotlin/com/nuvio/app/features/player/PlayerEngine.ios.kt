@@ -72,6 +72,8 @@ actual fun PlatformPlayerSurface(
     val latestPlayerSettings = rememberUpdatedState(playerSettings)
     val experimentalSinglePrimaryPictureInPictureEnabled =
         IosExperimentalPictureInPictureSettingsStorage.loadSinglePrimaryRendererEnabled()
+    var subtitleText by remember(sourceUrl) { mutableStateOf("") }
+    var subtitleStyle by remember { mutableStateOf(SubtitleStyleState.DEFAULT) }
 
     val bridge = remember {
         NuvioPlayerBridgeFactory.create()
@@ -94,6 +96,9 @@ actual fun PlatformPlayerSurface(
 
             override val keepsPlaybackInBackground: Boolean
                 get() = bridge.getKeepsPlaybackInBackground()
+
+            override val supportsNightMode: Boolean
+                get() = bridge.isNightModeSupported()
 
             override fun setSystemControlHandler(handler: PlayerSystemControlHandler?) {
                 bridge.setSystemControlHandler(handler)
@@ -357,17 +362,17 @@ actual fun PlatformPlayerSurface(
                     "Player/iOS",
                     "apply subtitle style font=${style.fontSizeSp} bold=${style.bold} outline=${style.outlineEnabled}:${style.outlineWidth} bottom=${style.bottomOffset}",
                 )
-                bridge.setSubtitleFontPath(SubtitleFontRepository.pathOf(style.customFontFile).orEmpty())
+                subtitleStyle = style
                 bridge.applySubtitleStyle(
                     textColor = style.textColor.toMpvColorString(),
                     backgroundColor = style.backgroundColor.toMpvColorString(),
                     outlineColor = style.outlineColor.toMpvColorString(),
                     outlineSize = if (style.outlineEnabled) style.outlineWidth.toFloat() else 0f,
-                    shadowOffset = if (style.shadowEnabled) style.shadowStrength * MPV_SUBTITLE_SHADOW_OFFSET_SCALE else 0f,
                     bold = style.bold,
                     fontSize = style.toMpvSubtitleFontSize(),
                     subPos = style.toMpvSubtitlePosition(),
                     stripSdh = style.stripSdh,
+                    styledOverlay = style.usesStyledOverlay,
                 )
             }
 
@@ -438,6 +443,15 @@ actual fun PlatformPlayerSurface(
         bridge.applyIosVideoOutputSettings(playerSettings)
     }
 
+    val nightModeActive = playerSettings.nightModeActive
+    LaunchedEffect(bridge, nightModeActive) {
+        bridge.setNightMode(
+            enabled = nightModeActive,
+            filter = PlayerNightMode.MPV_FILTER,
+            label = PlayerNightMode.MPV_FILTER_LABEL,
+        )
+    }
+
     // Polling for snapshots
     LaunchedEffect(bridge) {
         var lastReportedError: String? = null
@@ -477,8 +491,10 @@ actual fun PlatformPlayerSurface(
 
     // Cleanup
     DisposableEffect(bridge) {
+        bridge.setSubtitleTextHandler { subtitleText = it }
         onDispose {
             InAppLogger.info("Player/iOS", "destroy bridge positionMs=${bridge.getPositionMs()} durationMs=${bridge.getDurationMs()}")
+            bridge.setSubtitleTextHandler(null)
             bridge.destroy()
         }
     }
@@ -508,6 +524,7 @@ actual fun PlatformPlayerSurface(
             },
             interactive = false,
         )
+        StyledSubtitleOverlay(subtitleText, subtitleStyle)
         
         if (useNativeController) {
             var isPlayingLocal by remember { mutableStateOf(playWhenReady) }
@@ -583,7 +600,6 @@ private fun Color.toMpvColorString(): String {
 private fun SubtitleStyleState.toMpvSubtitlePosition(): Int =
     (100 - (bottomOffset / 2)).coerceIn(0, 150)
 
-private const val MPV_SUBTITLE_SHADOW_OFFSET_SCALE = 1.5f
 
 private fun SubtitleStyleState.toMpvSubtitleFontSize(): Float =
     (fontSizeSp * 3f).coerceIn(18f, 96f)

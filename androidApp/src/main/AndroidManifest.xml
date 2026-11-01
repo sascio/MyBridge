@@ -88,7 +88,11 @@
 
                 <data android:scheme="stremio" />
             </intent-filter>
-            <intent-filter android:autoVerify="true">
+            <!-- Legacy invites only. v0.1.13 and earlier shared
+                 https://nuvio.tv/party/<code>; that domain belongs to NuvioMedia,
+                 so StreamBridge parses it but never claims App Links verification
+                 for it (no autoVerify) and never generates it again. -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />

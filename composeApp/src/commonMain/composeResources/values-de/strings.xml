@@ -594,7 +594,7 @@
     <string name="settings_notifications_test_requires_saved_show">Speichere zuerst eine Serie in deiner Bibliothek, um Benachrichtigungen zu testen.</string>
     <string name="settings_notifications_test_title">Test-Benachrichtigung</string>
     <string name="community_section_title">Community</string>
-    <string name="community_section_description">Sieh dir die Menschen an, die Nuvio auf Mobile, TV und Web entwickeln und unterstützen.</string>
+    <string name="community_section_description">Sieh dir die Menschen an, die StreamBridge auf Mobile, TV und Web entwickeln und unterstützen.</string>
     <string name="community_supporters_not_configured">Supporters-API ist nicht konfiguriert. Füge DONATIONS_BASE_URL zu local.properties hinzu.</string>
     <string name="community_tab_contributors">Mitwirkende</string>
     <string name="community_tab_supporters">Unterstützer</string>
@@ -696,11 +696,6 @@
     <string name="settings_playback_regex_preset_quality_720p_smaller">720p / Kleiner</string>
     <string name="settings_playback_regex_preset_web_sources">WEB-Quellen</string>
     <string name="settings_playback_render_type">Render-Typ</string>
-    <string name="settings_playback_render_type_cues">Standard (Cues)</string>
-    <string name="settings_playback_render_type_effects_canvas">Effekte Canvas</string>
-    <string name="settings_playback_render_type_effects_opengl">Effekte OpenGL</string>
-    <string name="settings_playback_render_type_overlay_canvas">Overlay Canvas</string>
-    <string name="settings_playback_render_type_overlay_opengl">Overlay OpenGL</string>
     <string name="settings_playback_reuse_last_link">Letzten Link wiederverwenden</string>
     <string name="settings_playback_reuse_last_link_description">Den letzten funktionierenden Stream für denselben Film/dieselbe Episode automatisch abspielen, solange der Cache gültig ist.</string>
     <string name="settings_playback_secondary_audio_language">Zweite Audiosprache</string>

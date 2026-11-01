@@ -114,6 +114,8 @@ import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
+import com.nuvio.app.core.ui.LocalVerticalBarPadding
+import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
@@ -445,7 +447,9 @@ fun LibraryScreen(
     Column(modifier = modifier.fillMaxSize()) {
         Box(modifier = Modifier.fillMaxWidth()) {
             androidx.compose.foundation.layout.Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(LocalVerticalBarPadding.current),
             ) {
                 NuvioScreenHeader(
                     title = if (sourceMode != LibraryViewMode.Saved) {
@@ -458,6 +462,7 @@ fun LibraryScreen(
                             LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_title)
                             LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_title)
                             LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_title)
+                            LibrarySourceMode.PUBLICMETADB -> stringResource(Res.string.library_publicmetadb_title)
                         }
                     },
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -623,6 +628,7 @@ fun LibraryScreen(
                                         LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_load_failed)
                                         LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_load_failed)
                                         LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_load_failed)
+                                        LibrarySourceMode.PUBLICMETADB -> stringResource(Res.string.library_publicmetadb_load_failed)
                                     },
                                     message = uiState.errorMessage.orEmpty(),
                                     actionLabel = stringResource(Res.string.action_retry),
@@ -643,6 +649,7 @@ fun LibraryScreen(
                                     LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_empty_title)
                                     LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_empty_title)
                                     LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_empty_title)
+                                    LibrarySourceMode.PUBLICMETADB -> stringResource(Res.string.library_publicmetadb_empty_title)
                                 },
                                 message = when (uiState.sourceMode) {
                                     LibrarySourceMode.LOCAL -> stringResource(Res.string.library_empty_message)
@@ -651,6 +658,7 @@ fun LibraryScreen(
                                     LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_empty_message)
                                     LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_empty_message)
                                     LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_empty_message)
+                                    LibrarySourceMode.PUBLICMETADB -> stringResource(Res.string.library_publicmetadb_empty_message)
                                 },
                             )
                         }
@@ -2199,13 +2207,13 @@ private fun LibraryCalendarCard(
 @Composable
 private fun LibraryCalendarWeekdayHeader() {
     val labels = listOf(
-        stringResource(Res.string.library_calendar_weekday_sun),
         stringResource(Res.string.library_calendar_weekday_mon),
         stringResource(Res.string.library_calendar_weekday_tue),
         stringResource(Res.string.library_calendar_weekday_wed),
         stringResource(Res.string.library_calendar_weekday_thu),
         stringResource(Res.string.library_calendar_weekday_fri),
         stringResource(Res.string.library_calendar_weekday_sat),
+        stringResource(Res.string.library_calendar_weekday_sun),
     )
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -3111,7 +3119,7 @@ private fun libraryCalendarCells(month: LibraryCalendarMonth): List<LibraryCalen
 
 private fun firstLibraryCalendarWeekdayOffset(year: Int, month: Int): Int {
     val epochDay = isoEpochDay(LibraryCalendarDate(year, month, 1).iso)
-    val raw = (epochDay + 4L) % 7L
+    val raw = (epochDay + 3L) % 7L
     return if (raw < 0L) (raw + 7L).toInt() else raw.toInt()
 }
 

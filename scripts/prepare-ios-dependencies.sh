@@ -3,8 +3,8 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd -P)"
-engine_version=0.1.5
-engine_checksum=8d2a7d9b5def39bff0f5ee77a4c600bb14791b2ec388d05eeecae6424fdeab36
+engine_version=0.1.6
+engine_checksum=f556718ec0fd122a61bc5408307b19fcd54397595954c46c6ff8db1e5a179421
 engine_root="${NUVIO_ENGINE_ROOT:-${repository_root}/../nuvio-engine}"
 engine_framework="${engine_root}/platform/apple/NuvioEngine.xcframework"
 # MPVKit is the local Swift package the Xcode project references as ../MPVKit.
@@ -12,14 +12,17 @@ engine_framework="${engine_root}/platform/apple/NuvioEngine.xcframework"
 # the submodule, so fetch the same upstream repository when the working tree does
 # not already provide it.
 #
-# The commit is PINNED to the revision NuvioMobile-Enhanced 0.5.5-beta recorded for
-# its MPVKit submodule (d5cf091c, "Guard AudioUnit render buffers"). Cloning the
-# branch tip instead would build the iOS app against a newer player than the
-# release it was synced from; the pin keeps the StreamBridge 0.1.08 iOS build
-# reproducible and identical to the upstream release it is based on.
+# The commit is PINNED to the revision NuvioMobile-Enhanced 0.6.6-beta records for
+# its MPVKit submodule (7f40522a, "consume the nuvio.6 FFmpeg and Libmpv
+# artifacts"). 0.6.6's iOS night mode and the libmpv/FFmpeg 8 builds that the
+# synced player code expects exist only in that fork; the official
+# NuvioMedia/MPVKit pin d5cf091c no longer matches the Swift bridge. Cloning the
+# branch tip instead would build iOS against an unpinned player, so the pin keeps
+# the StreamBridge iOS build reproducible and identical to the upstream release it
+# is based on.
 # Override with NUVIO_MPVKIT_REPO / NUVIO_MPVKIT_COMMIT / NUVIO_MPVKIT_REF.
-mpvkit_repo="${NUVIO_MPVKIT_REPO:-https://github.com/NuvioMedia/MPVKit.git}"
-mpvkit_commit="${NUVIO_MPVKIT_COMMIT:-d5cf091c80368bbbc1bbf2d195fbc55d926df888}"
+mpvkit_repo="${NUVIO_MPVKIT_REPO:-https://github.com/luqmanfadlli/MPVKit.git}"
+mpvkit_commit="${NUVIO_MPVKIT_COMMIT:-7f40522ab9a18c7f14c04316f71c7dd47e2a7e05}"
 mpvkit_ref="${NUVIO_MPVKIT_REF:-}"
 mpvkit_directory="${repository_root}/MPVKit"
 mpvkit_marker="${mpvkit_directory}/.streambridge-mpvkit-revision"

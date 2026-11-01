@@ -775,11 +775,6 @@
     <string name="settings_playback_regex_preset_quality_720p_smaller">720p / Kisebb méret</string>
     <string name="settings_playback_regex_preset_web_sources">WEB-es források</string>
     <string name="settings_playback_render_type">Libass renderelési mód</string>
-    <string name="settings_playback_render_type_cues">Szabványos Cues</string>
-    <string name="settings_playback_render_type_effects_canvas">Effects Canvas</string>
-    <string name="settings_playback_render_type_effects_opengl">Effects OpenGL</string>
-    <string name="settings_playback_render_type_overlay_canvas">Overlay Canvas</string>
-    <string name="settings_playback_render_type_overlay_opengl">Overlay OpenGL (Ajánlott)</string>
     <string name="settings_playback_reuse_last_link">Utolsó link újrafelhasználása</string>
     <string name="settings_playback_reuse_last_link_description">Automatikusan játsza le az utoljára működő streamet ugyanahhoz a filmhez/epizódhoz, ha a gyorsítótár még érvényes</string>
     <string name="settings_playback_secondary_audio_language">Másodlagos hangnyelv</string>
@@ -884,7 +879,7 @@
     <string name="trakt_watch_progress_title">Megtekintési előrehaladás</string>
     <string name="trakt_watch_progress_subtitle">Válaszd ki, melyik forrás vezérelje a lejátszás folytatását</string>
     <string name="trakt_watch_progress_dialog_title">Megtekintési előrehaladás</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Válaszd ki, hogy a lejátszás folytatása a Traktot vagy a Nuvio Sync-et használja, miközben a Trakt scrobbling (lejátszáskövetés) aktív marad.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Válaszd ki, hogy a lejátszás folytatása a Traktot vagy a StreamBridge Sync-et használja, miközben a Trakt scrobbling (lejátszáskövetés) aktív marad.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
     <string name="trakt_watch_progress_trakt_selected">Megtekintési előrehaladás forrása: Trakt</string>
@@ -2017,8 +2012,8 @@
     <string name="settings_tracking_approval_redirect">Jóváhagyás után automatikusan visszakerülsz ide.</string>
     <string name="settings_tracking_connect_first">Először csatlakoztasd a(z) %1$s fiókot</string>
     <string name="settings_tracking_disconnect_title">Lecsatlakoztatod a(z) %1$s fiókot?</string>
-    <string name="settings_tracking_disconnect_description">Ez eltávolítja a kapcsolatot a Nuvio-ból. A(z) %1$s szolgáltatásban lévő adataid megmaradnak, és az nem elérhető könyvtárak vagy állapotforrások ideiglenesen visszatérnek a Nuvio alapértelmezésére.</string>
-    <string name="settings_trakt_disconnect_description">Ez lecsatlakoztatja a Trakt-fiókodat a Nuvio-ról.</string>
+    <string name="settings_tracking_disconnect_description">Ez eltávolítja a kapcsolatot a StreamBridge-ból. A(z) %1$s szolgáltatásban lévő adataid megmaradnak, és az nem elérhető könyvtárak vagy állapotforrások ideiglenesen visszatérnek a StreamBridge alapértelmezésére.</string>
+    <string name="settings_trakt_disconnect_description">Ez lecsatlakoztatja a Trakt-fiókodat a StreamBridge-ról.</string>
     <string name="settings_simkl_disconnect_description">Ez eltávolítja a Simkl-fiókot és a gyorsítótárazott Simkl-adatokat erről a profilról.</string>
     <string name="settings_tracking_source_fallback">A(z) %1$s nem elérhető. A(z) %2$s használata az újracsatlakozásig.</string>
     <string name="settings_tracking_progress_refresh_failed">A forrás megváltozott, de a legfrissebb megtekintési állapotot nem sikerült frissíteni.</string>
@@ -2057,16 +2052,16 @@
     <string name="settings_simkl_sync_now">Szinkronizálás most</string>
     <string name="settings_simkl_sync_info_action">Hogyan működik a szinkronizálás</string>
     <string name="settings_simkl_sync_info_title">A Simkl szinkronizálás működése</string>
-    <string name="settings_simkl_sync_info_description">A Nuvio automatikusan ellenőrzi a Simkl-t legfeljebb %1$d percenként egyszer. Egy másik appban vagy a Simkl weboldalán végzett módosítások megjelenése eltarthat ennyi ideig.</string>
+    <string name="settings_simkl_sync_info_description">A StreamBridge automatikusan ellenőrzi a Simkl-t legfeljebb %1$d percenként egyszer. Egy másik appban vagy a Simkl weboldalán végzett módosítások megjelenése eltarthat ennyi ideig.</string>
     <string name="settings_simkl_sync_info_activity">Minden frissítés először ellenőrzi, hogy a Simkl jelent-e változást, és csak a frissítéseket tölti le. Ez követi a Simkl API szabályait, csökkenti a felesleges adatforgalmat, és segít stabilan tartani a szolgáltatást.</string>
-    <string name="settings_simkl_sync_info_manual">A Nuvio-ban végzett módosítások azonnal elküldésre kerülnek a Simkl felé. Használd a Szinkronizálás most lehetőséget, ha azt szeretnéd, hogy a Nuvio hamarabb ellenőrizze a távoli változásokat.</string>
+    <string name="settings_simkl_sync_info_manual">A StreamBridge-ban végzett módosítások azonnal elküldésre kerülnek a Simkl felé. Használd a Szinkronizálás most lehetőséget, ha azt szeretnéd, hogy a StreamBridge hamarabb ellenőrizze a távoli változásokat.</string>
     <string name="settings_simkl_sync_info_library_statuses">A Simkl Félretett (On Hold) vagy Elvetett (Dropped) listájára helyezett műsorok rejtve maradnak a Nézés folytatása sorban. Mindaddig rejtve maradnak, amíg ebben a két listában vannak.</string>
     <string name="settings_simkl_sync_info_docs">Ovasd el a Simkl szinkronizálási útmutatót</string>
     <string name="settings_simkl_authorization_revoked">A Simkl engedélyezés vissza lett vonva. Csatlakoztasd újra.</string>
     <string name="tracking_source_simkl">Simkl</string>
     <string name="tracking_library_source_simkl_selected">Simkl lejátszási lista kiválasztva</string>
     <string name="tracking_watch_progress_simkl_selected">Megtekintési állapot forrása a Simkl-re állítva</string>
-    <string name="tracking_watch_progress_dialog_subtitle">Válaszd ki azt a szolgáltatást, amelyből a Nuvio beolvassa a folytatást és a Nézés folytatása adatokat. A scrobbling minden csatlakoztatott szolgáltatásnál aktív marad.</string>
+    <string name="tracking_watch_progress_dialog_subtitle">Válaszd ki azt a szolgáltatást, amelyből a StreamBridge beolvassa a folytatást és a Nézés folytatása adatokat. A scrobbling minden csatlakoztatott szolgáltatásnál aktív marad.</string>
     <string name="source_mal">MyAnimeList</string>
     <string name="tracking_lists_update_failed">Nem sikerült frissíteni a követési listákat</string>
     <string name="tracking_list_status_rewritten">A(z) %1$s ezt a címet a(z) %2$s listába helyezte a(z) %3$s helyett</string>
@@ -2217,7 +2212,7 @@
     <string name="settings_licenses_attributions_haze_title">Haze 1.7.2</string>
     <string name="settings_licenses_attributions_haze_body">Háttérelmosási effektekhez használva. Készítette: Chris Banes.</string>
     <string name="settings_licenses_attributions_haze_license">Licencelve az Apache Licenc 2.0 verziója alapján.</string>
-    <string name="action_support_nuvio">Nuvio támogatása</string>
+    <string name="action_support_nuvio">StreamBridge támogatása</string>
     <string name="settings_appearance_app_language_restart_title">Újraindítás szükséges</string>
     <string name="settings_appearance_app_language_restart_message">Zárd be és nyisd meg újra az alkalmazást a nyelv elrendezésének frissítéséhez.</string>
     <string name="settings_nav_bar_glow">Üveg ragyogás</string>
@@ -2250,14 +2245,14 @@
     <string name="settings_stream_background_description">Válaszd ki a streamek képernyőjének hátterét.</string>
     <string name="settings_meta_poster_transition">Poszter átmenet</string>
     <string name="settings_meta_poster_transition_description">Poszterek nagyítása és elmosása a részletek megnyitásakor.</string>
-    <string name="community_membership_title">Nuvio Támogatói Tagság</string>
-    <string name="community_membership_description">A Nuvio támogatása segít fedezni az infrastruktúra és a folyamatos fejlesztés költségeit, miközben az alapélmény mindenki számára ingyenes marad.</string>
+    <string name="community_membership_title">StreamBridge Támogatói Tagság</string>
+    <string name="community_membership_description">A StreamBridge támogatása segít fedezni az infrastruktúra és a folyamatos fejlesztés költségeit, miközben az alapélmény mindenki számára ingyenes marad.</string>
     <string name="community_view_supporter_membership">Támogatói tagság megtekintése</string>
     <string name="community_membership_you_are">A státuszod:</string>
     <string name="community_membership_thank_you">Köszönjük!</string>
     <string name="community_membership_supporter_since">Támogató %1$s óta.</string>
     <string name="community_membership_connected_title">A Patreon csatlakoztatva</string>
-    <string name="community_membership_connected_description">Nem található aktív Nuvio szint ezen a Patreon fiókon. Tekintsd meg az elérhető opciókat, vagy frissíts a Patreon tagság megváltoztatása után.</string>
+    <string name="community_membership_connected_description">Nem található aktív StreamBridge szint ezen a Patreon fiókon. Tekintsd meg az elérhető opciókat, vagy frissíts a Patreon tagság megváltoztatása után.</string>
     <string name="community_membership_manage">Tagság kezelése</string>
     <string name="community_membership_refresh">Frissítés</string>
     <string name="community_membership_refreshing">Frissítés...</string>
@@ -2361,7 +2356,7 @@
     <string name="updates_channel_description">Válaszd ki a fogadni kívánt alkalmazásfrissítések típusát</string>
     <string name="updates_channel_stable">Stabil (Stable)</string>
     <string name="updates_channel_beta">Béta (Beta)</string>
-    <string name="updates_channel_stable_description">Mennaponta történő használatra javasolt.</string>
+    <string name="updates_channel_stable_description">Mindennapi használatra javasolt.</string>
     <string name="updates_channel_beta_description">Korai frissítések, amelyek hibákat tartalmazhatnak, funkciókat törhetnek meg, vagy váratlanul működhetnek.</string>
     <string name="updates_waiting_for_stable">A következő stabil kiadást fogod megkapni, amint elérhetővé válik</string>
     <string name="settings_playback_auto_skip_segments">Automatikus átugrás</string>
@@ -2378,7 +2373,6 @@
     <string name="player_skip_to_post_credits">Ugrás a stáblista utáni jelenethez</string>
     <string name="settings_playback_legacy_layout">Klasszikus elrendezés</string>
     <string name="settings_playback_legacy_layout_description">Az eredeti lejátszóvezérlők használata.</string>
-    <string name="compose_player_via">Keresztül: %1$s</string>
     <string name="compose_player_episode_code">S%1$d E%2$d</string>
     <string name="compose_player_more_actions">További vezérlők</string>
     <string name="compose_player_fewer_actions">Kevesebb vezérlő</string>
@@ -2429,4 +2423,12 @@
     <string name="stream_info_subtitle_source_embedded">Beágyazott</string>
     <string name="stream_info_player_engine">Lejátszómotor</string>
     <string name="stream_info_server">Szerver</string>
+    <string name="settings_stream_badges_in_player_title">Megjelenítés a lejátszóban</string>
+    <string name="settings_stream_badges_in_player_description">Kijelzi az épp játszott videó és hang jelvényeit (badges) a lejátszó címe alatt.</string>
+    <plurals name="details_season_count">
+        <item quantity="one">%1$d évad</item>
+        <item quantity="other">%1$d évad</item>
+    </plurals>
+    <string name="player_engine_switch_title">Váltás erre: %1$s?</string>
+    <string name="player_engine_switch_message">A videó újratöltődik attól a ponttól, ahol tartasz.</string>
 </resources>
