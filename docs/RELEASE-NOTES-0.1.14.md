@@ -110,3 +110,17 @@ Static checks and builds run in the repository's own CI (unit tests, Android
 lint, full/playstore flavour boundary checks, CloudStream runtime verification,
 production signing verification, iOS IPA). See the release notes on the GitHub
 release for the artefacts that were actually produced.
+
+### iOS installation
+
+The iOS build in this release is **unsigned**. Install it with
+[AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with
+your own Apple ID on your device, so no Apple Developer account and no App Store listing is
+involved.
+
+Add this repository as a source in AltStore or SideStore to get updates automatically:
+
+`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`
+
+See `docs/RELEASE-IOS.md` for the details.
+

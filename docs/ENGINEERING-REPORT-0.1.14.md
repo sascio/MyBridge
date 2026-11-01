@@ -206,3 +206,91 @@ Recovery plan if the tag is approved to move: the current tag object is recorded
 branch), so re-pointing it is reversible by re-running
 `git tag -f v0.1.14 6e36312 && git push --force origin refs/tags/v0.1.14`.
 No release exists for `v0.1.14` today, so no published asset would be orphaned.
+
+---
+
+# Addendum — the 2026-11-01 production release
+
+## Published
+
+| Item | Value |
+|---|---|
+| Release | `StreamBridge v0.1.14` — https://github.com/sascio/MyBridge/releases/tag/v0.1.14 |
+| Published at | 2026-11-01T04:51:21Z (not a draft, not a prerelease) |
+| Tag | annotated `v0.1.14` → commit `25335785ad84a3fb85386d3a627cc32295fb767d` |
+| Release target | `25335785ad84a3fb85386d3a627cc32295fb767d` |
+| Producing run | `Draft production GitHub Release` 41269279636 (tag push) |
+| Android job | success — `Production-signed full APK` |
+| iOS job | success — `iOS unsigned IPA` |
+
+`2533578` is `48feccb` plus one workflow-only commit (see "Release blocker"
+below); the application tree is unchanged between the two.
+
+## Assets (server-reported size and digest)
+
+| Asset | Bytes | SHA-256 |
+|---|---:|---|
+| `androidApp-full-arm64-v8a-release.apk` | 54,720,370 | `9d950823bea2abc0d47a0085dd37c7d3b82b1045a1ccdb8e4eab68c469f6f056` |
+| `androidApp-full-armeabi-v7a-release.apk` | 52,837,269 | `309ce9a2e06699776a7f4fc14f0f4e8c73f500f17b0e4c1054e101d95004bf64` |
+| `androidApp-full-x86-release.apk` | 55,165,068 | `f8d7c2cbdbe3008b80cb282189dbba08dfb4b4d0ccf2873ff5997c41b4ac68c5` |
+| `androidApp-full-x86_64-release.apk` | 56,219,773 | `fc85d3346c963fdbd87816521f44e8c241f44754b6cbc769aef3dde30e97a418` |
+| `checksums.sha256` | 577 | `52f41752a7f7bca842bd6fcfb4f030f3a53f39f67958b675337c285ba381fbb1` |
+| `StreamBridge-0.1.14-iOS-unsigned.ipa` | 73,141,429 | `07ce445aac8bd3711bd1d9311d3926889e9958fbc5f972932890ba88000f811a` |
+
+Built / signed / uploaded / published, in that order: the APKs are built and
+signed inside the run (the job's `Reject debug certificates` step pins the
+StreamBridge upload certificate SHA-256 `5da621d8e6f5c4ffb7396de3fbf686f3bf61bcec71cccffba9bbbbdef56285fc`
+and fails on anything else), uploaded as release assets, and the release was
+published after all six were present. The IPA is **unsigned by design** — that
+is the distribution form for AltStore/SideStore, which re-sign it on device.
+
+## Release blocker found and fixed
+
+The first production run (41256469053, 2026-11-01T00:22Z) failed in
+`Assemble production full release` after 2 m 51 s. Root cause: the release
+workflow's Android job never installed the Rust toolchain, while
+`androidApp/build.gradle.kts` registers `buildRust` (`cargo ndk … build -p
+aiostreams-native-android`) as a generated jniLibs source directory for every
+variant. `build.yml` installs the four Android targets and `cargo-ndk`; the
+release workflow had the step only in its iOS job. Fixed by adding the same
+step, verbatim, to `release-draft.yml`'s Android job (commit `2533578`).
+
+Because a tag push always runs the workflow as of the tagged commit, the fix
+required the tag to point at a commit newer than `48feccb`. The user approved
+that re-point, the application tree being byte-identical between the two.
+
+## Other observations from the release runs
+
+- **iOS is flaky on this runner.** Run 41258406918's iOS job failed at 19 min
+  with `xcodebuild` exit 65 on sources identical to a run that had passed 2.5 h
+  earlier; the immediate retry passed (95 min). No code change was involved.
+  Raw logs are not readable from this environment (the log blob host is outside
+  its network allowlist), so the failure text could not be captured; the
+  inference is from step timings and identical sources.
+- **APK builds are not bit-reproducible.** Two builds of the same commit
+  produced identical sizes but different SHA-256 digests, so the workflow's
+  `ensure-asset` guard ("preserve, never replace") correctly refused to
+  overwrite the assets of an earlier partial run. Clearing those unpublished
+  draft assets so a single run produced the whole release was the resolution.
+- **Deleting and re-creating a tag detaches a draft release from it.** After the
+  re-point, the draft's `tag_name` became an `untagged-…` placeholder; it was
+  re-attached with `PATCH /releases/{id} {tag_name: "v0.1.14"}` before
+  publishing. Publishing without that would have created a junk tag.
+- **`attach-ios` requires an `### iOS status` placeholder** in the release notes
+  and otherwise refuses to touch the release. `docs/RELEASE-NOTES-0.1.14.md`
+  had none, so the job failed *after* it had already uploaded the IPA (assets
+  first, notes second). The iOS installation section it would have written was
+  applied to the release body and to the notes file, so the published body and
+  the repository now agree. The notes template should carry that placeholder in
+  future releases.
+- **The sideload source (`store.json`) was not updated.** The
+  `Update Sideload Source` run 41274675738 generated the new source and failed
+  in its own reachability check, which sends a one-byte range request and then
+  required exactly HTTP 200 — a ranged request answers 206, so the check failed
+  for every entry, including all previously published versions. The check now
+  accepts 200 and 206. Publishing the source needs that workflow to run again
+  from the default branch (it is triggered by `release: published` or by
+  dispatch, and dispatch is refused for this session's token), and the update
+  script verifies the real IPA file, which this environment cannot download.
+  Until then AltStore/SideStore users do not see 0.1.14 in the source, although
+  the release and its IPA are live.
