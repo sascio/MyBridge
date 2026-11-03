@@ -20,10 +20,11 @@ endorse any content. Use it only with material you are legally entitled to acces
 
 ## Highlights in 0.1.14
 
-- **Upstream 0.6.6** — the official NuvioMobile `0.6.6-beta` tree
-  (`2d52c8b7`) and the NuvioMobile-Enhanced `0.6.6-beta` tree (`2fc68109`) are both
-  integrated over the previous `0.6.3-beta` pin (see
-  [docs/upstream-parity-0.6.6.md](docs/upstream-parity-0.6.6.md)).
+- **Stable, richer home hero** — the hero carousel no longer shifts vertically when the
+  displayed title changes: neighbours' artwork and details are prefetched while a title is
+  on screen, layer transitions are resolved at draw time, and the metadata rows now cover
+  type, genre, runtime, release date, IMDb rating, age rating/status, language, external
+  ratings and the description.
 - **Subtitles** — a rewritten subtitle path: libass renders styled ASS/SSA tracks through the
   atlas renderer, and an appearance page controls font, size (1 sp steps), weight, outline,
   shadow, background and margins with a live preview. Custom fonts can be imported and stay

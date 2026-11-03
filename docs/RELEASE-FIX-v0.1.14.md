@@ -52,6 +52,45 @@ production assets. The first build is preserved:
 | `checksums.sha256` | 577 | `52f41752a7f7bca842bd6fcfb4f030f3a53f39f67958b675337c285ba381fbb1` |
 | `StreamBridge-0.1.14-iOS-unsigned.ipa` | 73141429 | `07ce445aac8bd3711bd1d9311d3926889e9958fbc5f972932890ba88000f811a` |
 
+## Second rebuild — hero stability and release-text branding
+
+A second corrected build was produced after the first rebuild, for two
+reasons:
+
+1. **Hero stability.** The hero carousel wobbled vertically when the
+   displayed title changed. Root cause: the incoming title composed with
+   preview-only data and grew its bottom-anchored content when its details
+   resolved, and the per-recomposition layer model re-sorted and re-stepped
+   layer alpha mid-swipe. The fix ports the reference implementation's
+   stability machinery faithfully: neighbour artwork/logo/details prefetch on
+   every settled page, remembered three-page layers with draw-time alpha and
+   a midpoint crossfade, and a settled-page-driven active item.
+2. **Release-text branding.** The release description, README highlights and
+   the sideload source metadata must present StreamBridge only. All upstream
+   product naming was removed from `docs/RELEASE-NOTES-0.1.14.md` (the
+   release body), the README release highlights and `store.json`
+   (description and historical version notes; iOS permission strings
+   aligned with Info.plist). Legally required references are preserved in
+   README's attribution section, LICENSE, COPYING, NOTICE, the privacy
+   policy's backend disclosures, and the factual plugin-format/host
+   compatibility statements (`Nuvio-compatible`, `api.nuvio.tv`).
+   `scripts/verify-release-target.sh` now fails the release if the notes or
+   the sideload source name the upstream product again.
+
+The second rebuild assets replaced the first rebuild's assets under the same
+names. The first rebuild is recoverable: its release object digest record and
+the tag `v0.1.14-build-1` (first build) plus the rebuild commits on this
+branch reproduce it. Recorded first-rebuild digests:
+
+| Asset | Size (B) | SHA-256 |
+|---|---:|---|
+| `androidApp-full-arm64-v8a-release.apk` | 54686084 | `25ee129a9f9f7cd97c93c27676a00984adbd32ab24569eff41e4f23f8d9b3100` |
+| `androidApp-full-armeabi-v7a-release.apk` | 52802990 | `36e4c754fa6d03eb154a4f83b91eaebbb7cf0f83c03e2560d15fb62edfb8c66e` |
+| `androidApp-full-x86-release.apk` | 55130767 | `ecd1a1d8816976ca838791acae06b765403e819ed6bad98e59708fc55acab44b` |
+| `androidApp-full-x86_64-release.apk` | 56185508 | `04270241fafa979eb48a799b48814e3a71e1b871f050658f11a49d5dbcfc728f` |
+| `checksums.sha256` | 577 | `5ebf12fbb1b15a3f14079cc88b6f549ed0ad876ed4d24c228a195461bdb5e767` |
+| `StreamBridge-0.1.14-iOS-unsigned.ipa` | 73103568 | `fae74b07963388d62d1bf25c49fe00b2385e5fa191ea9cef106886f9d68d4214` |
+
 The release pipeline itself is unchanged and still fail-closed: assets are
 verified by digest, debug-signed APKs are rejected, and the iOS IPA is
 published unsigned for AltStore/SideStore re-signing.

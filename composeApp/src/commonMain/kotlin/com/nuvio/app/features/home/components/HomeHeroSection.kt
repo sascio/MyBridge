@@ -70,7 +70,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.ui.dynamicScrimAlpha
@@ -87,6 +90,7 @@ import com.nuvio.app.features.details.youtubePlaybackUrl
 import com.nuvio.app.features.home.HomeHeroArtworkSource
 import com.nuvio.app.features.home.HomeHeroStyle
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.home.stableKey
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.trailer.TrailerPlaybackResolver
@@ -336,38 +340,28 @@ internal fun HomeHeroSection(
                     }
                 }
             }
-            val heroScrollScale = heroBackgroundScrollScale(scrollOffsetPx)
-            val heroScrollTranslationY = heroBackgroundScrollTranslationY(scrollOffsetPx)
-            val currentPage = pagerState.currentPage
-            val visiblePages = listOf(
-                currentPage,
-                (currentPage - 1).coerceAtLeast(0),
-                (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
-            ).distinct()
-                .mapNotNull { index ->
-                    val pageOffset = heroPageOffset(pagerState, index)
-                    val visibility = (1f - abs(pageOffset)).coerceIn(0f, 1f)
-                    if (visibility <= 0f) {
-                        null
-                    } else {
-                        HeroPageLayer(
-                            itemIndex = index % items.size,
-                            visibility = visibility,
-                            offset = pageOffset,
-                        )
-                    }
-                }
-                .sortedBy(HeroPageLayer::visibility)
-            val currentItem = visiblePages
-                .lastOrNull()
-                ?.itemIndex
-                ?.let(items::get)
-                ?: items[currentPage % items.size]
-
-            val activeArtworkUrl = when (effectiveArtworkSource) {
-                HomeHeroArtworkSource.POSTER -> currentItem.poster ?: currentItem.banner
-                HomeHeroArtworkSource.BACKDROP -> currentItem.banner ?: currentItem.poster
+            // Faithful port of the reference hero page model: the three rendered
+            // pages are remembered per current page and every layer reads the
+            // live pager offset at draw time. Precomputing visibility per
+            // recomposition (the previous approach here) re-sorted layers and
+            // stepped their alpha mid-swipe, which showed up as vertical
+            // movement whenever the incoming item's metadata changed its
+            // content height.
+            val isHeroScrolledAway by remember(listState, heroHeightPx) {
+                derivedStateOf { scrollOffsetPx >= heroHeightPx * 0.6f }
             }
+            val currentPage = pagerState.currentPage
+            val visiblePages = remember(currentPage, pagerState.pageCount, items.size) {
+                listOf(
+                    (currentPage - 1).coerceAtLeast(0),
+                    (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
+                    currentPage,
+                ).distinct()
+                    .map { page -> HeroPageLayer(page = page, itemIndex = page % items.size) }
+            }
+            val currentItem = items[currentPage % items.size]
+
+            val activeArtworkUrl = heroArtworkUrl(items[pagerState.targetPage % items.size], effectiveArtworkSource)
             LaunchedEffect(onActiveArtworkChange, activeArtworkUrl) {
                 onActiveArtworkChange?.invoke(activeArtworkUrl)
             }
@@ -383,6 +377,31 @@ internal fun HomeHeroSection(
                 val item = currentItem.toLibraryItem(savedAtEpochMs = 0L)
                 coroutineScope.launch {
                     runCatching { LibraryRepository.toggleSaved(item) }
+                }
+            }
+
+            // Faithful port of the reference hero prefetch: while the carousel
+            // rests on a page, warm the Coil memory cache with the neighbours'
+            // artwork and logo and resolve their details into the repository
+            // cache. This is what keeps the hero stable across content changes:
+            // the incoming item's HeroContentBlock then composes with its full,
+            // final-height metadata on the first frame instead of growing
+            // bottom-anchored content after the swipe (the wobble).
+            val platformContext = LocalPlatformContext.current
+            LaunchedEffect(pagerState.settledPage, items, effectiveArtworkSource) {
+                val neighbours = heroPrefetchItemIndices(pagerState.settledPage, items.size)
+                    .map(items::get)
+                val imageLoader = SingletonImageLoader.get(platformContext)
+                neighbours.forEach { item ->
+                    listOfNotNull(heroArtworkUrl(item, effectiveArtworkSource), item.logo?.takeIf { it.isNotBlank() })
+                        .forEach { url ->
+                            imageLoader.enqueue(ImageRequest.Builder(platformContext).data(url).build())
+                        }
+                }
+                neighbours.forEach { item ->
+                    if (MetaDetailsRepository.peek(item.type, item.id) == null) {
+                        runCatching { MetaDetailsRepository.fetch(item.type, item.id) }
+                    }
                 }
             }
 
@@ -472,29 +491,35 @@ internal fun HomeHeroSection(
                     ) {
                         visiblePages.forEach { layer ->
                             val item = items[layer.itemIndex]
-                            val artworkUrl = when (effectiveArtworkSource) {
-                                HomeHeroArtworkSource.POSTER -> item.poster ?: item.banner
-                                HomeHeroArtworkSource.BACKDROP -> item.banner ?: item.poster
-                            }
-                            key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
-                                AsyncImage(
-                                    model = artworkUrl,
-                                    contentDescription = item.name,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .graphicsLayer {
-                                            alpha = layer.visibility
-                                            translationX = -layer.offset * heroWidthPx * artworkParallax
-                                            translationY = if (isCardStyle) 0f else heroScrollTranslationY
-                                            scaleX = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroScrollScale
-                                            scaleY = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroScrollScale
-                                        },
-                                    alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                                    contentScale = ContentScale.Crop,
-                                )
-                            }
+                            val artworkUrl = heroArtworkUrl(item, effectiveArtworkSource)
+                            val isCurrentLayer = layer.page == currentPage
+                            AsyncImage(
+                                model = artworkUrl,
+                                contentDescription = item.name,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        // Draw-time alpha/offset from the live pager
+                                        // position, as in the reference: neighbour layers
+                                        // stay fully opaque while partially visible so the
+                                        // backdrop never dips mid-swipe.
+                                        val offset = heroPageOffset(pagerState, layer.page)
+                                        val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
+                                        alpha = when {
+                                            isCurrentLayer -> visibility
+                                            visibility > 0f -> 1f
+                                            else -> 0f
+                                        }
+                                        translationX = -offset * heroWidthPx * artworkParallax
+                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                        scaleX = artworkBaseScale *
+                                            if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        scaleY = artworkBaseScale *
+                                            if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                    },
+                                alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                contentScale = ContentScale.Crop,
+                            )
                         }
 
                         val heroTrailerSourceUrl = heroTrailerPlaybackSource
@@ -508,7 +533,6 @@ internal fun HomeHeroSection(
                             )
                             val currentPageOffset = pagerState.currentPageOffsetFraction
                             val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
-                            val isHeroScrolledAway = scrollOffsetPx >= heroHeightPx * 0.6f
                             HeroTrailerPlayerSurface(
                                 sourceUrl = heroTrailerSourceUrl,
                                 sourceAudioUrl = heroTrailerPlaybackSource?.audioUrl,
@@ -522,9 +546,11 @@ internal fun HomeHeroSection(
                                     .graphicsLayer {
                                         alpha = trailerReadyAlpha * currentPageVisibility
                                         translationX = -currentPageOffset * heroWidthPx * artworkParallax
-                                        translationY = if (isCardStyle) 0f else heroScrollTranslationY
-                                        scaleX = artworkBaseScale * if (isCardStyle) 1f else heroScrollScale
-                                        scaleY = artworkBaseScale * if (isCardStyle) 1f else heroScrollScale
+                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                        scaleX = artworkBaseScale *
+                                            if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        scaleY = artworkBaseScale *
+                                            if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
                                     },
                                 onReady = {
                                     if (!heroTrailerFinished) heroTrailerReady = true
@@ -605,19 +631,28 @@ internal fun HomeHeroSection(
                                 contentAlignment = if (layout.isTablet) Alignment.CenterStart else Alignment.BottomStart,
                             ) {
                                 visiblePages.forEach { layer ->
-                                    Box(
-                                        modifier = Modifier.graphicsLayer {
-                                            alpha = layer.visibility
-                                            translationX = -layer.offset * heroWidthPx * HERO_CONTENT_PARALLAX
-                                        },
-                                    ) {
-                                        HeroContentBlock(
-                                            item = items[layer.itemIndex],
-                                            layout = layout,
-                                            showImdbRating = showImdbRating,
-                                            showMdbListRatings = showMdbListRatings,
-                                            onItemClick = onItemClick,
-                                        )
+                                    val layerItem = items[layer.itemIndex]
+                                    key(layerItem.stableKey()) {
+                                        Box(
+                                            modifier = Modifier.graphicsLayer {
+                                                // Reference crossfade (heroContentAlpha): each
+                                                // layer is fully transparent until the swipe
+                                                // passes its halfway point, so outgoing and
+                                                // incoming content never blend at partial
+                                                // opacity and the block never appears to shift.
+                                                val offset = heroPageOffset(pagerState, layer.page)
+                                                alpha = heroContentAlpha(offset)
+                                                translationX = -offset * heroWidthPx * HERO_CONTENT_PARALLAX
+                                            },
+                                        ) {
+                                            HeroContentBlock(
+                                                item = layerItem,
+                                                layout = layout,
+                                                showImdbRating = showImdbRating,
+                                                showMdbListRatings = showMdbListRatings,
+                                                onItemClick = onItemClick,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -750,10 +785,14 @@ private fun HeroPageIndicator(
 }
 
 private data class HeroPageLayer(
+    val page: Int,
     val itemIndex: Int,
-    val visibility: Float,
-    val offset: Float,
 )
+
+private fun heroArtworkUrl(item: MetaPreview, source: HomeHeroArtworkSource): String? = when (source) {
+    HomeHeroArtworkSource.POSTER -> item.poster ?: item.banner
+    HomeHeroArtworkSource.BACKDROP -> item.banner ?: item.poster
+}
 
 private fun heroPageOffset(
     pagerState: PagerState,
@@ -776,6 +815,29 @@ internal fun heroPageForItem(currentPage: Int, itemIndex: Int, itemCount: Int): 
         .minBy { abs(it - currentPage) }
         .toInt()
 }
+
+/**
+ * Reference content crossfade: a layer is fully transparent until the swipe
+ * passes its halfway point and fully opaque once it settles, so outgoing and
+ * incoming content never blend at partial opacity. The stable switching
+ * behaviour of the reference hero depends on this curve.
+ */
+internal fun heroContentAlpha(pageOffset: Float): Float {
+    val visibility = (1f - abs(pageOffset)).coerceIn(0f, 1f)
+    return ((visibility - 0.5f) * 2f).coerceIn(0f, 1f)
+}
+
+/**
+ * Reference neighbour prefetch: the item indices adjacent to the settled
+ * page, resolved on the endless pager and deduplicated. Empty for a
+ * single-item hero, so prefetching is a no-op there.
+ */
+internal fun heroPrefetchItemIndices(settledPage: Int, itemCount: Int): List<Int> =
+    listOf(settledPage + 1, settledPage - 1)
+        .filter { page -> page >= 0 && itemCount > 1 }
+        .map { page -> page % itemCount }
+        .distinct()
+
 
 @Composable
 internal fun HomeHeroReservedSpace(

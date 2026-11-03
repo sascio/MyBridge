@@ -89,8 +89,17 @@ gap left above. Everything below is verified by
     say StreamBridge; the MediaBrowser device profile and the TorBox device
     authorization app name identify as StreamBridge; the device-session
     registration client name says StreamBridge.
+12. **Release-facing texts (second rebuild).** The release description
+    (`docs/RELEASE-NOTES-0.1.14.md`), the README release highlights and
+    `store.json` (description, historical version notes, iOS permission
+    strings) no longer name the upstream product; they present StreamBridge
+    only. Legally required references stay in README's attribution section,
+    LICENSE/COPYING/NOTICE, the privacy-policy backend disclosures and the
+    plugin-format/host compatibility statements. Enforced by
+    `scripts/verify-release-target.sh`.
 
 After the second pass, a full scan of every `values*` resource file finds zero
-non-exempt Nuvio strings in any locale. The "remaining known gap" recorded
-during the first pass is closed; the classification table above still governs
-which Nuvio references are legitimate.
+non-exempt Nuvio strings in any locale, and the release-facing texts are
+StreamBridge-only. The "remaining known gap" recorded during the first pass
+is closed; the classification table above still governs which Nuvio
+references are legitimate.

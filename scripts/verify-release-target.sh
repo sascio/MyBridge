@@ -76,6 +76,18 @@ grep -Fq "## StreamBridge ${EXPECTED_VERSION}" "docs/RELEASE-NOTES-${EXPECTED_VE
 grep -Fq "version ${EXPECTED_VERSION} (version code ${EXPECTED_CODE})" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
   || fail "Release notes do not state ${EXPECTED_VERSION} / code ${EXPECTED_CODE}."
 
+# The release description and the sideload source are StreamBridge-facing
+# texts: they must not name the upstream product at all. Licence compliance
+# lives in LICENSE/NOTICE/README's attribution section, which keep their
+# required references.
+if grep -qi 'nuvio' "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md"; then
+  fail "Release notes mention the upstream product name; they must be StreamBridge-only."
+fi
+if grep -Eq 'Nuvio(Mobile|Media)' store.json \
+  || grep store.json | grep -Ev 'Nuvio-compatible|api\.nuvio\.tv' | grep -q 'Nuvio'; then
+  fail "store.json names the upstream product outside compatibility/host references."
+fi
+
 # The invitation must use StreamBridge branding and a StreamBridge-owned app
 # scheme, while preserving an install fallback and the optional HTTPS redirect.
 party_repo="composeApp/src/commonMain/kotlin/com/nuvio/app/features/party/PartyRepository.kt"
@@ -137,6 +149,15 @@ grep -Fq 'HomeHeroMetaRows(' "${hero_section}" \
   || fail "The hero section does not render the rich metadata rows."
 grep -Fq 'showImdbRating = homeHeroState.showImdbRating' "${home_screen}" \
   || fail "Home does not pass the rating visibility settings to the hero section."
+# The hero stability machinery ported from the reference implementation must
+# stay wired: neighbour prefetch, the draw-time content crossfade and keyed
+# content layers are what prevent the hero from moving on content changes.
+grep -Fq 'heroPrefetchItemIndices(pagerState.settledPage' "${hero_section}" \
+  || fail "The hero neighbour prefetch is missing."
+grep -Fq 'alpha = heroContentAlpha(offset)' "${hero_section}" \
+  || fail "The hero content crossfade is not the draw-time reference curve."
+grep -Fq 'key(layerItem.stableKey())' "${hero_section}" \
+  || fail "Hero content layers are not keyed by item."
 
 # The default-locale resource files must name the app StreamBridge. Backend
 # disclosures and licence attributions legitimately keep Nuvio references, so
