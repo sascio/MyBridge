@@ -84,7 +84,10 @@ internal enum class SettingsPage(
         parentPage = Root,
     ),
     SupportersContributors(
-        titleRes = Res.string.compose_settings_page_supporters_contributors,
+        // StreamBridge: this page IS the About Us page. The heading was briefly
+        // renamed to "Supporters & Contributors"; the required heading is
+        // "About Us", so the page title resolves to about_us_page_title again.
+        titleRes = Res.string.about_us_page_title,
         category = SettingsCategory.System,
         parentPage = About,
     ),

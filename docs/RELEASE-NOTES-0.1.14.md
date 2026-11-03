@@ -7,6 +7,46 @@ NuvioMobile `0.6.6-beta` tree with the applicable NuvioMobile-Enhanced `0.6.6-be
 improvements. Android package `com.streambridge.app`, iOS bundle
 `com.streambridge.app` — unchanged.
 
+## Corrections in this rebuild
+
+This release was rebuilt in place (same version, same version code) to correct
+regressions found in the first 0.1.14 build. The corrected assets replace the
+original ones under the same names; see the asset table below.
+
+- **About Us heading** — the About page heading briefly read
+  "Supporters & Contributors". It is `About Us` again everywhere the page is
+  reached (the Settings About row, settings search, and the page header). The
+  page's content — description cards, credits, community links — is unchanged.
+- **Footer** — the tagline that had been added to the settings footer is
+  removed, and the logo + app name are centred with the text lines they were
+  offset from. The footer is the StreamBridge lockup, `Made with ❤️ by Saif`,
+  and the version line at the bottom, using the build's real version
+  configuration.
+- **Hero section** — the home hero now renders the full metadata rows it
+  already had data for: content type, genre, runtime, release date, IMDb
+  rating, age rating / certification and playing status, language, MDBList /
+  TMDB external ratings when configured, and the title's description. Values a
+  catalog preview omits are filled from the app's existing metadata cache, so
+  nothing is fabricated and no extra network traffic is added beyond a details
+  fetch that was already cached from the hero loader. Long titles and synopses
+  ellipsize; missing values simply don't render.
+- **Branding** — remaining user-facing "Nuvio" strings in translated and
+  English resources now say StreamBridge: library/progress source pickers
+  (StreamBridge Library, StreamBridge Sync), Discord Rich Presence, the
+  Picture-in-Picture notice, AniList/WeTrakr approval copy, settings-backup
+  copy, P2P consent text, notification, updater and addon-store copy, and the
+  TMDB/IMDb/Trakt/Simkl/MDBList/TorBox/Premiumize/IntroDB attribution bodies
+  (which correctly name StreamBridge as the app using those services).
+  Licence attributions, the privacy policy's backend disclosures and the
+  `api.nuvio.tv` host keep their required references.
+- **Size** — five resource files that no code referenced were removed
+  (`app_logo_wordmark.png`, `compose-multiplatform.xml`, `sidebar_home.xml`,
+  `sidebar_settings.xml`, `trailer_play_button.svg`). Release APKs are
+  unaffected by this cleanup (resource shrinking already stripped them); it
+  trims the source tree and debug builds. No dependency, codec, provider or
+  platform support was touched: with shrinking, per-ABI splits and compressed
+  native libraries already in place, every remaining byte is a working feature.
+
 ## Upstream integration
 
 - Official NuvioMobile `0.6.6-beta`, tag object
@@ -110,6 +150,15 @@ Static checks and builds run in the repository's own CI (unit tests, Android
 lint, full/playstore flavour boundary checks, CloudStream runtime verification,
 production signing verification, iOS IPA). See the release notes on the GitHub
 release for the artefacts that were actually produced.
+
+### Same-version updater note
+
+This corrected build keeps version code 114, exactly like the first 0.1.14
+build. An installed 0.1.14 therefore does not see this rebuild as an update:
+version-code comparison only moves upward. Install the corrected APK for your
+device ABI directly from this release to pick the fixes up. New installs and
+installs of any earlier version update normally. The version was deliberately
+not bumped to work around this, per the release decision for 0.1.14.
 
 ### iOS installation
 

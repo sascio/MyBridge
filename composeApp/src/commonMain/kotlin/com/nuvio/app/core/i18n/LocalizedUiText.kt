@@ -203,7 +203,7 @@ fun localizedByteUnit(unit: String): String =
     }
 
 fun localizedPlayerPictureInPicture(): String =
-    resourceString("Nuvio is playing in Picture in Picture mode") { getString(Res.string.player_picture_in_picture) }
+    resourceString("StreamBridge is playing in Picture in Picture mode") { getString(Res.string.player_picture_in_picture) }
 
 private fun resourceString(
     fallback: String,

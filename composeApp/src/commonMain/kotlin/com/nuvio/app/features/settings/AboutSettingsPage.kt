@@ -21,18 +21,16 @@ import nuvio.composeapp.generated.resources.compose_settings_page_whats_new
 import nuvio.composeapp.generated.resources.whats_new_root_description
 import nuvio.composeapp.generated.resources.about_licenses_attributions_subtitle
 import nuvio.composeapp.generated.resources.about_supporters_contributors_subtitle
-import nuvio.composeapp.generated.resources.compose_about_made_with
-import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description_streambridge
-import nuvio.composeapp.generated.resources.streambridge_credits_made_with
-import nuvio.composeapp.generated.resources.streambridge_tagline
+import nuvio.composeapp.generated.resources.about_us_page_title
 import nuvio.composeapp.generated.resources.compose_about_version_format
 import nuvio.composeapp.generated.resources.compose_settings_page_licenses_attributions
 import nuvio.composeapp.generated.resources.compose_settings_page_privacy_policy
-import nuvio.composeapp.generated.resources.compose_settings_page_supporters_contributors
 import nuvio.composeapp.generated.resources.compose_settings_root_about_section
 import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_description
 import nuvio.composeapp.generated.resources.compose_settings_root_check_updates_title
 import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description
+import nuvio.composeapp.generated.resources.compose_settings_root_privacy_policy_description_streambridge
+import nuvio.composeapp.generated.resources.streambridge_credits_made_with
 import nuvio.composeapp.generated.resources.updates_debug_test_description
 import nuvio.composeapp.generated.resources.updates_debug_test_title
 import org.jetbrains.compose.resources.stringResource
@@ -55,7 +53,7 @@ internal fun LazyListScope.aboutSettingsContent(
             SettingsGroup(isTablet = isTablet) {
                 if (showSupportersContributorsPage) {
                     SettingsNavigationRow(
-                        title = stringResource(Res.string.compose_settings_page_supporters_contributors),
+                        title = stringResource(Res.string.about_us_page_title),
                         description = stringResource(Res.string.about_supporters_contributors_subtitle),
                         icon = SettingsPage.SupportersContributors.icon,
                         isTablet = isTablet,
@@ -124,6 +122,11 @@ internal fun LazyListScope.settingsFooterContent(isTablet: Boolean) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = if (isTablet) 20.dp else 16.dp),
+            // StreamBridge footer: the brand lockup, the attribution line and the
+            // version line are centred as one column. The Column previously
+            // defaulted to start alignment, which left the logo and app name
+            // off-centre next to the centred text rows.
+            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         ) {
             StreamBridgeBrandLockup(
                 markSize = if (isTablet) 30.dp else 26.dp,
@@ -139,13 +142,8 @@ internal fun LazyListScope.settingsFooterContent(isTablet: Boolean) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            Text(
-                text = stringResource(Res.string.streambridge_tagline),
-                modifier = Modifier.fillMaxWidth(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            // The version line stays at the very bottom of the footer, below the
+            // attribution. No tagline/motto is shown here.
             Text(
                 text = stringResource(
                     Res.string.compose_about_version_format,

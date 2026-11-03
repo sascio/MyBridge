@@ -3,7 +3,7 @@
     <string name="settings_backup_include_sensitive">Include Sensitive Info</string>
     <string name="settings_backup_include_sensitive_description">Add API keys, debrid keys, addons, Live TV and the Discord application ID to the exported file. Keep that file private</string>
     <string name="settings_backup_export">Export Settings</string>
-    <string name="settings_backup_export_description">Save settings and plugins to a file. Collections, trackers and your Nuvio account are never included</string>
+    <string name="settings_backup_export_description">Save settings and plugins to a file. Collections, trackers and your StreamBridge account are never included</string>
     <string name="settings_backup_export_done">Settings exported</string>
     <string name="settings_backup_export_failed">Couldn\'t export settings</string>
     <string name="settings_backup_import">Import Settings</string>
@@ -16,5 +16,5 @@
     <string name="settings_backup_import_done">Settings imported</string>
     <string name="settings_backup_import_partial">Settings imported, but some sections couldn\'t be applied</string>
     <string name="settings_backup_import_failed">Couldn\'t import settings</string>
-    <string name="settings_backup_import_invalid">This file isn\'t a Nuvio settings export</string>
+    <string name="settings_backup_import_invalid">This file isn\'t a StreamBridge settings export</string>
 </resources>

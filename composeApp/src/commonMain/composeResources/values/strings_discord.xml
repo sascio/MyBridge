@@ -2,7 +2,7 @@
     <string name="compose_settings_page_discord_rpc">Discord</string>
     <string name="settings_integrations_discord_description">Show what you're watching on your Discord profile.</string>
     <string name="discord_rpc_section_account">Discord account</string>
-    <string name="discord_rpc_login_description">Log in to your Discord account to show what you're watching in Nuvio as Rich Presence.</string>
+    <string name="discord_rpc_login_description">Log in to your Discord account to show what you're watching in StreamBridge as Rich Presence.</string>
     <string name="discord_rpc_login_button">Log in with Discord</string>
     <string name="discord_rpc_login_title">Log in to Discord</string>
     <string name="discord_rpc_logging_in">Logging in…</string>
@@ -33,7 +33,7 @@
     <string name="discord_rpc_status_invisible">Invisible</string>
     <string name="discord_rpc_section_display">Display</string>
     <string name="discord_rpc_show_title_as_name_title">Show title as activity name</string>
-    <string name="discord_rpc_show_title_as_name_description">Use the movie or show name instead of Nuvio as the activity name.</string>
+    <string name="discord_rpc_show_title_as_name_description">Use the movie or show name instead of StreamBridge as the activity name.</string>
     <string name="discord_rpc_show_poster_title">Show poster</string>
     <string name="discord_rpc_show_poster_description">Use the poster artwork as the large image.</string>
     <string name="discord_rpc_show_playback_state_title">Show playback state</string>

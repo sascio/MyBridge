@@ -12,7 +12,7 @@
     <string name="settings_anilist_connected_description">Sync your anime lists, episode progress, scores and Continue Watching with AniList.</string>
     <string name="settings_anilist_sign_in_description">Connect AniList to sync your anime lists, episode progress, scores and Continue Watching.</string>
     <string name="settings_anilist_finish_sign_in">Finish sign-in</string>
-    <string name="settings_anilist_approval_description">Approve Nuvio in your browser. You will be sent back to the app automatically.</string>
+    <string name="settings_anilist_approval_description">Approve StreamBridge in your browser. You will be sent back to the app automatically.</string>
     <string name="settings_anilist_open_login">Open sign-in page</string>
     <string name="settings_anilist_disconnect">Disconnect AniList</string>
     <string name="settings_anilist_missing_credentials">AniList connection is unavailable in this build.</string>

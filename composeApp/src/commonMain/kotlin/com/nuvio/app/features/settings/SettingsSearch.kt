@@ -117,7 +117,9 @@ internal fun settingsSearchEntries(
     val streamsPage = stringResource(Res.string.compose_settings_page_streams)
     val integrationsPage = stringResource(Res.string.compose_settings_page_integrations)
     val notificationsPage = stringResource(Res.string.compose_settings_page_notifications)
-    val supportersPage = stringResource(Res.string.compose_settings_page_supporters_contributors)
+    // StreamBridge: the About Us heading, restored (the page is About Us, not
+    // "Supporters & Contributors").
+    val supportersPage = stringResource(Res.string.about_us_page_title)
     val licensesPage = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val privacyPolicyPage = stringResource(Res.string.compose_settings_page_privacy_policy)
     val cloudStreamPage = stringResource(Res.string.compose_settings_page_cloudstream)

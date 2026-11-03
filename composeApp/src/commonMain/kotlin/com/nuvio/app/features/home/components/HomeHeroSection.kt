@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home.components
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -72,7 +73,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
-import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.dynamicScrimAlpha
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -219,6 +219,8 @@ internal fun HomeHeroSection(
     trailerPlaybackEnabled: Boolean = false,
     trailerStartDelaySeconds: Int = 0,
     trailerStartUnmuted: Boolean = false,
+    showImdbRating: Boolean = true,
+    showMdbListRatings: Boolean = false,
     onItemClick: ((MetaPreview) -> Unit)? = null,
     onActiveArtworkChange: ((String?) -> Unit)? = null,
 ) {
@@ -612,6 +614,8 @@ internal fun HomeHeroSection(
                                         HeroContentBlock(
                                             item = items[layer.itemIndex],
                                             layout = layout,
+                                            showImdbRating = showImdbRating,
+                                            showMdbListRatings = showMdbListRatings,
                                             onItemClick = onItemClick,
                                         )
                                     }
@@ -832,6 +836,8 @@ internal fun HomeHeroReservedSpace(
 private fun HeroContentBlock(
     item: MetaPreview,
     layout: HomeHeroLayout,
+    showImdbRating: Boolean,
+    showMdbListRatings: Boolean,
     onItemClick: ((MetaPreview) -> Unit)?,
 ) {
     var logoLoadError by remember(item.type, item.id, item.logo) {
@@ -840,7 +846,12 @@ private fun HeroContentBlock(
     val logoUrl = item.logo?.takeIf { it.isNotBlank() }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // The meta rows and synopsis fill in asynchronously as details and
+            // ratings resolve; animating the size keeps the pager content from
+            // jumping when they arrive.
+            .animateContentSize(),
         horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
     ) {
         if (logoUrl != null && !logoLoadError) {
@@ -878,39 +889,58 @@ private fun HeroContentBlock(
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = if (layout.isTablet) {
-                Arrangement.spacedBy(8.dp, Alignment.Start)
-            } else {
-                Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
-            },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            HeroMetaText(text = item.type.replaceFirstChar(Char::uppercase))
-            item.genres.firstOrNull()?.let { genre ->
-                HeroMetaDot()
-                HeroMetaText(text = genre)
-            }
-            item.releaseInfo?.takeIf { it.isNotBlank() }?.let { info ->
-                HeroMetaDot()
-                HeroMetaText(text = formatReleaseDateForDisplay(info))
+        val detailsState = remember(item.type, item.id) {
+            mutableStateOf(MetaDetailsRepository.peek(item.type, item.id))
+        }
+        LaunchedEffect(item.type, item.id) {
+            // peek() reads the cache that the home hero meta loader (and any
+            // earlier details visit) has already warmed, so in the common case
+            // this adds no network request; only a catalog row that never had
+            // its details fetched resolves it here.
+            if (detailsState.value == null) {
+                detailsState.value = runCatching {
+                    MetaDetailsRepository.fetch(item.type, item.id)
+                }.getOrNull()
             }
         }
-    }
-}
+        val details = detailsState.value
+        // Fill the gaps a catalog preview leaves (rating, age rating, genre,
+        // release info) from the cached details so the meta rows stay populated.
+        val metaItem = remember(item, details) {
+            if (details == null) {
+                item
+            } else {
+                item.copy(
+                    imdbRating = item.imdbRating ?: details.imdbRating,
+                    releaseInfo = item.releaseInfo ?: details.releaseInfo,
+                    genres = item.genres.ifEmpty { details.genres },
+                    ageRating = item.ageRating ?: details.ageRating,
+                )
+            }
+        }
+        val synopsis = (item.description ?: details?.description)?.trim()?.takeIf { it.isNotBlank() }
 
-@Composable
-private fun HeroMetaText(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onBackground,
-        fontWeight = FontWeight.SemiBold,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
+        Spacer(modifier = Modifier.height(12.dp))
+        HomeHeroMetaRows(
+            item = metaItem,
+            isTablet = layout.isTablet,
+            showImdbRating = showImdbRating,
+            showMdbListRatings = showMdbListRatings,
+        )
+
+        if (synopsis != null) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = synopsis,
+                modifier = Modifier.fillMaxWidth(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
+                textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
 }
 
 internal fun homeHeroLayout(
@@ -1021,16 +1051,6 @@ private fun mobileHeroHeight(
     }
 
     return cappedHeight.coerceIn(minHeight, MOBILE_HERO_MAX_HEIGHT_DP.dp)
-}
-
-@Composable
-private fun HeroMetaDot() {
-    Box(
-        modifier = Modifier
-            .size(4.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)),
-    )
 }
 
 private fun heroBackgroundScrollScale(scrollOffsetPx: Float): Float {

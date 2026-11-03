@@ -11,7 +11,7 @@
     <string name="settings_wetrakr_connected_description">Sync your lists, watch history, ratings, scrobbles and Continue Watching with WeTrakr.</string>
     <string name="settings_wetrakr_sign_in_description">Connect WeTrakr to sync your lists, watch history, ratings, scrobbles and Continue Watching.</string>
     <string name="settings_wetrakr_finish_sign_in">Finish sign-in</string>
-    <string name="settings_wetrakr_approval_description">Open the WeTrakr activation page and enter this code. Nuvio connects automatically once you approve.</string>
+    <string name="settings_wetrakr_approval_description">Open the WeTrakr activation page and enter this code. StreamBridge connects automatically once you approve.</string>
     <string name="settings_wetrakr_open_login">Open activation page</string>
     <string name="settings_wetrakr_disconnect">Disconnect WeTrakr</string>
     <string name="settings_wetrakr_missing_credentials">WeTrakr connection is unavailable in this build.</string>

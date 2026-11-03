@@ -12,7 +12,7 @@
     <string name="settings_wetrakr_connected_description">Sincronize suas listas, histórico de reprodução, avaliações, scrobbles e a seção Continuar assistindo com o WeTrakr.</string>
     <string name="settings_wetrakr_sign_in_description">Conecte ao WeTrakr para sincronizar suas listas, histórico de reprodução, avaliações, scrobbles e a seção Continuar assistindo.</string>
     <string name="settings_wetrakr_finish_sign_in">Concluir login</string>
-    <string name="settings_wetrakr_approval_description">Abra a página de ativação do WeTrakr e informe este código. O Nuvio se conectará automaticamente após a autorização.</string>
+    <string name="settings_wetrakr_approval_description">Abra a página de ativação do WeTrakr e informe este código. O StreamBridge se conectará automaticamente após a autorização.</string>
     <string name="settings_wetrakr_open_login">Abrir página de ativação</string>
     <string name="settings_wetrakr_disconnect">Desconectar do WeTrakr</string>
     <string name="settings_wetrakr_missing_credentials">A conexão com o WeTrakr não está disponível nesta versão do app.</string>
