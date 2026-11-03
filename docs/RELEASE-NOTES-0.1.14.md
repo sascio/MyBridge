@@ -128,16 +128,18 @@ recorded in [BRANDING-AUDIT-0.1.14.md](BRANDING-AUDIT-0.1.14.md).
 
 | Asset | previous release | 0.1.14 corrected build |
 |---|---:|---:|
-| `androidApp-full-arm64-v8a-release.apk` | 50.33 MiB | measured below |
-| `androidApp-full-armeabi-v7a-release.apk` | 48.68 MiB | measured below |
-| `androidApp-full-x86-release.apk` | 50.76 MiB | measured below |
-| `androidApp-full-x86_64-release.apk` | 51.63 MiB | measured below |
-| `StreamBridge-0.1.14-iOS-unsigned.ipa` | 69.66 MiB | measured below |
+| `androidApp-full-arm64-v8a-release.apk` | 50.33 MiB | 52.15 MiB |
+| `androidApp-full-armeabi-v7a-release.apk` | 48.68 MiB | 50.35 MiB |
+| `androidApp-full-x86-release.apk` | 50.76 MiB | 52.57 MiB |
+| `androidApp-full-x86_64-release.apk` | 51.63 MiB | 53.58 MiB |
+| `StreamBridge-0.1.14-iOS-unsigned.ipa` | 69.66 MiB | 69.72 MiB |
 
 The Android growth over the previous release is the native module this
 release adds (Rust thumbnails and container indexes, software decoder,
 libass); no provider, codec, player integration or platform was dropped to
-compensate.
+compensate. The corrected build measures within 0.1% of the first 0.1.14
+build: the only source-level removals are five unreferenced resource files,
+which release APKs had already stripped through resource shrinking.
 
 ## Verification
 

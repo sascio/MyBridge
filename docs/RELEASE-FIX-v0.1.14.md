@@ -94,3 +94,28 @@ branch reproduce it. Recorded first-rebuild digests:
 The release pipeline itself is unchanged and still fail-closed: assets are
 verified by digest, debug-signed APKs are rejected, and the iOS IPA is
 published unsigned for AltStore/SideStore re-signing.
+
+## Second rebuild — published assets (SHA-256, recorded 2026-11-03)
+
+Tag `v0.1.14` → commit `415e557` (hero stability port + StreamBridge-only
+release texts). The release object was recreated by the release workflow
+itself after the same-version tag move; the previous release object's assets
+had been cleared and its digest record is above.
+
+| Asset | Size (B) | SHA-256 |
+|---|---:|---|
+| `androidApp-full-arm64-v8a-release.apk` | 54685433 | `7643833ebe38a9d0a3866d4fca0305b34a21cb4657114baaf19cbb194b2a0de7` |
+| `androidApp-full-armeabi-v7a-release.apk` | 52802332 | `5ed10199951dd8ca0ea2bbbf36461840d95508a46f819d84ee476783e4b4bd9d` |
+| `androidApp-full-x86-release.apk` | 55130116 | `8e9d47435317cd5ae824392f4ddeed22b96132f22f3147c59ed8de716de18037` |
+| `androidApp-full-x86_64-release.apk` | 56184857 | `30f0487077c8f3e4756d90b2198aba61d533fa18163a13e19948996bc60957b3` |
+| `checksums.sha256` | 577 | `31652bb9d5ebb63f87f1a9ee05af10c0854832d50d16005bb20670f347037485` |
+| `StreamBridge-0.1.14-iOS-unsigned.ipa` | 73106589 | `a1833793c4a31752bbae739b95238f204dd1350536cbfc2f0da59ab83e0adaf9` |
+
+### Sideload source same-version limitation
+
+`scripts/update-store-source.py` refuses to publish a version that already
+exists in `store.json`, so the automatic sideload-source update correctly
+failed for the corrected rebuild. The 0.1.14 entry on the served source
+branch was updated by hand with exactly what the updater would have written
+(new IPA size, SHA-256, publication date and the clean release notes), so
+AltStore/SideStore digest checks pass against the replaced IPA.
