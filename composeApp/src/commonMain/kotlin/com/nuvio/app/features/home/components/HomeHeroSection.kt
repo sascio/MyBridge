@@ -351,14 +351,18 @@ internal fun HomeHeroSection(
                 derivedStateOf { scrollOffsetPx >= heroHeightPx * 0.6f }
             }
             val currentPage = pagerState.currentPage
-            val visiblePages = remember(currentPage, pagerState.pageCount, items.size) {
-                listOf(
-                    (currentPage - 1).coerceAtLeast(0),
-                    (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
-                    currentPage,
-                ).distinct()
-                    .map { page -> HeroPageLayer(page = page, itemIndex = page % items.size) }
-            }
+            // StreamBridge wrap-frame guarantee (asserted by HomeHeroPagerTest):
+            // a neighbour is composed only while it is actually swiping into
+            // view, so no other title ever enters the semantics tree during a
+            // wrap transition. Layer alpha is still resolved at draw time from
+            // the live pager offset, as in the reference implementation.
+            val visiblePages = listOf(
+                (currentPage - 1).coerceAtLeast(0),
+                (currentPage + 1).coerceAtMost(pagerState.pageCount - 1),
+                currentPage,
+            ).distinct()
+                .filter { page -> (1f - abs(heroPageOffset(pagerState, page))).coerceIn(0f, 1f) > 0f }
+                .map { page -> HeroPageLayer(page = page, itemIndex = page % items.size) }
             val currentItem = items[currentPage % items.size]
 
             val activeArtworkUrl = heroArtworkUrl(items[pagerState.targetPage % items.size], effectiveArtworkSource)

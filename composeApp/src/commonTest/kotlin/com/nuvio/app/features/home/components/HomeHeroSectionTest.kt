@@ -25,19 +25,19 @@ class HomeHeroSectionTest {
     }
 
     @Test
-    fun `content crossfade is invisible until a swipe passes the halfway point`() {
-        // The reference stability contract: a settled layer is fully opaque,
-        // stays opaque through the first half of the swipe, and the incoming
-        // layer only becomes visible past the midpoint. No partial blend, so
-        // content never appears to move while crossfading.
+    fun `content crossfade follows the reference curve`() {
+        // The reference curve: a layer fades out through the first half of the
+        // swipe away, holds fully transparent from the midpoint to the end of
+        // the swipe, and the incoming layer fades in through its final half.
+        // Outgoing and incoming content therefore never blend at partial
+        // opacity while both are moving fastest.
         assertEquals(1f, heroContentAlpha(pageOffset = 0f))
-        assertEquals(1f, heroContentAlpha(pageOffset = 0.25f))
+        assertEquals(0.5f, heroContentAlpha(pageOffset = 0.25f))
         assertEquals(0f, heroContentAlpha(pageOffset = 0.5f))
-        assertEquals(0f, heroContentAlpha(pageOffset = -0.5f))
+        assertEquals(0f, heroContentAlpha(pageOffset = 0.75f))
         assertEquals(0f, heroContentAlpha(pageOffset = 1f))
-        val quarter = heroContentAlpha(pageOffset = 0.75f)
-        assertTrue(quarter > 0f && quarter < 1f, "halfway-past alpha should ramp, got $quarter")
-        assertEquals(quarter, heroContentAlpha(pageOffset = 0.25f), "curve must be symmetric")
+        assertEquals(0.5f, heroContentAlpha(pageOffset = -0.25f))
+        assertEquals(heroContentAlpha(pageOffset = 0.25f), heroContentAlpha(pageOffset = -0.25f), "curve must be symmetric")
     }
 
     @Test
