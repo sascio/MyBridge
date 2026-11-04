@@ -92,17 +92,25 @@ jobs:
           set -euo pipefail
           local_sha="$(sha256sum "${IPA_PATH}" | awk '{print $1}')"
           echo "Local SHA-256: ${local_sha}"
-          existing="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets" \
-            --jq '.[] | select(.name == "${{ inputs.asset_name }}") | .id' || true)"
+          if ! list_out="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets" 2>&1)"; then
+            echo "::error::asset list failed: $(printf '%s' "${list_out}" | head -c 2500 | tr '\n' ' ')"
+            exit 1
+          fi
+          existing="$(printf '%s' "${list_out}" | jq -r --arg n "${{ inputs.asset_name }}" '.[] | select(.name == $n) | .id')"
           if [[ -n "${existing}" ]]; then
             echo "Deleting existing asset ${existing} of the draft (by id)"
             gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${existing}"
           fi
-          gh api --method POST \
+          if ! upload_out="$(gh api --method POST \
             "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
             -H "Content-Type: application/octet-stream" \
-            --input "${IPA_PATH}" > asset.json
+            --input "${IPA_PATH}" 2>&1)"; then
+            echo "::error::upload failed: $(printf '%s' "${upload_out}" | head -c 2500 | tr '\n' ' ')"
+            exit 1
+          fi
+          printf '%s' "${upload_out}" > asset.json
           asset_id="$(jq -r .id asset.json)"
+          echo "Uploaded asset id ${asset_id}"
           stored_sha="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.digest' | sed 's|^sha256:||')"
           size="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.size')"
           echo "Stored asset ${asset_id}: ${size} bytes, SHA-256 ${stored_sha}"
