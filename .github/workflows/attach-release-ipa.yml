@@ -1,0 +1,105 @@
+name: Attach release IPA
+
+# Ops helper: attaches a built unsigned IPA (from a completed ios-release run)
+# to a draft release, verifying the bundle before upload. The sandbox that runs
+# the agent cannot reach GitHub's artifact blob storage, so this runs where the
+# bytes are. Every check is fail-closed: wrong bundle id, wrong version, a
+# provisioning profile (signed IPA), or a digest mismatch aborts the run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Workflow run id that produced the StreamBridge-iOS-unsigned-IPA artifact
+        required: true
+        type: string
+      release_id:
+        description: Draft release id to attach the IPA to
+        required: true
+        type: string
+      asset_name:
+        description: Release asset name (must match the release notes)
+        required: true
+        type: string
+      expected_version:
+        description: Expected CFBundleShortVersionString
+        required: true
+        type: string
+      expected_code:
+        description: Expected CFBundleVersion
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: attach-release-ipa-${{ inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  attach:
+    name: Verify and attach the unsigned IPA
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download the IPA artifact from the build run
+        uses: actions/download-artifact@v7
+        with:
+          name: StreamBridge-iOS-unsigned-IPA
+          path: ipa
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Identify exactly one IPA
+        run: |
+          set -euo pipefail
+          count="$(find ipa -maxdepth 1 -type f -name '*.ipa' | wc -l)"
+          echo "IPA files found: ${count}"
+          [[ "${count}" == "1" ]] || { echo "::error::Expected exactly one IPA in the artifact"; exit 1; }
+          ipa="$(find ipa -maxdepth 1 -type f -name '*.ipa' -print -quit)"
+          echo "IPA_PATH=${ipa}" >> "${GITHUB_ENV}"
+
+      - name: Verify the bundle is StreamBridge, the right version, and unsigned
+        run: |
+          set -euo pipefail
+          app="$(unzip -Z1 "${IPA_PATH}" | grep -m1 '^Payload/[^/]*/$' | sed 's|^Payload/||; s|/$||')"
+          echo "App bundle: ${app}"
+          unzip -j -o "${IPA_PATH}" "Payload/${app}/Info.plist" -d info > /dev/null
+          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' info/Info.plist 2>/dev/null || plutil -extract CFBundleIdentifier raw info/Info.plist)"
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' info/Info.plist 2>/dev/null || plutil -extract CFBundleShortVersionString raw info/Info.plist)"
+          code="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' info/Info.plist 2>/dev/null || plutil -extract CFBundleVersion raw info/Info.plist)"
+          echo "bundle=${bundle_id} version=${version} code=${code}"
+          [[ "${bundle_id}" == "com.streambridge.app" ]] || { echo "::error::Wrong bundle id ${bundle_id}"; exit 1; }
+          [[ "${version}" == "${{ inputs.expected_version }}" ]] || { echo "::error::Wrong version ${version}"; exit 1; }
+          [[ "${code}" == "${{ inputs.expected_code }}" ]] || { echo "::error::Wrong build ${code}"; exit 1; }
+          if unzip -Z1 "${IPA_PATH}" | grep -qi 'embedded.mobileprovision'; then
+            echo "::error::The IPA carries a provisioning profile; the release IPA must be unsigned"
+            exit 1
+          fi
+          echo "The IPA is unsigned as designed (AltStore/SideStore re-sign)."
+
+      - name: Attach to the draft release and cross-check the stored digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          local_sha="$(sha256sum "${IPA_PATH}" | awk '{print $1}')"
+          echo "Local SHA-256: ${local_sha}"
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets" \
+            --jq '.[] | select(.name == "${{ inputs.asset_name }}") | .id' || true)"
+          if [[ -n "${existing}" ]]; then
+            echo "Deleting existing asset ${existing} of the draft (by id)"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${existing}"
+          fi
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
+            -H "Content-Type: application/octet-stream" \
+            --input "${IPA_PATH}" > asset.json
+          asset_id="$(jq -r .id asset.json)"
+          stored_sha="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.digest' | sed 's|^sha256:||')"
+          size="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.size')"
+          echo "Stored asset ${asset_id}: ${size} bytes, SHA-256 ${stored_sha}"
+          [[ "${stored_sha}" == "${local_sha}" ]] || { echo "::error::Stored digest differs from the local file"; exit 1; }
+          echo "Attached and verified: ${{ inputs.asset_name }}"
