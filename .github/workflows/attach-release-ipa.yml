@@ -90,6 +90,8 @@ jobs:
           print("The IPA is unsigned as designed (AltStore/SideStore re-sign).")
 
       - name: Resolve the draft release by ID
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           scripts/release-api.sh lookup \
