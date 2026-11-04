@@ -2936,7 +2936,7 @@ private object ProfileTitleFactsStore {
     }
 }
 
-private class ProfileTitleFactsProgress(
+internal class ProfileTitleFactsProgress(
     val detailsResolved: Int,
     val detailsTotal: Int,
     val detailsPending: Boolean,
