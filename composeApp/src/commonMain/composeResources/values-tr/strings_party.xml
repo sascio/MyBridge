@@ -10,7 +10,7 @@
     <string name="party_code_label">Oda kodu</string>
     <string name="party_copy_invite">Daveti kopyala</string>
     <string name="party_invite_copied">Davet kopyalandı</string>
-    <string name="party_invite_message">StreamBridge izleme partime katıl! Kod: %1$s\n%2$s</string>
+    <string name="party_invite_message">StreamBridge izleme partime katıl! Kod: %1$s\n%2$s\n\nStreamBridge’de yeni misin? %3$s</string>
     <string name="party_seats">%1$d / %2$d yer</string>
     <string name="party_host">Ev sahibi</string>
     <string name="party_you">Siz</string>

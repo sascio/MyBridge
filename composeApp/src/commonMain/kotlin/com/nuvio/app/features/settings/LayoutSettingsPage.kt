@@ -70,8 +70,8 @@ internal fun LazyListScope.layoutSettingsContent(
     onPosterCustomizationClick: () -> Unit,
 ) {
     item {
-        val dynamicArtworkBackgroundEnabled by ThemeSettingsRepository.dynamicArtworkBackgroundEnabled.collectAsStateWithLifecycle()
-        val showCatalogAccentEnabled by ThemeSettingsRepository.showCatalogAccentEnabled.collectAsStateWithLifecycle()
+        val dynamicArtworkBackgroundEnabled by remember { mutableStateOf(false) } // BISECT-A
+        val showCatalogAccentEnabled by remember { mutableStateOf(false) } // BISECT-A
         SettingsSection(
             title = stringResource(Res.string.settings_appearance_section_home),
             isTablet = isTablet,
