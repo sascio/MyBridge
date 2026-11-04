@@ -79,10 +79,10 @@ Gradle 9.8.2, the Android Gradle Plugin 9.4.0 line and compile SDK 37.1.
 
 | Asset | previous release | 0.1.15 |
 |---|---:|---:|
-| `androidApp-full-arm64-v8a-release.apk` | 52.15 MiB | measured below |
-| `androidApp-full-armeabi-v7a-release.apk` | 50.35 MiB | measured below |
-| `androidApp-full-x86-release.apk` | 52.57 MiB | measured below |
-| `androidApp-full-x86_64-release.apk` | 53.58 MiB | measured below |
+| `androidApp-full-arm64-v8a-release.apk` | 52.15 MiB | 52.45 MiB |
+| `androidApp-full-armeabi-v7a-release.apk` | 50.35 MiB | 50.66 MiB |
+| `androidApp-full-x86-release.apk` | 52.57 MiB | 52.88 MiB |
+| `androidApp-full-x86_64-release.apk` | 53.58 MiB | 53.88 MiB |
 | `StreamBridge-0.1.15-iOS-unsigned.ipa` | 69.72 MiB | measured below |
 
 Sizes are filled in from the production build jobs before publication.
