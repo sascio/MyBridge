@@ -102,8 +102,7 @@ jobs:
           echo "Upload endpoint: ${upload_url%%\?*}/..."
           if ! curl -sSL -X POST \
             -H "Authorization: Bearer ${{ github.token }}" \
-            -H "Content-Type: application/octet-stream" \
-            --data-binary "@./${{ inputs.asset_name }}" \
+            -F "file=@./${{ inputs.asset_name }}" \
             "${upload_url}" -o asset.json -w "curl http %{http_code}\n" 2> curl.err; then
             echo "::error::curl transport failed: $(head -c 800 curl.err | tr '\n' ' ')"
             exit 1
