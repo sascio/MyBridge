@@ -105,10 +105,20 @@ jobs:
             "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
             -H "Content-Type: application/octet-stream" \
             --input "${IPA_PATH}" 2>&1)"; then
-            echo "::error::upload failed: $(printf '%s' "${upload_out}" | head -c 2500 | tr '\n' ' ')"
-            exit 1
+            echo "gh api failed; retrying with curl"
+            gh_api_message="$(printf '%s' "${upload_out}" | jq -r '.message // empty' | head -c 800)"
+            echo "gh api said: ${gh_api_message}"
+            if ! curl -sf -X POST \
+              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Content-Type: application/octet-stream" \
+              -H "Content-Length: $(stat -c%s "${IPA_PATH}")" \
+              --data-binary "@${IPA_PATH}" \
+              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
+              -o asset.json -w "curl http %{http_code}\n"; then
+              echo "::error::both gh api and curl uploads failed; gh api said: ${gh_api_message}"
+              exit 1
+            fi
           fi
-          printf '%s' "${upload_out}" > asset.json
           asset_id="$(jq -r .id asset.json)"
           echo "Uploaded asset id ${asset_id}"
           stored_sha="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.digest' | sed 's|^sha256:||')"
