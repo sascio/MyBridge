@@ -29,6 +29,10 @@ on:
         description: Expected CFBundleVersion
         required: true
         type: string
+      tag:
+        description: Release tag the draft carries (for gh release upload)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -89,40 +93,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          local_sha="$(sha256sum "${IPA_PATH}" | awk '{print $1}')"
+          set -o pipefail
+          cp "${IPA_PATH}" "./${{ inputs.asset_name }}"
+          local_sha="$(sha256sum "./${{ inputs.asset_name }}" | awk '{print $1}')"
           echo "Local SHA-256: ${local_sha}"
-          if ! list_out="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets" 2>&1)"; then
-            echo "::error::asset list failed: $(printf '%s' "${list_out}" | head -c 2500 | tr '\n' ' ')"
+          upload_log="$(gh release upload "${{ inputs.tag }}" "./${{ inputs.asset_name }}" --clobber --repo "${GITHUB_REPOSITORY}" 2>&1)" \
+            || { echo "::error::upload failed: $(printf '%s' "${upload_log}" | head -c 1500 | tr '\n' ' ')"; exit 1; }
+          assets_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets")"
+          asset_id="$(printf '%s' "${assets_json}" | jq -r --arg n "${{ inputs.asset_name }}" '.[] | select(.name == $n) | .id')"
+          stored_sha="$(printf '%s' "${assets_json}" | jq -r --arg n "${{ inputs.asset_name }}" '.[] | select(.name == $n) | .digest' | sed 's|^sha256:||')"
+          asset_size="$(printf '%s' "${assets_json}" | jq -r --arg n "${{ inputs.asset_name }}" '.[] | select(.name == $n) | .size')"
+          echo "Stored asset ${asset_id}: ${asset_size} bytes, SHA-256 ${stored_sha}"
+          if [[ "${stored_sha}" != "${local_sha}" ]]; then
+            echo "::error::stored digest differs from the local file"
             exit 1
           fi
-          existing="$(printf '%s' "${list_out}" | jq -r --arg n "${{ inputs.asset_name }}" '.[] | select(.name == $n) | .id')"
-          if [[ -n "${existing}" ]]; then
-            echo "Deleting existing asset ${existing} of the draft (by id)"
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${existing}"
-          fi
-          if ! upload_out="$(gh api --method POST \
-            "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
-            -H "Content-Type: application/octet-stream" \
-            --input "${IPA_PATH}" 2>&1)"; then
-            echo "gh api failed; retrying with curl"
-            gh_api_message="$(printf '%s' "${upload_out}" | jq -r '.message // empty' | head -c 800)"
-            echo "gh api said: ${gh_api_message}"
-            if ! curl -sf -X POST \
-              -H "Authorization: Bearer ${{ github.token }}" \
-              -H "Content-Type: application/octet-stream" \
-              -H "Content-Length: $(stat -c%s "${IPA_PATH}")" \
-              --data-binary "@${IPA_PATH}" \
-              "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
-              -o asset.json -w "curl http %{http_code}\n"; then
-              echo "::error::both gh api and curl uploads failed; gh api said: ${gh_api_message}"
-              exit 1
-            fi
-          fi
-          asset_id="$(jq -r .id asset.json)"
-          echo "Uploaded asset id ${asset_id}"
-          stored_sha="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.digest' | sed 's|^sha256:||')"
-          size="$(gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}" --jq '.size')"
-          echo "Stored asset ${asset_id}: ${size} bytes, SHA-256 ${stored_sha}"
-          [[ "${stored_sha}" == "${local_sha}" ]] || { echo "::error::Stored digest differs from the local file"; exit 1; }
           echo "Attached and verified: ${{ inputs.asset_name }}"
