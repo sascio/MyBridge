@@ -62,23 +62,28 @@ jobs:
           echo "IPA_PATH=${ipa}" >> "${GITHUB_ENV}"
 
       - name: Verify the bundle is StreamBridge, the right version, and unsigned
+        shell: python3 {0}
         run: |
-          set -euo pipefail
-          app="$(unzip -Z1 "${IPA_PATH}" | grep -m1 '^Payload/[^/]*/$' | sed 's|^Payload/||; s|/$||')"
-          echo "App bundle: ${app}"
-          unzip -j -o "${IPA_PATH}" "Payload/${app}/Info.plist" -d info > /dev/null
-          bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' info/Info.plist 2>/dev/null || plutil -extract CFBundleIdentifier raw info/Info.plist)"
-          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' info/Info.plist 2>/dev/null || plutil -extract CFBundleShortVersionString raw info/Info.plist)"
-          code="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' info/Info.plist 2>/dev/null || plutil -extract CFBundleVersion raw info/Info.plist)"
-          echo "bundle=${bundle_id} version=${version} code=${code}"
-          [[ "${bundle_id}" == "com.streambridge.app" ]] || { echo "::error::Wrong bundle id ${bundle_id}"; exit 1; }
-          [[ "${version}" == "${{ inputs.expected_version }}" ]] || { echo "::error::Wrong version ${version}"; exit 1; }
-          [[ "${code}" == "${{ inputs.expected_code }}" ]] || { echo "::error::Wrong build ${code}"; exit 1; }
-          if unzip -Z1 "${IPA_PATH}" | grep -qi 'embedded.mobileprovision'; then
-            echo "::error::The IPA carries a provisioning profile; the release IPA must be unsigned"
-            exit 1
-          fi
-          echo "The IPA is unsigned as designed (AltStore/SideStore re-sign)."
+          import os, plistlib, sys, zipfile
+          ipa = os.environ["IPA_PATH"]
+          names = zipfile.ZipFile(ipa).namelist()
+          app = next(n.split("/")[1] for n in names if n.startswith("Payload/") and n.rstrip("/").count("/") == 1)
+          print(f"App bundle: {app}")
+          with zipfile.ZipFile(ipa) as z:
+              info = plistlib.loads(z.read(f"Payload/{app}/Info.plist"))
+          bundle_id = info["CFBundleIdentifier"]
+          version = info["CFBundleShortVersionString"]
+          code = str(info["CFBundleVersion"])
+          print(f"bundle={bundle_id} version={version} code={code}")
+          if bundle_id != "com.streambridge.app":
+              sys.exit("::error::Wrong bundle id " + bundle_id)
+          if version != "${{ inputs.expected_version }}":
+              sys.exit("::error::Wrong version " + version)
+          if code != "${{ inputs.expected_code }}":
+              sys.exit("::error::Wrong build " + code)
+          if any(n.lower().endswith("embedded.mobileprovision") for n in names):
+              sys.exit("::error::The IPA carries a provisioning profile; the release IPA must be unsigned")
+          print("The IPA is unsigned as designed (AltStore/SideStore re-sign).")
 
       - name: Attach to the draft release and cross-check the stored digest
         env:
