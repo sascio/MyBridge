@@ -97,19 +97,10 @@ jobs:
           cp "${IPA_PATH}" "./${{ inputs.asset_name }}"
           local_sha="$(sha256sum "./${{ inputs.asset_name }}" | awk '{print $1}')"
           echo "Local SHA-256: ${local_sha}"
-          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}")"
-          upload_url="$(printf '%s' "${release_json}" | jq -r '.upload_url' | sed 's|{.*}$||')&name=${{ inputs.asset_name }}"
-          echo "Upload endpoint: ${upload_url%%\?*}/..."
-          if ! curl -sSL -X POST \
-            -H "Authorization: Bearer ${{ github.token }}" \
-            -F "file=@./${{ inputs.asset_name }}" \
-            "${upload_url}" -o asset.json -w "curl http %{http_code}\n" 2> curl.err; then
-            echo "::error::curl transport failed: $(head -c 800 curl.err | tr '\n' ' ')"
-            exit 1
-          fi
-          http_code="$(tail -n1 asset.json 2>/dev/null || true)"
-          if ! jq -e '.id' asset.json > /dev/null 2>&1; then
-            echo "::error::upload rejected: $(jq -r '.message // empty' asset.json | head -c 800) | last line: ${http_code}"
+          if ! gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
+            -F "file=@./${{ inputs.asset_name }}" > asset.json 2> gh.err; then
+            echo "::error::upload rejected: $(jq -r '.message // empty' gh.err 2>/dev/null | head -c 800) $(head -c 400 gh.err | tr '\n' ' ')"
             exit 1
           fi
           asset_id="$(jq -r '.id' asset.json)"
