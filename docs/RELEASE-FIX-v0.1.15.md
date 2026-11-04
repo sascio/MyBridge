@@ -38,12 +38,37 @@ x86 55,445,968 B `341703327682f5f73628d2520d73cb8d15aaf480c90ef0971d439e1eb7ba30
 x86_64 56,500,704 B `0f3c1995540c0525b86d07d6802fb529facfc4b33a940c23e606d83b957fb92d`;
 checksums.sha256 `0a7de766bc958169abbb127c6e177f489853e8b7bb24bf8c1b29ba9d0f33e7c4`.
 
-## Final draft assets (run 3, to be re-verified before publication)
+## Published assets (SHA-256, release 434171421, published 2026-11-04)
 
-Recorded at publication time in the release body and below.
+| Asset | Size (B) | SHA-256 |
+|---|---:|---|
+| `androidApp-full-arm64-v8a-release.apk` | 55001290 | `509ea28568d7c43fe1d29af8fa3b749940406b458ae1098a130750182608ceda` |
+| `androidApp-full-armeabi-v7a-release.apk` | 53118154 | `8973076861da46f58e29aa2df39877a7018a2db03d212c85caab6133933784ed` |
+| `androidApp-full-x86-release.apk` | 55445968 | `4be2c714766f1620a4db6bcaf6f7103a5d9cfc80684eae52339ae20f88125499` |
+| `androidApp-full-x86_64-release.apk` | 56500704 | `a8969f6ebbe32080144eae6d209137114e769e7a0222621daaea20b7e3a64744` |
+| `checksums.sha256` | 577 | `5d6351ac7d39e1d28919b27aaff49dd81ce6efc82b5520a9a85c7b96475404a5` |
+| `StreamBridge-0.1.15-iOS-unsigned.ipa` | 73619544 | `b361a3444091a75b8ad396441bb76bbcf60c8c92c4aae412df0e2bea69d01a28` |
+
+The checksums asset was cross-checked: its SHA-256 equals the digest of the
+file constructed from the four published APK digests. The IPA was verified
+by the attach workflow (bundle id, version, build, unsigned) and then by
+`update-store-source.py` itself, which downloads the release IPA and
+re-verifies it before writing the sideload source entry.
+
+## Draft tag detachment during the cycle
+
+Twice during the cycle the draft release's `tag_name` was reset by GitHub to
+`untagged-…` (once during the draft's lifecycle, once at the
+draft→published transition). Both times it was re-associated with
+`v0.1.15` by a single `PATCH tag_name` — the documented safe method from
+the 0.1.14 cycle. The auto-triggered sideload-source run that fired in the
+detached window failed with "release not found"; after the re-association
+the updater was dispatched again and succeeded (run 41887660605).
 
 ## Sideload source
 
-`update-store-source.yml` is dispatched after publication. Unlike the
-0.1.14 same-version rebuild, 0.1.15 is a new version/code, so the updater
-appends a new entry normally.
+The updater appended the 0.1.15 entry normally (new version/code, so the
+0.1.14 same-version limitation did not apply): version 0.1.15, build 115,
+size 73619544, SHA-256 `b361a344…`, download URL pointing at the published
+IPA. The served `store.json` on `main` was synced back onto the release
+branch so both stay byte-identical.
