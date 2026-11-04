@@ -446,19 +446,21 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_appearance_section_display),
     )
     addRow(
-        page = SettingsPage.Layout,
+        // StreamBridge: these two live on the Home Layout page (see
+        // HomescreenSettingsPage), which the Layout page's Home Layout row opens.
+        page = SettingsPage.Homescreen,
         key = "dynamic-artwork-background",
         title = stringResource(Res.string.settings_appearance_dynamic_artwork_background),
         description = stringResource(Res.string.settings_appearance_dynamic_artwork_background_description),
-        pageLabel = layoutPage,
+        pageLabel = homeLayoutPage,
         section = stringResource(Res.string.settings_appearance_section_home),
     )
     addRow(
-        page = SettingsPage.Layout,
+        page = SettingsPage.Homescreen,
         key = "catalog-accent",
         title = stringResource(Res.string.settings_appearance_catalog_accent),
         description = stringResource(Res.string.settings_appearance_catalog_accent_description),
-        pageLabel = layoutPage,
+        pageLabel = homeLayoutPage,
         section = stringResource(Res.string.settings_appearance_section_home),
     )
     if (liquidGlassNativeTabBarSupported) {
