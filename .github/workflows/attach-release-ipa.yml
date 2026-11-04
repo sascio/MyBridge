@@ -1,10 +1,11 @@
 name: Attach release IPA
 
-# Ops helper: attaches a built unsigned IPA (from a completed ios-release run)
-# to a draft release, verifying the bundle before upload. The sandbox that runs
-# the agent cannot reach GitHub's artifact blob storage, so this runs where the
-# bytes are. Every check is fail-closed: wrong bundle id, wrong version, a
-# provisioning profile (signed IPA), or a digest mismatch aborts the run.
+# Ops helper: attaches the built unsigned IPA (from a completed ios-release
+# run) to the draft release. Uses the repository's own scripts/release-api.sh
+# ensure-asset path — the same upload+verify mechanism the release pipeline
+# uses — because generic upload attempts (raw, multipart, gh release upload by
+# tag) are all rejected for drafts. Bundle checks are fail-closed: wrong bundle
+# id, wrong version, a provisioning profile, or a digest mismatch aborts.
 
 on:
   workflow_dispatch:
@@ -13,8 +14,8 @@ on:
         description: Workflow run id that produced the StreamBridge-iOS-unsigned-IPA artifact
         required: true
         type: string
-      release_id:
-        description: Draft release id to attach the IPA to
+      tag:
+        description: Release tag the draft carries
         required: true
         type: string
       asset_name:
@@ -27,10 +28,6 @@ on:
         type: string
       expected_code:
         description: Expected CFBundleVersion
-        required: true
-        type: string
-      tag:
-        description: Release tag the draft carries (for gh release upload)
         required: true
         type: string
 
@@ -48,6 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Check out the release tooling
+        uses: actions/checkout@v6
+
       - name: Download the IPA artifact from the build run
         uses: actions/download-artifact@v7
         with:
@@ -89,25 +89,24 @@ jobs:
               sys.exit("::error::The IPA carries a provisioning profile; the release IPA must be unsigned")
           print("The IPA is unsigned as designed (AltStore/SideStore re-sign).")
 
-      - name: Attach to the draft release and cross-check the stored digest
+      - name: Resolve the draft release by ID
+        run: |
+          set -euo pipefail
+          scripts/release-api.sh lookup \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${{ inputs.tag }}" \
+            --json release.json \
+            --attempts 3 \
+            --delay 5
+
+      - name: Attach and verify through the release pipeline uploader
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -o pipefail
-          cp "${IPA_PATH}" "./${{ inputs.asset_name }}"
-          local_sha="$(sha256sum "./${{ inputs.asset_name }}" | awk '{print $1}')"
-          echo "Local SHA-256: ${local_sha}"
-          if ! gh api --method POST \
-            "repos/${GITHUB_REPOSITORY}/releases/${{ inputs.release_id }}/assets?name=${{ inputs.asset_name }}" \
-            -F "file=@./${{ inputs.asset_name }}" > asset.json 2> gh.err; then
-            echo "::error::upload rejected: $(jq -r '.message // empty' gh.err 2>/dev/null | head -c 800) $(head -c 400 gh.err | tr '\n' ' ')"
-            exit 1
-          fi
-          asset_id="$(jq -r '.id' asset.json)"
-          stored_sha="$(jq -r '.digest' asset.json | sed 's|^sha256:||')"
-          asset_size="$(jq -r '.size' asset.json)"
-          echo "Stored asset ${asset_id}: ${asset_size} bytes, SHA-256 ${stored_sha}"
-          if [[ "${stored_sha}" != "${local_sha}" ]]; then
-            echo "::error::stored digest differs from the local file"
-            exit 1
-          fi
+          set -euo pipefail
+          scripts/release-api.sh ensure-asset \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json release.json \
+            --file "${IPA_PATH}" \
+            --name "${{ inputs.asset_name }}"
+          jq '{tag_name, draft, assets: [.assets[] | select(.name == "${{ inputs.asset_name }}") | {name, size, digest, state}]}' release.json
