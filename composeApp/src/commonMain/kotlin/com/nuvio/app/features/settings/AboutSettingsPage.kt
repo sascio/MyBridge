@@ -54,7 +54,11 @@ internal fun LazyListScope.aboutSettingsContent(
                 if (showSupportersContributorsPage) {
                     SettingsNavigationRow(
                         title = stringResource(Res.string.about_us_page_title),
-                        description = stringResource(Res.string.about_supporters_contributors_subtitle),
+                        // StreamBridge: icon and description restored verbatim
+                        // from the v0.1.13 SettingsRootPage row (Icons.Rounded.Info
+                        // + about_us_settings_subtitle) — the 0.1.14 regroup had
+                        // swapped in a heart icon and a different subtitle.
+                        description = stringResource(Res.string.about_us_settings_subtitle),
                         icon = SettingsPage.SupportersContributors.icon,
                         isTablet = isTablet,
                         onClick = onSupportersContributorsClick,

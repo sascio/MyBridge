@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Hub
@@ -303,7 +302,7 @@ internal val SettingsPage.icon: ImageVector
     get() = when (this) {
         SettingsPage.Root -> Icons.Rounded.Settings
         SettingsPage.Account -> Icons.Default.Person
-        SettingsPage.SupportersContributors -> Icons.Default.Favorite
+        SettingsPage.SupportersContributors -> Icons.Rounded.Info
         SettingsPage.LicensesAttributions -> Icons.Default.Info
         SettingsPage.Playback -> Icons.Rounded.PlayArrow
         SettingsPage.Appearance -> Icons.Default.Palette

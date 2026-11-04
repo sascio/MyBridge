@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.14</strong> (114)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.15</strong> (115)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,37 +18,40 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.14
+## Highlights in 0.1.15
 
-- **Stable, richer home hero** — the hero carousel no longer shifts vertically when the
-  displayed title changes: neighbours' artwork and details are prefetched while a title is
-  on screen, layer transitions are resolved at draw time, and the metadata rows now cover
-  type, genre, runtime, release date, IMDb rating, age rating/status, language, external
-  ratings and the description.
-- **Subtitles** — a rewritten subtitle path: libass renders styled ASS/SSA tracks through the
-  atlas renderer, and an appearance page controls font, size (1 sp steps), weight, outline,
-  shadow, background and margins with a live preview. Custom fonts can be imported and stay
-  loaded between captions. Replaces the previous peerless2012 `ass-media`/`ass-kt` artifacts.
-- **Chapters and skipping** — chapter panels, Matroska chapter parsing, merged/overlapping
-  skip-interval handling, and a setting for when the Skip Intro button appears. Skip segments
-  now also auto-skip on resolved HLS and P2P streams.
-- **Night mode** — a libmpv audio filter that lifts quiet dialogue and tames peaks, available
-  from the player and in Settings on both engines.
-- **Settings** — the settings root is organised into You / Look / Watch / Services / System,
-  with playback split into its own pages (player, streams, up next, skip, interface, audio,
-  subtitles, video, buffer, P2P). Configuration backup/export lives in Advanced.
-- **Home hero** — episode and unreleased labels, single-decimal IMDb ratings, and the hero meta
-  rows are now a separate, testable component.
-- **Native modules** — the upstream Cargo workspace (`native/`) is compiled with `cargo-ndk`
-  for all four Android ABIs: seek-bar thumbnails decoded from single keyframes and Matroska/MP4
-  container indexes read over bounded HTTP ranges.
-- **Watch Party invites** — invite text, code, deep link and redirect all identify StreamBridge;
-  the generated link is a normalized `streambridge://party/<code>` deep link with an install
-  fallback, and `nuvio.tv` invites shared by older builds still parse. See
-  [docs/WATCH-PARTY-LINKS.md](docs/WATCH-PARTY-LINKS.md).
-- **Branding** — every settings footer, About page and locale keeps StreamBridge identity
-  (`Made with ❤️ by Saif`, `Your Media, Your Way`); the privacy policy is an in-app page
-  instead of a link to `nuvio.tv`.
+- **Complete core baseline sync** — the whole 0.6.7-beta core tree is integrated at source
+  level (96 upstream commits across the whole changed file set), keeping every StreamBridge-specific
+  implementation on top of it.
+- **Glass UI (experimental)** — a new appearance preset family (dark, balanced, vivid) with
+  edge-to-edge frosted headers on phones; headers now pin at the very top, and Search keeps
+  Discover in a fixed header band.
+- **App-wide background** — pick an image from your gallery or a URL and it is drawn once
+  behind every screen; the dynamic-background and catalog-accent settings moved into
+  Layout > Home.
+- **Player** — resize the video beside the watch-party panel; the automatic source failover
+  no longer loops after a source change; anime engine selection is fixed; the skip button
+  keeps its timer running through segment-category changes.
+- **Subtitles and audio** — addon-delivered ASS subtitles render through libass on Android
+  again; subtitle addon requests carry file extras and compute OpenSubtitles-compatible
+  hashes for local and P2P streams; reusing the last link now keeps the chosen stream info
+  and the current-stream marker.
+- **Continue watching** — mark an item as watched directly from its long-press menu.
+- **Live TV, search and library** — Live TV pins its title, search and filter header; search
+  and library draw one continuous header band with a pinned cloud toolbar.
+- **iOS** — playback now declares the long-form-video audio session so it is no longer
+  treated as music, MPVKit was updated for the host audio session, Now Playing publishes
+  only on real playback changes, and the profile-insight photo picker opens after the native
+  sheet closes.
+- **Profile insights** — a frosted hero and glass-ready cards over the app background.
+- **Translations** — Arabic, Bulgarian, Greek, Spanish, French, Italian, Polish,
+  Brazilian Portuguese, Turkish and Vietnamese locales completed and harmonized.
+- **Toolchain** — Gradle 9.8.2, the Android Gradle Plugin 9.4.0 line and compile SDK 37.1.
+- **StreamBridge specifics** — the About Us entry regained its original icon and subtitle
+  (restored verbatim from the original root-page row), and About Us gained a "Join our
+  Discord" invitation row (https://discord.gg/T9apykrjW) next to the Telegram community
+  channel.
+
 
 ## Features
 
@@ -123,7 +126,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.14-iOS-unsigned.ipa`
+- `StreamBridge-0.1.15-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
