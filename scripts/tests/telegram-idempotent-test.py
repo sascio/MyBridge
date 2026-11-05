@@ -723,20 +723,27 @@ class LedgerValidationTests(unittest.TestCase):
             ledger.validate(doc)
 
     def test_migration_preserves_all_legacy_announcement_and_upload_fields(self):
-        old = {"schema": 2, "description": "preserve every original field", "releases": [
-            {"release_id": 10, "tag_name": "v1", "announced": True, "message_ids": [11, 12],
-             "announced_at": "2026-01-01T00:00:00Z", "assets": [
-                 {"name": "one.apk", "message_id": 13, "sha256": "a" * 64, "size": 17},
-                 {"name": "two.ipa", "message_id": 14, "sha256": None, "size": 18}]},
-            {"release_id": 20, "tag_name": "v2", "announced": False, "message_ids": [],
-             "assets": [{"name": "partial.apk", "message_id": 21, "custom_evidence": {"old": True}}]},
-        ]}
-        original = copy.deepcopy(old)
-        doc = ledger.migrate(old, "2026-01-01T00:00:00Z")
-        self.assertEqual(doc["legacy"], original)
-        self.assertEqual(doc["activation"]["legacy_sha256"], ledger.digest(original))
-        self.assertEqual(old, original)
-        self.assertEqual(ledger.summarize(doc)["legacy_channel_history"], "unknown")
+        fixtures = [
+            {"schema": 1, "description": "original announcement ledger", "releases": [
+                {"release_id": 1, "tag_name": "v1", "version": "1.0", "message_ids": [2, 3],
+                 "announced_at": "2026-01-01T00:00:00Z", "extra_evidence": {"preserve": True}}]},
+            {"schema": 2, "description": "preserve every original field", "releases": [
+                {"release_id": 10, "tag_name": "v1", "announced": True, "message_ids": [11, 12],
+                 "announced_at": "2026-01-01T00:00:00Z", "assets": [
+                     {"name": "one.apk", "message_id": 13, "sha256": "a" * 64, "size": 17},
+                     {"name": "two.ipa", "message_id": 14, "sha256": None, "size": 18}]},
+                {"release_id": 20, "tag_name": "v2", "announced": False, "message_ids": [],
+                 "assets": [{"name": "partial.apk", "message_id": 21, "custom_evidence": {"old": True}}]},
+            ]},
+        ]
+        for old in fixtures:
+            with self.subTest(schema=old["schema"]):
+                original = copy.deepcopy(old)
+                doc = ledger.migrate(old, "2026-01-01T00:00:00Z")
+                self.assertEqual(doc["legacy"], original)
+                self.assertEqual(doc["activation"]["legacy_sha256"], ledger.digest(original))
+                self.assertEqual(old, original)
+                self.assertEqual(ledger.summarize(doc)["legacy_channel_history"], "unknown")
 
     def test_tracked_legacy_migration_is_only_prepared_and_never_overwrites_input(self):
         source = SCRIPTS.parent / ledger.LEDGER_PATH
