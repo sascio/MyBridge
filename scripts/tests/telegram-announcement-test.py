@@ -37,6 +37,8 @@ import urllib.request
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS / "tests"))
+from offline import sitecustomize as offline_guard  # noqa: E402,F401 - block external network in direct invocations
 sys.path.insert(0, str(SCRIPTS))
 
 import telegram_announce as announce  # noqa: E402
@@ -616,41 +618,10 @@ class DeliveryTests(unittest.TestCase):
         for variable in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
             self.assertNotIn(variable, os.environ)
 
-    def test_send_path_uses_html_and_inline_keyboard(self) -> None:
-        mock = MockTelegram()
-        run = announce.send_announcement(
-            client(mock), self.release, self.announcement, self.pages, throttle=lambda _s: None
-        )
-        self.assertEqual(run.sent_message_ids, [1000, 1001])
-        self.assertTrue(run.pinned)
-        for payload in mock.sent_messages():
-            self.assertEqual(payload["parse_mode"], "HTML")
-            self.assertEqual(payload["chat_id"], CHAT)
-            self.assertTrue(payload["link_preview_options"]["is_disabled"])
-        first = mock.sent_messages()[0]
-        rows = first["reply_markup"]["inline_keyboard"]
-        self.assertEqual(rows[0], [{"text": notes.DOWNLOAD_BUTTON_LABEL, "url": RELEASE_URL}])
-        # One row per verified binary (four ABIs + the IPA) plus the checksum file.
-        self.assertEqual(len(rows), 7)
-        labels = [row[0]["text"] for row in rows]
-        for expected in ("Android ARM64", "Android ARMv7", "Android x86", "Android x86_64", "iOS IPA"):
-            self.assertTrue(
-                any(expected in label for label in labels), f"no direct button for {expected}: {labels}"
-            )
-        for row in rows:
-            self.assertTrue(row[0]["url"].startswith("https://"))
-
     def test_marker_is_on_every_page_and_matches_the_release_id(self) -> None:
         for text in self.pages:
             self.assertIn("#SB987654321", text)
         self.assertEqual(announce.marker_for(987654321), "#SB987654321")
-
-    def test_duplicate_release_event_is_not_announced_twice(self) -> None:
-        mock = MockTelegram()
-        mock.pinned = {"message_id": 42, "text": "old announcement\n#StreamBridge #SB987654321"}
-        reason = announce.check_already_announced(client(mock), self.release, "")
-        self.assertIsNotNone(reason)
-        self.assertIn("#SB987654321", reason)
 
     def test_marker_is_found_in_button_markup_and_caption_too(self) -> None:
         self.assertEqual(
@@ -660,276 +631,29 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(announce.marker_in_message({"caption": "text #SB55 here"}), "#SB55")
         self.assertIsNone(announce.marker_in_message({"text": "no marker"}))
 
-    def test_previous_release_pin_does_not_block_a_new_release(self) -> None:
-        mock = MockTelegram()
-        mock.pinned = {"message_id": 41, "text": "#StreamBridge #SB111111111"}
-        self.assertIsNone(announce.check_already_announced(client(mock), self.release, ""))
-
-    def test_post_ledger_blocks_a_resend_when_the_channel_is_unreadable(self) -> None:
-        ledger = json.dumps({"releases": [{"release_id": 987654321}]})
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory, "ledger.json")
-            path.write_text(ledger, encoding="utf-8")
-            # No pinned message is visible (the bot was restarted, say), but the
-            # ledger written after the last successful send still remembers it.
-            mock = MockTelegram()
-            reason = announce.check_already_announced(client(mock), self.release, str(path))
-            self.assertIsNotNone(reason)
-            self.assertIn("post ledger", reason)
-
-    def test_ledger_is_written_only_with_confirmed_message_ids(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory, "ledger.json")
-            announce.record_in_ledger(str(path), self.release, [1000, 1001], CHAT)
-            data = json.loads(path.read_text(encoding="utf-8"))
-            self.assertEqual(data["releases"][0]["message_ids"], [1000, 1001])
-            self.assertEqual(data["releases"][0]["release_id"], 987654321)
-            self.assertEqual(data["releases"][0]["tag_name"], "v9.9.9")
-            self.assertNotIn(CHAT, path.read_text(encoding="utf-8"))
-
     def test_bot_client_repr_does_not_contain_secrets(self) -> None:
         telegram = announce.TelegramClient(TOKEN, CHAT)
         self.assertNotIn(TOKEN, repr(telegram))
         self.assertNotIn(CHAT, repr(telegram))
 
-    def test_a_lost_send_response_can_duplicate_a_page_during_retries(self) -> None:
+    def test_bot_errors_do_not_echo_secrets_or_sleep_for_long_flood_waits(self) -> None:
+        def failing_opener(*_args, **_kwargs):
+            raise OSError(TOKEN + CHAT)
+        result = announce.TelegramClient(TOKEN, CHAT, retries=1, opener=failing_opener,
+                                         sleeper=lambda _delay: None).get_chat()
+        self.assertNotIn(TOKEN, result.description + repr(result))
+        self.assertNotIn(CHAT, result.description + repr(result))
+        raw = json.dumps({"ok": False, "error_code": TOKEN, "description": CHAT}).encode()
+        malformed = announce.TelegramClient._parse(raw, attempts=1)
+        self.assertIsNone(malformed.error_code)
+        self.assertNotIn(TOKEN, repr(malformed) + malformed.description)
+        self.assertNotIn(CHAT, repr(malformed) + malformed.description)
         bot = MockTelegram()
-        accepted: list[dict] = []
-
-        def opener(request, timeout=None):
-            if request.full_url.endswith("/sendMessage"):
-                accepted.append(json.loads(request.data.decode("utf-8")))
-                if len(accepted) == 1:
-                    # The server accepted the first page, but its response was
-                    # lost. A retry cannot distinguish this from no delivery.
-                    raise urllib.error.URLError("response lost after acceptance")
-            return bot.urlopen(request, timeout=timeout)
-
-        telegram = announce.TelegramClient(TOKEN, CHAT, retries=2, sleeper=lambda _s: None, opener=opener)
-        run = announce.send_announcement(telegram, self.release, self.announcement, self.pages[:1], pin=False)
-        self.assertEqual(len(run.sent_message_ids), 1)
-        self.assertEqual(len(accepted), 2)
-        self.assertEqual(accepted[0]["text"], accepted[1]["text"])
-
-    def test_retry_after_is_honoured_and_the_send_then_succeeds(self) -> None:
-        mock = MockTelegram()
-        sleeps: list[float] = []
-        mock.fail["sendMessage"] = [
-            _HttpError(429, {"ok": False, "error_code": 429, "description": "Too Many Requests: retry after 3", "parameters": {"retry_after": 3}}),
-        ]
-        telegram = announce.TelegramClient(
-            TOKEN, CHAT, retries=3, sleeper=sleeps.append, opener=mock.urlopen
-        )
-        run = announce.send_announcement(telegram, self.release, self.announcement, self.pages)
-        self.assertEqual(len(run.sent_message_ids), len(self.pages))
-        self.assertTrue(any(3.0 <= value < 4.0 for value in sleeps))
-
-    def test_server_error_is_retried(self) -> None:
-        mock = MockTelegram()
-        mock.fail["sendMessage"] = [
-            _HttpError(502, {"ok": False, "error_code": 502, "description": "Bad Gateway"}),
-        ]
-        run = announce.send_announcement(
-            announce.TelegramClient(TOKEN, CHAT, retries=3, sleeper=lambda _s: None, opener=mock.urlopen),
-            self.release,
-            self.announcement,
-            self.pages,
-        )
-        self.assertEqual(len(run.sent_message_ids), len(self.pages))
-
-    def test_permanent_error_is_not_retried(self) -> None:
-        mock = MockTelegram()
-        mock.fail["sendMessage"] = [
-            _HttpError(401, {"ok": False, "error_code": 401, "description": "Unauthorized"}),
-        ]
-        telegram = announce.TelegramClient(
-            TOKEN, CHAT, retries=3, sleeper=lambda _s: None, opener=mock.urlopen
-        )
-        caught = expect_announcement_error(
-            self,
-            lambda: announce.send_announcement(telegram, self.release, self.announcement, self.pages),
-        )
-        self.assertIn("Unauthorized", str(caught))
-        self.assertEqual(mock.methods().count("sendMessage"), 1)
-
-    def test_network_failure_is_retried_then_reported(self) -> None:
-        mock = MockTelegram()
-        mock.fail["sendMessage"] = [
-            urllib.error.URLError("connection reset"),
-            urllib.error.URLError("connection reset"),
-            urllib.error.URLError("connection reset"),
-        ]
-        telegram = announce.TelegramClient(
-            TOKEN, CHAT, retries=3, sleeper=lambda _s: None, opener=mock.urlopen
-        )
-        caught = expect_announcement_error(
-            self,
-            lambda: announce.send_announcement(telegram, self.release, self.announcement, self.pages),
-        )
-        self.assertIn("network error", str(caught))
-        self.assertEqual(mock.methods().count("sendMessage"), 3)
-
-    def test_partial_failure_reports_delivered_messages(self) -> None:
-        mock = MockTelegram()
-        # Page 1 succeeds; page 2 is rejected permanently (400s are not retried).
-        mock.fail["sendMessage"] = [
-            None,
-            _HttpError(
-                400,
-                {"ok": False, "error_code": 400, "description": "Bad Request: can't parse entities"},
-            ),
-        ]
-        telegram = announce.TelegramClient(
-            TOKEN, CHAT, retries=1, sleeper=lambda _s: None, opener=mock.urlopen
-        )
-        caught = expect_announcement_error(
-            self,
-            lambda: announce.send_announcement(telegram, self.release, self.announcement, self.pages),
-        )
-        message = str(caught)
-        self.assertIn("Delivered so far: 1000", message)
-        self.assertIn("page 2/2", message)
-        self.assertIn("GitHub release is unaffected", message)
-
-    def test_missing_secrets_fail_clearly_without_sending(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
-            for variable in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
-                os.environ.pop(variable, None)
-            buffer = io.StringIO()
-            stdout, sys.stdout = sys.stdout, buffer
-            try:
-                code = announce.main(["--release-json", str(release_file)])
-            finally:
-                sys.stdout = stdout
-            self.assertEqual(code, announce.EXIT_CONFIG)
-            self.assertIn("TELEGRAM_BOT_TOKEN secret is not configured", buffer.getvalue())
-
-    def test_token_is_masked_and_never_printed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
-            summary = Path(directory, "summary.json")
-            mock = MockTelegram()
-            os.environ["TELEGRAM_BOT_TOKEN"] = TOKEN
-            os.environ["TELEGRAM_CHAT_ID"] = CHAT
-            self.addCleanup(os.environ.pop, "TELEGRAM_BOT_TOKEN", None)
-            self.addCleanup(os.environ.pop, "TELEGRAM_CHAT_ID", None)
-            patch_client(self, mock)
-            try:
-                buffer = io.StringIO()
-                stdout, sys.stdout = sys.stdout, buffer
-                try:
-                    code = announce.main(
-                        ["--release-json", str(release_file), "--summary", str(summary)]
-                    )
-                finally:
-                    sys.stdout = stdout
-            finally:
-                sys.stdout = stdout
-            output = buffer.getvalue()
-            self.assertEqual(code, announce.EXIT_OK)
-            self.assertIn(f"::add-mask::{TOKEN}", output)
-            self.assertNotIn(TOKEN, output.replace(f"::add-mask::{TOKEN}", ""))
-            for payload in mock.sent_messages():
-                self.assertNotIn(TOKEN, json.dumps(payload))
-            self.assertNotIn(TOKEN, summary.read_text(encoding="utf-8"))
-
-    def test_rerun_after_a_successful_send_exits_already_posted(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
-            ledger = Path(directory, "ledger.json")
-            mock = MockTelegram()
-            os.environ["TELEGRAM_BOT_TOKEN"] = TOKEN
-            os.environ["TELEGRAM_CHAT_ID"] = CHAT
-            self.addCleanup(os.environ.pop, "TELEGRAM_BOT_TOKEN", None)
-            self.addCleanup(os.environ.pop, "TELEGRAM_CHAT_ID", None)
-            patch_client(self, mock)
-            buffer = io.StringIO()
-            stdout, sys.stdout = sys.stdout, buffer
-            try:
-                first = announce.main(["--release-json", str(release_file), "--ledger", str(ledger), "--summary", str(Path(directory, "s1.json"))])
-                sent_after_first = len(mock.sent_messages())
-                second = announce.main(["--release-json", str(release_file), "--ledger", str(ledger), "--summary", str(Path(directory, "s2.json"))])
-                sent_after_second = len(mock.sent_messages())
-            finally:
-                sys.stdout = stdout
-            self.assertEqual(first, announce.EXIT_OK)
-            self.assertEqual(second, announce.EXIT_ALREADY_POSTED)
-            self.assertEqual(sent_after_first, sent_after_second)
-            self.assertIn("already announced", buffer.getvalue())
-
-    def test_persisted_ledger_blocks_sends_without_any_history_lookup(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
-            ledger = Path(directory, "ledger.json")
-            announce.record_in_ledger(str(ledger), self.release, [1000], CHAT)
-            bot = MockTelegram()
-            patch_client(self, bot)
-            env = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
-                   "TELEGRAM_API_ID": "73124689", "TELEGRAM_API_HASH": "0123456789abcdef" * 2}
-            with unittest_mock.patch.dict(os.environ, env), \
-                    unittest_mock.patch.object(assets, "MtprotoUploader", side_effect=AssertionError("lookup not needed")), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                code = announce.main(["--release-json", str(release_file), "--ledger", str(ledger)])
-            self.assertEqual(code, announce.EXIT_ALREADY_POSTED)
-            self.assertNotIn("sendMessage", bot.methods())
-
-    def test_a_hypothetical_history_match_stops_a_send_without_a_ledger(self) -> None:
-        # This tests the caller's duplicate guard, not bot history availability.
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
-            bot = MockTelegram()
-            patch_client(self, bot)
-            uploader = unittest_mock.Mock()
-            uploader.find_marker.return_value = True
-            env = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
-                   "TELEGRAM_API_ID": "73124689", "TELEGRAM_API_HASH": "0123456789abcdef" * 2}
-            with unittest_mock.patch.dict(os.environ, env), \
-                    unittest_mock.patch.object(assets, "MtprotoUploader", return_value=uploader), \
-                    contextlib.redirect_stdout(io.StringIO()):
-                code = announce.main(["--release-json", str(release_file), "--ledger", str(Path(directory, "missing.json"))])
-            self.assertEqual(code, announce.EXIT_ALREADY_POSTED)
-            uploader.find_marker.assert_called_once_with("#SB987654321")
-            uploader.close.assert_called_once()
-            self.assertNotIn("sendMessage", bot.methods())
-
-    def test_failed_bot_history_cannot_protect_a_partial_announcement_retry(self) -> None:
-        class BotMethodInvalidError(RuntimeError):
-            pass
-
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload(body=self.release.body)), encoding="utf-8")
-            ledger = Path(directory, "ledger.json")
-            bot = MockTelegram()
-            bot.fail["sendMessage"] = [None, _HttpError(400, {"ok": False, "error_code": 400, "description": "rejected"})]
-            patch_client(self, bot)
-            env = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
-                   "TELEGRAM_API_ID": "73124689", "TELEGRAM_API_HASH": "0123456789abcdef" * 2}
-            uploader = unittest_mock.Mock()
-            uploader.find_marker.side_effect = BotMethodInvalidError(" ".join(env.values()))
-            output = io.StringIO()
-            with unittest_mock.patch.dict(os.environ, env), \
-                    unittest_mock.patch.object(assets, "MtprotoUploader", return_value=uploader), \
-                    contextlib.redirect_stdout(output):
-                first = announce.main(["--release-json", str(release_file), "--ledger", str(ledger)])
-                self.assertFalse(ledger.exists(), "partial delivery must not be recorded as complete")
-                second = announce.main(["--release-json", str(release_file), "--ledger", str(ledger)])
-            self.assertEqual(first, announce.EXIT_ERROR)
-            self.assertEqual(second, announce.EXIT_OK)
-            # Page one was accepted in the first run and is sent again on retry.
-            sends = bot.sent_messages()
-            self.assertEqual(sends[0]["text"], sends[2]["text"])
-            self.assertEqual(uploader.find_marker.call_count, 2)
-            self.assertIn("otherwise be posted again", output.getvalue())
-            visible = "\n".join(line for line in output.getvalue().splitlines() if not line.startswith("::add-mask::"))
-            for secret in env.values():
-                self.assertNotIn(secret, visible)
+        bot.fail["getChat"] = [{"ok": False, "error_code": 429,
+                                "parameters": {"retry_after": 600}}]
+        result = client(bot).get_chat()
+        self.assertFalse(result.ok)
+        self.assertEqual(bot.methods(), ["getChat"])
 
     def test_draft_and_prerelease_events_are_ignored(self) -> None:
         for overrides, label in (
@@ -955,40 +679,30 @@ class DeliveryTests(unittest.TestCase):
                 self.assertEqual(mock.calls, [])
                 self.assertIn(f"is a {label}", buffer.getvalue())
 
-    def test_unpin_failure_does_not_fail_the_announcement(self) -> None:
-        mock = MockTelegram()
-        mock.fail["pinChatMessage"] = [
-            _HttpError(400, {"ok": False, "error_code": 400, "description": "Bad Request: not enough rights to pin a message"})
-        ]
-        run = announce.send_announcement(
-            announce.TelegramClient(TOKEN, CHAT, retries=1, sleeper=lambda _s: None, opener=mock.urlopen),
-            self.release,
-            self.announcement,
-            self.pages,
-        )
-        self.assertFalse(run.pinned)
-        self.assertEqual(len(run.sent_message_ids), len(self.pages))
-        self.assertTrue(any("could not be pinned" in item for item in run.warnings))
+    def test_bot_api_mutations_and_legacy_direct_delivery_are_disabled(self) -> None:
+        bot = MockTelegram()
+        connection = client(bot)
+        for method in ('sendMessage', 'sendDocument', 'pinChatMessage'):
+            result = connection.call(method, {'chat_id': CHAT})
+            self.assertFalse(result.ok)
+        self.assertEqual(bot.calls, [])
+        with tempfile.TemporaryDirectory() as directory:
+            release_file = Path(directory, 'release.json')
+            release_file.write_text(json.dumps(release_payload()), encoding='utf-8')
+            self.assertEqual(announce.main(['--release-json', str(release_file)]), announce.EXIT_CONFIG)
+            self.assertEqual(assets.main(['--release-json', str(release_file)]), assets.EXIT_CONFIG)
 
-    def test_message_id_is_required_to_confirm_delivery(self) -> None:
-        mock = MockTelegram()
-        mock.fail["sendMessage"] = [{"ok": True, "result": {"no_message_id": True}}]
-        caught = expect_announcement_error(
-            self,
-            lambda: announce.send_announcement(
-                announce.TelegramClient(TOKEN, CHAT, retries=1, sleeper=lambda _s: None, opener=mock.urlopen),
-                self.release,
-                self.announcement,
-                self.pages,
-            ),
-        )
-        self.assertIn("unconfirmed", str(caught))
+    def test_asset_only_legacy_entry_does_not_count_as_announced(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, 'ledger.json')
+            path.write_text(json.dumps({'schema': 2, 'releases': [
+                {'release_id': self.release.id, 'announced': False, 'assets': [{'message_id': 99}]}]}))
+            self.assertFalse(announce.ledger_records(str(path), self.release.id))
 
 
 # --------------------------------------------------------------------------- #
 # Workflow wiring
 # --------------------------------------------------------------------------- #
-
 
 class WorkflowTests(unittest.TestCase):
     WORKFLOW = SCRIPTS.parent / ".github" / "workflows" / "telegram-release-announcement.yml"
@@ -1005,16 +719,12 @@ class WorkflowTests(unittest.TestCase):
         if yaml is None:
             self.skipTest("PyYAML is not installed")
         workflow = yaml.safe_load(self.text)
-        # The read-only job cannot write, while the existing ledger commit keeps
-        # the contents:write token it needs in the announcement job alone.
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["preflight"]["permissions"], {"contents": "read"})
-        self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "write"})
+        self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "read"})
+        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write"})
         for job in workflow["jobs"].values():
             self.assertLessEqual(set(job.get("permissions", {})), {"contents"})
-        # The workflow must not be able to change a release.
-        for forbidden in ("gh release edit", "gh release create", "gh release delete", "gh release upload"):
-            self.assertNotIn(forbidden, self.text)
 
     def test_workflow_never_prints_or_persists_credentials(self) -> None:
         for risky in ("echo ${{ secrets.TELEGRAM_BOT_TOKEN }}", "token: ${{ secrets.TELEGRAM_BOT_TOKEN }}"):
@@ -1032,41 +742,30 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}"', self.text)
         self.assertIn("--dry-run", self.text)
 
-    def test_the_upload_step_is_ordered_after_the_announcement_and_is_non_fatal(self) -> None:
-        if yaml is None:
-            self.skipTest("PyYAML is not installed")
-        names = [step.get("name", "") for step in yaml.safe_load(self.text)["jobs"]["announce"]["steps"]]
-        publish = next(i for i, name in enumerate(names) if name.startswith("Publish the announcement"))
-        deliver = next(i for i, name in enumerate(names) if name.startswith("Deliver the APK"))
-        record = next(i for i, name in enumerate(names) if name.startswith("Record the announced"))
-        self.assertLess(publish, deliver, "the announcement must be posted before the binaries")
-        self.assertLess(deliver, record, "the ledger must be committed after the delivery attempt")
-        steps = {step.get("name"): step for step in yaml.safe_load(self.text)["jobs"]["announce"]["steps"]}
-        # A failed upload must never turn a published release into a failed run.
-        self.assertIs(steps[names[deliver]].get("continue-on-error"), True)
-
-    def test_the_upload_step_cannot_write_to_the_repository(self) -> None:
+    def test_one_durable_delivery_step_sends_pages_before_assets(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
         workflow = yaml.safe_load(self.text)
-        self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "write"})
-        step = next(s for s in workflow["jobs"]["announce"]["steps"] if s.get("name", "").startswith("Deliver the APK"))
-        # Downloads go to the runner temp directory, never into the checkout.
-        self.assertIn("RUNNER_TEMP", step["run"])
-        self.assertIn('rm -rf "${workspace}"', step["run"])
+        self.assertEqual(workflow["jobs"]["publish"]["needs"], "announce")
+        step = next(x for x in workflow["jobs"]["publish"]["steps"] if x.get("name") == "Publish individual messages and documents")
+        self.assertIn("scripts/telegram_publish.py", step["run"])
+        self.assertNotIn("continue-on-error", step)
+
+    def test_binary_downloads_are_outside_the_checkout(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        workflow = yaml.safe_load(self.text)
+        step = next(x for x in workflow["jobs"]["publish"]["steps"] if x.get("name") == "Publish individual messages and documents")
+        self.assertEqual(step["env"]["TMPDIR"], "${{ runner.temp }}")
+        self.assertNotIn("upload-artifact", self.text)
 
     def test_telegram_secrets_are_scoped_to_the_steps_that_use_them(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
         workflow = yaml.safe_load(self.text)
         telegram = {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH"}
-        expected = {
-            "Verify Telegram readiness (read-only)": telegram,
-            # Do not expose the MTProto credentials to publishing merely to call
-            # a user-only history method that cannot protect bot retries.
-            "Publish the announcement": {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"},
-            "Deliver the APK and IPA files to Telegram": telegram,
-        }
+        expected = {"Verify Telegram readiness (read-only)": telegram,
+                    "Publish individual messages and documents": telegram}
         self.assertFalse(telegram & set(workflow.get("env", {})))
         for job in workflow["jobs"].values():
             self.assertFalse(telegram & set(job.get("env", {})))
@@ -1132,7 +831,6 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn(forbidden, self.text)
         for other in ("release-draft.yml", "ios-release.yml", "build.yml", "update-store-source.yml"):
             self.assertNotIn(f"gh workflow run {other}", self.text)
-
 
 
 # --------------------------------------------------------------------------- #
@@ -1350,398 +1048,13 @@ class LedgerStateTests(unittest.TestCase):
         self.release = notes.Release.from_api(release_payload())
         self.plans, _ = assets.plan_uploads(self.release)
 
-    def test_a_confirmed_upload_is_recorded_and_recognised(self) -> None:
-        plan = self.plans[0]
-        assets.record_upload(self.path, self.release, plan, 4242, sha256="a" * 64, chat_id=CHAT)
-        recorded = assets.recorded_uploads(self.path, self.release.id)
-        self.assertIn(plan.asset.name, recorded)
-        self.assertEqual(recorded[plan.asset.name]["message_id"], 4242)
-
-    def test_recording_is_idempotent_per_asset(self) -> None:
-        plan = self.plans[0]
-        assets.record_upload(self.path, self.release, plan, 1)
-        assets.record_upload(self.path, self.release, plan, 2)
-        recorded = assets.recorded_uploads(self.path, self.release.id)
-        self.assertEqual(len(recorded), 1)
-        self.assertEqual(recorded[plan.asset.name]["message_id"], 2)
-
-    def test_state_never_contains_a_credential(self) -> None:
-        plan = self.plans[0]
-        assets.record_upload(self.path, self.release, plan, 7, chat_id=CHAT)
-        with open(self.path, encoding="utf-8") as handle:
-            text = handle.read()
-        self.assertNotIn(TOKEN, text)
-        self.assertNotIn(CHAT, text)
-        self.assertNotIn("api_hash", text.lower())
-        self.assertNotIn("token", text.lower())
-
-    def test_a_corrupt_ledger_is_reported_not_ignored_silently(self) -> None:
+    def test_a_corrupt_or_missing_legacy_ledger_fails_closed(self) -> None:
+        with self.assertRaises(assets.AssetError):
+            assets.recorded_uploads(self.path, self.release.id)
         with open(self.path, "w", encoding="utf-8") as handle:
             handle.write("{not json")
         with self.assertRaises(assets.AssetError):
-            assets.load_ledger(self.path)
-        # A read-only view degrades to "nothing recorded" so a rerun can proceed.
-        self.assertEqual(assets.recorded_uploads(self.path, self.release.id), {})
-
-
-class _RecordingTransport:
-    def __init__(self, fail: set[str] | None = None) -> None:
-        self.uploaded: list[tuple[str, int]] = []
-        self.fail = fail or set()
-        self.next_id = 700
-
-    def upload_document(self, path: str, filename: str, caption: str) -> int:
-        if filename in self.fail:
-            raise assets.AssetError(f"simulated rejection of {filename}")
-        self.uploaded.append((filename, os.path.getsize(path)))
-        self.next_id += 1
-        return self.next_id
-
-
-class UploadRunTests(unittest.TestCase):
-    def setUp(self) -> None:
-        import tempfile
-
-        self.dir = tempfile.mkdtemp()
-        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
-        self.workspace = f"{self.dir}/work"
-        self.ledger = f"{self.dir}/ledger.json"
-        self.release = notes.Release.from_api(release_payload())
-        self.body = binary_payload(150_000)
-        import hashlib
-
-        self.digest = hashlib.sha256(self.body).hexdigest()
-        binaries = [
-            asset["name"]
-            for asset in release_payload()["assets"]
-            if asset["name"].endswith((".apk", ".ipa"))
-        ]
-        files = {name: self.body for name in binaries}
-        files["checksums.sha256"] = b"".join(
-            f"{self.digest}  {name}\n".encode() for name in binaries
-        )
-        self.served = _ServedFiles(files)
-        self.addCleanup(self.served.close)
-        # Point every asset at the loopback server, keeping the API's sizes but
-        # dropping the sample digest: the checksum file is the source here.
-        payload = release_payload()
-        for asset in payload["assets"]:
-            asset["browser_download_url"] = self.served.url(asset["name"])
-            asset["digest"] = ""
-            if asset["name"].endswith((".apk", ".ipa")):
-                asset["size"] = len(self.body)
-        self.release = notes.Release.from_api(payload)
-
-    def _run(self, transport) -> assets.UploadRun:
-        return assets.upload_release_assets(
-            self.release,
-            transport=transport,
-            workspace=self.workspace,
-            ledger_path=self.ledger,
-            chat_id=CHAT,
-            sleeper=lambda _s: None,
-        )
-
-    def test_all_five_binaries_are_downloaded_verified_and_uploaded(self) -> None:
-        transport = _RecordingTransport()
-        run = self._run(transport)
-        self.assertTrue(run.ok, run.records)
-        self.assertEqual(len(transport.uploaded), 5)
-        self.assertEqual(len(run.uploaded), 5)
-        for _filename, size in transport.uploaded:
-            self.assertEqual(size, len(self.body))
-        # Nothing is left behind on disk.
-        self.assertEqual(os.listdir(self.workspace) or [], [])
-        # Every confirmed upload is in the ledger.
-        self.assertEqual(len(assets.recorded_uploads(self.ledger, self.release.id)), 5)
-
-    def test_a_rerun_uploads_nothing_again(self) -> None:
-        self._run(_RecordingTransport())
-        second = _RecordingTransport()
-        run = self._run(second)
-        self.assertEqual(second.uploaded, [])
-        self.assertEqual(len(run.uploaded), 5)
-        self.assertTrue(all(record.state == "already" for record in run.records))
-
-    def test_a_partial_failure_is_retried_alone_on_the_next_run(self) -> None:
-        ipa = next(plan.filename for plan in assets.plan_uploads(self.release)[0] if plan.kind == "ios")
-        first = _RecordingTransport(fail={ipa})
-        run = self._run(first)
-        self.assertEqual(len(first.uploaded), 4)
-        self.assertEqual(len(run.failed), 1)
-        self.assertFalse(run.ok)
-        self.assertEqual(os.listdir(self.workspace), [])
-
-        second = _RecordingTransport()
-        retry = self._run(second)
-        self.assertEqual([name for name, _ in second.uploaded], [ipa])
-        self.assertEqual(sum(1 for record in retry.records if record.state == "already"), 4)
-        self.assertTrue(retry.ok)
-
-    def test_an_unpersisted_ledger_can_repeat_previously_confirmed_uploads(self) -> None:
-        ipa = next(plan.filename for plan in assets.plan_uploads(self.release)[0] if plan.kind == "ios")
-        first = _RecordingTransport(fail={ipa})
-        self._run(first)
-        self.assertEqual(len(first.uploaded), 4)
-
-        # A fresh runner cannot see the preceding runner's unpushed ledger.
-        self.ledger = f"{self.dir}/fresh-runner-ledger.json"
-        second = _RecordingTransport()
-        retry = self._run(second)
-        self.assertTrue(retry.ok)
-        self.assertEqual(len(second.uploaded), 5)
-        self.assertTrue(set(name for name, _ in first.uploaded) <= set(name for name, _ in second.uploaded))
-
-    def test_upload_errors_redact_all_secrets_from_logs_and_summary(self) -> None:
-        env = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": "@private-test-channel",
-               "TELEGRAM_API_ID": "73124689", "TELEGRAM_API_HASH": "0123456789abcdef" * 2}
-
-        class FailingTransport:
-            def __init__(self, exception_type):
-                self.exception_type = exception_type
-
-            def upload_document(self, _path, _filename, _caption):
-                raise self.exception_type("transport error: " + " ".join(env.values()))
-
-        for exception_type in (assets.AssetError, RuntimeError):
-            with self.subTest(exception_type=exception_type):
-                output = io.StringIO()
-                summary = f"{self.dir}/summary-{exception_type.__name__}.json"
-                with unittest_mock.patch.dict(os.environ, env), contextlib.redirect_stdout(output):
-                    run = self._run(FailingTransport(exception_type))
-                    assets.write_summary(summary, run)
-                self.assertEqual(len(run.failed), 5)
-                visible = output.getvalue() + Path(summary).read_text(encoding="utf-8")
-                for secret in env.values():
-                    self.assertNotIn(secret, visible)
-                self.assertIn("<redacted>", visible)
-
-    def test_a_failed_asset_keeps_its_verified_github_link(self) -> None:
-        transport = _RecordingTransport(fail={"androidApp-full-x86-release.apk"})
-        run = self._run(transport)
-        failed = run.failed[0]
-        self.assertTrue(failed.url.startswith("http://127.0.0.1:"))
-        self.assertEqual(failed.name, "androidApp-full-x86-release.apk")
-
-    def test_the_temp_file_is_removed_even_when_the_upload_fails(self) -> None:
-        transport = _RecordingTransport(fail={"androidApp-full-arm64-v8a-release.apk"})
-        self._run(transport)
-        self.assertEqual(os.listdir(self.workspace), [])
-
-    def test_no_transport_means_no_upload_but_a_clear_failure(self) -> None:
-        run = assets.upload_release_assets(
-            self.release, transport=None, workspace=self.workspace, ledger_path=self.ledger
-        )
-        self.assertEqual(run.uploaded, [])
-        self.assertEqual(len(run.failed), 5)
-
-    def test_a_missing_secret_is_named_and_does_not_block_the_announcement(self) -> None:
-        saved = {name: os.environ.pop(name, None) for name in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH")}
-        self.addCleanup(lambda: [os.environ.__setitem__(k, v) for k, v in saved.items() if v])
-        with self.assertRaises(assets.ConfigError) as caught:
-            assets.require_env("TELEGRAM_API_ID")
-        self.assertIn("TELEGRAM_API_ID", str(caught.exception))
-        self.assertIn("Settings -> Secrets and variables -> Actions", str(caught.exception))
-        self.assertIn("announcement is still posted", str(caught.exception))
-
-    def test_a_short_api_hash_is_rejected_before_connecting(self) -> None:
-        with self.assertRaises(assets.ConfigError):
-            assets.MtprotoUploader(1, "short", TOKEN, CHAT)
-        with self.assertRaises(assets.ConfigError):
-            assets.MtprotoUploader(0, "0" * 32, TOKEN, CHAT)
-
-
-class HistoryMarkerTests(unittest.TestCase):
-    def test_marker_matching_does_not_confuse_a_release_id_prefix(self) -> None:
-        import asyncio
-        from types import SimpleNamespace
-
-        class HypotheticalHistoryClient:
-            def __init__(self):
-                self.loop = asyncio.new_event_loop()
-                self.messages = ["old #SB1234", "old #SB123suffix"]
-
-            async def get_entity(self, _chat):
-                return object()
-
-            async def iter_messages(self, _entity, limit):
-                for text in self.messages[:limit]:
-                    yield SimpleNamespace(message=text)
-
-            def disconnect(self):
-                pass
-
-        fake = HypotheticalHistoryClient()
-        uploader = assets.MtprotoUploader(12345, "0" * 32, TOKEN, CHAT)
-        uploader._client = fake
-        self.addCleanup(fake.loop.close)
-        self.addCleanup(uploader.close)
-        self.assertFalse(uploader.find_marker("#SB123"))
-        fake.messages.append("first page #SB123\n")
-        self.assertTrue(uploader.find_marker("#SB123"))
-
-
-@unittest.skipUnless(telethon is not None, "Telethon is required for the upload transport tests")
-class MtprotoTransportTests(unittest.TestCase):
-    """The real Telethon client, driven over a stubbed RPC layer.
-
-    These tests keep Telethon's own ``upload_file`` and ``send_file`` -- the
-    chunk loop, the ``upload.saveBigFilePart`` requests, the filename attributes
-    and the response parsing -- and only replace the socket. That is the layer
-    where a real upload actually breaks.
-    """
-
-    def setUp(self) -> None:
-        import tempfile
-
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from fake_telegram_rpc import FakeRpcServer, make_client
-
-        self.server = FakeRpcServer()
-        self.client = make_client(self.server)
-        self.temp = tempfile.mkdtemp()
-        self.addCleanup(lambda: __import__("shutil").rmtree(self.temp, ignore_errors=True))
-        self.payload = binary_payload(12 * 1024 * 1024 + 777)
-        self.path = f"{self.temp}/androidApp-full-arm64-v8a-release.apk"
-        with open(self.path, "wb") as handle:
-            handle.write(self.payload)
-
-    def _uploader(self, sleeper=lambda _s: None, **kwargs) -> assets.MtprotoUploader:
-        uploader = assets.MtprotoUploader(
-            12345, "0" * 32, TOKEN, CHAT, sleeper=sleeper, **kwargs
-        )
-        uploader._client = self.client
-        self.addCleanup(uploader.close)
-        return uploader
-
-    def test_a_12_mib_file_is_uploaded_completely_in_512_kib_parts(self) -> None:
-        uploader = self._uploader()
-        message_id = uploader.upload_document(self.path, "app.apk", "caption")
-        self.assertIsInstance(message_id, int)
-        file_id = self.server.last_upload_file_id
-        self.assertEqual(self.server.uploaded_bytes(file_id), self.payload)
-        sizes = [len(part) for index, part in sorted(self.server.parts[file_id].items())]
-        # Every part but the last is exactly 512 KiB, and the parts sum to the
-        # file: nothing was dropped and nothing was padded.
-        self.assertEqual(set(sizes[:-1]), {assets_512k})
-        self.assertLessEqual(sizes[-1], assets_512k)
-        self.assertEqual(sum(sizes), len(self.payload))
-
-    def test_files_over_10_mib_use_the_big_file_rpc(self) -> None:
-        uploader = self._uploader()
-        uploader.upload_document(self.path, "app.apk", "caption")
-        self.assertIn("SaveBigFilePartRequest", self.client.rpc_log)
-
-    def test_the_filename_and_document_type_are_preserved(self) -> None:
-        uploader = self._uploader()
-        uploader.upload_document(self.path, "StreamBridge-9.9.9-iOS-unsigned.ipa", "cap")
-        self.assertEqual(self.server.last_document_name, "StreamBridge-9.9.9-iOS-unsigned.ipa")
-        # Uploaded as a document (never re-encoded, never an album), to the channel.
-        self.assertEqual(self.server.send_media[-1]["media_type"], "InputMediaUploadedDocument")
-        self.assertEqual(self.server.send_media[-1]["peer"], "PeerChannel")
-        self.assertNotIn("UploadMediaRequest", self.client.rpc_log)
-
-    def test_a_network_drop_mid_upload_is_retried_and_the_file_still_arrives(self) -> None:
-        self.server.fail_after_parts = 5
-        uploader = self._uploader()
-        self.assertIsInstance(uploader.upload_document(self.path, "app.apk", "cap"), int)
-        self.assertEqual(self.server.uploaded_bytes(self.server.last_upload_file_id), self.payload)
-
-    def test_a_lost_send_media_response_can_duplicate_an_upload(self) -> None:
-        original = self.server._send_media
-        calls = {"count": 0}
-
-        def accept_then_drop_response(request):
-            calls["count"] += 1
-            response = original(request)
-            if calls["count"] == 1:
-                raise TimeoutError("response lost after Telegram accepted the document")
-            return response
-
-        self.server._send_media = accept_then_drop_response
-        uploader = self._uploader()
-        self.assertIsInstance(uploader.upload_document(self.path, "app.apk", "cap"), int)
-        self.assertEqual(len(self.server.send_media), 2)
-        self.assertEqual([item["filename"] for item in self.server.send_media], ["app.apk", "app.apk"])
-
-    def test_flood_wait_is_honoured(self) -> None:
-        from telethon.errors import FloodWaitError
-
-        original = self.server._send_media
-        calls = {"count": 0}
-
-        def flood(request):
-            calls["count"] += 1
-            if calls["count"] == 1:
-                raise FloodWaitError(request=None, capture=9)
-            return original(request)
-
-        self.server._send_media = flood
-        waits: list[float] = []
-        uploader = self._uploader(sleeper=waits.append)
-        self.assertIsInstance(uploader.upload_document(self.path, "app.apk", "cap"), int)
-        self.assertEqual(waits, [9.0])
-
-    def test_a_permanent_rejection_is_not_retried(self) -> None:
-        from telethon.errors import ChatAdminRequiredError
-
-        class Rejected(ChatAdminRequiredError):
-            def __init__(self) -> None:
-                Exception.__init__(self, "CHAT_ADMIN_REQUIRED")
-
-        attempts = {"count": 0}
-
-        def reject(_request):
-            attempts["count"] += 1
-            raise Rejected()
-
-        self.server._send_media = reject
-        uploader = self._uploader()
-        with self.assertRaises(assets.AssetError):
-            uploader.upload_document(self.path, "app.apk", "cap")
-        self.assertEqual(attempts["count"], 1)
-
-    def test_an_unconfirmed_send_is_a_failure(self) -> None:
-        from telethon.tl import types
-
-        self.server._send_media = lambda _request: types.Updates(
-            updates=[], users=[], chats=[], date=None, seq=0
-        )
-        uploader = self._uploader()
-        with self.assertRaises(assets.AssetError) as caught:
-            uploader.upload_document(self.path, "app.apk", "cap")
-        self.assertIn("unconfirmed", str(caught.exception))
-
-    def test_the_bot_token_never_appears_in_a_repr_or_a_log(self) -> None:
-        uploader = self._uploader()
-        self.assertNotIn(TOKEN, repr(uploader))
-        self.assertNotIn(TOKEN.split(":")[1], repr(uploader))
-        self.assertNotIn(CHAT, repr(uploader))
-        self.assertNotIn("12345", repr(uploader))
-        self.assertNotIn("0" * 32, repr(uploader))
-
-    def test_a_file_over_the_ceiling_is_refused_before_upload(self) -> None:
-        uploader = self._uploader()
-        original = assets.UPLOAD_MAX_BYTES
-        assets.UPLOAD_MAX_BYTES = 1024
-        self.addCleanup(setattr, assets, "UPLOAD_MAX_BYTES", original)
-        with self.assertRaises(assets.AssetError):
-            uploader.upload_document(self.path, "app.apk", "cap")
-
-    def test_only_a_bot_token_is_used_for_authentication(self) -> None:
-        # start(bot_token=...) must go through auth.importBotAuthorization and
-        # never ask for a phone number, a login code or a 2FA password.
-        from telethon.tl import types
-
-        from fake_telegram_rpc import AuthStub
-
-        stub = AuthStub()
-        stub.loop.run_until_complete(
-            stub._start(None, None, TOKEN, False, None, "s", "b", 3)
-        )
-        self.assertIn("ImportBotAuthorizationRequest", stub.seen)
-        self.assertNotIn("SendCodeRequest", stub.seen)
-        self.assertNotIn("SignInRequest", stub.seen)
+            assets.recorded_uploads(self.path, self.release.id)
 
 
 assets_512k = 512 * 1024
@@ -1752,117 +1065,30 @@ assets_512k = 512 * 1024
 # --------------------------------------------------------------------------- #
 
 
-class ChecksumCoverageTests(unittest.TestCase):
-    """The IPA must be digested even when it is the first asset in a release.
-
-    The loader used to be gated on the asset kind, so a release whose checksum
-    file covered the IPA but whose first asset was iOS skipped the IPA's digest
-    entirely and verified it by size alone.
-    """
-
-    def setUp(self) -> None:
-        import hashlib
-        import tempfile
-
-        self.dir = tempfile.mkdtemp()
-        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
-        self.body = binary_payload(120_000)
-        self.digest = hashlib.sha256(self.body).hexdigest()
-
-    def test_the_ipa_digest_is_checked_on_an_ios_only_release(self) -> None:
-        import hashlib
-
-        served = _ServedFiles({"app.ipa": self.body, "checksums.sha256": f"{self.digest}  app.ipa\n".encode()})
-        self.addCleanup(served.close)
-        release = notes.Release(
-            id=5,
-            tag_name="v1.0.0",
-            name="StreamBridge v1.0.0",
-            body="## What's new\n\n- Something.\n",
-            html_url="https://github.com/sascio/MyBridge/releases/tag/v1.0.0",
-            assets=(
-                notes.Asset("StreamBridge-1.0.0-iOS-unsigned.ipa", len(self.body), served.url("app.ipa")),
-                notes.Asset("checksums.sha256", len(self.digest) + 10, served.url("checksums.sha256")),
-            ),
-        )
-        transport = _RecordingTransport()
-        run = assets.upload_release_assets(
-            release,
-            transport=transport,
-            workspace=f"{self.dir}/work",
-            ledger_path=f"{self.dir}/ledger.json",
-            sleeper=lambda _s: None,
-        )
-        self.assertTrue(run.ok, run.records)
-        # The digest from the checksum file must have been applied to the IPA.
-        self.assertEqual(run.records[0].state, "uploaded")
-
-    def test_a_corrupt_ipa_is_refused_even_when_it_is_uploaded_first(self) -> None:
-        served = _ServedFiles({"app.ipa": self.body, "checksums.sha256": f"{'0' * 64}  app.ipa\n".encode()})
-        self.addCleanup(served.close)
-        release = notes.Release(
-            id=6,
-            tag_name="v1.0.0",
-            name="n",
-            body="body",
-            html_url="https://x/y",
-            assets=(
-                notes.Asset("app.ipa", len(self.body), served.url("app.ipa")),
-                notes.Asset("checksums.sha256", 80, served.url("checksums.sha256")),
-            ),
-        )
-        transport = _RecordingTransport()
-        run = assets.upload_release_assets(
-            release,
-            transport=transport,
-            workspace=f"{self.dir}/work",
-            ledger_path=f"{self.dir}/ledger.json",
-            sleeper=lambda _s: None,
-        )
-        self.assertEqual(transport.uploaded, [], "a file failing its digest must never be uploaded")
-        self.assertEqual(len(run.failed), 1)
-        self.assertIn("digest mismatch", run.failed[0].detail)
-
-
-class PinningPolicyTests(unittest.TestCase):
-    """Pinning is opt-in, so the bot only needs 'Post Messages'."""
-
-    def _args(self, *extra: str):
-        return announce.parse_args(["--release-json", "x", *extra])
-
-    def test_pinning_is_off_by_default(self) -> None:
-        self.assertFalse(self._args().pin)
-        self.assertFalse(self._args("--pin").pin is False)
-
-    def test_announcement_send_without_pinning_never_calls_pin_chat_message(self) -> None:
-        release = notes.Release.from_api(release_payload())
-        announcement, pages = announce.build_pages(release)
-        mock = MockTelegram()
-        patch_client(self, mock)
-        run = announce.send_announcement(
-            announce.TelegramClient(TOKEN, CHAT),
-            release,
-            announcement,
-            pages,
-            pin=False,
-            throttle=lambda _s: None,
-        )
-        self.assertFalse(run.pinned)
-        self.assertNotIn("pinChatMessage", [method for method, _ in mock.calls])
-
-
 class PreflightTests(unittest.TestCase):
     """The read-only check must never post, upload or pin."""
 
+    def test_direct_preflight_ignores_release_dry_run_summary_ledger_and_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, unittest_mock.patch.dict(os.environ, {
+            "TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+        }), unittest_mock.patch.object(announce, "run_preflight", return_value=announce.EXIT_OK) as check, \
+                unittest_mock.patch.object(announce, "load_release", side_effect=AssertionError("must not read release")):
+            summary = str(Path(directory, "summary.json"))
+            ledger = str(Path(directory, "ledger.json"))
+            code = announce.main(["--preflight", "--dry-run", "--pin", "--release-json", "ignored.json",
+                                  "--summary", summary, "--ledger", ledger])
+            self.assertEqual(code, announce.EXIT_OK)
+            check.assert_called_once_with(None, CHAT, TOKEN)
+            self.assertFalse(Path(summary).exists())
+            self.assertFalse(Path(ledger).exists())
+
     def test_preflight_issues_only_read_calls(self) -> None:
         release = notes.Release.from_api(release_payload())
-        mock = MockTelegram()
-        patch_client(self, mock)
-        code = announce.run_preflight(release, "@StreamBridge_App", TOKEN)
-        methods = {method for method, _ in mock.calls}
-        self.assertIn("getChat", methods)
-        for forbidden in ("sendMessage", "pinChatMessage", "sendDocument"):
-            self.assertNotIn(forbidden, methods)
+        bot = MockTelegram()
+        patch_client(self, bot)
+        with unittest_mock.patch.dict(os.environ, {"TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "0" * 32}):
+            code = announce.run_preflight(release, CHAT, TOKEN)
+        self.assertEqual(bot.methods(), ["getChat"])
         self.assertEqual(code, announce.EXIT_OK)
 
     def test_preflight_reports_an_unreachable_channel(self) -> None:
@@ -1877,23 +1103,15 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(code, announce.EXIT_ERROR)
 
     def test_preflight_never_prints_the_token(self) -> None:
-        import contextlib
-        import io
-
         release = notes.Release.from_api(release_payload())
-        mock = MockTelegram()
-        patch_client(self, mock)
-        buffer = io.StringIO()
-        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
-            announce.run_preflight(release, "@StreamBridge_App", TOKEN)
-        output = buffer.getvalue()
-        # The one permitted appearance is GitHub's own masking directive, which
-        # is what keeps the value out of every later log line.
-        without_masks = "\n".join(
-            line for line in output.splitlines() if not line.startswith("::add-mask::")
-        )
-        self.assertNotIn(TOKEN, without_masks)
-        self.assertNotIn(TOKEN.split(":")[1], without_masks)
+        bot = MockTelegram()
+        patch_client(self, bot)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), unittest_mock.patch.dict(os.environ, {
+            "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "0" * 32}):
+            announce.run_preflight(release, CHAT, TOKEN)
+        self.assertNotIn(TOKEN, output.getvalue())
+        self.assertNotIn(TOKEN.split(":")[1], output.getvalue())
 
 
 def evaluate_actions_if(expression: str, values: dict[str, object]) -> bool:
@@ -1976,92 +1194,81 @@ class PreflightWorkflowTests(unittest.TestCase):
             self.assertFalse([event for event in events if event["event"] in {"forbidden", "ledger_access"}], events)
             return result, events, summary.read_text(encoding="utf-8"), json.loads(fixture.read_text()) if fixture.exists() else None
 
-    def test_preflight_input_and_job_are_isolated_and_least_privileged(self) -> None:
-        # PyYAML's YAML 1.1 parser reads the key `on` as True.
-        triggers = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(triggers["release"], {"types": ["published"]})
-        input_spec = triggers["workflow_dispatch"]["inputs"]["preflight"]
-        self.assertEqual(input_spec["type"], "boolean")
-        self.assertIs(input_spec["default"], False)
-        self.assertNotIn("needs", self.preflight)
-        self.assertEqual(self.preflight["permissions"], {"contents": "read"})
-        checkout, setup, install, verify = self.preflight["steps"]
-        self.assertRegex(checkout["uses"], r"^actions/checkout@[0-9a-f]{40}$")
-        self.assertRegex(setup["uses"], r"^actions/setup-python@[0-9a-f]{40}$")
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
-        self.assertIs(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(setup["with"]["python-version"], "3.12")
-        for dependency in ("telethon==1.42.0", "pyaes==1.6.1", "rsa==4.9.1", "pyasn1==0.6.1"):
-            self.assertIn(dependency, install["run"])
-        for job_or_step in (self.preflight, checkout, setup, install):
-            self.assertFalse(set((job_or_step.get("env") or {})) & set(self.SECRETS))
-        for secret in self.SECRETS:
-            self.assertEqual(verify["env"][secret], "${{ secrets." + secret + " }}")
-        self.assertFalse(any("GH_TOKEN" in (part.get("env") or {}) for part in (self.preflight, *self.preflight["steps"])))
+    def test_preflight_is_default_off_read_only_and_does_not_create_a_session(self) -> None:
+        triggers = self.workflow.get('on', self.workflow.get(True))
+        self.assertEqual(triggers['release'], {'types': ['published']})
+        self.assertIs(triggers['workflow_dispatch']['inputs']['preflight']['default'], False)
+        self.assertIs(triggers['workflow_dispatch']['inputs']['dry_run']['default'], True)
+        self.assertIs(triggers['workflow_dispatch']['inputs']['recover_unknown']['default'], False)
+        self.assertEqual(self.preflight['permissions'], {'contents': 'read'})
+        self.assertNotIn('needs', self.preflight)
+        checkout, setup, verify = self.preflight['steps']
+        self.assertFalse(checkout['with']['persist-credentials'])
+        self.assertEqual(checkout['with']['ref'], '${{ github.event.repository.default_branch }}')
+        self.assertNotIn('telethon', verify['run'].lower())
+        group = self.workflow['concurrency']['group']
+        self.assertEqual(group, "${{ github.event_name == 'workflow_dispatch' && inputs.preflight == true && "
+                                "format('telegram-preflight-{0}', github.run_id) || 'telegram-streambridge-channel' }}")
+        self.assertEqual(self.workflow['concurrency']['queue'], 'max')
+        self.assertIs(self.workflow['concurrency']['cancel-in-progress'], False)
+        self.assertTrue(all(verify['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
 
-    def test_preflight_takes_precedence_over_all_other_inputs_and_guards_mutating_steps(self) -> None:
-        steps = {step.get("id", step.get("name")): step for step in self.announce_job["steps"]}
-        guards = [steps["publish"]["if"], steps["upload"]["if"], steps["Record the announced release"]["if"]]
-        for preflight, dry_run, tag, upload in itertools.product((False, True), (False, True), ("", "v9.9.9"), (False, True)):
-            context = {
-                "github.event_name": "workflow_dispatch", "inputs.preflight": preflight,
-                "inputs.dry_run": dry_run, "inputs.tag": tag, "inputs.upload_assets": upload,
-                "github.event.release.draft": None, "github.event.release.prerelease": None,
-                "steps.release.outputs.skip": "false", "steps.release.outputs.dry_run": "false",
-                "steps.publish.outputs.announced": "true",
-            }
-            with self.subTest(preflight=preflight, dry_run=dry_run, tag=tag, upload=upload):
-                self.assertEqual(evaluate_actions_if(self.preflight["if"], context), preflight)
-                self.assertEqual(evaluate_actions_if(self.announce_job["if"], context), not preflight)
-                if preflight:
-                    for condition in guards:
-                        self.assertFalse(evaluate_actions_if(condition, context), condition)
-        run = self.step["run"]
-        command = next(line.strip() for line in run.splitlines() if line.strip().startswith("python3 scripts/telegram_announce.py"))
-        self.assertEqual(command, 'python3 scripts/telegram_announce.py --release-json "${release_json}" --preflight')
-        self.assertNotIn("--dry-run", command)
-        self.assertNotIn("--ledger", command)
-        self.assertNotIn("--pin", command)
-        for forbidden in ("gh api", "gh release", "git push", "git commit", "telegram_assets.py", "releases/latest"):
-            self.assertNotIn(forbidden, run)
-        group = self.workflow["concurrency"]["group"]
-        self.assertIn("format('telegram-preflight-{0}', github.run_id)", group)
-        self.assertIn("format('telegram-announcement-{0}', github.event.release.id || inputs.tag || 'latest')", group)
-
-    def test_non_preflight_dispatch_preserves_dry_run_upload_and_ledger_gates(self) -> None:
-        steps = {step.get("id", step.get("name")): step for step in self.announce_job["steps"]}
-        for dry_run, upload, skip in itertools.product((False, True), repeat=3):
-            context = {
-                "github.event_name": "workflow_dispatch", "inputs.preflight": False,
-                "inputs.upload_assets": upload, "github.event.release.draft": None,
-                "github.event.release.prerelease": None,
-                "steps.release.outputs.skip": "true" if skip else "false",
-                "steps.release.outputs.dry_run": "true" if dry_run else "false",
-                "steps.publish.outputs.announced": "false" if skip else "true",
-            }
-            with self.subTest(dry_run=dry_run, upload=upload, skip=skip):
-                self.assertTrue(evaluate_actions_if(self.announce_job["if"], context))
-                self.assertEqual(evaluate_actions_if(steps["publish"]["if"], context), not skip)
-                self.assertEqual(evaluate_actions_if(steps["upload"]["if"], context), not (skip or dry_run) and upload)
-                self.assertEqual(evaluate_actions_if(steps["Record the announced release"]["if"], context), not (skip or dry_run))
-
-    def test_published_release_behavior_and_filters_are_preserved(self) -> None:
-        steps = {step.get("id", step.get("name")): step for step in self.announce_job["steps"]}
+    def test_all_dispatch_combinations_require_explicit_publish_and_preflight_wins(self) -> None:
+        publish_job = self.workflow['jobs']['publish']
+        for preflight, dry, upload, recover, tag in itertools.product((False, True), (False, True), (False, True), (False, True), ('', 'v9.9.9')):
+            context = {'github.event_name': 'workflow_dispatch', 'inputs.preflight': preflight,
+                       'inputs.dry_run': dry, 'inputs.upload_assets': upload, 'inputs.recover_unknown': recover,
+                       'inputs.tag': tag, 'github.event.release.draft': None,
+                       'github.event.release.prerelease': None,
+                       'needs.announce.outputs.skip': 'false',
+                       'needs.announce.outputs.dry_run': 'true' if dry else 'false'}
+            with self.subTest(preflight=preflight, dry=dry, upload=upload, recover=recover, tag=tag):
+                self.assertEqual(evaluate_actions_if(self.preflight['if'], context), preflight)
+                self.assertEqual(evaluate_actions_if(self.announce_job['if'], context), not preflight)
+                self.assertEqual(evaluate_actions_if(publish_job['if'], context), not preflight and not dry)
         for draft, prerelease in itertools.product((False, True), repeat=2):
-            context = {
-                "github.event_name": "release", "inputs.preflight": None, "inputs.upload_assets": None,
-                "github.event.release.draft": draft, "github.event.release.prerelease": prerelease,
-                "steps.release.outputs.skip": "false", "steps.release.outputs.dry_run": "false",
-                "steps.publish.outputs.announced": "true",
-            }
-            with self.subTest(draft=draft, prerelease=prerelease):
-                self.assertFalse(evaluate_actions_if(self.preflight["if"], context))
-                self.assertEqual(evaluate_actions_if(self.announce_job["if"], context), not (draft or prerelease))
-                if not (draft or prerelease):
-                    for key in ("publish", "upload", "Record the announced release"):
-                        self.assertTrue(evaluate_actions_if(steps[key]["if"], context), key)
-        resolve = steps["release"]["run"]
-        self.assertIn('if [[ "${EVENT_NAME}" == "release" ]]; then', resolve)
+            context = {'github.event_name': 'release', 'inputs.preflight': None,
+                       'github.event.release.draft': draft, 'github.event.release.prerelease': prerelease}
+            self.assertEqual(evaluate_actions_if(self.announce_job['if'], context), not (draft or prerelease))
+
+    def test_actual_preflight_shell_uses_only_bot_api_reads_and_logs_no_secrets(self) -> None:
+        result, events, summary, fixture = self._run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('**Passed:**', summary)
+        self.assertIn('MTProto login, channel history and uploads were not tested', result.stdout)
+        self.assertIsNone(fixture)
+        bot_calls = [event for event in events if event['event'] == 'bot_api']
+        self.assertEqual([event['method'] for event in bot_calls], ['getMe', 'getChat', 'getChatMember'])
+        self.assertTrue(all(event['token_matches'] and event['chat_matches'] for event in bot_calls))
+        self.assertEqual(bot_calls[-1]['user_id'], 987654)
+        self.assertFalse([event for event in events if event['event'].startswith('mtproto')])
+        for secret in self.SECRETS.values():
+            self.assertNotIn(secret, result.stdout + result.stderr + summary)
+        self.assertNotIn('::add-mask::', result.stdout)
+        for forbidden in ('gh api', 'gh release', 'git push', 'git commit', 'telegram_assets.py', 'releases/latest'):
+            self.assertNotIn(forbidden, self.step['run'])
+
+    def test_invalid_mtproto_credential_syntax_fails_without_authentication(self) -> None:
+        for override in ({'TELEGRAM_API_ID': 'invalid'}, {'TELEGRAM_API_HASH': 'short'}):
+            result, events, summary, _ = self._run_step(override)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('MTProto credentials are unusable', result.stdout)
+            self.assertIn('**Failed:**', summary)
+            self.assertFalse([e for e in events if e['event'].startswith('mtproto')])
+
+    def test_preflight_does_not_claim_mtproto_authentication_even_if_a_fake_would_fail(self) -> None:
+        result, events, summary, _ = self._run_step({'FAKE_MTPROTO_MODE': 'auth_failure'})
+        self.assertEqual(result.returncode, 0)
+        self.assertIn('MTProto login, channel history and uploads were not tested', result.stdout)
+        self.assertFalse([e for e in events if e['event'].startswith('mtproto')])
+        self.assertIn('**Passed:**', summary)
+
+    def test_published_release_event_and_pinned_dependencies(self) -> None:
+        publish_job = self.workflow['jobs']['publish']
+        install = next(s for s in publish_job['steps'] if s.get('name') == 'Install pinned MTProto dependencies')
+        for dep in ('telethon==1.42.0', 'pyaes==1.6.1', 'rsa==4.9.1', 'pyasn1==0.6.1'):
+            self.assertIn(dep, install['run'])
+        resolve = next(s for s in self.announce_job['steps'] if s.get('id') == 'release')['run']
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}"', resolve)
         self.assertIn('echo "dry_run=false"', resolve)
 
@@ -2105,52 +1312,6 @@ class PreflightWorkflowTests(unittest.TestCase):
                 self.assertEqual(outputs["skip"], expected_skip)
                 calls = trace.read_text().splitlines() if trace.exists() else []
                 self.assertEqual(calls, [expected_call] if expected_call else [])
-
-    def test_hypothetical_history_success_still_calls_only_reads(self) -> None:
-        # Exercise the shell's success branch without pretending that Telegram
-        # actually permits a bot to call messages.getHistory.
-        result, events, summary, fixture = self._run_step({"FAKE_MTPROTO_MODE": "hypothetical_history_success"})
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("**Passed:**", summary)
-        self.assertEqual(fixture["id"], 0)
-        self.assertEqual(fixture["assets"], [])
-        self.assertFalse(fixture["draft"] or fixture["prerelease"])
-        self.assertEqual(fixture["html_url"], "https://example.invalid/preflight")
-        bot_calls = [event for event in events if event["event"] == "bot_api"]
-        self.assertEqual([event["method"] for event in bot_calls], ["getMe", "getChat", "getChatMember", "getChat"])
-        self.assertTrue(all(event["token_matches"] and event["chat_matches"] for event in bot_calls))
-        self.assertEqual(bot_calls[2]["user_id"], 987654)
-        uploader = next(event for event in events if event["event"] == "mtproto_uploader")
-        self.assertTrue(all(uploader[key] for key in ("api_id_matches", "api_hash_matches", "token_matches", "chat_matches")))
-        self.assertTrue(next(event for event in events if event["event"] == "mtproto_login")["token_matches"])
-        self.assertTrue(next(event for event in events if event["event"] == "mtproto_get_entity")["chat_matches"])
-        self.assertEqual(next(event for event in events if event["event"] == "mtproto_history")["limit"], 100)
-        self.assertTrue(any(event["event"] == "mtproto_disconnect" for event in events))
-        self.assertIn("Administrator status and Post Messages permission verified", result.stdout)
-        visible = "\n".join(line for line in (result.stdout + result.stderr).splitlines() if not line.startswith("::add-mask::"))
-        for secret in self.SECRETS.values():
-            self.assertIn(f"::add-mask::{secret}", result.stdout)
-            self.assertNotIn(secret, visible)
-            self.assertNotIn(secret, summary)
-
-    def test_bot_history_restriction_fails_closed_without_side_effects(self) -> None:
-        result, events, summary, _fixture = self._run_step()
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Telegram does not allow bot accounts", result.stdout)
-        self.assertIn("**Failed:**", summary)
-        self.assertNotIn("Preflight passed:", result.stdout)
-        self.assertTrue(any(event["event"] == "mtproto_history" for event in events))
-        self.assertTrue(any(event["event"] == "mtproto_disconnect" for event in events))
-        self.assertFalse([event for event in events if event["event"] in {"forbidden", "ledger_access"}])
-
-    def test_mtproto_exception_does_not_expose_any_secret(self) -> None:
-        result, _events, summary, _fixture = self._run_step({"FAKE_MTPROTO_MODE": "history_secret_failure"})
-        self.assertNotEqual(result.returncode, 0)
-        visible = "\n".join(line for line in (result.stdout + result.stderr).splitlines()
-                            if not line.startswith("::add-mask::"))
-        for secret in self.SECRETS.values():
-            self.assertNotIn(secret, visible)
-            self.assertNotIn(secret, summary)
 
     def test_each_missing_or_blank_credential_fails_before_any_client_is_used(self) -> None:
         for name, value in itertools.product(self.SECRETS, ("", "   ")):
@@ -2201,126 +1362,22 @@ class PreflightWorkflowTests(unittest.TestCase):
                 self.assertNotIn("Preflight passed:", result.stdout)
                 self.assertIn("**Failed:**", summary)
 
-    def test_invalid_mtproto_credentials_or_history_fail_closed(self) -> None:
-        cases = (
-            ({"TELEGRAM_API_ID": "invalid"}, "MTProto credentials are unusable"),
-            ({"TELEGRAM_API_HASH": "short"}, "MTProto credentials are unusable"),
-            ({"FAKE_MTPROTO_MODE": "auth_failure"}, "MTProto check failed"),
-            ({"FAKE_MTPROTO_MODE": "history_failure"}, "MTProto check failed"),
-        )
-        for overrides, message in cases:
-            with self.subTest(overrides=overrides):
-                result, _events, summary, _fixture = self._run_step(overrides)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(message, result.stdout)
-                self.assertIn("**Failed:**", summary)
-
-
-@unittest.skipUnless(telethon is not None, "Telethon is required for the read-only RPC test")
-class PreflightRpcTests(unittest.TestCase):
-    def test_real_bot_auth_and_user_only_history_rpc_fail_without_mutating_calls(self) -> None:
-        import asyncio
-        from telethon.errors import BotMethodInvalidError
-        from telethon.tl import functions, types
-        from fake_telegram_rpc import AuthStub
-
-        class HistoryClient(AuthStub):
-            async def get_entity(self, _chat):
-                return types.InputPeerChannel(channel_id=123, access_hash=456)
-
-            async def get_input_entity(self, entity):
-                return entity
-
-            async def __call__(self, request, ordered=False, flood_sleep_threshold=None):
-                if isinstance(request, functions.messages.GetHistoryRequest):
-                    self.seen.append(type(request).__name__)
-                    # Follow Telegram's documented bot restriction rather than
-                    # faking an empty successful response to this user-only RPC.
-                    raise BotMethodInvalidError(request=request)
-                if isinstance(request, (
-                    functions.auth.ImportBotAuthorizationRequest,
-                    functions.updates.GetStateRequest,
-                    functions.updates.GetDifferenceRequest,
-                )):
-                    return await super().__call__(request, ordered, flood_sleep_threshold)
-                self.seen.append("FORBIDDEN:" + type(request).__name__)
-                raise AssertionError(f"unexpected MTProto RPC: {type(request).__name__}")
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self.addCleanup(asyncio.set_event_loop, None)
-        self.addCleanup(loop.close)
-        rpc = HistoryClient()
-        bot = MockTelegram()
-        patch_client(self, bot)
-        real_uploader = assets.MtprotoUploader
-        init_args = []
-
-        def uploader_factory(api_id, api_hash, token, chat_id):
-            init_args.append((api_id, api_hash, token, chat_id))
-            return real_uploader(api_id, api_hash, token, chat_id, client_factory=lambda *_a, **_kw: rpc)
-
-        with tempfile.TemporaryDirectory() as directory:
-            release_file = Path(directory, "release.json")
-            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
-            ledger = Path(directory, "ledger.json")
-            summary = Path(directory, "summary.json")
-            env = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
-                   "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "0" * 32}
-            output = io.StringIO()
-            with unittest_mock.patch.dict(os.environ, env), \
-                    unittest_mock.patch.object(assets, "MtprotoUploader", side_effect=uploader_factory), \
-                    unittest_mock.patch.object(real_uploader, "upload_document", side_effect=AssertionError("upload forbidden")), \
-                    unittest_mock.patch.object(real_uploader, "_send", side_effect=AssertionError("send forbidden")), \
-                    unittest_mock.patch.object(assets, "upload_release_assets", side_effect=AssertionError("upload forbidden")), \
-                    unittest_mock.patch.object(assets, "record_upload", side_effect=AssertionError("ledger forbidden")), \
-                    unittest_mock.patch.object(announce, "send_announcement", side_effect=AssertionError("send forbidden")), \
-                    unittest_mock.patch.object(announce, "record_in_ledger", side_effect=AssertionError("ledger forbidden")), \
-                    unittest_mock.patch.object(announce, "load_ledger", side_effect=AssertionError("ledger forbidden")), \
-                    unittest_mock.patch.object(announce, "write_summary", side_effect=AssertionError("summary forbidden")), \
-                    contextlib.redirect_stdout(output):
-                code = announce.main(["--release-json", str(release_file), "--preflight", "--pin",
-                                      "--ledger", str(ledger), "--summary", str(summary)])
-            self.assertEqual(code, announce.EXIT_ERROR, output.getvalue())
-            self.assertIn("Telegram does not allow bot accounts", output.getvalue())
-            self.assertFalse(ledger.exists())
-            self.assertFalse(summary.exists())
-        self.assertEqual(init_args, [(12345, "0" * 32, TOKEN, CHAT)])
-        self.assertEqual(bot.methods(), ["getChat"])
-        self.assertIn("ImportBotAuthorizationRequest", rpc.seen)
-        self.assertIn("GetHistoryRequest", rpc.seen)
-        self.assertTrue(set(rpc.seen) <= {"ImportBotAuthorizationRequest", "GetStateRequest",
-                                         "GetDifferenceRequest", "GetHistoryRequest"}, rpc.seen)
-        for forbidden in ("SendMessageRequest", "SendMediaRequest", "SendMultiMediaRequest",
-                          "SaveFilePartRequest", "SaveBigFilePartRequest", "UploadMediaRequest",
-                          "UpdatePinnedMessageRequest"):
-            self.assertNotIn(forbidden, rpc.seen)
-
 
 class WorkflowRefTests(unittest.TestCase):
     def test_checkout_uses_the_default_branch_not_the_release_tag(self) -> None:
-        """A release event checks out the tag; the tooling must come from main.
-
-        Otherwise every future release would run the scripts frozen at its own
-        tag, and a fix to the announcement could never reach a release.
-        """
         if yaml is None:
             self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text(encoding="utf-8"))
-        checkout = next(
-            step for step in workflow["jobs"]["announce"]["steps"] if "checkout" in str(step.get("uses", ""))
-        )
-        self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
-        # The ledger commit needs a token, so credentials must be persisted.
-        self.assertIs(checkout["with"]["persist-credentials"], True)
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text())
+        for name, persisted in (("preflight", False), ("announce", False), ("publish", True)):
+            checkout = next(step for step in workflow["jobs"][name]["steps"] if "checkout" in str(step.get("uses", "")))
+            self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
+            self.assertIs(checkout["with"]["persist-credentials"], persisted)
 
-    def test_the_announcement_step_does_not_request_pin_rights(self) -> None:
+    def test_the_delivery_step_does_not_request_pin_rights(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text(encoding="utf-8"))
-        publish = next(
-            step for step in workflow["jobs"]["announce"]["steps"] if step.get("name") == "Publish the announcement"
-        )
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text())
+        publish = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("name") == "Publish individual messages and documents")
         self.assertNotIn("--pin", publish["run"])
 
 

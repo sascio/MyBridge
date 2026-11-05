@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
 """Test double: exercise the *real* Telethon upload path offline.
 
-``telegram_assets.MtprotoUploader`` calls ``client.upload_file(...)`` and
-``client.send_file(...)``. Those two methods are where real uploads break:
-coroutine handling, 512 KiB chunking, big-file vs small-file part requests,
-filename attributes, HTML captions. Replacing them with a mock would test our
-mock, not Telethon.
-
-So this harness keeps the genuine ``TelegramClient`` methods (real chunk loop,
-real ``upload.saveBigFilePart`` request construction, real
-``messages.SendMediaRequest``) and intercepts only the network call -- the
-``await self(request)`` inside Telethon. Every RPC the real code emits is
-answered by a small, deterministic fake server: parts are stored so a test can
-assert the reassembled bytes match the original file exactly.
-
-Nothing here can reach Telegram: there is no socket, no auth key and no session.
+The durable transport uses Telethon's real ``upload_file`` chunk loop and
+constructs individual raw send requests with persisted IDs. This harness
+intercepts the RPC boundary and stores file parts; tests exercise real request
+objects and reconstructed bytes without a Telegram connection. It models
+Telegram behavior; it is not proof of live server compatibility.
 """
 
 from __future__ import annotations

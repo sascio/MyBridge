@@ -1,36 +1,10 @@
 #!/usr/bin/env python3
-"""Publish a StreamBridge release announcement to Telegram.
+"""Render and validate StreamBridge Telegram release announcements.
 
-Run by ``.github/workflows/telegram-release-announcement.yml`` when a GitHub
-release is published. The workflow is the thin part; every rule that matters is
-here so it can be tested offline with a mock Telegram Bot API
-(``scripts/tests/telegram-announcement-test.py``).
-
-Delivery and safety:
-
-  * Every announcement page is tagged with the release-id marker, for example
-    ``#SB434756896``. A matching pinned message or a persisted post ledger entry
-    skips a resend. The workflow does not pin by default and the bot cannot use
-    the current user-only history lookup, so this is not exactly-once delivery.
-  * The announcement is recorded as posted only after Telegram returns
-    ``ok: true`` with a message id for every page. A partial send or failed
-    ledger push can leave posts without a durable record; inspect before retrying.
-  * Credentials are read from the environment and must not be printed or written
-    to an artifact. The Bot API token is in its request URL, so diagnostics redact
-    configured secret values and token-shaped strings.
-  * Failures are bounded: per-request timeouts, retries with backoff for
-    transient errors and for Telegram's own ``retry_after``, and a clear
-    diagnostic for permanent ones (bad token, bot not an administrator, wrong
-    chat).
-
-Modes:
-
-  * default    -- build the announcement, check it, and send it.
-  * --dry-run  -- build and validate it, print the rendered messages, send
-                  nothing. Used by the workflow's dry-run dispatch input and by
-                  the tests.
-  * --skip-html-check -- reserved for local experimentation; the workflow never
-                  uses it.
+The Bot API client is read-only. Direct Bot API sends and pins are disabled
+because they lack a caller-controlled idempotency key. Production delivery is
+performed only by scripts/telegram_publish.py after durable MTProto planning.
+Dry-run rendering and read-only preflight never publish or alter the ledger.
 """
 
 from __future__ import annotations
@@ -61,7 +35,6 @@ PAGE_INTERVAL = 1.25
 
 EXIT_OK = 0
 EXIT_ERROR = 1
-EXIT_ALREADY_POSTED = 2
 EXIT_CONFIG = 3
 EXIT_INVALID = 4
 
@@ -70,11 +43,7 @@ class AnnouncementError(RuntimeError):
     """A failure that should be reported as a workflow error."""
 
 
-class AlreadyAnnounced(AnnouncementError):
-    """The release id marker already exists in the channel."""
-
-
-@dataclass
+@dataclass(repr=False)
 class TelegramResult:
     ok: bool
     result: dict | None = None
@@ -82,6 +51,9 @@ class TelegramResult:
     description: str = ""
     retry_after: int | None = None
     attempts: int = 1
+
+    def __repr__(self) -> str:
+        return f"TelegramResult(ok={self.ok}, error_code={self.error_code}, attempts={self.attempts})"
 
 
 # --------------------------------------------------------------------------- #
@@ -123,19 +95,13 @@ def error(message: str) -> None:
     print(redact(f"::error::{message}"), flush=True)
 
 
-def mask_secret(value: str) -> None:
-    """Ask GitHub Actions to mask a value in every later log line."""
-    if value:
-        print(f"::add-mask::{value}", flush=True)
-
-
 # --------------------------------------------------------------------------- #
 # Telegram Bot API client
 # --------------------------------------------------------------------------- #
 
 
 class TelegramClient:
-    """Minimal Bot API client: sendMessage, getChat, pinChatMessage.
+    """Read-only Bot API client: getMe, getChat, getChatMember.
 
     Every call validates Telegram's response envelope (``ok`` and, for failures,
     ``error_code``/``description``) instead of trusting the HTTP status alone,
@@ -168,6 +134,10 @@ class TelegramClient:
         return self._chat_id
 
     def call(self, method: str, payload: dict | None = None) -> TelegramResult:
+        # The Bot API has no client-provided idempotency key. It is restricted
+        # to these read-only methods; all public sends use the durable MTProto path.
+        if method not in {"getMe", "getChat", "getChatMember"}:
+            return TelegramResult(ok=False, description="Bot API mutation is disabled", attempts=0)
         url = f"{TELEGRAM_API}/bot{self._token}/{method}"
         body = json.dumps(payload or {}).encode("utf-8")
         last = TelegramResult(ok=False, description="no attempt was made")
@@ -177,12 +147,13 @@ class TelegramClient:
                 return last
             if not self._should_retry(last):
                 return last
+            if last.retry_after is not None and last.retry_after > 60:
+                return last  # respect long server waits without blocking the runner indefinitely
             delay = last.retry_after if last.retry_after else min(2 ** attempt, 30)
             delay += random.uniform(0, 0.5)
             log(
                 f"{method}: attempt {attempt}/{self._retries} failed "
-                f"({last.error_code or 'network'}: {redact(last.description)}); "
-                f"retrying in {delay:.1f}s"
+                f"({last.error_code or 'network'}); retrying in {delay:.1f}s"
             )
             self._sleep(delay)
         return last
@@ -211,7 +182,7 @@ class TelegramClient:
         except (urllib.error.URLError, socket.timeout, TimeoutError, OSError) as exc:
             return TelegramResult(
                 ok=False,
-                description=f"network error: {type(exc).__name__}: {exc}",
+                description=f"network error: {type(exc).__name__}",
                 attempts=attempt,
             )
         parsed = self._parse(raw, attempts=attempt)
@@ -240,11 +211,12 @@ class TelegramClient:
             )
         parameters = data.get("parameters") or {}
         retry_after = parameters.get("retry_after") if isinstance(parameters, dict) else None
+        error_code = data.get("error_code")
         return TelegramResult(
             ok=False,
-            error_code=int(data.get("error_code") or 0) or None,
-            description=str(data.get("description") or "unknown Telegram error"),
-            retry_after=int(retry_after) if retry_after else None,
+            error_code=error_code if type(error_code) is int and 100 <= error_code <= 599 else None,
+            description="Telegram API request failed",
+            retry_after=retry_after if type(retry_after) is int and retry_after > 0 else None,
             attempts=attempts,
         )
 
@@ -261,51 +233,8 @@ class TelegramClient:
             return True
         return result.error_code == 429 or result.error_code >= 500
 
-    # -- API sugar ---------------------------------------------------------- #
-
-    def send_message(self, text: str, buttons: list[tuple[str, str]] | None = None) -> TelegramResult:
-        payload: dict = {
-            "chat_id": self._chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_notification": False,
-            "link_preview_options": {"is_disabled": True},
-        }
-        if buttons:
-            payload["reply_markup"] = {
-                "inline_keyboard": [[{"text": label, "url": url}] for label, url in buttons]
-            }
-        return self.call("sendMessage", payload)
-
     def get_chat(self) -> TelegramResult:
         return self.call("getChat", {"chat_id": self._chat_id})
-
-    def pinned_marker(self) -> str | None:
-        """Marker of the pinned message, if it carries one.
-
-        This is the read side of the idempotency check. It is best effort: the
-        Bot API has no message-history method, so a channel where the
-        announcement is not pinned cannot be inspected, and the caller then
-        relies on the state file committed by earlier runs.
-        """
-        result = self.get_chat()
-        if not result.ok:
-            return None
-        chat = result.result or {}
-        pinned = chat.get("pinned_message")
-        if not isinstance(pinned, dict):
-            return None
-        return marker_in_message(pinned)
-
-    def pin_message(self, message_id: int) -> TelegramResult:
-        return self.call(
-            "pinChatMessage",
-            {
-                "chat_id": self._chat_id,
-                "message_id": message_id,
-                "disable_notification": True,
-            },
-        )
 
 
 MARKER_RE = re.compile(r"#SB(\d{1,20})\b")
@@ -314,8 +243,8 @@ MARKER_RE = re.compile(r"#SB(\d{1,20})\b")
 def marker_for(release_id: int) -> str:
     """The channel tag that identifies a release's announcement.
 
-    ``#SB<release id>`` is a Telegram hashtag, so it is clickable and reads as the
-    release's serial tag, while the digits make it a reliable idempotency key.
+    ``#SB<release id>`` is a clickable release label, not proof of delivery or
+    an idempotency key. Public sends require the durable MTProto ledger.
     """
     return f"#SB{int(release_id)}"
 
@@ -439,158 +368,35 @@ def build_pages(release: notes.Release) -> tuple[notes.Announcement, list[str]]:
     return announcement, pages
 
 
-def check_already_announced(
-    client: TelegramClient | None,
-    release: notes.Release,
-    ledger_path: str,
-) -> str | None:
-    """Return a human reason when the release was already announced, else None.
-
-    Two independent sources are consulted: the pinned channel message (the
-    public record) and the post ledger this workflow commits after a successful
-    send (the private record, which survives an unpinned channel).
-    """
-    marker = marker_for(release.id)
-    if client is not None:
-        pinned = client.pinned_marker()
-        if pinned == marker:
-            return f"the channel's pinned message already carries {marker}"
-        if pinned and pinned != marker:
-            log(f"Pinned message carries {pinned}, not {marker}; continuing.")
-    if ledger_records(ledger_path, release.id):
-        return f"the post ledger already records release id {release.id} ({marker})"
-    return None
-
-
-def send_announcement(
-    client: TelegramClient,
-    release: notes.Release,
-    announcement: notes.Announcement,
-    pages: list[str],
-    *,
-    pin: bool = True,
-    throttle: Callable[[float], None] = time.sleep,
-) -> AnnouncementRun:
-    """Send every page in order, then pin the first one.
-
-    A page that fails stops the run: a partially delivered announcement is
-    reported as a failure carrying the message ids that did arrive, and the
-    first page (which holds the download buttons) is only pinned once the whole
-    thread is complete, so a half-sent announcement is never the channel's
-    pinned post.
-    """
-    run = AnnouncementRun(release=release, announcement=announcement, pages=pages)
-    for number, text in enumerate(pages, start=1):
-        buttons = announcement.pages[number - 1].buttons
-        result = client.send_message(text, buttons)
-        if not result.ok:
-            message_id = self_ids(run.sent_message_ids)
-            raise AnnouncementError(
-                f"Telegram rejected page {number}/{len(pages)} "
-                f"({result.error_code or 'network'}: {redact(result.description)}). "
-                f"Delivered so far: {message_id or 'none'}. "
-                "The GitHub release is unaffected. Inspect the channel and ledger before "
-                "retrying: the delivered pages might otherwise be posted again."
-            )
-        message_id = (result.result or {}).get("message_id")
-        if not isinstance(message_id, int):
-            raise AnnouncementError(
-                f"Telegram accepted page {number}/{len(pages)} without returning a message id; "
-                "treating the delivery as unconfirmed."
-            )
-        run.sent_message_ids.append(message_id)
-        log(f"Sent page {number}/{len(pages)} as message {message_id} ({notes.telegram_length(text)} chars)")
-        if number < len(pages):
-            # Telegram asks bots to stay under roughly one message per second per
-            # chat, so a multi-page announcement is paced instead of burst.
-            throttle(PAGE_INTERVAL)
-
-    if pin:
-        result = client.pin_message(run.sent_message_ids[0])
-        if result.ok:
-            run.pinned = True
-            log(f"Pinned message {run.sent_message_ids[0]} as the channel announcement.")
-        else:
-            run.warnings.append(
-                "the announcement was delivered but could not be pinned "
-                f"({result.error_code or 'network'}: {redact(result.description)}); "
-                "the bot needs the 'Pin Messages' administrator right for that"
-            )
-            warning(run.warnings[-1])
-    return run
-
-
-def self_ids(ids: list[int]) -> str:
-    return ", ".join(str(int(value)) for value in ids)
-
-
-# --------------------------------------------------------------------------- #
-# Post ledger
-# --------------------------------------------------------------------------- #
+# Legacy read-only ledger inspection remains for migration diagnostics only.
+# No pin or local-ledger observation is used as evidence that a bot can send.
 
 
 def load_ledger(path: str) -> dict:
     if not path or not os.path.exists(path):
-        return {"releases": []}
+        raise AnnouncementError("legacy post ledger is missing; refusing to infer an empty history")
     try:
         with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
         raise AnnouncementError(f"post ledger {path} is unreadable: {exc}") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("releases"), list):
-        raise AnnouncementError(f"post ledger {path} does not have the expected shape")
+    if not isinstance(data, dict) or type(data.get("schema")) is not int or data.get("schema") not in (1, 2) or not isinstance(data.get("releases"), list):
+        raise AnnouncementError("legacy post ledger is invalid or is not a legacy schema")
     return data
 
 
 def ledger_records(path: str, release_id: int) -> bool:
     """True when the ledger already lists this release id.
 
-    The ledger is the private record; the channel pin is the public one. Both are
-    consulted so a rerun is caught even when the pin is missing or carries an
-    older release.
+    This is legacy inspection only, not proof about unknown channel history.
+    Asset-only entries must not be mistaken for a confirmed announcement.
     """
     data = load_ledger(path)
     for entry in data["releases"]:
-        if isinstance(entry, dict) and int(entry.get("release_id", 0) or 0) == int(release_id):
+        if (isinstance(entry, dict) and int(entry.get("release_id", 0) or 0) == int(release_id)
+                and entry.get("announced", bool(entry.get("message_ids")))):
             return True
     return False
-
-
-def record_in_ledger(path: str, release: notes.Release, message_ids: list[int], chat_id: str) -> bool:
-    """Append the posted release to the ledger. Returns True when it changed.
-
-    ``chat_id`` is retained as a caller argument but not persisted: it is
-    supplied via a repository secret and is not needed for release-id checks.
-    """
-    data = load_ledger(path)
-    releases = [entry for entry in data["releases"] if isinstance(entry, dict)]
-    releases = [entry for entry in releases if int(entry.get("release_id", 0)) != release.id]
-    releases.append(
-        {
-            "release_id": release.id,
-            "tag_name": release.tag_name,
-            "version": release.version,
-            "message_ids": [int(value) for value in message_ids],
-            "announced_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
-    )
-    releases.sort(key=lambda entry: int(entry.get("release_id", 0)), reverse=True)
-    payload = {
-        "schema": 1,
-        "description": (
-            "StreamBridge release announcements that Telegram confirmed. Written by "
-            ".github/workflows/telegram-release-announcement.yml after a successful send; "
-            "the release id is the idempotency key."
-        ),
-        "releases": releases,
-    }
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    temporary = f"{path}.tmp"
-    with open(temporary, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-    os.replace(temporary, path)
-    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -619,109 +425,41 @@ def write_summary(path: str, run: AnnouncementRun) -> None:
 def print_dry_run(run: AnnouncementRun) -> None:
     print("\n" + "=" * 78)
     print(f"DRY RUN — nothing was sent to Telegram")
-    print(f"release id : {run.release.id}")
-    print(f"tag        : {run.release.tag_name}")
-    print(f"version    : {run.release.version}")
+    print(redact(f"release id : {run.release.id}"))
+    print(redact(f"tag        : {run.release.tag_name}"))
+    print(redact(f"version    : {run.release.version}"))
     print(f"pages      : {len(run.pages)}")
     print("=" * 78)
     for number, text in enumerate(run.pages, start=1):
         print(f"\n--- page {number}/{len(run.pages)} ({notes.telegram_length(text)} chars) ---\n")
-        print(text)
+        print(redact(text))
         for label, url in run.announcement.pages[number - 1].buttons:
-            print(f"  [{label}] -> {url}")
+            print(redact(f"  [{label}] -> {url}"))
     print("\n" + "=" * 78)
-    print(json.dumps(run.announcement.summary, indent=2, ensure_ascii=False))
+    print(redact(json.dumps(run.announcement.summary, indent=2, ensure_ascii=False)))
     print("=" * 78 + "\n")
 
 
-def run_preflight(release: notes.Release, chat_id: str, token: str) -> int:
-    """Read-only readiness check. Never posts, uploads, pins or edits.
+def run_preflight(release: notes.Release | None, chat_id: str, token: str) -> int:
+    """Read-only Bot API and configuration checks; no MTProto session is opened.
 
-    Everything here is a GET-equivalent Telegram call; the only side effect is a
-    Telegram login for the MTProto check, which is what any announcement would do
-    anyway. Nothing is printed that could carry a credential.
+    A crash-safe MTProto session needs a durable session lock, which preflight
+    must not modify. This check cannot establish MTProto login, history access,
+    multipart uploads or delivery correctness.
     """
-    problems = 0
+    del release
     client = TelegramClient(token, chat_id)
-    mask_secret(token)
-
     result = client.get_chat()
-    if not result.ok:
-        error(
-            f"The channel {chat_id} is not reachable with this bot token "
-            f"({result.error_code or 'network'}: {redact(result.description)}). "
-            "Check TELEGRAM_CHAT_ID and that the bot is a member of the channel."
-        )
-        problems += 1
-    else:
-        chat = result.result or {}
-        title = chat.get("title") or chat.get("username") or chat_id
-        log(f"Channel reachable: {title!r} ({chat.get('type', 'channel')}).")
-        # The only right the delivery path needs: posting messages and files.
-        status = chat.get("status")
-        log(f"Bot membership status in the channel: {status or 'member'}.")
-        if chat.get("type") not in (None, "channel"):
-            warning(f"{chat_id} is a {chat.get('type')}, not a channel.")
-        if status in (None, "member", "restricted"):
-            warning(
-                "The bot does not report administrator status. Posting may still work if it "
-                "holds a direct post grant; if it does not, add the bot as an administrator "
-                "with 'Post Messages' only."
-            )
-
-    # The existing MTProto lookup uses messages.getHistory, which Telegram
-    # documents as user-only. A bot login can succeed but the lookup can still
-    # fail; do not infer anything about upload readiness from that failure.
-    api_id_text = os.environ.get("TELEGRAM_API_ID", "").strip()
-    api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
-    marker = marker_for(release.id)
-    if not api_id_text or not api_hash:
-        warning(
-            "TELEGRAM_API_ID / TELEGRAM_API_HASH are not set, so the APK/IPA upload was not "
-            "verified and the channel-history duplicate check was skipped."
-        )
-    else:
-        mask_secret(api_hash)
-        try:
-            import telegram_assets  # noqa: PLC0415 - optional dependency boundary
-
-            uploader = telegram_assets.MtprotoUploader(int(api_id_text), api_hash, token, chat_id)
-        except (ValueError, telegram_assets.ConfigError) as exc:
-            error(f"MTProto credentials are unusable: {exc}")
-            return EXIT_CONFIG
-        try:
-            found = uploader.find_marker(marker)
-            if found:
-                notice(
-                    f"Release {release.id} already appears in the recent channel history "
-                    f"({marker}); a rerun would report it as already announced."
-                )
-            else:
-                log(
-                    f"No inspected recent channel message carries {marker}; "
-                    "this does not rule out an earlier announcement."
-                )
-            log("MTProto login succeeded with the bot token, API id and API hash.")
-        except Exception as exc:  # noqa: BLE001 - report the failure without a traceback
-            if type(exc).__name__ == "BotMethodInvalidError":
-                error(
-                    "The MTProto history check failed: Telegram does not allow bot accounts "
-                    "to use messages.getHistory. Channel-history duplicate protection cannot "
-                    "be verified with this bot; this does not establish whether uploads work."
-                )
-            else:
-                error(
-                    f"The MTProto check failed: {exc}. Channel-history access was not verified; "
-                    "this does not establish whether large-file uploads work."
-                )
-            problems += 1
-        finally:
-            uploader.close()
-
-    if problems:
-        error(f"Preflight found {problems} problem(s); see above.")
+    if not result.ok or (result.result or {}).get("type") != "channel":
+        error("The Bot API could not verify access to the configured channel.")
         return EXIT_ERROR
-    notice("Preflight passed: the Bot API token, the channel and the MTProto credentials are usable.")
+    api_id = os.environ.get("TELEGRAM_API_ID", "")
+    api_hash = os.environ.get("TELEGRAM_API_HASH", "")
+    if not api_id.isdigit() or int(api_id) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
+        error("MTProto credential syntax is invalid; MTProto authentication was not attempted.")
+        return EXIT_CONFIG
+    notice("Preflight passed Bot API channel access and MTProto credential syntax only. "
+           "MTProto authentication, history and uploads were not tested.")
     return EXIT_OK
 
 
@@ -730,15 +468,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--release-json", default="", help="file holding the GitHub API release object")
     parser.add_argument("--dry-run", action="store_true", help="render and validate, send nothing")
     parser.add_argument("--summary", default="", help="write a JSON run summary to this path")
-    parser.add_argument("--ledger", default="", help="post ledger JSON (idempotency record)")
+    parser.add_argument("--ledger", default="", help="legacy option; the renderer never writes the ledger")
     parser.add_argument(
         "--pin",
         action="store_true",
-        help=(
-            "pin the announcement after it is delivered (needs the bot's 'Pin Messages' "
-            "administrator right; off by default, which keeps the required right to "
-            "'Post Messages' and keeps the ledger marker as the duplicate guard)"
-        ),
+        help="legacy option; direct publishing and pinning are disabled",
     )
     parser.add_argument(
         "--no-pin",
@@ -749,9 +483,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--preflight",
         action="store_true",
         help=(
-            "read-only check: test the bot token and channel, then attempt MTProto history. "
-            "Bot accounts cannot use the current history method. The workflow separately "
-            "checks administrator rights. Sends no message, uploads no file, pins nothing."
+            "read-only Bot API channel check plus MTProto credential syntax only. The workflow "
+            "also checks administrator rights. No MTProto login, message, upload or pin."
         ),
     )
     parser.add_argument(
@@ -775,6 +508,17 @@ def require_env(name: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
+
+    # Match the workflow's isolation even when invoked directly: preflight
+    # ignores release, dry-run, summary, ledger and pin arguments entirely.
+    if args.preflight:
+        try:
+            token = require_env("TELEGRAM_BOT_TOKEN")
+            chat_id = require_env("TELEGRAM_CHAT_ID")
+        except AnnouncementError as exc:
+            error(str(exc))
+            return EXIT_CONFIG
+        return run_preflight(None, chat_id, token)
 
     try:
         release = load_release(args.release_json)
@@ -813,81 +557,9 @@ def main(argv: list[str] | None = None) -> int:
         write_summary(args.summary, run)
         return EXIT_OK
 
-    if args.preflight:
-        try:
-            token = require_env("TELEGRAM_BOT_TOKEN")
-            chat_id = require_env("TELEGRAM_CHAT_ID")
-        except AnnouncementError as exc:
-            error(str(exc))
-            return EXIT_CONFIG
-        return run_preflight(release, chat_id, token)
-
-    try:
-        token = require_env("TELEGRAM_BOT_TOKEN")
-        chat_id = require_env("TELEGRAM_CHAT_ID")
-    except AnnouncementError as exc:
-        error(str(exc))
-        return EXIT_CONFIG
-    # Register the secret with the runner before any request that could echo it.
-    mask_secret(token)
-
-    client = TelegramClient(token, chat_id)
-    try:
-        reason = check_already_announced(client, release, args.ledger)
-        if not reason:
-            # The optional history lookup is best-effort and never turns into a
-            # hard failure. Its current messages.getHistory RPC is user-only,
-            # however, so bot credentials alone cannot make it a reliable guard.
-            api_id_text = os.environ.get("TELEGRAM_API_ID", "").strip()
-            api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
-            if api_id_text and api_hash:
-                try:
-                    import telegram_assets  # noqa: PLC0415 - optional dependency boundary
-
-                    uploader = telegram_assets.MtprotoUploader(int(api_id_text), api_hash, token, chat_id)
-                    try:
-                        if uploader.find_marker(marker_for(release.id)):
-                            reason = (
-                                f"the channel history already carries {marker_for(release.id)}"
-                            )
-                    finally:
-                        uploader.close()
-                except Exception as exc:  # noqa: BLE001 - a guard must not break the post
-                    warning(
-                        f"The channel-history duplicate check could not run ({redact(str(exc))}); "
-                        "relying on the pinned message and the ledger."
-                    )
-        if reason:
-            run.already_announced = True
-            notice(
-                f"StreamBridge {release.version} was already announced: {reason}. "
-                "No announcement pages were sent in this run."
-            )
-            write_summary(args.summary, run)
-            return EXIT_ALREADY_POSTED
-
-        run = send_announcement(
-            client,
-            release,
-            announcement,
-            pages,
-            pin=bool(args.pin) and not args.no_pin,
-        )
-        if args.ledger:
-            record_in_ledger(args.ledger, release, run.sent_message_ids, chat_id)
-            log(f"Recorded release {release.id} in the post ledger.")
-    except AnnouncementError as exc:
-        error(str(exc))
-        run.sent_message_ids = run.sent_message_ids or []
-        write_summary(args.summary, run)
-        return EXIT_ERROR
-
-    notice(
-        f"StreamBridge {release.version} announced in {chat_id}: message ids "
-        f"{self_ids(run.sent_message_ids)}."
-    )
-    write_summary(args.summary, run)
-    return EXIT_OK
+    error("Direct Bot API publishing is disabled because it cannot preserve an idempotency key. "
+          "Use the serialized GitHub Actions MTProto delivery workflow with its durable ledger.")
+    return EXIT_CONFIG
 
 
 if __name__ == "__main__":

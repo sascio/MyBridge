@@ -50,6 +50,9 @@ scripts/*
 !scripts/telegram_release_notes.py
 !scripts/telegram_announce.py
 !scripts/telegram_assets.py
+!scripts/telegram_ledger.py
+!scripts/telegram_mtproto.py
+!scripts/telegram_publish.py
 !scripts/verify-release-target.sh
 !scripts/update-store-source.py
 !scripts/optimize-app-assets.py

@@ -14,6 +14,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPOSITORY_ROOT}"
 
+# The entire Python suite is offline: loopback fixtures are allowed, external
+# DNS/TCP is blocked, and Git may only use local file remotes in these tests.
+export PYTHONPATH="${SCRIPT_DIR}/offline${PYTHONPATH:+:${PYTHONPATH}}"
+export GIT_ALLOW_PROTOCOL=file
+
 failures=0
 
 section() { printf '\n== %s\n' "$1"; }
@@ -50,6 +55,11 @@ python3 -c "import telethon" 2>/dev/null \
 # workflow's own guardrails. Runs entirely offline against a mock Bot API, so no
 # announcement can ever reach the public channel from CI.
 if ! "${SCRIPT_DIR}/telegram-announcement-test.py"; then
+  failures=$((failures + 1))
+fi
+# Durable write-ahead, exact-parent Git commits, bot-only raw MTProto and
+# multipart/recovery regressions; all Telegram/GitHub RPCs are offline fakes.
+if ! python3 "${SCRIPT_DIR}/telegram-idempotent-test.py"; then
   failures=$((failures + 1))
 fi
 

@@ -3,8 +3,8 @@
 
 This module is deliberately pure: it takes a GitHub release object (the JSON the
 REST API returns) and produces the exact HTML message pages and inline keyboard
-that ``scripts/telegram_announce.py`` sends through the Telegram Bot API. No
-network access, no environment access, no secrets. That is what makes the
+used by the durable bot-only MTProto publisher. No network access, no environment
+access, no secrets. That is what makes the
 formatting, escaping, splitting and asset-detection rules testable offline
 (``scripts/tests/telegram-announcement-test.py``).
 
@@ -154,6 +154,7 @@ class Asset:
     url: str
     state: str = "uploaded"
     digest: str = ""
+    id: int | None = None
 
     @property
     def usable(self) -> bool:
@@ -179,6 +180,7 @@ class Release:
     prerelease: bool = False
     published_at: str = ""
     assets: tuple[Asset, ...] = ()
+    created_at: str = ""
 
     @classmethod
     def from_api(cls, data: dict) -> "Release":
@@ -199,6 +201,7 @@ class Release:
                     url=str(raw.get("browser_download_url") or ""),
                     state=str(raw.get("state") or "uploaded"),
                     digest=str(raw.get("digest") or ""),
+                    id=raw.get("id") if type(raw.get("id")) is int and raw.get("id") > 0 else None,
                 )
             )
         return cls(
@@ -211,6 +214,7 @@ class Release:
             prerelease=bool(data.get("prerelease")),
             published_at=str(data.get("published_at") or ""),
             assets=tuple(assets),
+            created_at=str(data.get("created_at") or ""),
         )
 
     @property

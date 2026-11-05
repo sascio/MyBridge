@@ -1,12 +1,10 @@
-"""Offline doubles for executing the actual preflight workflow run block.
+"""Offline doubles for the literal read-only preflight workflow shell.
 
-Loaded via a temporary sitecustomize.py in a subprocess. Bot API methods are
-allowlisted; the real MtprotoUploader.find_marker drives an in-memory client
-whose send/upload operations fail if touched. No real network is reachable.
+Only Bot API getMe/getChat/getChatMember are permitted. Sockets, ledger access,
+MTProto clients and all mutating operations fail if reached.
 """
 from __future__ import annotations
 
-import asyncio
 import builtins
 import json
 import os
@@ -17,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import telegram_assets as assets  # noqa: E402
+import telegram_mtproto as mtproto  # noqa: E402
 
 TRACE = os.environ["TELEGRAM_PREFLIGHT_TRACE"]
 _real_open = builtins.open
@@ -88,73 +87,10 @@ def fake_urlopen(request, timeout=None):  # noqa: ARG001 - urllib-compatible
     return Response({"ok": True, "result": member})
 
 
-class BotMethodInvalidError(RuntimeError):
-    """Telegram rejects messages.getHistory for bot identities."""
-
-
-class FakeMtprotoClient:
-    def __init__(self, *_args, **_kwargs) -> None:
-        self.loop = asyncio.new_event_loop()
-        record("mtproto_client")
-
-    def start(self, *, bot_token):
-        record("mtproto_login", token_matches=(bot_token == os.environ.get("TELEGRAM_BOT_TOKEN")))
-        if os.environ.get("FAKE_MTPROTO_MODE") == "auth_failure":
-            self.loop.close()
-            raise RuntimeError("MTProto bot authentication failed")
-        return self
-
-    async def get_entity(self, chat):
-        record("mtproto_get_entity", chat_matches=(chat == os.environ.get("TELEGRAM_CHAT_ID")))
-        return chat
-
-    async def iter_messages(self, _entity, limit):
-        record("mtproto_history", limit=limit)
-        mode = os.environ.get("FAKE_MTPROTO_MODE")
-        if mode == "history_failure":
-            raise RuntimeError("channel history is not accessible")
-        if mode == "history_secret_failure":
-            raise RuntimeError(" ".join(os.environ[name] for name in (
-                "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH"
-            )))
-        if mode != "hypothetical_history_success":
-            # The real GetHistory RPC is documented as user-only. The fake must
-            # not turn a bot-incompatible call into a misleading green result.
-            raise BotMethodInvalidError("messages.getHistory is unavailable to bots")
-        if False:  # make this an empty asynchronous generator
-            yield None
-
-    def disconnect(self):
-        record("mtproto_disconnect")
-        self.loop.close()
-
-    def upload_file(self, *_args, **_kwargs):
-        record("forbidden", method="upload_file")
-        raise AssertionError("preflight must never upload")
-
-    def send_file(self, *_args, **_kwargs):
-        record("forbidden", method="send_file")
-        raise AssertionError("preflight must never send media")
-
-    def __call__(self, request, *_args, **_kwargs):
-        record("forbidden", method=type(request).__name__)
-        raise AssertionError("unexpected MTProto request")
-
-
-class GuardedUploader(assets.MtprotoUploader):
-    def __init__(self, api_id, api_hash, bot_token, chat_id, **kwargs) -> None:
-        record(
-            "mtproto_uploader",
-            api_id_matches=(str(api_id) == os.environ.get("TELEGRAM_API_ID")),
-            api_hash_matches=(api_hash == os.environ.get("TELEGRAM_API_HASH")),
-            token_matches=(bot_token == os.environ.get("TELEGRAM_BOT_TOKEN")),
-            chat_matches=(chat_id == os.environ.get("TELEGRAM_CHAT_ID")),
-        )
-        super().__init__(api_id, api_hash, bot_token, chat_id, client_factory=FakeMtprotoClient, **kwargs)
-
-    def upload_document(self, *_args, **_kwargs):
-        record("forbidden", method="upload_document")
-        raise AssertionError("preflight must never upload a document")
+class GuardedUploader:
+    def __init__(self, *_args, **_kwargs):
+        record("forbidden", method="MTProto session")
+        raise AssertionError("preflight must not create an MTProto session")
 
 
 class NoNetworkSocket(socket.socket):
@@ -171,4 +107,9 @@ def install() -> None:
     builtins.open = protected_open
     urllib.request.urlopen = fake_urlopen
     socket.socket = NoNetworkSocket
+    def no_dns(*_args, **_kwargs):
+        record("forbidden", method="socket.getaddrinfo")
+        raise AssertionError("preflight must not use real DNS")
+    socket.getaddrinfo = no_dns
     assets.MtprotoUploader = GuardedUploader
+    mtproto.BotTransport = GuardedUploader
