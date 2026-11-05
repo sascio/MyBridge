@@ -622,6 +622,89 @@ def print_dry_run(run: AnnouncementRun) -> None:
     print("=" * 78 + "\n")
 
 
+def run_preflight(release: notes.Release, chat_id: str, token: str) -> int:
+    """Read-only readiness check. Never posts, uploads, pins or edits.
+
+    Everything here is a GET-equivalent Telegram call; the only side effect is a
+    Telegram login for the MTProto check, which is what any announcement would do
+    anyway. Nothing is printed that could carry a credential.
+    """
+    problems = 0
+    client = TelegramClient(token, chat_id)
+    mask_secret(token)
+
+    result = client.get_chat()
+    if not result.ok:
+        error(
+            f"The channel {chat_id} is not reachable with this bot token "
+            f"({result.error_code or 'network'}: {redact(result.description)}). "
+            "Check TELEGRAM_CHAT_ID and that the bot is a member of the channel."
+        )
+        problems += 1
+    else:
+        chat = result.result or {}
+        title = chat.get("title") or chat.get("username") or chat_id
+        log(f"Channel reachable: {title!r} ({chat.get('type', 'channel')}).")
+        # The only right the delivery path needs: posting messages and files.
+        status = chat.get("status")
+        log(f"Bot membership status in the channel: {status or 'member'}.")
+        if chat.get("type") not in (None, "channel"):
+            warning(f"{chat_id} is a {chat.get('type')}, not a channel.")
+        if status in (None, "member", "restricted"):
+            warning(
+                "The bot does not report administrator status. Posting may still work if it "
+                "holds a direct post grant; if it does not, add the bot as an administrator "
+                "with 'Post Messages' only."
+            )
+
+    # MTProto: proves the API id/hash pair, and answers the duplicate question
+    # without depending on the pinned message.
+    api_id_text = os.environ.get("TELEGRAM_API_ID", "").strip()
+    api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
+    marker = marker_for(release.id)
+    if not api_id_text or not api_hash:
+        warning(
+            "TELEGRAM_API_ID / TELEGRAM_API_HASH are not set, so the APK/IPA upload was not "
+            "verified and the channel-history duplicate check was skipped."
+        )
+    else:
+        mask_secret(api_hash)
+        try:
+            import telegram_assets  # noqa: PLC0415 - optional dependency boundary
+
+            uploader = telegram_assets.MtprotoUploader(int(api_id_text), api_hash, token, chat_id)
+        except (ValueError, telegram_assets.ConfigError) as exc:
+            error(f"MTProto credentials are unusable: {exc}")
+            return EXIT_CONFIG
+        try:
+            found = uploader.find_marker(marker)
+            if found:
+                notice(
+                    f"Release {release.id} already appears in the recent channel history "
+                    f"({marker}); a rerun would report it as already announced."
+                )
+            else:
+                log(
+                    f"No recent channel message carries {marker}; release {release.id} has not "
+                    "been announced yet."
+                )
+            log("MTProto login succeeded with the bot token, API id and API hash.")
+        except Exception as exc:  # noqa: BLE001 - reported, never fatal
+            error(
+                f"The MTProto check failed: {exc}. Large-file uploads would not work until this "
+                "is resolved (the announcement itself uses the Bot API and is unaffected)."
+            )
+            problems += 1
+        finally:
+            uploader.close()
+
+    if problems:
+        error(f"Preflight found {problems} problem(s); see above.")
+        return EXIT_ERROR
+    notice("Preflight passed: the Bot API token, the channel and the MTProto credentials are usable.")
+    return EXIT_OK
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--release-json", default="", help="file holding the GitHub API release object")
@@ -629,9 +712,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--summary", default="", help="write a JSON run summary to this path")
     parser.add_argument("--ledger", default="", help="post ledger JSON (idempotency record)")
     parser.add_argument(
+        "--pin",
+        action="store_true",
+        help=(
+            "pin the announcement after it is delivered (needs the bot's 'Pin Messages' "
+            "administrator right; off by default, which keeps the required right to "
+            "'Post Messages' and keeps the ledger marker as the duplicate guard)"
+        ),
+    )
+    parser.add_argument(
         "--no-pin",
         action="store_true",
-        help="do not pin the announcement (the marker still guards idempotency)",
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help=(
+            "read-only check: verify the bot token, the channel, the bot's administrator "
+            "rights, the MTProto credentials and whether this release is already in the "
+            "channel. Sends no message, uploads no file, pins nothing."
+        ),
     )
     parser.add_argument(
         "--skip-html-check",
@@ -692,6 +793,15 @@ def main(argv: list[str] | None = None) -> int:
         write_summary(args.summary, run)
         return EXIT_OK
 
+    if args.preflight:
+        try:
+            token = require_env("TELEGRAM_BOT_TOKEN")
+            chat_id = require_env("TELEGRAM_CHAT_ID")
+        except AnnouncementError as exc:
+            error(str(exc))
+            return EXIT_CONFIG
+        return run_preflight(release, chat_id, token)
+
     try:
         token = require_env("TELEGRAM_BOT_TOKEN")
         chat_id = require_env("TELEGRAM_CHAT_ID")
@@ -704,6 +814,31 @@ def main(argv: list[str] | None = None) -> int:
     client = TelegramClient(token, chat_id)
     try:
         reason = check_already_announced(client, release, args.ledger)
+        if not reason:
+            # Second, stronger guard when the MTProto credentials exist: a channel
+            # history lookup. The pinned-message check above needs the bot's "Pin
+            # Messages" right to be reliable, whereas this one needs only the
+            # ability to read the channel it posts to. It is skipped silently
+            # when those secrets are absent, and never turns into a hard failure.
+            api_id_text = os.environ.get("TELEGRAM_API_ID", "").strip()
+            api_hash = os.environ.get("TELEGRAM_API_HASH", "").strip()
+            if api_id_text and api_hash:
+                try:
+                    import telegram_assets  # noqa: PLC0415 - optional dependency boundary
+
+                    uploader = telegram_assets.MtprotoUploader(int(api_id_text), api_hash, token, chat_id)
+                    try:
+                        if uploader.find_marker(marker_for(release.id)):
+                            reason = (
+                                f"the channel history already carries {marker_for(release.id)}"
+                            )
+                    finally:
+                        uploader.close()
+                except Exception as exc:  # noqa: BLE001 - a guard must not break the post
+                    warning(
+                        f"The channel-history duplicate check could not run ({redact(str(exc))}); "
+                        "relying on the pinned message and the ledger."
+                    )
         if reason:
             run.already_announced = True
             notice(
@@ -718,7 +853,7 @@ def main(argv: list[str] | None = None) -> int:
             release,
             announcement,
             pages,
-            pin=not args.no_pin,
+            pin=bool(args.pin) and not args.no_pin,
         )
         if args.ledger:
             record_in_ledger(args.ledger, release, run.sent_message_ids, chat_id)

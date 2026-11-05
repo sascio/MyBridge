@@ -478,6 +478,29 @@ class MtprotoUploader:
                     self._sleeper(delay)
         raise AssetError(f"could not upload {filename} after {self._attempts} attempts: {last_error}")
 
+    def find_marker(self, marker: str, limit: int = 100) -> bool:
+        """True when a recent channel message already carries ``marker``.
+
+        The Bot API exposes no message history, so an announcement cannot be
+        looked up that way -- which is why the usual guard was a pinned message
+        and therefore needed the "Pin Messages" administrator right. MTProto can
+        read the channel the bot posts to, so the guard works with *Post Messages*
+        alone and does not depend on a pin that a moderator may have replaced.
+        """
+        if not marker:
+            return False
+        client = self._connect()
+
+        async def scan() -> bool:
+            entity = await client.get_entity(self._chat_id)  # type: ignore[attr-defined]
+            async for message in client.iter_messages(entity, limit=limit):  # type: ignore[attr-defined]
+                text = getattr(message, "message", None) or ""
+                if marker in text:
+                    return True
+            return False
+
+        return bool(self._await(client, scan()))
+
     def _send(self, client: object, path: str, filename: str, caption: str) -> object:
         """Upload the bytes, then send the uploaded handle as a document.
 
@@ -763,7 +786,11 @@ def upload_release_assets(
             continue
 
         if not checksums:
-            checksums = load_checksums(release, opener) if plan.kind == "android" else checksums
+            # Loaded once, for the first asset whatever its kind. The checksum
+            # file lists every published binary -- the IPA included -- and gating
+            # this on the Android kind used to skip the IPA's digest entirely on
+            # an IPA-only release.
+            checksums = load_checksums(release, opener)
 
         destination = os.path.join(workspace, plan.asset.name)
         try:
@@ -797,6 +824,23 @@ def upload_release_assets(
             _discard(f"{destination}.part")
             _discard(destination)
     return run
+
+
+def channel_has_marker(*, marker: str, chat_id: str, transport: "MtprotoUploader | None") -> bool | None:
+    """Best-effort duplicate check through MTProto.
+
+    Returns True when a recent channel message carries ``marker``, False when it
+    definitively does not, and None when the check could not run (no credentials,
+    a bot without read access, or any Telegram error). None means "unknown", and
+    callers fall back to the other guards rather than guessing.
+    """
+    if transport is None or not marker:
+        return None
+    try:
+        return transport.find_marker(marker)
+    except Exception as exc:  # noqa: BLE001 - a guard must never break the post
+        warning(f"The channel-history duplicate check could not run ({exc}); relying on the ledger.")
+        return None
 
 
 def write_summary(path: str, run: UploadRun) -> None:
@@ -934,6 +978,7 @@ __all__ = [
     "UploadPlan",
     "UploadRecord",
     "UploadRun",
+    "channel_has_marker",
     "download_asset",
     "expected_digest",
     "load_checksums",

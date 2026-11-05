@@ -1533,5 +1533,182 @@ class MtprotoTransportTests(unittest.TestCase):
 
 assets_512k = 512 * 1024
 
+
+# --------------------------------------------------------------------------- #
+# Regressions found in the integration audit
+# --------------------------------------------------------------------------- #
+
+
+class ChecksumCoverageTests(unittest.TestCase):
+    """The IPA must be digested even when it is the first asset in a release.
+
+    The loader used to be gated on the asset kind, so a release whose checksum
+    file covered the IPA but whose first asset was iOS skipped the IPA's digest
+    entirely and verified it by size alone.
+    """
+
+    def setUp(self) -> None:
+        import hashlib
+        import tempfile
+
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
+        self.body = binary_payload(120_000)
+        self.digest = hashlib.sha256(self.body).hexdigest()
+
+    def test_the_ipa_digest_is_checked_on_an_ios_only_release(self) -> None:
+        import hashlib
+
+        served = _ServedFiles({"app.ipa": self.body, "checksums.sha256": f"{self.digest}  app.ipa\n".encode()})
+        self.addCleanup(served.close)
+        release = notes.Release(
+            id=5,
+            tag_name="v1.0.0",
+            name="StreamBridge v1.0.0",
+            body="## What's new\n\n- Something.\n",
+            html_url="https://github.com/sascio/MyBridge/releases/tag/v1.0.0",
+            assets=(
+                notes.Asset("StreamBridge-1.0.0-iOS-unsigned.ipa", len(self.body), served.url("app.ipa")),
+                notes.Asset("checksums.sha256", len(self.digest) + 10, served.url("checksums.sha256")),
+            ),
+        )
+        transport = _RecordingTransport()
+        run = assets.upload_release_assets(
+            release,
+            transport=transport,
+            workspace=f"{self.dir}/work",
+            ledger_path=f"{self.dir}/ledger.json",
+            sleeper=lambda _s: None,
+        )
+        self.assertTrue(run.ok, run.records)
+        # The digest from the checksum file must have been applied to the IPA.
+        self.assertEqual(run.records[0].state, "uploaded")
+
+    def test_a_corrupt_ipa_is_refused_even_when_it_is_uploaded_first(self) -> None:
+        served = _ServedFiles({"app.ipa": self.body, "checksums.sha256": f"{'0' * 64}  app.ipa\n".encode()})
+        self.addCleanup(served.close)
+        release = notes.Release(
+            id=6,
+            tag_name="v1.0.0",
+            name="n",
+            body="body",
+            html_url="https://x/y",
+            assets=(
+                notes.Asset("app.ipa", len(self.body), served.url("app.ipa")),
+                notes.Asset("checksums.sha256", 80, served.url("checksums.sha256")),
+            ),
+        )
+        transport = _RecordingTransport()
+        run = assets.upload_release_assets(
+            release,
+            transport=transport,
+            workspace=f"{self.dir}/work",
+            ledger_path=f"{self.dir}/ledger.json",
+            sleeper=lambda _s: None,
+        )
+        self.assertEqual(transport.uploaded, [], "a file failing its digest must never be uploaded")
+        self.assertEqual(len(run.failed), 1)
+        self.assertIn("digest mismatch", run.failed[0].detail)
+
+
+class PinningPolicyTests(unittest.TestCase):
+    """Pinning is opt-in, so the bot only needs 'Post Messages'."""
+
+    def _args(self, *extra: str):
+        return announce.parse_args(["--release-json", "x", *extra])
+
+    def test_pinning_is_off_by_default(self) -> None:
+        self.assertFalse(self._args().pin)
+        self.assertFalse(self._args("--pin").pin is False)
+
+    def test_announcement_send_without_pinning_never_calls_pin_chat_message(self) -> None:
+        release = notes.Release.from_api(release_payload())
+        announcement, pages = announce.build_pages(release)
+        mock = MockTelegram()
+        patch_client(self, mock)
+        run = announce.send_announcement(
+            announce.TelegramClient(TOKEN, CHAT),
+            release,
+            announcement,
+            pages,
+            pin=False,
+            throttle=lambda _s: None,
+        )
+        self.assertFalse(run.pinned)
+        self.assertNotIn("pinChatMessage", [method for method, _ in mock.calls])
+
+
+class PreflightTests(unittest.TestCase):
+    """The read-only check must never post, upload or pin."""
+
+    def test_preflight_issues_only_read_calls(self) -> None:
+        release = notes.Release.from_api(release_payload())
+        mock = MockTelegram()
+        patch_client(self, mock)
+        code = announce.run_preflight(release, "@StreamBridge_App", TOKEN)
+        methods = {method for method, _ in mock.calls}
+        self.assertIn("getChat", methods)
+        for forbidden in ("sendMessage", "pinChatMessage", "sendDocument"):
+            self.assertNotIn(forbidden, methods)
+        self.assertEqual(code, announce.EXIT_OK)
+
+    def test_preflight_reports_an_unreachable_channel(self) -> None:
+        release = notes.Release.from_api(release_payload())
+        mock = MockTelegram()
+        mock.fail["getChat"] = [
+            _HttpError(403, {"ok": False, "error_code": 403, "description": "Forbidden: bot is not a member"}
+        ).to_error()
+        ]
+        patch_client(self, mock)
+        code = announce.run_preflight(release, "@StreamBridge_App", TOKEN)
+        self.assertEqual(code, announce.EXIT_ERROR)
+
+    def test_preflight_never_prints_the_token(self) -> None:
+        import contextlib
+        import io
+
+        release = notes.Release.from_api(release_payload())
+        mock = MockTelegram()
+        patch_client(self, mock)
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+            announce.run_preflight(release, "@StreamBridge_App", TOKEN)
+        output = buffer.getvalue()
+        # The one permitted appearance is GitHub's own masking directive, which
+        # is what keeps the value out of every later log line.
+        without_masks = "\n".join(
+            line for line in output.splitlines() if not line.startswith("::add-mask::")
+        )
+        self.assertNotIn(TOKEN, without_masks)
+        self.assertNotIn(TOKEN.split(":")[1], without_masks)
+
+
+class WorkflowRefTests(unittest.TestCase):
+    def test_checkout_uses_the_default_branch_not_the_release_tag(self) -> None:
+        """A release event checks out the tag; the tooling must come from main.
+
+        Otherwise every future release would run the scripts frozen at its own
+        tag, and a fix to the announcement could never reach a release.
+        """
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        workflow = yaml.safe_load(open(SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml", encoding="utf-8"))
+        checkout = next(
+            step for step in workflow["jobs"]["announce"]["steps"] if "checkout" in str(step.get("uses", ""))
+        )
+        self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
+        # The ledger commit needs a token, so credentials must be persisted.
+        self.assertIs(checkout["with"]["persist-credentials"], True)
+
+    def test_the_announcement_step_does_not_request_pin_rights(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        workflow = yaml.safe_load(open(SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml", encoding="utf-8"))
+        publish = next(
+            step for step in workflow["jobs"]["announce"]["steps"] if step.get("name") == "Publish the announcement"
+        )
+        self.assertNotIn("--pin", publish["run"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

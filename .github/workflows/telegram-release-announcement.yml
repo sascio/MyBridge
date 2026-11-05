@@ -91,9 +91,18 @@ jobs:
       - name: Check out the announcement tooling
         # Pinned to the commit v6 resolves to: a retagged action cannot change
         # what runs inside this job.
+        #
+        # `ref` matters: a `release` event checks out the release *tag*, so a job
+        # would run the scripts as they were when that release was cut. Later
+        # fixes to the tooling would never apply to the next release. The default
+        # branch always holds the newest tooling, so it is requested explicitly.
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+          # A token is kept so the ledger commit below can actually push. It is
+          # this job's own token: `permissions: contents: write` above, nothing
+          # else, and the checkout is discarded with the runner.
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
