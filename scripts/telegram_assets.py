@@ -299,7 +299,7 @@ def download_asset(
                 f"Verified {asset.name}: {notes.human_size(written)}"
                 + (" (SHA-256 matches)" if want else " (size only; no published digest)")
             )
-            return destination, (actual if want else actual)
+            return destination, actual
         except (AssetError, OSError, urllib.error.URLError) as exc:
             last_error = str(exc)
             _discard(partial)
