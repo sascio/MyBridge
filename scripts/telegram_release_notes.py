@@ -873,16 +873,32 @@ def _download_blocks(summary: AssetSummary) -> list[Block]:
     return blocks
 
 
+_ABI_BUTTON_LABELS = {
+    "arm64-v8a": "🤖 Android ARM64",
+    "armeabi-v7a": "🤖 Android ARMv7",
+    "x86": "🤖 Android x86",
+    "x86_64": "🤖 Android x86_64",
+}
+
+
 def download_buttons(summary: AssetSummary, release: Release) -> list[tuple[str, str]]:
-    """Inline keyboard rows: the release page first, then verified asset links only."""
+    """Inline keyboard rows: the release page first, then verified asset links only.
+
+    Every button URL is the ``browser_download_url`` GitHub reported for an
+    asset in ``state: uploaded``; nothing is derived from a pattern. Telegram
+    allows 100 buttons, far more than the five binaries plus checksums here, so
+    each architecture gets its own direct link instead of a single generic APK.
+    """
     buttons: list[tuple[str, str]] = []
     if release.html_url:
         buttons.append((DOWNLOAD_BUTTON_LABEL, release.html_url))
-    primary = summary.android_primary
-    if primary is not None:
-        buttons.append(("🤖 Android APK", primary.url))
+    for asset in summary.android:
+        label = _ABI_BUTTON_LABELS.get(asset.abi or "", "🤖 Android APK")
+        if not summary.android_primary or asset.name != summary.android_primary.name:
+            label = f"{label}"
+        buttons.append((label, asset.url))
     if summary.ios is not None:
-        buttons.append(("🍏 iOS IPA", summary.ios.url))
+        buttons.append(("🍎 iOS IPA", summary.ios.url))
     if summary.checksums is not None:
         buttons.append(("🔐 Checksums", summary.checksums.url))
     return buttons

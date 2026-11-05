@@ -2,9 +2,9 @@
 
 `.github/workflows/telegram-release-announcement.yml` publishes a StreamBridge
 release announcement to the Telegram channel **[@StreamBridge_App](https://t.me/StreamBridge_App)**
-whenever a GitHub Release is published. It is an announcement channel only: it
-never creates, edits, publishes or deletes a release, and it does not touch the
-Android or iOS build jobs.
+whenever a GitHub Release is published, then delivers the production APKs and the
+unsigned IPA to the same channel as documents. It never creates, edits, publishes
+or deletes a release, and it does not touch the Android or iOS build jobs.
 
 ## What triggers it
 
@@ -61,13 +61,62 @@ on every later page:
 | Button | URL |
 |---|---|
 | `⬇️ Download StreamBridge` | The release's `html_url` — the exact published release page |
-| `🤖 Android APK` | The `browser_download_url` of the primary APK (arm64 first) |
-| `🍏 iOS IPA` | The `browser_download_url` of the published IPA |
+| `🤖 Android ARM64` | The `browser_download_url` of `…arm64-v8a…apk` |
+| `🤖 Android ARMv7` | The `browser_download_url` of `…armeabi-v7a…apk` |
+| `🤖 Android x86` | The `browser_download_url` of `…x86-release.apk` |
+| `🤖 Android x86_64` | The `browser_download_url` of `…x86_64…apk` |
+| `🍎 iOS IPA` | The `browser_download_url` of the published IPA |
 | `🔐 Checksums` | The `browser_download_url` of `checksums.sha256` |
 
 Asset buttons appear only for assets that exist and are `uploaded`. No URL is
 ever assembled from a pattern, and the HTML validator rejects any link that is
 not `https://`.
+
+## Delivering the APK and IPA files
+
+The production binaries are larger than the Bot API's 50 MB ceiling (four APKs at
+52-56 MiB, the unsigned IPA at ~70 MiB), so `sendDocument` against
+`api.telegram.org` cannot deliver them. They are uploaded over **MTProto** by the
+same bot that posts the announcement.
+
+| Route | Per-file ceiling | What it needs |
+|---|---|---|
+| Public Bot API (`sendDocument`) | 50 MB — too small for every StreamBridge binary | bot token |
+| **MTProto, bot identity (used here)** | **2000 MB** | bot token + `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` |
+| Self-hosted local Bot API server | 2000 MB | a second long-running service |
+
+MTProto was chosen because it needs no extra service, no user account, no phone
+number and no login code: Telethon authenticates with `auth.importBotAuthorization`
+using the existing bot token, and the session is an in-memory `StringSession` that
+is never written to disk.
+
+### What the workflow does per asset
+
+1. **Plan** — only assets the release reports as `state: uploaded` are queued. The
+   four Android ABIs are matched by their published names, and the IPA is
+   detected by extension and filename pattern, never by a hardcoded version.
+2. **Download** — streamed to `$RUNNER_TEMP/telegram-assets` (never the checkout),
+   written to a `.part` file, and renamed only after it verifies.
+3. **Verify** — the byte count must equal the size GitHub reports, and if the
+   release publishes `checksums.sha256` (or the asset carries a `digest`), the
+   SHA-256 must match too. A short or corrupt download is discarded and retried;
+   it is never uploaded.
+4. **Upload** — `upload_file` in 512 KiB parts, then `send_file` as a document with
+   the original filename and an HTML caption carrying the version, the ABI or
+   platform, the size and the verified GitHub link.
+5. **Record** — the confirmed message id is written to the ledger for that asset.
+
+A failure on one asset never stops the others. Every failure is reported with the
+asset's verified GitHub link, `continue-on-error` keeps the job green, and a
+re-run uploads only the files that are still missing.
+
+### Credentials for large-file delivery
+
+`TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are required, from
+[my.telegram.org](https://my.telegram.org) → *API development tools*. They
+identify the application, not an account; no phone number or login code is ever
+requested, and no user session is created. Without them the announcement is still
+posted, the files are reported as not delivered, and the run stays green.
 
 ## Long release notes
 
@@ -91,7 +140,10 @@ Idempotency is keyed on the **release id**, not on the workflow event:
 * after Telegram confirms **every** page (`ok: true` plus a `message_id`), the
   first message is pinned and `.github/telegram-releases.json` records the
   release id and message ids. The ledger is committed, so the guard still works
-  if the pin later moves to another message.
+  if the pin later moves to another message;
+* each uploaded binary is recorded in the same ledger with its own message id, so
+  a re-run skips files Telegram already confirmed and retries only the rest. An
+  asset is recorded only after its upload returned a message id.
 
 `concurrency` (grouped by release id, never cancelling) only stops two runs from
 racing; it is not the protection. Nothing is marked as posted before Telegram
@@ -117,15 +169,18 @@ confirms delivery, and a partial failure reports the message ids that arrived.
 
 1. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are repository secrets.
    `TELEGRAM_CHAT_ID` is `@StreamBridge_App`.
+2. `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are repository secrets, from
+   [my.telegram.org](https://my.telegram.org) → *API development tools*. They are
+   needed only for the APK/IPA uploads; without them the announcement still posts.
 2. **Merge this workflow into the default branch (`main`).** GitHub only creates
    a `release: published` trigger for workflows that exist on the default branch.
    On any other branch the file is inert: no run starts, and the workflow does
    not appear in the Actions list until the merge lands. `workflow_dispatch` also
    only offers workflows from the default branch in the UI.
-3. The bot must be an **administrator** of the channel with *Post Messages*.
+4. The bot must be an **administrator** of the channel with *Post Messages*.
    *Pin Messages* enables the pinned duplicate guard (and the pin itself); without
    it the announcement still posts and the step reports a warning.
-4. That is all. The first release published after the merge is announced
+5. That is all. The first release published after the merge is announced
    automatically. Releases published before the merge are not backfilled; use a
    manual dispatch with `dry_run` unchecked if one should be announced.
 
@@ -136,12 +191,23 @@ scripts/tests/telegram-announcement-test.py     # offline; no credentials needed
 scripts/tests/run-tests.sh                      # the repository's whole suite
 ```
 
-The tests replace the Bot API with a scripted mock, so no test can reach the
+The tests replace Telegram with scripted doubles, so no test can reach the
 channel. They cover event filtering (draft, prerelease, duplicate), note parsing,
 HTML escaping, section routing, long-note splitting, asset detection and missing
 assets, button URLs, missing secrets, token redaction, 429/5xx/400/network
 failures, partial delivery, unconfirmed delivery, the pinned-message and ledger
 duplicate guards, idempotent reruns, and the workflow's own guardrails.
+
+Binary delivery is covered in two layers. The download side runs against a
+loopback HTTP server and proves that a truncated body, a wrong digest, a missing
+URL, a zero size and an over-ceiling file are all refused before anything is
+uploaded. The upload side keeps **Telethon's own** `upload_file` and `send_file`
+-- the 512 KiB chunk loop, the `upload.saveBigFilePart` requests, the filename
+attributes, the response parsing -- and stubs only the network call, so a 12 MiB
+file is reassembled byte-for-byte, a mid-upload drop is retried, FloodWait is
+honoured, a permanent rejection is not retried, and an unconfirmed send is
+reported as a failure. A separate test proves the login uses
+`auth.importBotAuthorization` and never asks for a phone number or a code.
 
 To see exactly what a release would post without sending anything, dispatch the
 workflow with `dry_run` checked, or locally:

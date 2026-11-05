@@ -36,7 +36,13 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 
 import telegram_announce as announce  # noqa: E402
+import telegram_assets as assets  # noqa: E402
 import telegram_release_notes as notes  # noqa: E402
+
+try:
+    import telethon  # noqa: F401  - optional: only the upload tests need it
+except ImportError:  # pragma: no cover
+    telethon = None
 
 TOKEN = "123456:AAH-offline-test-token-not-a-real-secret"
 CHAT = "@StreamBridge_App"
@@ -430,9 +436,14 @@ class AssetTests(unittest.TestCase):
         buttons = dict(announcement.keyboard)
         self.assertEqual(buttons[notes.DOWNLOAD_BUTTON_LABEL], RELEASE_URL)
         published = {asset["name"]: asset["browser_download_url"] for asset in release_payload()["assets"]}
-        self.assertEqual(buttons["🤖 Android APK"], published["androidApp-full-arm64-v8a-release.apk"])
-        self.assertEqual(buttons["🍏 iOS IPA"], published["StreamBridge-9.9.9-iOS-unsigned.ipa"])
+        # Every published binary gets its own exact link; none is guessed.
+        self.assertEqual(buttons["🤖 Android ARM64"], published["androidApp-full-arm64-v8a-release.apk"])
+        self.assertEqual(buttons["🤖 Android ARMv7"], published["androidApp-full-armeabi-v7a-release.apk"])
+        self.assertEqual(buttons["🤖 Android x86"], published["androidApp-full-x86-release.apk"])
+        self.assertEqual(buttons["🤖 Android x86_64"], published["androidApp-full-x86_64-release.apk"])
+        self.assertEqual(buttons["🍎 iOS IPA"], published["StreamBridge-9.9.9-iOS-unsigned.ipa"])
         self.assertEqual(buttons["🔐 Checksums"], published["checksums.sha256"])
+        self.assertEqual(set(buttons.values()), {RELEASE_URL, *published.values()})
         for label, url in announcement.keyboard:
             self.assertTrue(url.startswith("https://github.com/sascio/MyBridge/releases/"), url)
 
@@ -591,7 +602,13 @@ class DeliveryTests(unittest.TestCase):
         first = mock.sent_messages()[0]
         rows = first["reply_markup"]["inline_keyboard"]
         self.assertEqual(rows[0], [{"text": notes.DOWNLOAD_BUTTON_LABEL, "url": RELEASE_URL}])
-        self.assertEqual(len(rows), 4)
+        # One row per verified binary (four ABIs + the IPA) plus the checksum file.
+        self.assertEqual(len(rows), 7)
+        labels = [row[0]["text"] for row in rows]
+        for expected in ("Android ARM64", "Android ARMv7", "Android x86", "Android x86_64", "iOS IPA"):
+            self.assertTrue(
+                any(expected in label for label in labels), f"no direct button for {expected}: {labels}"
+            )
         for row in rows:
             self.assertTrue(row[0]["url"].startswith("https://"))
 
@@ -895,6 +912,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}"', self.text)
         self.assertIn("--dry-run", self.text)
 
+    def test_the_upload_step_is_ordered_after_the_announcement_and_is_non_fatal(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        names = [step.get("name", "") for step in yaml.safe_load(self.text)["jobs"]["announce"]["steps"]]
+        publish = next(i for i, name in enumerate(names) if name.startswith("Publish the announcement"))
+        deliver = next(i for i, name in enumerate(names) if name.startswith("Deliver the APK"))
+        record = next(i for i, name in enumerate(names) if name.startswith("Record the announced"))
+        self.assertLess(publish, deliver, "the announcement must be posted before the binaries")
+        self.assertLess(deliver, record, "the ledger must be committed after the delivery attempt")
+        steps = {step.get("name"): step for step in yaml.safe_load(self.text)["jobs"]["announce"]["steps"]}
+        # A failed upload must never turn a published release into a failed run.
+        self.assertIs(steps[names[deliver]].get("continue-on-error"), True)
+
+    def test_the_upload_step_cannot_write_to_the_repository(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        workflow = yaml.safe_load(self.text)
+        self.assertEqual(workflow["permissions"], {"contents": "write"})
+        step = next(s for s in workflow["jobs"]["announce"]["steps"] if s.get("name", "").startswith("Deliver the APK"))
+        # Downloads go to the runner temp directory, never into the checkout.
+        self.assertIn("RUNNER_TEMP", step["run"])
+        self.assertIn('rm -rf "${workspace}"', step["run"])
+
+    def test_the_new_secrets_are_only_used_for_the_upload_step(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        steps = yaml.safe_load(self.text)["jobs"]["announce"]["steps"]
+        for step in steps:
+            uses_api_hash = "TELEGRAM_API_HASH" in (step.get("env") or {})
+            self.assertEqual(
+                uses_api_hash,
+                step.get("name", "").startswith("Deliver the APK"),
+                f"{step.get('name')} should not reference TELEGRAM_API_HASH",
+            )
+
     def test_every_run_block_is_valid_bash(self) -> None:
         """The workflow's shells must parse before GitHub ever runs them.
 
@@ -957,6 +1009,529 @@ class WorkflowTests(unittest.TestCase):
         for other in ("release-draft.yml", "ios-release.yml", "build.yml", "update-store-source.yml"):
             self.assertNotIn(f"gh workflow run {other}", self.text)
 
+
+
+# --------------------------------------------------------------------------- #
+# Binary delivery: download, verify, upload
+# --------------------------------------------------------------------------- #
+
+
+def binary_payload(size: int = 4096) -> bytes:
+    return bytes((index * 37) % 251 for index in range(size))
+
+
+class _ServedFiles:
+    """A tiny HTTP server, so downloads run the real urllib code.
+
+    Returns raw bytes from a dict, and can be told to truncate or corrupt a
+    response so the verification path is exercised rather than mocked.
+    """
+
+    def __init__(self, files: dict[str, bytes]) -> None:
+        import http.server
+        import socketserver
+        import threading
+
+        self.files = dict(files)
+        self.truncate: dict[str, int] = {}
+        self.requests: list[str] = []
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):  # noqa: D102 - silence the test server
+                pass
+
+            def do_GET(self):  # noqa: N802
+                name = self.path.lstrip("/")
+                outer.requests.append(name)
+                body = outer.files.get(name, b"")
+                self.send_response(200 if name in outer.files else 404)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                cut = outer.truncate.get(name)
+                self.wfile.write(body if cut is None else body[:cut])
+
+        self._server = socketserver.TCPServer(("127.0.0.1", 0), Handler)
+        self.port = self._server.server_address[1]
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+
+    def url(self, name: str) -> str:
+        return f"http://127.0.0.1:{self.port}/{name}"
+
+    def close(self) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+
+class DownloadTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import hashlib
+        import tempfile
+
+        self.temp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.temp, ignore_errors=True))
+        self.body = binary_payload(200_000)
+        self.digest = hashlib.sha256(self.body).hexdigest()
+        self.served = _ServedFiles(
+            {
+                "app.apk": self.body,
+                "short.apk": self.body,
+                "checksums.sha256": f"{self.digest}  app.apk\n".encode(),
+            }
+        )
+        self.addCleanup(self.served.close)
+
+    def _asset(self, name="app.apk", size=200_000, digest="") -> notes.Asset:
+        return notes.Asset(name=name, size=size, url=self.served.url(name), digest=digest)
+
+    def test_downloads_and_verifies_the_published_bytes(self) -> None:
+        path, digest = assets.download_asset(self._asset(), f"{self.temp}/app.apk")
+        with open(path, "rb") as handle:
+            self.assertEqual(handle.read(), self.body)
+        self.assertEqual(digest, self.digest)
+
+    def test_checksum_file_is_parsed_both_ways(self) -> None:
+        parsed = assets.parse_checksums(
+            f"{self.digest}  app.apk\nSHA256 (other.apk) = {self.digest}\n"
+        )
+        self.assertEqual(parsed["app.apk"], self.digest)
+        self.assertEqual(parsed["other.apk"], self.digest)
+
+    def test_checksum_file_entries_win_over_nothing_else(self) -> None:
+        asset = self._asset(digest=f"sha256:{self.digest}")
+        self.assertEqual(assets.expected_digest(asset, {}), self.digest)
+        self.assertIsNone(assets.expected_digest(self._asset(), {}))
+
+    def test_truncated_response_is_rejected_and_leaves_no_file(self) -> None:
+        self.served.truncate["app.apk"] = 1000
+        with self.assertRaises(assets.AssetError) as caught:
+            assets.download_asset(self._asset(), f"{self.temp}/app.apk", attempts=1, sleeper=lambda _s: None)
+        self.assertIn("incomplete download", str(caught.exception))
+        self.assertFalse(os.path.exists(f"{self.temp}/app.apk"))
+        self.assertFalse(os.path.exists(f"{self.temp}/app.apk.part"))
+
+    def test_wrong_digest_is_rejected(self) -> None:
+        with self.assertRaises(assets.AssetError) as caught:
+            assets.download_asset(
+                self._asset(), f"{self.temp}/app.apk", checksums={"app.apk": "0" * 64}, attempts=1,
+                sleeper=lambda _s: None,
+            )
+        self.assertIn("digest mismatch", str(caught.exception))
+
+    def test_a_missing_url_is_refused_before_any_request(self) -> None:
+        asset = notes.Asset(name="app.apk", size=10, url="")
+        with self.assertRaises(assets.AssetError):
+            assets.download_asset(asset, f"{self.temp}/app.apk")
+        self.assertEqual(self.served.requests, [])
+
+    def test_a_zero_size_asset_is_refused(self) -> None:
+        asset = notes.Asset(name="app.apk", size=0, url=self.served.url("app.apk"))
+        with self.assertRaises(assets.AssetError) as caught:
+            assets.download_asset(asset, f"{self.temp}/app.apk")
+        self.assertIn("no size", str(caught.exception))
+
+    def test_an_asset_over_the_mtproto_ceiling_is_refused(self) -> None:
+        asset = notes.Asset(
+            name="huge.apk", size=assets.UPLOAD_MAX_BYTES + 1, url=self.served.url("app.apk")
+        )
+        with self.assertRaises(assets.AssetError) as caught:
+            assets.download_asset(asset, f"{self.temp}/huge.apk")
+        self.assertIn("MTProto ceiling", str(caught.exception))
+
+    def test_a_server_error_is_retried_then_reported(self) -> None:
+        asset = notes.Asset(name="gone.apk", size=10, url=self.served.url("gone.apk"))
+        delays: list[float] = []
+        with self.assertRaises(assets.AssetError):
+            assets.download_asset(asset, f"{self.temp}/gone.apk", sleeper=delays.append)
+        self.assertEqual(len(delays), assets.DOWNLOAD_ATTEMPTS - 1)
+
+    def test_the_announcement_uses_the_verified_asset_metadata(self) -> None:
+        # The caption must carry the exact URL and size from the API object.
+        payload = release_payload()
+        release = notes.Release.from_api(payload)
+        plans, _skipped = assets.plan_uploads(release)
+        self.assertTrue(plans)
+        for plan in plans:
+            self.assertIn(plan.asset.url, plan.caption)
+            self.assertIn(notes.human_size(plan.asset.size), plan.caption)
+            self.assertIn(release.version, plan.caption)
+
+
+class PlanUploadTests(unittest.TestCase):
+    def test_every_published_abi_and_the_ipa_are_planned_in_order(self) -> None:
+        release = notes.Release.from_api(release_payload())
+        plans, skipped = assets.plan_uploads(release)
+        kinds = [plan.kind for plan in plans]
+        self.assertEqual(kinds.count("android"), 4)
+        self.assertEqual(kinds.count("ios"), 1)
+        self.assertEqual(
+            [plan.asset.abi for plan in plans if plan.kind == "android"],
+            ["arm64-v8a", "armeabi-v7a", "x86_64", "x86"],
+        )
+        # The checksum file is reported, never uploaded as a binary.
+        self.assertTrue(any("checksums" in reason for reason in skipped))
+
+    def test_the_ios_filename_is_detected_dynamically(self) -> None:
+        payload = release_payload()
+        for asset in payload["assets"]:
+            if asset["name"].endswith(".ipa"):
+                asset["name"] = "StreamBridge-7.4.2-iOS-unsigned.ipa"
+        release = notes.Release.from_api(payload)
+        plans, _ = assets.plan_uploads(release)
+        ios = [plan for plan in plans if plan.kind == "ios"]
+        self.assertEqual(len(ios), 1)
+        self.assertEqual(ios[0].filename, "StreamBridge-7.4.2-iOS-unsigned.ipa")
+
+    def test_an_unfinished_asset_is_never_planned(self) -> None:
+        payload = release_payload()
+        for asset in payload["assets"]:
+            if asset["name"].endswith(".ipa"):
+                asset["state"] = "starter"
+        release = notes.Release.from_api(payload)
+        plans, skipped = assets.plan_uploads(release)
+        self.assertFalse([plan for plan in plans if plan.kind == "ios"])
+        self.assertTrue(any("not published yet" in reason for reason in skipped))
+
+    def test_android_labels_are_human_readable(self) -> None:
+        release = notes.Release.from_api(release_payload())
+        plans, _ = assets.plan_uploads(release)
+        by_abi = {plan.asset.abi: plan.caption for plan in plans}
+        self.assertIn("ARM64-v8a", by_abi["arm64-v8a"])
+        self.assertIn("ARMv7", by_abi["armeabi-v7a"])
+
+    def test_captions_stay_inside_the_telegram_limit(self) -> None:
+        release = notes.Release.from_api(release_payload())
+        plans, _ = assets.plan_uploads(release)
+        for plan in plans:
+            self.assertLessEqual(notes.telegram_length(plan.caption), assets.CAPTION_LIMIT)
+            self.assertEqual(notes.validate_html(plan.caption), [])
+
+    def test_a_release_without_binaries_plans_nothing(self) -> None:
+        payload = release_payload()
+        payload["assets"] = [asset for asset in payload["assets"] if not asset["name"].endswith((".apk", ".ipa"))]
+        release = notes.Release.from_api(payload)
+        plans, _ = assets.plan_uploads(release)
+        self.assertEqual(plans, [])
+
+
+class LedgerStateTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import tempfile
+
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
+        self.path = f"{self.dir}/ledger.json"
+        self.release = notes.Release.from_api(release_payload())
+        self.plans, _ = assets.plan_uploads(self.release)
+
+    def test_a_confirmed_upload_is_recorded_and_recognised(self) -> None:
+        plan = self.plans[0]
+        assets.record_upload(self.path, self.release, plan, 4242, sha256="a" * 64, chat_id=CHAT)
+        recorded = assets.recorded_uploads(self.path, self.release.id)
+        self.assertIn(plan.asset.name, recorded)
+        self.assertEqual(recorded[plan.asset.name]["message_id"], 4242)
+
+    def test_recording_is_idempotent_per_asset(self) -> None:
+        plan = self.plans[0]
+        assets.record_upload(self.path, self.release, plan, 1)
+        assets.record_upload(self.path, self.release, plan, 2)
+        recorded = assets.recorded_uploads(self.path, self.release.id)
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[plan.asset.name]["message_id"], 2)
+
+    def test_state_never_contains_a_credential(self) -> None:
+        plan = self.plans[0]
+        assets.record_upload(self.path, self.release, plan, 7, chat_id=CHAT)
+        with open(self.path, encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertNotIn(TOKEN, text)
+        self.assertNotIn("api_hash", text.lower())
+        self.assertNotIn("token", text.lower())
+
+    def test_a_corrupt_ledger_is_reported_not_ignored_silently(self) -> None:
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("{not json")
+        with self.assertRaises(assets.AssetError):
+            assets.load_ledger(self.path)
+        # A read-only view degrades to "nothing recorded" so a rerun can proceed.
+        self.assertEqual(assets.recorded_uploads(self.path, self.release.id), {})
+
+
+class _RecordingTransport:
+    def __init__(self, fail: set[str] | None = None) -> None:
+        self.uploaded: list[tuple[str, int]] = []
+        self.fail = fail or set()
+        self.next_id = 700
+
+    def upload_document(self, path: str, filename: str, caption: str) -> int:
+        if filename in self.fail:
+            raise assets.AssetError(f"simulated rejection of {filename}")
+        self.uploaded.append((filename, os.path.getsize(path)))
+        self.next_id += 1
+        return self.next_id
+
+
+class UploadRunTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import tempfile
+
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.dir, ignore_errors=True))
+        self.workspace = f"{self.dir}/work"
+        self.ledger = f"{self.dir}/ledger.json"
+        self.release = notes.Release.from_api(release_payload())
+        self.body = binary_payload(150_000)
+        import hashlib
+
+        self.digest = hashlib.sha256(self.body).hexdigest()
+        binaries = [
+            asset["name"]
+            for asset in release_payload()["assets"]
+            if asset["name"].endswith((".apk", ".ipa"))
+        ]
+        files = {name: self.body for name in binaries}
+        files["checksums.sha256"] = b"".join(
+            f"{self.digest}  {name}\n".encode() for name in binaries
+        )
+        self.served = _ServedFiles(files)
+        self.addCleanup(self.served.close)
+        # Point every asset at the loopback server, keeping the API's sizes but
+        # dropping the sample digest: the checksum file is the source here.
+        payload = release_payload()
+        for asset in payload["assets"]:
+            asset["browser_download_url"] = self.served.url(asset["name"])
+            asset["digest"] = ""
+            if asset["name"].endswith((".apk", ".ipa")):
+                asset["size"] = len(self.body)
+        self.release = notes.Release.from_api(payload)
+
+    def _run(self, transport) -> assets.UploadRun:
+        return assets.upload_release_assets(
+            self.release,
+            transport=transport,
+            workspace=self.workspace,
+            ledger_path=self.ledger,
+            chat_id=CHAT,
+            sleeper=lambda _s: None,
+        )
+
+    def test_all_five_binaries_are_downloaded_verified_and_uploaded(self) -> None:
+        transport = _RecordingTransport()
+        run = self._run(transport)
+        self.assertTrue(run.ok, run.records)
+        self.assertEqual(len(transport.uploaded), 5)
+        self.assertEqual(len(run.uploaded), 5)
+        for _filename, size in transport.uploaded:
+            self.assertEqual(size, len(self.body))
+        # Nothing is left behind on disk.
+        self.assertEqual(os.listdir(self.workspace) or [], [])
+        # Every confirmed upload is in the ledger.
+        self.assertEqual(len(assets.recorded_uploads(self.ledger, self.release.id)), 5)
+
+    def test_a_rerun_uploads_nothing_again(self) -> None:
+        self._run(_RecordingTransport())
+        second = _RecordingTransport()
+        run = self._run(second)
+        self.assertEqual(second.uploaded, [])
+        self.assertEqual(len(run.uploaded), 5)
+        self.assertTrue(all(record.state == "already" for record in run.records))
+
+    def test_a_partial_failure_is_retried_alone_on_the_next_run(self) -> None:
+        ipa = next(plan.filename for plan in assets.plan_uploads(self.release)[0] if plan.kind == "ios")
+        first = _RecordingTransport(fail={ipa})
+        run = self._run(first)
+        self.assertEqual(len(first.uploaded), 4)
+        self.assertEqual(len(run.failed), 1)
+        self.assertFalse(run.ok)
+        self.assertEqual(os.listdir(self.workspace), [])
+
+        second = _RecordingTransport()
+        retry = self._run(second)
+        self.assertEqual([name for name, _ in second.uploaded], [ipa])
+        self.assertEqual(sum(1 for record in retry.records if record.state == "already"), 4)
+        self.assertTrue(retry.ok)
+
+    def test_a_failed_asset_keeps_its_verified_github_link(self) -> None:
+        transport = _RecordingTransport(fail={"androidApp-full-x86-release.apk"})
+        run = self._run(transport)
+        failed = run.failed[0]
+        self.assertTrue(failed.url.startswith("http://127.0.0.1:"))
+        self.assertEqual(failed.name, "androidApp-full-x86-release.apk")
+
+    def test_the_temp_file_is_removed_even_when_the_upload_fails(self) -> None:
+        transport = _RecordingTransport(fail={"androidApp-full-arm64-v8a-release.apk"})
+        self._run(transport)
+        self.assertEqual(os.listdir(self.workspace), [])
+
+    def test_no_transport_means_no_upload_but_a_clear_failure(self) -> None:
+        run = assets.upload_release_assets(
+            self.release, transport=None, workspace=self.workspace, ledger_path=self.ledger
+        )
+        self.assertEqual(run.uploaded, [])
+        self.assertEqual(len(run.failed), 5)
+
+    def test_a_missing_secret_is_named_and_does_not_block_the_announcement(self) -> None:
+        saved = {name: os.environ.pop(name, None) for name in ("TELEGRAM_API_ID", "TELEGRAM_API_HASH")}
+        self.addCleanup(lambda: [os.environ.__setitem__(k, v) for k, v in saved.items() if v])
+        with self.assertRaises(assets.ConfigError) as caught:
+            assets.require_env("TELEGRAM_API_ID")
+        self.assertIn("TELEGRAM_API_ID", str(caught.exception))
+        self.assertIn("Settings -> Secrets and variables -> Actions", str(caught.exception))
+        self.assertIn("announcement is still posted", str(caught.exception))
+
+    def test_a_short_api_hash_is_rejected_before_connecting(self) -> None:
+        with self.assertRaises(assets.ConfigError):
+            assets.MtprotoUploader(1, "short", TOKEN, CHAT)
+        with self.assertRaises(assets.ConfigError):
+            assets.MtprotoUploader(0, "0" * 32, TOKEN, CHAT)
+
+
+@unittest.skipUnless(telethon is not None, "Telethon is required for the upload transport tests")
+class MtprotoTransportTests(unittest.TestCase):
+    """The real Telethon client, driven over a stubbed RPC layer.
+
+    These tests keep Telethon's own ``upload_file`` and ``send_file`` -- the
+    chunk loop, the ``upload.saveBigFilePart`` requests, the filename attributes
+    and the response parsing -- and only replace the socket. That is the layer
+    where a real upload actually breaks.
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from fake_telegram_rpc import FakeRpcServer, make_client
+
+        self.server = FakeRpcServer()
+        self.client = make_client(self.server)
+        self.temp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.temp, ignore_errors=True))
+        self.payload = binary_payload(12 * 1024 * 1024 + 777)
+        self.path = f"{self.temp}/androidApp-full-arm64-v8a-release.apk"
+        with open(self.path, "wb") as handle:
+            handle.write(self.payload)
+
+    def _uploader(self, sleeper=lambda _s: None, **kwargs) -> assets.MtprotoUploader:
+        uploader = assets.MtprotoUploader(
+            12345, "0" * 32, TOKEN, CHAT, sleeper=sleeper, **kwargs
+        )
+        uploader._client = self.client
+        self.addCleanup(uploader.close)
+        return uploader
+
+    def test_a_12_mib_file_is_uploaded_completely_in_512_kib_parts(self) -> None:
+        uploader = self._uploader()
+        message_id = uploader.upload_document(self.path, "app.apk", "caption")
+        self.assertIsInstance(message_id, int)
+        file_id = self.server.last_upload_file_id
+        self.assertEqual(self.server.uploaded_bytes(file_id), self.payload)
+        sizes = [len(part) for index, part in sorted(self.server.parts[file_id].items())]
+        # Every part but the last is exactly 512 KiB, and the parts sum to the
+        # file: nothing was dropped and nothing was padded.
+        self.assertEqual(set(sizes[:-1]), {assets_512k})
+        self.assertLessEqual(sizes[-1], assets_512k)
+        self.assertEqual(sum(sizes), len(self.payload))
+
+    def test_files_over_10_mib_use_the_big_file_rpc(self) -> None:
+        uploader = self._uploader()
+        uploader.upload_document(self.path, "app.apk", "caption")
+        self.assertIn("SaveBigFilePartRequest", self.client.rpc_log)
+
+    def test_the_filename_and_document_type_are_preserved(self) -> None:
+        uploader = self._uploader()
+        uploader.upload_document(self.path, "StreamBridge-9.9.9-iOS-unsigned.ipa", "cap")
+        self.assertEqual(self.server.last_document_name, "StreamBridge-9.9.9-iOS-unsigned.ipa")
+        # Uploaded as a document (never re-encoded, never an album), to the channel.
+        self.assertEqual(self.server.send_media[-1]["media_type"], "InputMediaUploadedDocument")
+        self.assertEqual(self.server.send_media[-1]["peer"], "PeerChannel")
+        self.assertNotIn("UploadMediaRequest", self.client.rpc_log)
+
+    def test_a_network_drop_mid_upload_is_retried_and_the_file_still_arrives(self) -> None:
+        self.server.fail_after_parts = 5
+        uploader = self._uploader()
+        self.assertIsInstance(uploader.upload_document(self.path, "app.apk", "cap"), int)
+        self.assertEqual(self.server.uploaded_bytes(self.server.last_upload_file_id), self.payload)
+
+    def test_flood_wait_is_honoured(self) -> None:
+        from telethon.errors import FloodWaitError
+
+        original = self.server._send_media
+        calls = {"count": 0}
+
+        def flood(request):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise FloodWaitError(request=None, capture=9)
+            return original(request)
+
+        self.server._send_media = flood
+        waits: list[float] = []
+        uploader = self._uploader(sleeper=waits.append)
+        self.assertIsInstance(uploader.upload_document(self.path, "app.apk", "cap"), int)
+        self.assertEqual(waits, [9.0])
+
+    def test_a_permanent_rejection_is_not_retried(self) -> None:
+        from telethon.errors import ChatAdminRequiredError
+
+        class Rejected(ChatAdminRequiredError):
+            def __init__(self) -> None:
+                Exception.__init__(self, "CHAT_ADMIN_REQUIRED")
+
+        attempts = {"count": 0}
+
+        def reject(_request):
+            attempts["count"] += 1
+            raise Rejected()
+
+        self.server._send_media = reject
+        uploader = self._uploader()
+        with self.assertRaises(assets.AssetError):
+            uploader.upload_document(self.path, "app.apk", "cap")
+        self.assertEqual(attempts["count"], 1)
+
+    def test_an_unconfirmed_send_is_a_failure(self) -> None:
+        from telethon.tl import types
+
+        self.server._send_media = lambda _request: types.Updates(
+            updates=[], users=[], chats=[], date=None, seq=0
+        )
+        uploader = self._uploader()
+        with self.assertRaises(assets.AssetError) as caught:
+            uploader.upload_document(self.path, "app.apk", "cap")
+        self.assertIn("unconfirmed", str(caught.exception))
+
+    def test_the_bot_token_never_appears_in_a_repr_or_a_log(self) -> None:
+        uploader = self._uploader()
+        self.assertNotIn(TOKEN, repr(uploader))
+        self.assertNotIn(TOKEN.split(":")[1], repr(uploader))
+
+    def test_a_file_over_the_ceiling_is_refused_before_upload(self) -> None:
+        uploader = self._uploader()
+        original = assets.UPLOAD_MAX_BYTES
+        assets.UPLOAD_MAX_BYTES = 1024
+        self.addCleanup(setattr, assets, "UPLOAD_MAX_BYTES", original)
+        with self.assertRaises(assets.AssetError):
+            uploader.upload_document(self.path, "app.apk", "cap")
+
+    def test_only_a_bot_token_is_used_for_authentication(self) -> None:
+        # start(bot_token=...) must go through auth.importBotAuthorization and
+        # never ask for a phone number, a login code or a 2FA password.
+        from telethon.tl import types
+
+        from fake_telegram_rpc import AuthStub
+
+        stub = AuthStub()
+        stub.loop.run_until_complete(
+            stub._start(None, None, TOKEN, False, None, "s", "b", 3)
+        )
+        self.assertIn("ImportBotAuthorizationRequest", stub.seen)
+        self.assertNotIn("SendCodeRequest", stub.seen)
+        self.assertNotIn("SignInRequest", stub.seen)
+
+
+assets_512k = 512 * 1024
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

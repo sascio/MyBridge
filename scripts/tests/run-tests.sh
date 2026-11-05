@@ -42,6 +42,10 @@ section "Telegram release announcement"
 # rather than fail.
 python3 -c "import yaml" 2>/dev/null \
   || printf '  note PyYAML is not installed; the workflow YAML checks will skip\n'
+# Telethon is only needed by the large-file upload tests, which drive the real
+# client over a stubbed RPC layer. Without it those tests skip rather than fail.
+python3 -c "import telethon" 2>/dev/null \
+  || printf '  note Telethon is not installed; the MTProto upload tests will skip\n'
 # Formatting, escaping, pagination, asset detection, idempotency, retries and the
 # workflow's own guardrails. Runs entirely offline against a mock Bot API, so no
 # announcement can ever reach the public channel from CI.
