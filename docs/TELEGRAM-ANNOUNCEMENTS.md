@@ -13,12 +13,58 @@ or deletes a release, and it does not touch the Android or iOS build jobs.
 | `release`, type `published` | The announcement is rendered from that release and posted. |
 | Draft creation, tag push, branch push | Never triggers the workflow. |
 | `release` with `prerelease: true` | The job is skipped; nothing is posted. |
-| Manual dispatch, default | Dry run: the exact messages are rendered and validated in the log, nothing is sent. |
-| Manual dispatch, `dry_run` unchecked | Sends for the resolved release (`tag` input, or the latest published release). |
+| Manual dispatch, `preflight` checked | Read-only Telegram readiness check; ignores `dry_run`, `tag`, and `upload_assets`. |
+| Manual dispatch, default (`preflight` unchecked) | Dry run: the exact messages are rendered and validated in the log, nothing is sent. |
+| Manual dispatch, `preflight` and `dry_run` unchecked | Sends for the resolved release (`tag` input, or the latest published release). |
 
 Every future release is covered automatically. No version number is hardcoded:
 the release name, tag, version code, notes, assets, sizes and URLs all come from
 the GitHub API object of the release that fired the event.
+
+## Read-only Telegram preflight
+
+After this workflow is merged into the default branch, open **Actions → Telegram
+release announcement → Run workflow**, select **Preflight**, and run it. The
+preflight input defaults to false and takes precedence over `dry_run`, `tag` and
+`upload_assets`. It uses an independent job, so the announcement, upload and
+ledger steps are skipped even if the other inputs request a real announcement.
+The equivalent GitHub CLI command is:
+
+```bash
+gh workflow run telegram-release-announcement.yml --ref main -f preflight=true
+```
+
+All four repository secrets must be configured: `TELEGRAM_BOT_TOKEN`,
+`TELEGRAM_CHAT_ID`, `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`. A missing value,
+a bot authentication or channel access failure, missing administrator or **Post
+Messages** rights, or an MTProto history failure makes the job fail and names the
+problem in the log. The final result also appears in the job summary.
+
+The job checks out the default branch with a read-only GitHub token and without
+persisting checkout credentials. It creates a synthetic release object in runner
+temporary storage solely because the existing CLI requires release metadata,
+and then runs this command (the fixture is not an actual release):
+
+```bash
+python3 scripts/telegram_announce.py --release-json "${RUNNER_TEMP}/telegram-preflight-release.json" --preflight
+```
+
+The workflow additionally uses the existing Bot API client for `getMe` and
+`getChatMember`: `getChat` alone does not report the bot's administrator status
+or Post Messages right. The existing CLI may therefore print a membership warning
+based on `getChat`; the preceding `getChatMember` check and the **final job
+result** are authoritative. MTProto uses the existing bot login and reads recent
+channel history with the fixture marker `#SB0`; this is an access check, not a
+claim about any real release or duplicate. The existing CLI gives `--dry-run`
+priority over `--preflight`, so the workflow deliberately passes only
+`--preflight`, regardless of the dispatch's dry-run input.
+
+No real release is fetched or changed; no tag or post ledger is modified; no
+message is sent, file uploaded, or message pinned or unpinned. The normal release
+job retains its existing behavior and ledger write permission. Note that the
+current announcement step receives only the bot token and chat ID, so its
+optional MTProto duplicate-history guard is not enabled by this preflight; the
+existing pinned-message and ledger guards remain unchanged.
 
 ## How the message is built
 
@@ -160,10 +206,11 @@ confirms delivery, and a partial failure reports the message ids that arrived.
   *Settings → Secrets and variables → Actions*, plus a note that the GitHub
   release is unaffected.
 * A pin failure only warns: the announcement is already delivered.
-* The bot token is read from the environment, sent only in the HTTPS request
-  body, masked with `::add-mask::`, and redacted from every log line the script
-  prints. It is never passed as an argument, echoed, or written to an artifact.
-  The workflow uploads no artifacts at all.
+* Credentials are read from the step environment and masked in GitHub Actions
+  logs. The Bot API includes the token in its HTTPS request URL, so it must never
+  be printed; the scripts redact token-shaped values in their diagnostics. No
+  credential is passed as an argument or written to an artifact. The workflow
+  uploads no artifacts at all.
 
 ## Setup
 
@@ -196,7 +243,11 @@ channel. They cover event filtering (draft, prerelease, duplicate), note parsing
 HTML escaping, section routing, long-note splitting, asset detection and missing
 assets, button URLs, missing secrets, token redaction, 429/5xx/400/network
 failures, partial delivery, unconfirmed delivery, the pinned-message and ledger
-duplicate guards, idempotent reruns, and the workflow's own guardrails.
+duplicate guards, idempotent reruns, and the workflow's own guardrails. The
+preflight tests execute the workflow's actual shell with mocked Bot API and
+MTProto clients, check the input and permission matrix, and reject any ledger,
+send, upload or pin access. A separate test drives Telethon's real bot login and
+history RPC construction through an offline allowlisted RPC server.
 
 Binary delivery is covered in two layers. The download side runs against a
 loopback HTTP server and proves that a truncated body, a wrong digest, a missing

@@ -29,22 +29,28 @@ name: Telegram release announcement
 # TELEGRAM_API_ID / TELEGRAM_API_HASH (from my.telegram.org -> API development
 # tools) for the MTProto upload. All are read into the step environment only. The
 # token and hash are never echoed, never passed as arguments and never written to
-# an artifact; the scripts redact them from any error they print and mask them in
-# the log. If TELEGRAM_API_ID/HASH are absent the announcement is still posted and
-# the binaries are reported as not delivered; the GitHub release is unaffected.
+# an artifact; GitHub masks secrets in logs and the scripts also redact token
+# patterns. If TELEGRAM_API_ID/HASH are absent the announcement is still posted
+# and the binaries are reported as not delivered; the GitHub release is unaffected.
 #
 # The bot must be an administrator of @StreamBridge_App with "Post Messages"
 # (and "Pin Messages" for the pinned duplicate guard). Without pin rights the
 # announcement still posts; only the pin step reports a warning.
 #
-# Manual runs: dispatch with `dry_run` checked to render and validate the exact
-# messages without sending anything. Set `tag` to render a specific release.
+# Manual runs: `preflight` checks Telegram readiness without publishing anything,
+# independently of every other input. Otherwise `dry_run` renders and validates
+# the exact messages without sending them. Set `tag` to render a specific release.
 
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
+      preflight:
+        description: Check Telegram readiness without posting or uploading (ignores all other inputs)
+        required: false
+        type: boolean
+        default: false
       tag:
         description: Published release tag to render (empty = latest published release)
         required: false
@@ -61,27 +67,164 @@ on:
         default: true
 
 permissions:
-  # Read the release; write only for the post ledger commit at the end. No other
-  # permission is requested: no releases API writes, no packages, no issues.
-  contents: write
+  # Preflight needs only a checkout. The announcement job requests write access
+  # separately for its post ledger commit; no other scope is requested.
+  contents: read
 
 concurrency:
   # Serialise by release id when the id is known, so a rerun cannot interleave
   # with the run it is retrying. cancel-in-progress stays false: a run that is
   # already posting must be allowed to finish before the retry inspects the
   # channel.
-  group: telegram-announcement-${{ github.event.release.id || inputs.tag || 'latest' }}
+  # Preflight has its own group, so it cannot delay or replace a pending release
+  # announcement (or be grouped according to the otherwise ignored tag input).
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight == true && format('telegram-preflight-{0}', github.run_id) || format('telegram-announcement-{0}', github.event.release.id || inputs.tag || 'latest') }}
   cancel-in-progress: false
 
 jobs:
+  preflight:
+    name: Read-only Telegram preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.preflight == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the announcement tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install pinned MTProto dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet \
+            'telethon==1.42.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
+
+      - name: Verify Telegram readiness (read-only)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          report_result() {
+            status=$?
+            if [[ "${status}" == 0 ]]; then
+              echo "::notice title=Telegram preflight passed::Bot authentication, channel access, administrator status, Post Messages and MTProto channel history were verified."
+              printf '### Telegram preflight\n\n**Passed:** all readiness checks succeeded. Nothing was published or uploaded.\n' >>"${GITHUB_STEP_SUMMARY}"
+            else
+              echo "::error title=Telegram preflight failed::Readiness was not verified (exit ${status}); see the errors above."
+              printf '### Telegram preflight\n\n**Failed:** see the errors in the log. Nothing was published or uploaded.\n' >>"${GITHUB_STEP_SUMMARY}"
+            fi
+          }
+          trap report_result EXIT
+
+          # Unlike the announcement path, preflight must fail if *any* of the
+          # four credentials is missing: otherwise the existing script warns and
+          # skips the history check. Never print a secret's value.
+          missing=0
+          for name in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_API_ID TELEGRAM_API_HASH; do
+            value="${!name-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::The ${name} secret is not configured. Add it in Settings > Secrets and variables > Actions."
+              missing=1
+            elif [[ "${value}" =~ [[:space:]] ]]; then
+              echo "::error::The ${name} secret must be a single line with no whitespace."
+              missing=1
+            else
+              printf '::add-mask::%s\n' "${value}"
+            fi
+          done
+          if [[ "${missing}" != 0 ]]; then
+            exit 3
+          fi
+
+          # Fabricated metadata is required by the existing CLI. No release API,
+          # tag, asset, CLI summary file, or post ledger is involved in this probe.
+          release_json="${RUNNER_TEMP}/telegram-preflight-release.json"
+          cat >"${release_json}" <<'JSON'
+          {
+            "id": 0,
+            "tag_name": "v0.0.0",
+            "name": "Telegram preflight fixture (not a release)",
+            "body": "",
+            "html_url": "https://example.invalid/preflight",
+            "draft": false,
+            "prerelease": false,
+            "assets": []
+          }
+          JSON
+
+          # getChat reports channel details, not the bot's membership. Reuse the
+          # existing Bot API client and its authentication/retry handling for the
+          # additional read-only membership checks; no second auth logic exists.
+          # Do these first so the CLI cannot announce a pass before rights fail.
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, "scripts")
+          import telegram_announce as announce
+
+          token = announce.require_env("TELEGRAM_BOT_TOKEN")
+          chat_id = announce.require_env("TELEGRAM_CHAT_ID")
+          client = announce.TelegramClient(token, chat_id)
+
+          identity = client.call("getMe")
+          bot = identity.result or {}
+          bot_id = bot.get("id")
+          if not identity.ok or bot.get("is_bot") is not True or type(bot_id) is not int or bot_id <= 0:
+              announce.error("Bot authentication failed: getMe did not return a valid bot. Check TELEGRAM_BOT_TOKEN.")
+              raise SystemExit(announce.EXIT_ERROR)
+          print("Bot authentication verified with getMe.")
+
+          channel = client.get_chat()
+          if not channel.ok or (channel.result or {}).get("type") != "channel":
+              announce.error("Channel access failed: getChat did not return a channel. Check TELEGRAM_CHAT_ID and bot membership.")
+              raise SystemExit(announce.EXIT_ERROR)
+          print("Channel access verified with getChat.")
+
+          membership = client.call("getChatMember", {"chat_id": chat_id, "user_id": bot_id})
+          member = membership.result or {}
+          if not membership.ok:
+              announce.error("Could not verify bot membership with getChatMember. Check channel access and TELEGRAM_CHAT_ID.")
+              raise SystemExit(announce.EXIT_ERROR)
+          if member.get("status") != "administrator":
+              announce.error("The bot is not an administrator of the channel (getChatMember).")
+              raise SystemExit(announce.EXIT_ERROR)
+          if member.get("can_post_messages") is not True:
+              announce.error("The bot administrator lacks the required Post Messages permission.")
+              raise SystemExit(announce.EXIT_ERROR)
+          print("Administrator status and Post Messages permission verified with getChatMember.")
+          PY
+
+          # Never pass --dry-run here: the existing CLI selects dry-run before
+          # --preflight. Its getChat membership warning is not authoritative;
+          # the explicit getChatMember check above is the actual rights check.
+          echo "::notice::Administrator rights were verified above; the existing preflight's getChat membership hint is not authoritative."
+          python3 scripts/telegram_announce.py --release-json "${release_json}" --preflight
+
   announce:
     name: Announce the published release
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Official releases only: a draft or a pre-release is never announced.
+    # Preflight always wins over every dispatch input. Official releases only:
+    # a draft or a pre-release is never announced.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.release.draft == false && github.event.release.prerelease == false)
+      (github.event_name != 'workflow_dispatch' || inputs.preflight != true) &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.release.draft == false && github.event.release.prerelease == false))
+
+    permissions:
+      contents: write
 
     env:
       GH_TOKEN: ${{ github.token }}
@@ -100,7 +243,7 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           # A token is kept so the ledger commit below can actually push. It is
-          # this job's own token: `permissions: contents: write` above, nothing
+          # this job's own token: `permissions: contents: write` for this job, nothing
           # else, and the checkout is discarded with the runner.
           persist-credentials: true
 
@@ -195,7 +338,9 @@ jobs:
 
       - name: Publish the announcement
         id: publish
-        if: steps.release.outputs.skip != 'true'
+        if: >-
+          (github.event_name != 'workflow_dispatch' || inputs.preflight != true) &&
+          steps.release.outputs.skip != 'true'
         env:
           # Secrets reach the process through the environment only.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -249,6 +394,7 @@ jobs:
         # warning, never as a failed release: the GitHub release is already live
         # and every file keeps its verified direct link in the announcement.
         if: >-
+          (github.event_name != 'workflow_dispatch' || inputs.preflight != true) &&
           steps.release.outputs.skip != 'true' &&
           steps.release.outputs.dry_run != 'true' &&
           (github.event_name == 'release' || inputs.upload_assets != false)
@@ -309,7 +455,9 @@ jobs:
       - name: Record the announced release
         # Only after the send path reported a confirmed (or already-recorded)
         # announcement. A dry run never touches the ledger.
-        if: steps.publish.outputs.announced == 'true' && steps.release.outputs.dry_run != 'true'
+        if: >-
+          (github.event_name != 'workflow_dispatch' || inputs.preflight != true) &&
+          steps.publish.outputs.announced == 'true' && steps.release.outputs.dry_run != 'true'
         env:
           RELEASE_ID: ${{ steps.release.outputs.release_id }}
           RELEASE_TAG: ${{ steps.release.outputs.tag_name }}

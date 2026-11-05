@@ -13,8 +13,11 @@ Run: scripts/tests/telegram-announcement-test.py
 
 from __future__ import annotations
 
+import ast
+import contextlib
 import http.server
 import io
+import itertools
 import json
 import os
 import re
@@ -24,6 +27,7 @@ import tempfile
 import threading
 import unittest
 import urllib.error
+from unittest import mock as unittest_mock
 
 try:
     import yaml
@@ -48,6 +52,20 @@ TOKEN = "123456:AAH-offline-test-token-not-a-real-secret"
 CHAT = "@StreamBridge_App"
 
 RELEASE_URL = "https://github.com/sascio/MyBridge/releases/tag/v9.9.9"
+
+
+def setUpModule() -> None:
+    # A developer may have real credentials in their shell. Existing send and
+    # preflight tests must never inherit those and attempt real MTProto calls.
+    names = ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH")
+    saved = {name: os.environ.pop(name) for name in names if name in os.environ}
+
+    def restore() -> None:
+        for name in names:
+            os.environ.pop(name, None)
+        os.environ.update(saved)
+
+    unittest.addModuleCleanup(restore)
 
 
 def release_payload(**overrides) -> dict:
@@ -879,19 +897,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertRegex(self.text, r"release:\s*\n\s*types:\s*\[\s*published\s*\]")
 
     def test_workflow_has_least_privilege_permissions(self) -> None:
-        # One scope, one value: contents: write, needed only for the ledger commit.
-        permissions = self.text.split("permissions:", 1)[1].split("\n\n", 1)[0]
-        self.assertIn("contents: write", permissions)
-        for broader in (
-            "write-all",
-            "actions: write",
-            "issues: write",
-            "packages: write",
-            "pull-requests: write",
-            "id-token: write",
-            "contents: read",
-        ):
-            self.assertNotIn(broader, permissions)
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        workflow = yaml.safe_load(self.text)
+        # The read-only job cannot write, while the existing ledger commit keeps
+        # the contents:write token it needs in the announcement job alone.
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(workflow["jobs"]["preflight"]["permissions"], {"contents": "read"})
+        self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "write"})
+        for job in workflow["jobs"].values():
+            self.assertLessEqual(set(job.get("permissions", {})), {"contents"})
         # The workflow must not be able to change a release.
         for forbidden in ("gh release edit", "gh release create", "gh release delete", "gh release upload"):
             self.assertNotIn(forbidden, self.text)
@@ -929,7 +944,7 @@ class WorkflowTests(unittest.TestCase):
         if yaml is None:
             self.skipTest("PyYAML is not installed")
         workflow = yaml.safe_load(self.text)
-        self.assertEqual(workflow["permissions"], {"contents": "write"})
+        self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "write"})
         step = next(s for s in workflow["jobs"]["announce"]["steps"] if s.get("name", "").startswith("Deliver the APK"))
         # Downloads go to the runner temp directory, never into the checkout.
         self.assertIn("RUNNER_TEMP", step["run"])
@@ -955,21 +970,16 @@ class WorkflowTests(unittest.TestCase):
         """
         if yaml is None:
             self.skipTest("PyYAML is not installed, so the YAML cannot be parsed here")
-        import tempfile
-
         workflow = yaml.safe_load(self.text)
-        steps = workflow["jobs"]["announce"]["steps"]
         checked = 0
-        for step in steps:
-            if "run" not in step:
-                continue
-            with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False, encoding="utf-8") as handle:
-                handle.write(step["run"])
-                path = handle.name
-            result = subprocess.run(["bash", "-n", path], capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, f"{step['name']}: {result.stderr}")
-            checked += 1
-        self.assertGreaterEqual(checked, 4)
+        for job in workflow["jobs"].values():
+            for step in job["steps"]:
+                if "run" not in step:
+                    continue
+                result = subprocess.run(["bash", "-n"], input=step["run"], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, f"{step['name']}: {result.stderr}")
+                checked += 1
+        self.assertGreaterEqual(checked, 6)
 
     def test_download_buttons_and_ledger_flow_are_documented_together(self) -> None:
         doc = (SCRIPTS.parent / "docs" / "TELEGRAM-ANNOUNCEMENTS.md").read_text(encoding="utf-8")
@@ -1683,6 +1693,386 @@ class PreflightTests(unittest.TestCase):
         self.assertNotIn(TOKEN.split(":")[1], without_masks)
 
 
+def evaluate_actions_if(expression: str, values: dict[str, object]) -> bool:
+    """Evaluate the small, deliberately restricted Actions expressions under test."""
+    for name in sorted(values, key=len, reverse=True):
+        expression = re.sub(rf"(?<![\w.]){re.escape(name)}(?![\w.])", lambda _: repr(values[name]), expression)
+    expression = expression.replace("&&", " and ").replace("||", " or ")
+    expression = re.sub(r"(?<![\w'\"])true(?![\w'\"])", "True", expression)
+    expression = re.sub(r"(?<![\w'\"])false(?![\w'\"])", "False", expression)
+    tree = ast.parse(expression.strip(), mode="eval")
+    allowed = (ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.Compare, ast.Eq, ast.NotEq, ast.Constant)
+    if any(not isinstance(node, allowed) for node in ast.walk(tree)):
+        raise AssertionError(f"unexpected Actions expression: {expression}")
+    return bool(eval(compile(tree, "<workflow-if>", "eval"), {"__builtins__": {}}, {}))
+
+
+@unittest.skipUnless(yaml is not None, "PyYAML is required for workflow preflight tests")
+class PreflightWorkflowTests(unittest.TestCase):
+    """Test the actual workflow gates and execute its shell with offline clients."""
+
+    SECRETS = {
+        "TELEGRAM_BOT_TOKEN": TOKEN,
+        "TELEGRAM_CHAT_ID": "@private-test-channel",
+        "TELEGRAM_API_ID": "73124689",
+        "TELEGRAM_API_HASH": "0123456789abcdef0123456789abcdef",
+    }
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        path = SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml"
+        cls.workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        cls.preflight = cls.workflow["jobs"]["preflight"]
+        cls.announce_job = cls.workflow["jobs"]["announce"]
+        cls.step = next(s for s in cls.preflight["steps"] if s.get("name") == "Verify Telegram readiness (read-only)")
+
+    def _run_step(self, overrides: dict[str, str] | None = None):
+        """Execute the literal Actions run block; all external clients are fakes."""
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            bin_dir = temp / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "python3").symlink_to(sys.executable)
+            # Prevent any Git/GitHub/network executable from accidentally running.
+            for name in ("git", "gh", "curl", "wget", "ssh", "scp"):
+                command = bin_dir / name
+                command.write_text(
+                    '#!/bin/sh\nprintf "{\\"event\\":\\"forbidden\\",\\"method\\":\\"%s\\"}\\n" '
+                    '"$(basename "$0")" >> "$TELEGRAM_PREFLIGHT_TRACE"\nexit 99\n',
+                    encoding="utf-8",
+                )
+                command.chmod(0o755)
+            (temp / "sitecustomize.py").write_text(
+                "from telegram_preflight_mock import install\ninstall()\n", encoding="utf-8"
+            )
+            trace = temp / "trace.jsonl"
+            summary = temp / "summary.md"
+            summary.touch()
+            fixture = temp / "telegram-preflight-release.json"
+            env = {
+                key: value for key, value in os.environ.items()
+                if not key.startswith(("TELEGRAM_", "FAKE_")) and key not in {"GH_TOKEN", "GITHUB_TOKEN"}
+            }
+            env.update(self.SECRETS)
+            env.update(overrides or {})
+            env.update({
+                "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+                "PYTHONPATH": os.pathsep.join((str(temp), str(SCRIPTS / "tests"))),
+                "RUNNER_TEMP": str(temp),
+                "GITHUB_STEP_SUMMARY": str(summary),
+                "TELEGRAM_PREFLIGHT_TRACE": str(trace),
+            })
+            ledger = SCRIPTS.parent / ".github/telegram-releases.json"
+            before = ledger.read_bytes()
+            result = subprocess.run(
+                ["bash", "-e", "-o", "pipefail", "-c", self.step["run"]],
+                cwd=SCRIPTS.parent, env=env, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(ledger.read_bytes(), before, "preflight changed the repository ledger")
+            events = [json.loads(line) for line in trace.read_text(encoding="utf-8").splitlines()] if trace.exists() else []
+            self.assertFalse([event for event in events if event["event"] in {"forbidden", "ledger_access"}], events)
+            return result, events, summary.read_text(encoding="utf-8"), json.loads(fixture.read_text()) if fixture.exists() else None
+
+    def test_preflight_input_and_job_are_isolated_and_least_privileged(self) -> None:
+        # PyYAML's YAML 1.1 parser reads the key `on` as True.
+        triggers = self.workflow.get("on", self.workflow.get(True))
+        self.assertEqual(triggers["release"], {"types": ["published"]})
+        input_spec = triggers["workflow_dispatch"]["inputs"]["preflight"]
+        self.assertEqual(input_spec["type"], "boolean")
+        self.assertIs(input_spec["default"], False)
+        self.assertNotIn("needs", self.preflight)
+        self.assertEqual(self.preflight["permissions"], {"contents": "read"})
+        checkout, setup, install, verify = self.preflight["steps"]
+        self.assertRegex(checkout["uses"], r"^actions/checkout@[0-9a-f]{40}$")
+        self.assertRegex(setup["uses"], r"^actions/setup-python@[0-9a-f]{40}$")
+        self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(setup["with"]["python-version"], "3.12")
+        for dependency in ("telethon==1.42.0", "pyaes==1.6.1", "rsa==4.9.1", "pyasn1==0.6.1"):
+            self.assertIn(dependency, install["run"])
+        for job_or_step in (self.preflight, checkout, setup, install):
+            self.assertFalse(set((job_or_step.get("env") or {})) & set(self.SECRETS))
+        for secret in self.SECRETS:
+            self.assertEqual(verify["env"][secret], "${{ secrets." + secret + " }}")
+        self.assertFalse(any("GH_TOKEN" in (part.get("env") or {}) for part in (self.preflight, *self.preflight["steps"])))
+
+    def test_preflight_takes_precedence_over_all_other_inputs_and_guards_mutating_steps(self) -> None:
+        steps = {step.get("id", step.get("name")): step for step in self.announce_job["steps"]}
+        guards = [steps["publish"]["if"], steps["upload"]["if"], steps["Record the announced release"]["if"]]
+        for preflight, dry_run, tag, upload in itertools.product((False, True), (False, True), ("", "v9.9.9"), (False, True)):
+            context = {
+                "github.event_name": "workflow_dispatch", "inputs.preflight": preflight,
+                "inputs.dry_run": dry_run, "inputs.tag": tag, "inputs.upload_assets": upload,
+                "github.event.release.draft": None, "github.event.release.prerelease": None,
+                "steps.release.outputs.skip": "false", "steps.release.outputs.dry_run": "false",
+                "steps.publish.outputs.announced": "true",
+            }
+            with self.subTest(preflight=preflight, dry_run=dry_run, tag=tag, upload=upload):
+                self.assertEqual(evaluate_actions_if(self.preflight["if"], context), preflight)
+                self.assertEqual(evaluate_actions_if(self.announce_job["if"], context), not preflight)
+                if preflight:
+                    for condition in guards:
+                        self.assertFalse(evaluate_actions_if(condition, context), condition)
+        run = self.step["run"]
+        command = next(line.strip() for line in run.splitlines() if line.strip().startswith("python3 scripts/telegram_announce.py"))
+        self.assertEqual(command, 'python3 scripts/telegram_announce.py --release-json "${release_json}" --preflight')
+        self.assertNotIn("--dry-run", command)
+        self.assertNotIn("--ledger", command)
+        self.assertNotIn("--pin", command)
+        for forbidden in ("gh api", "gh release", "git push", "git commit", "telegram_assets.py", "releases/latest"):
+            self.assertNotIn(forbidden, run)
+        group = self.workflow["concurrency"]["group"]
+        self.assertIn("format('telegram-preflight-{0}', github.run_id)", group)
+        self.assertIn("format('telegram-announcement-{0}', github.event.release.id || inputs.tag || 'latest')", group)
+
+    def test_non_preflight_dispatch_preserves_dry_run_upload_and_ledger_gates(self) -> None:
+        steps = {step.get("id", step.get("name")): step for step in self.announce_job["steps"]}
+        for dry_run, upload, skip in itertools.product((False, True), repeat=3):
+            context = {
+                "github.event_name": "workflow_dispatch", "inputs.preflight": False,
+                "inputs.upload_assets": upload, "github.event.release.draft": None,
+                "github.event.release.prerelease": None,
+                "steps.release.outputs.skip": "true" if skip else "false",
+                "steps.release.outputs.dry_run": "true" if dry_run else "false",
+                "steps.publish.outputs.announced": "false" if skip else "true",
+            }
+            with self.subTest(dry_run=dry_run, upload=upload, skip=skip):
+                self.assertTrue(evaluate_actions_if(self.announce_job["if"], context))
+                self.assertEqual(evaluate_actions_if(steps["publish"]["if"], context), not skip)
+                self.assertEqual(evaluate_actions_if(steps["upload"]["if"], context), not (skip or dry_run) and upload)
+                self.assertEqual(evaluate_actions_if(steps["Record the announced release"]["if"], context), not (skip or dry_run))
+
+    def test_published_release_behavior_and_filters_are_preserved(self) -> None:
+        steps = {step.get("id", step.get("name")): step for step in self.announce_job["steps"]}
+        for draft, prerelease in itertools.product((False, True), repeat=2):
+            context = {
+                "github.event_name": "release", "inputs.preflight": None, "inputs.upload_assets": None,
+                "github.event.release.draft": draft, "github.event.release.prerelease": prerelease,
+                "steps.release.outputs.skip": "false", "steps.release.outputs.dry_run": "false",
+                "steps.publish.outputs.announced": "true",
+            }
+            with self.subTest(draft=draft, prerelease=prerelease):
+                self.assertFalse(evaluate_actions_if(self.preflight["if"], context))
+                self.assertEqual(evaluate_actions_if(self.announce_job["if"], context), not (draft or prerelease))
+                if not (draft or prerelease):
+                    for key in ("publish", "upload", "Record the announced release"):
+                        self.assertTrue(evaluate_actions_if(steps[key]["if"], context), key)
+        resolve = steps["release"]["run"]
+        self.assertIn('if [[ "${EVENT_NAME}" == "release" ]]; then', resolve)
+        self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}"', resolve)
+        self.assertIn('echo "dry_run=false"', resolve)
+
+    def test_existing_release_resolution_and_dry_run_behavior_with_mock_gh(self) -> None:
+        resolve = next(step["run"] for step in self.announce_job["steps"] if step.get("id") == "release")
+        cases = (
+            ("release", "true", "ignored", "false", "api repos/sascio/MyBridge/releases/987654321", "false", "false"),
+            ("release", "true", "ignored", "true", None, "false", "true"),
+            ("workflow_dispatch", "true", "v9.9.9", "false", "api repos/sascio/MyBridge/releases/tags/v9.9.9", "true", "false"),
+            ("workflow_dispatch", "false", "", "false", "api repos/sascio/MyBridge/releases/latest", "false", "false"),
+        )
+        for event, dry_run, tag, prerelease, expected_call, expected_dry_run, expected_skip in cases:
+            with self.subTest(event=event, dry_run=dry_run, tag=tag, prerelease=prerelease), tempfile.TemporaryDirectory() as directory:
+                temp = Path(directory)
+                bin_dir = temp / "bin"
+                bin_dir.mkdir()
+                (bin_dir / "python3").symlink_to(sys.executable)
+                gh = bin_dir / "gh"
+                gh.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GH_TEST_TRACE"\ncat "$GH_TEST_RELEASE"\n', encoding="utf-8")
+                gh.chmod(0o755)
+                trace, payload, output = temp / "gh-trace", temp / "payload.json", temp / "output"
+                payload.write_text(json.dumps(release_payload()), encoding="utf-8")
+                output.touch()
+                env = os.environ.copy()
+                env.pop("GH_TOKEN", None)
+                env.pop("GITHUB_TOKEN", None)
+                env.update({
+                    "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+                    "GH_TEST_TRACE": str(trace), "GH_TEST_RELEASE": str(payload),
+                    "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(temp),
+                    "GITHUB_REPOSITORY": "sascio/MyBridge", "EVENT_NAME": event,
+                    "EVENT_RELEASE_ID": "987654321", "EVENT_RELEASE_TAG": "v9.9.9",
+                    "EVENT_RELEASE_DRAFT": "false", "EVENT_RELEASE_PRERELEASE": prerelease,
+                    "INPUT_TAG": tag, "DRY_RUN_INPUT": dry_run,
+                })
+                result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", resolve],
+                                        cwd=SCRIPTS.parent, env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(outputs["dry_run"], expected_dry_run)
+                self.assertEqual(outputs["skip"], expected_skip)
+                calls = trace.read_text().splitlines() if trace.exists() else []
+                self.assertEqual(calls, [expected_call] if expected_call else [])
+
+    def test_valid_preflight_calls_only_reads_and_all_intended_clients(self) -> None:
+        result, events, summary, fixture = self._run_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("**Passed:**", summary)
+        self.assertEqual(fixture["id"], 0)
+        self.assertEqual(fixture["assets"], [])
+        self.assertFalse(fixture["draft"] or fixture["prerelease"])
+        self.assertEqual(fixture["html_url"], "https://example.invalid/preflight")
+        bot_calls = [event for event in events if event["event"] == "bot_api"]
+        self.assertEqual([event["method"] for event in bot_calls], ["getMe", "getChat", "getChatMember", "getChat"])
+        self.assertTrue(all(event["token_matches"] and event["chat_matches"] for event in bot_calls))
+        self.assertEqual(bot_calls[2]["user_id"], 987654)
+        uploader = next(event for event in events if event["event"] == "mtproto_uploader")
+        self.assertTrue(all(uploader[key] for key in ("api_id_matches", "api_hash_matches", "token_matches", "chat_matches")))
+        self.assertTrue(next(event for event in events if event["event"] == "mtproto_login")["token_matches"])
+        self.assertTrue(next(event for event in events if event["event"] == "mtproto_get_entity")["chat_matches"])
+        self.assertEqual(next(event for event in events if event["event"] == "mtproto_history")["limit"], 100)
+        self.assertTrue(any(event["event"] == "mtproto_disconnect" for event in events))
+        self.assertIn("Administrator status and Post Messages permission verified", result.stdout)
+        visible = "\n".join(line for line in (result.stdout + result.stderr).splitlines() if not line.startswith("::add-mask::"))
+        for secret in self.SECRETS.values():
+            self.assertIn(f"::add-mask::{secret}", result.stdout)
+            self.assertNotIn(secret, visible)
+            self.assertNotIn(secret, summary)
+
+    def test_each_missing_or_blank_credential_fails_before_any_client_is_used(self) -> None:
+        for name, value in itertools.product(self.SECRETS, ("", "   ")):
+            with self.subTest(secret=name, value=value):
+                result, events, summary, fixture = self._run_step({name: value})
+                self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                self.assertIn(f"{name} secret is not configured", result.stdout)
+                self.assertEqual(events, [])
+                self.assertIsNone(fixture)
+                self.assertIn("**Failed:**", summary)
+
+    def test_secrets_with_whitespace_fail_without_exposing_values(self) -> None:
+        for name, value in itertools.product(self.SECRETS, ("first-line\nsecond-line", " first-line", "first-line ")):
+            with self.subTest(secret=name, value=value):
+                result, events, summary, fixture = self._run_step({name: value})
+                self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+                self.assertIn(f"{name} secret must be a single line", result.stdout)
+                self.assertNotIn("first-line", result.stdout + result.stderr)
+                self.assertNotIn("second-line", result.stdout + result.stderr)
+                self.assertEqual(events, [])
+                self.assertIsNone(fixture)
+                self.assertIn("**Failed:**", summary)
+
+    def test_unreachable_channel_or_non_channel_fails_closed(self) -> None:
+        for mode, message in (("unreachable", "did not return a channel"), ("wrong_type", "did not return a channel")):
+            with self.subTest(mode=mode):
+                result, _events, summary, _fixture = self._run_step({"FAKE_CHAT_MODE": mode})
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stdout)
+                self.assertIn("**Failed:**", summary)
+
+    def test_invalid_bot_or_administrator_permissions_fail_closed(self) -> None:
+        cases = (
+            ({"FAKE_BOT_MODE": "invalid"}, "Bot authentication failed"),
+            ({"FAKE_BOT_MODE": "not_bot"}, "Bot authentication failed"),
+            ({"FAKE_BOT_MODE": "invalid_id"}, "Bot authentication failed"),
+            ({"FAKE_MEMBER_MODE": "unreachable"}, "Could not verify bot membership"),
+            ({"FAKE_MEMBER_STATUS": "member"}, "not an administrator"),
+            ({"FAKE_MEMBER_STATUS": "restricted"}, "not an administrator"),
+            ({"FAKE_CAN_POST": "false"}, "lacks the required Post Messages"),
+            ({"FAKE_MEMBER_MODE": "missing_post_right"}, "lacks the required Post Messages"),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                result, _events, summary, _fixture = self._run_step(overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stdout)
+                self.assertNotIn("Preflight passed:", result.stdout)
+                self.assertIn("**Failed:**", summary)
+
+    def test_invalid_mtproto_credentials_or_history_fail_closed(self) -> None:
+        cases = (
+            ({"TELEGRAM_API_ID": "invalid"}, "MTProto credentials are unusable"),
+            ({"TELEGRAM_API_HASH": "short"}, "MTProto credentials are unusable"),
+            ({"FAKE_MTPROTO_MODE": "auth_failure"}, "MTProto check failed"),
+            ({"FAKE_MTPROTO_MODE": "history_failure"}, "MTProto check failed"),
+        )
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides):
+                result, _events, summary, _fixture = self._run_step(overrides)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stdout)
+                self.assertIn("**Failed:**", summary)
+
+
+@unittest.skipUnless(telethon is not None, "Telethon is required for the read-only RPC test")
+class PreflightRpcTests(unittest.TestCase):
+    def test_real_mtproto_auth_and_history_generate_no_send_upload_or_pin_rpcs(self) -> None:
+        import asyncio
+        from telethon.tl import functions, types
+        from fake_telegram_rpc import AuthStub
+
+        class HistoryClient(AuthStub):
+            async def get_entity(self, _chat):
+                return types.InputPeerChannel(channel_id=123, access_hash=456)
+
+            async def get_input_entity(self, entity):
+                return entity
+
+            async def __call__(self, request, ordered=False, flood_sleep_threshold=None):
+                if isinstance(request, functions.messages.GetHistoryRequest):
+                    import inspect
+                    self.seen.append(type(request).__name__)
+                    fields = {"messages": [], "chats": [], "users": []}
+                    if "topics" in inspect.signature(types.messages.Messages).parameters:
+                        fields["topics"] = []
+                    return types.messages.Messages(**fields)
+                if isinstance(request, (
+                    functions.auth.ImportBotAuthorizationRequest,
+                    functions.updates.GetStateRequest,
+                    functions.updates.GetDifferenceRequest,
+                )):
+                    return await super().__call__(request, ordered, flood_sleep_threshold)
+                self.seen.append("FORBIDDEN:" + type(request).__name__)
+                raise AssertionError(f"unexpected MTProto RPC: {type(request).__name__}")
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self.addCleanup(asyncio.set_event_loop, None)
+        self.addCleanup(loop.close)
+        rpc = HistoryClient()
+        bot = MockTelegram()
+        patch_client(self, bot)
+        real_uploader = assets.MtprotoUploader
+        init_args = []
+
+        def uploader_factory(api_id, api_hash, token, chat_id):
+            init_args.append((api_id, api_hash, token, chat_id))
+            return real_uploader(api_id, api_hash, token, chat_id, client_factory=lambda *_a, **_kw: rpc)
+
+        with tempfile.TemporaryDirectory() as directory:
+            release_file = Path(directory, "release.json")
+            release_file.write_text(json.dumps(release_payload()), encoding="utf-8")
+            ledger = Path(directory, "ledger.json")
+            summary = Path(directory, "summary.json")
+            env = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+                   "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "0" * 32}
+            output = io.StringIO()
+            with unittest_mock.patch.dict(os.environ, env), \
+                    unittest_mock.patch.object(assets, "MtprotoUploader", side_effect=uploader_factory), \
+                    unittest_mock.patch.object(real_uploader, "upload_document", side_effect=AssertionError("upload forbidden")), \
+                    unittest_mock.patch.object(real_uploader, "_send", side_effect=AssertionError("send forbidden")), \
+                    unittest_mock.patch.object(assets, "upload_release_assets", side_effect=AssertionError("upload forbidden")), \
+                    unittest_mock.patch.object(assets, "record_upload", side_effect=AssertionError("ledger forbidden")), \
+                    unittest_mock.patch.object(announce, "send_announcement", side_effect=AssertionError("send forbidden")), \
+                    unittest_mock.patch.object(announce, "record_in_ledger", side_effect=AssertionError("ledger forbidden")), \
+                    unittest_mock.patch.object(announce, "load_ledger", side_effect=AssertionError("ledger forbidden")), \
+                    unittest_mock.patch.object(announce, "write_summary", side_effect=AssertionError("summary forbidden")), \
+                    contextlib.redirect_stdout(output):
+                code = announce.main(["--release-json", str(release_file), "--preflight", "--pin",
+                                      "--ledger", str(ledger), "--summary", str(summary)])
+            self.assertEqual(code, announce.EXIT_OK, output.getvalue())
+            self.assertFalse(ledger.exists())
+            self.assertFalse(summary.exists())
+        self.assertEqual(init_args, [(12345, "0" * 32, TOKEN, CHAT)])
+        self.assertEqual(bot.methods(), ["getChat"])
+        self.assertIn("ImportBotAuthorizationRequest", rpc.seen)
+        self.assertIn("GetHistoryRequest", rpc.seen)
+        self.assertTrue(set(rpc.seen) <= {"ImportBotAuthorizationRequest", "GetStateRequest",
+                                         "GetDifferenceRequest", "GetHistoryRequest"}, rpc.seen)
+        for forbidden in ("SendMessageRequest", "SendMediaRequest", "SendMultiMediaRequest",
+                          "SaveFilePartRequest", "SaveBigFilePartRequest", "UploadMediaRequest",
+                          "UpdatePinnedMessageRequest"):
+            self.assertNotIn(forbidden, rpc.seen)
+
+
 class WorkflowRefTests(unittest.TestCase):
     def test_checkout_uses_the_default_branch_not_the_release_tag(self) -> None:
         """A release event checks out the tag; the tooling must come from main.
@@ -1692,7 +2082,7 @@ class WorkflowRefTests(unittest.TestCase):
         """
         if yaml is None:
             self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load(open(SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml", encoding="utf-8"))
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text(encoding="utf-8"))
         checkout = next(
             step for step in workflow["jobs"]["announce"]["steps"] if "checkout" in str(step.get("uses", ""))
         )
@@ -1703,7 +2093,7 @@ class WorkflowRefTests(unittest.TestCase):
     def test_the_announcement_step_does_not_request_pin_rights(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load(open(SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml", encoding="utf-8"))
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text(encoding="utf-8"))
         publish = next(
             step for step in workflow["jobs"]["announce"]["steps"] if step.get("name") == "Publish the announcement"
         )
