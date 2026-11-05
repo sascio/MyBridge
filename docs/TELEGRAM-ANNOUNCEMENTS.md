@@ -117,11 +117,17 @@ confirms delivery, and a partial failure reports the message ids that arrived.
 
 1. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are repository secrets.
    `TELEGRAM_CHAT_ID` is `@StreamBridge_App`.
-2. The bot must be an **administrator** of the channel with *Post Messages*.
+2. **Merge this workflow into the default branch (`main`).** GitHub only creates
+   a `release: published` trigger for workflows that exist on the default branch.
+   On any other branch the file is inert: no run starts, and the workflow does
+   not appear in the Actions list until the merge lands. `workflow_dispatch` also
+   only offers workflows from the default branch in the UI.
+3. The bot must be an **administrator** of the channel with *Post Messages*.
    *Pin Messages* enables the pinned duplicate guard (and the pin itself); without
    it the announcement still posts and the step reports a warning.
-3. That is all. The first published release after this workflow lands is
-   announced automatically.
+4. That is all. The first release published after the merge is announced
+   automatically. Releases published before the merge are not backfilled; use a
+   manual dispatch with `dry_run` unchecked if one should be announced.
 
 ## Testing
 

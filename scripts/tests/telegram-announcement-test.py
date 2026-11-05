@@ -925,6 +925,16 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("telegram-releases.json", doc)
         self.assertIn("release id", doc)
 
+    def test_docs_state_the_default_branch_requirement(self) -> None:
+        # A release-event workflow that only exists on a side branch never runs;
+        # the docs must say so, because that is the one setup step the code
+        # cannot perform for itself.
+        doc = " ".join(
+            (SCRIPTS.parent / "docs" / "TELEGRAM-ANNOUNCEMENTS.md").read_text(encoding="utf-8").split()
+        )
+        self.assertIn("default branch", doc)
+        self.assertIn("not backfilled", doc)
+
     def test_ledger_starts_empty_and_parses(self) -> None:
         ledger = json.loads(
             (SCRIPTS.parent / ".github" / "telegram-releases.json").read_text(encoding="utf-8")
