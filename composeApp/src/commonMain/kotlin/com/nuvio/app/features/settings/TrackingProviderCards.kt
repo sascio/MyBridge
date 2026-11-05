@@ -135,7 +135,9 @@ import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 internal enum class TrackingBrand(val displayName: String) {
-    NUVIO("Nuvio"),
+    // StreamBridge: the built-in sync brand is this app; the enum name stays NUVIO
+// because it mirrors the WatchProgressSource.NUVIO_SYNC storage value.
+NUVIO("StreamBridge"),
     TRAKT("Trakt"),
     SIMKL("Simkl"),
     MDBLIST("MDBList"),

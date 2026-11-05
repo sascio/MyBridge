@@ -55,6 +55,11 @@ import nuvio.composeapp.generated.resources.settings_nav_bar_glow_on
 import nuvio.composeapp.generated.resources.settings_nav_bar_summary
 import org.jetbrains.compose.resources.stringResource
 
+    // StreamBridge: upstream 0.6.7 added the dynamic-background and
+    // catalog-accent switches to this page's Home section. Their presence here
+    // broke the mobile navigation guard test under the Robolectric lazy scroll,
+    // so StreamBridge keeps this page's structure and hosts those switches on
+    // the Home Layout page (HomescreenSettingsPage) they configure instead.
 internal fun LazyListScope.layoutSettingsContent(
     isTablet: Boolean,
     liquidGlassNativeTabBarSupported: Boolean,

@@ -1,7 +1,8 @@
 package com.nuvio.app.features.discord
 
 internal object DiscordRpcConfig {
-    const val APP_NAME = "Nuvio"
+    // StreamBridge: the rich presence text names this app, not the upstream project.
+const val APP_NAME = "StreamBridge"
     const val APPLICATION_ID = "962990036020756480"
     const val DISCORD_API_URL = "https://discord.com/api/v10"
     const val KIZZY_API_URL = "https://kizzy-api.cjjdxhdjd.workers.dev"

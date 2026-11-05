@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.14
-# release target, code 114, and contains the approved watch-party and release
+# Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.15
+# release target, code 115, and contains the approved watch-party and release
 # pipeline fixes. Release workflows pass --verify-tag-ref so the tag itself must
 # point to the exact commit being built.
 
 set -euo pipefail
 
-readonly EXPECTED_TAG="v0.1.14"
-readonly EXPECTED_VERSION="0.1.14"
-readonly EXPECTED_CODE="114"
+readonly EXPECTED_TAG="v0.1.15"
+readonly EXPECTED_VERSION="0.1.15"
+readonly EXPECTED_CODE="115"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -76,6 +76,18 @@ grep -Fq "## StreamBridge ${EXPECTED_VERSION}" "docs/RELEASE-NOTES-${EXPECTED_VE
 grep -Fq "version ${EXPECTED_VERSION} (version code ${EXPECTED_CODE})" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
   || fail "Release notes do not state ${EXPECTED_VERSION} / code ${EXPECTED_CODE}."
 
+# The release description and the sideload source are StreamBridge-facing
+# texts: they must not name the upstream product at all. Licence compliance
+# lives in LICENSE/NOTICE/README's attribution section, which keep their
+# required references.
+if grep -qi 'nuvio' "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md"; then
+  fail "Release notes mention the upstream product name; they must be StreamBridge-only."
+fi
+if grep -Eq 'Nuvio(Mobile|Media)' store.json \
+  || grep store.json | grep -Ev 'Nuvio-compatible|api\.nuvio\.tv' | grep -q 'Nuvio'; then
+  fail "store.json names the upstream product outside compatibility/host references."
+fi
+
 # The invitation must use StreamBridge branding and a StreamBridge-owned app
 # scheme, while preserving an install fallback and the optional HTTPS redirect.
 party_repo="composeApp/src/commonMain/kotlin/com/nuvio/app/features/party/PartyRepository.kt"
@@ -111,6 +123,61 @@ grep -Fq 'scripts/release-api.sh ensure-asset' .github/workflows/release-draft.y
   || fail "Release workflow does not use the non-clobbering, draft-safe asset uploader."
 grep -Fq 'scripts/release-api.sh update-body' .github/workflows/release-draft.yml \
   || fail "Release workflow does not update draft notes by release ID."
+
+# v0.1.14 corrected build gates: the About Us heading, the footer layout, the
+# hero metadata wiring and the user-facing branding rules are part of the
+# approved release content, so they are verified like every other fix.
+settings_models="composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/SettingsModels.kt"
+about_page="composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/AboutSettingsPage.kt"
+hero_section="composeApp/src/commonMain/kotlin/com/nuvio/app/features/home/components/HomeHeroSection.kt"
+home_screen="composeApp/src/commonMain/kotlin/com/nuvio/app/features/home/HomeScreen.kt"
+
+grep -Fq 'titleRes = Res.string.about_us_page_title' "${settings_models}" \
+  || fail "The About Us page heading is not about_us_page_title."
+grep -Fq 'title = stringResource(Res.string.about_us_page_title)' "${about_page}" \
+  || fail "The About settings row does not use the About Us heading."
+if grep -Fq 'streambridge_tagline' "${about_page}"; then
+  fail "The settings footer still renders the motto; it must stay removed."
+fi
+grep -Fq 'Res.string.streambridge_credits_made_with' "${about_page}" \
+  || fail "The footer attribution line is missing."
+grep -Fq 'Res.string.compose_about_version_format' "${about_page}" \
+  || fail "The footer version line is missing."
+grep -Fq 'horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally' "${about_page}" \
+  || fail "The footer column is not centred."
+grep -Fq 'HomeHeroMetaRows(' "${hero_section}" \
+  || fail "The hero section does not render the rich metadata rows."
+grep -Fq 'showImdbRating = homeHeroState.showImdbRating' "${home_screen}" \
+  || fail "Home does not pass the rating visibility settings to the hero section."
+# The hero stability machinery ported from the reference implementation must
+# stay wired: neighbour prefetch, the draw-time content crossfade and keyed
+# content layers are what prevent the hero from moving on content changes.
+grep -Fq 'heroPrefetchItemIndices(pagerState.settledPage' "${hero_section}" \
+  || fail "The hero neighbour prefetch is missing."
+grep -Fq 'alpha = heroContentAlpha(offset)' "${hero_section}" \
+  || fail "The hero content crossfade is not the draw-time reference curve."
+grep -Fq 'key(layerItem.stableKey())' "${hero_section}" \
+  || fail "Hero content layers are not keyed by item."
+
+# The default-locale resource files must name the app StreamBridge. Backend
+# disclosures and licence attributions legitimately keep Nuvio references, so
+# those lines are exempted by key-name prefix before scanning; anything left is
+# a leak.
+if grep -hvE '<string name="(privacy_policy_|settings_licenses_attributions_nuvio|streambridge_credits_based_on|streambridge_credits_nuvio_media|streambridge_based_on_nuvio|server_error_official|action_support_nuvio)' \
+    composeApp/src/commonMain/composeResources/values/strings.xml \
+    composeApp/src/commonMain/composeResources/values/strings_party.xml \
+    composeApp/src/commonMain/composeResources/values/strings_pip.xml \
+    composeApp/src/commonMain/composeResources/values/strings_anilist.xml \
+    composeApp/src/commonMain/composeResources/values/strings_discord.xml \
+    composeApp/src/commonMain/composeResources/values/strings_wetrakr.xml \
+    composeApp/src/commonMain/composeResources/values/strings_settings_backup.xml \
+    | grep -q 'Nuvio'; then
+  fail "Default-locale resources name Nuvio outside the exempt attribution/disclosure keys."
+fi
+if grep -q 'displayName = "Nuvio"' composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/TrackingProviderCards.kt \
+  || grep -q 'APP_NAME = "Nuvio"' composeApp/src/commonMain/kotlin/com/nuvio/app/features/discord/DiscordRpcConfig.kt; then
+  fail "A user-facing component label is back to Nuvio."
+fi
 
 actual_head="$(git rev-parse HEAD^{commit})"
 [[ "${actual_head}" == "${COMMIT}" ]] || fail "Checked-out HEAD ${actual_head} does not match the requested build commit ${COMMIT}."

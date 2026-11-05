@@ -2,7 +2,7 @@
     <string name="compose_settings_page_discord_rpc">Discord</string>
     <string name="settings_integrations_discord_description">Mostre o que você está assistindo no seu perfil do Discord.</string>
     <string name="discord_rpc_section_account">Conta do Discord</string>
-    <string name="discord_rpc_login_description">Entre na sua conta do Discord para mostrar o que você está assistindo no Nuvio via Rich Presence.</string>
+    <string name="discord_rpc_login_description">Entre na sua conta do Discord para mostrar o que você está assistindo no StreamBridge via Rich Presence.</string>
     <string name="discord_rpc_login_button">Entrar com o Discord</string>
     <string name="discord_rpc_login_title">Entrar no Discord</string>
     <string name="discord_rpc_logging_in">Entrando…</string>
@@ -33,7 +33,7 @@
     <string name="discord_rpc_status_invisible">Invisível</string>
     <string name="discord_rpc_section_display">Exibição</string>
     <string name="discord_rpc_show_title_as_name_title">Mostrar título como nome da atividade</string>
-    <string name="discord_rpc_show_title_as_name_description">Usar o nome do filme ou da série em vez de Nuvio como nome da atividade.</string>
+    <string name="discord_rpc_show_title_as_name_description">Usar o nome do filme ou da série em vez de StreamBridge como nome da atividade.</string>
     <string name="discord_rpc_show_poster_title">Mostrar pôster</string>
     <string name="discord_rpc_show_poster_description">Usar a arte do pôster como imagem grande.</string>
     <string name="discord_rpc_show_playback_state_title">Mostrar estado da reprodução</string>

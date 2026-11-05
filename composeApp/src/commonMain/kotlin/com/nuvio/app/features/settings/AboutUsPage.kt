@@ -29,6 +29,8 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.about_us_community_section
+import nuvio.composeapp.generated.resources.about_us_discord_description
+import nuvio.composeapp.generated.resources.about_us_discord_title
 import nuvio.composeapp.generated.resources.about_us_goal_body
 import nuvio.composeapp.generated.resources.about_us_goal_title
 import nuvio.composeapp.generated.resources.about_us_page_title
@@ -36,10 +38,15 @@ import nuvio.composeapp.generated.resources.about_us_telegram_description
 import nuvio.composeapp.generated.resources.about_us_telegram_title
 import nuvio.composeapp.generated.resources.about_us_what_body
 import nuvio.composeapp.generated.resources.about_us_what_title
+import nuvio.composeapp.generated.resources.discord_logo
+import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 /** StreamBridge community channel. Opened in the external browser, never in-app. */
 internal const val STREAMBRIDGE_TELEGRAM_URL = "https://t.me/StreamBridge_App"
+
+/** StreamBridge Discord invitation. Opened in the external browser, never in-app. */
+internal const val STREAMBRIDGE_DISCORD_URL = "https://discord.gg/T9apykrjW"
 
 @Composable
 fun AboutUsSettingsScreen(
@@ -104,6 +111,7 @@ private fun AboutUsBody(isTablet: Boolean) {
                 modifier = Modifier.padding(start = 4.dp),
             )
             TelegramRow()
+            DiscordRow()
         }
     }
 }
@@ -163,6 +171,57 @@ private fun TelegramRow() {
                 )
                 Text(
                     text = stringResource(Res.string.about_us_telegram_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiscordRow() {
+    // Same mechanism as the Telegram row: the system browser opens the invite,
+    // matching how the rest of the app handles external links.
+    val uriHandler = LocalUriHandler.current
+    NuvioSurfaceCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = stringResource(Res.string.about_us_discord_description),
+                ) {
+                    runCatching { uriHandler.openUri(STREAMBRIDGE_DISCORD_URL) }
+                }
+                .padding(PaddingValues(16.dp)),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.discord_logo),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.about_us_discord_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(Res.string.about_us_discord_description),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

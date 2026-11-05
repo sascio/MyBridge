@@ -71,7 +71,7 @@ class LibraryRepositoryTest {
     }
 
     @Test
-    fun `library tabs include local Nuvio library before Trakt tabs`() {
+    fun `library tabs include local StreamBridge library before Trakt tabs`() {
         val traktTab = TrackingLibraryTab(
             key = "trakt:watchlist",
             title = "Watchlist",
@@ -82,7 +82,7 @@ class LibraryRepositoryTest {
         val tabs = libraryTabsWithLocal(listOf(traktTab))
 
         assertEquals(listOf("local", "trakt:watchlist"), tabs.map { it.key })
-        assertEquals("Nuvio Library", tabs.first().title)
+        assertEquals("StreamBridge Library", tabs.first().title)
     }
 
     @Test

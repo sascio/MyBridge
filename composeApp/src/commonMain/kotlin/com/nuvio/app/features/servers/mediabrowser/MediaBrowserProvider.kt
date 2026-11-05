@@ -592,7 +592,7 @@ internal abstract class MediaBrowserProvider(
     }
 
     private fun deviceProfile(capabilities: ServerPlayerCapabilities) = DeviceProfile(
-        name = "Nuvio",
+        name = "StreamBridge",
         maxStreamingBitrate = MAX_STREAMING_BITRATE,
         directPlayProfiles = if (capabilities.directPlayAll && capabilities.allowDirectPlay) {
             listOf(DirectPlayProfile())

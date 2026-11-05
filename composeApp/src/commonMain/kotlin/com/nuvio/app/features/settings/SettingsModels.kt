@@ -15,7 +15,6 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Hub
@@ -84,7 +83,10 @@ internal enum class SettingsPage(
         parentPage = Root,
     ),
     SupportersContributors(
-        titleRes = Res.string.compose_settings_page_supporters_contributors,
+        // StreamBridge: this page IS the About Us page. The heading was briefly
+        // renamed to "Supporters & Contributors"; the required heading is
+        // "About Us", so the page title resolves to about_us_page_title again.
+        titleRes = Res.string.about_us_page_title,
         category = SettingsCategory.System,
         parentPage = About,
     ),
@@ -300,7 +302,7 @@ internal val SettingsPage.icon: ImageVector
     get() = when (this) {
         SettingsPage.Root -> Icons.Rounded.Settings
         SettingsPage.Account -> Icons.Default.Person
-        SettingsPage.SupportersContributors -> Icons.Default.Favorite
+        SettingsPage.SupportersContributors -> Icons.Rounded.Info
         SettingsPage.LicensesAttributions -> Icons.Default.Info
         SettingsPage.Playback -> Icons.Rounded.PlayArrow
         SettingsPage.Appearance -> Icons.Default.Palette

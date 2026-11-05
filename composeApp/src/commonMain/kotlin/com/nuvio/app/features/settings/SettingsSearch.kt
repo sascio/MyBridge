@@ -20,7 +20,6 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.CollectionsBookmark
 import androidx.compose.material.icons.rounded.Dns
 import androidx.compose.material.icons.rounded.Extension
-import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Language
@@ -117,7 +116,9 @@ internal fun settingsSearchEntries(
     val streamsPage = stringResource(Res.string.compose_settings_page_streams)
     val integrationsPage = stringResource(Res.string.compose_settings_page_integrations)
     val notificationsPage = stringResource(Res.string.compose_settings_page_notifications)
-    val supportersPage = stringResource(Res.string.compose_settings_page_supporters_contributors)
+    // StreamBridge: the About Us heading, restored (the page is About Us, not
+    // "Supporters & Contributors").
+    val supportersPage = stringResource(Res.string.about_us_page_title)
     val licensesPage = stringResource(Res.string.compose_settings_page_licenses_attributions)
     val privacyPolicyPage = stringResource(Res.string.compose_settings_page_privacy_policy)
     val cloudStreamPage = stringResource(Res.string.compose_settings_page_cloudstream)
@@ -423,6 +424,21 @@ internal fun settingsSearchEntries(
     )
     addRow(
         page = SettingsPage.Appearance,
+        key = "app-background",
+        title = stringResource(Res.string.settings_app_background),
+        pageLabel = appearancePage,
+        section = stringResource(Res.string.settings_glass_ui_section),
+    )
+    addRow(
+        page = SettingsPage.Appearance,
+        key = "glass-ui",
+        title = stringResource(Res.string.settings_glass_ui),
+        description = stringResource(Res.string.settings_glass_ui_description),
+        pageLabel = appearancePage,
+        section = stringResource(Res.string.settings_glass_ui_section),
+    )
+    addRow(
+        page = SettingsPage.Appearance,
         key = "amoled",
         title = stringResource(Res.string.settings_appearance_amoled_black),
         description = stringResource(Res.string.settings_appearance_amoled_description),
@@ -430,12 +446,22 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_appearance_section_display),
     )
     addRow(
-        page = SettingsPage.Appearance,
+        // StreamBridge: these two live on the Home Layout page (see
+        // HomescreenSettingsPage), which the Layout page's Home Layout row opens.
+        page = SettingsPage.Homescreen,
         key = "dynamic-artwork-background",
         title = stringResource(Res.string.settings_appearance_dynamic_artwork_background),
         description = stringResource(Res.string.settings_appearance_dynamic_artwork_background_description),
-        pageLabel = layoutPage,
-        section = stringResource(Res.string.settings_appearance_section_display),
+        pageLabel = homeLayoutPage,
+        section = stringResource(Res.string.settings_appearance_section_home),
+    )
+    addRow(
+        page = SettingsPage.Homescreen,
+        key = "catalog-accent",
+        title = stringResource(Res.string.settings_appearance_catalog_accent),
+        description = stringResource(Res.string.settings_appearance_catalog_accent_description),
+        pageLabel = homeLayoutPage,
+        section = stringResource(Res.string.settings_appearance_section_home),
     )
     if (liquidGlassNativeTabBarSupported) {
         addRow(

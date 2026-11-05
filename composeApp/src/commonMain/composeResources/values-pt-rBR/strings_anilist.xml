@@ -13,7 +13,7 @@
     <string name="settings_anilist_connected_description">Sincronize suas listas de anime, o progresso dos episódios, as notas e a seção Continuar assistindo com o AniList.</string>
     <string name="settings_anilist_sign_in_description">Conecte ao AniList para sincronizar suas listas de anime, o progresso dos episódios, as notas e a seção Continuar assistindo.</string>
     <string name="settings_anilist_finish_sign_in">Concluir login</string>
-    <string name="settings_anilist_approval_description">Autorize o Nuvio no navegador. Você voltará ao app automaticamente.</string>
+    <string name="settings_anilist_approval_description">Autorize o StreamBridge no navegador. Você voltará ao app automaticamente.</string>
     <string name="settings_anilist_open_login">Abrir página de login</string>
     <string name="settings_anilist_disconnect">Desconectar do AniList</string>
     <string name="settings_anilist_missing_credentials">A conexão com o AniList não está disponível nesta versão do app.</string>

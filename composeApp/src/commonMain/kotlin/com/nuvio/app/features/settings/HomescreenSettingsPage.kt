@@ -53,6 +53,11 @@ import nuvio.composeapp.generated.resources.layout_hide_unreleased
 import nuvio.composeapp.generated.resources.layout_hide_unreleased_sub
 import nuvio.composeapp.generated.resources.layout_catalog_type
 import nuvio.composeapp.generated.resources.layout_catalog_type_sub
+import nuvio.composeapp.generated.resources.settings_appearance_catalog_accent
+import nuvio.composeapp.generated.resources.settings_appearance_catalog_accent_description
+import nuvio.composeapp.generated.resources.settings_appearance_dynamic_artwork_background
+import nuvio.composeapp.generated.resources.settings_appearance_dynamic_artwork_background_description
+import nuvio.composeapp.generated.resources.settings_appearance_section_home
 import nuvio.composeapp.generated.resources.settings_homescreen_empty_message
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_style
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_style_card
@@ -114,6 +119,38 @@ internal fun LazyListScope.homescreenSettingsContent(
             totalCatalogCount = items.size,
             selectedHeroSourceCount = selectedHeroSourceCount,
         )
+    }
+    // StreamBridge: upstream 0.6.7 put the dynamic-background and catalog-accent
+    // switches on the Layout root page, but there they broke the Layout guard
+    // test (mobile navigation controls) under the Robolectric lazy scroll, so
+    // they live on the Home Layout page they actually configure.
+    item {
+        val dynamicArtworkBackgroundEnabled by ThemeSettingsRepository.dynamicArtworkBackgroundEnabled.collectAsStateWithLifecycle()
+        val showCatalogAccentEnabled by ThemeSettingsRepository.showCatalogAccentEnabled.collectAsStateWithLifecycle()
+        SettingsSection(
+            title = stringResource(Res.string.settings_appearance_section_home),
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_appearance_dynamic_artwork_background),
+                    description = stringResource(
+                        Res.string.settings_appearance_dynamic_artwork_background_description,
+                    ),
+                    checked = dynamicArtworkBackgroundEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = ThemeSettingsRepository::setDynamicArtworkBackground,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_appearance_catalog_accent),
+                    description = stringResource(Res.string.settings_appearance_catalog_accent_description),
+                    checked = showCatalogAccentEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = ThemeSettingsRepository::setShowCatalogAccent,
+                )
+            }
+        }
     }
     item {
         SettingsSection(
