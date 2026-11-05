@@ -43,6 +43,42 @@ than guessing a peer. Changing the bot token or channel fails the HMAC-based
 identity binding and requires an audited migration. Do not paste secret values
 into issues, PRs, logs or the ledger.
 
+### Repository security audit and required controls
+
+The read-only audit on **2026-11-05** found `main` reported as
+`protected: false` and the effective branch-rules endpoint returned an empty
+list. The detailed classic branch-protection, Actions-permission, runner and
+secret-metadata endpoints returned **403**, so this audit could not determine
+whether secrets exist, which actors can bypass protections, or whether a future
+protected-branch ledger push will be permitted. The API reported the current
+integration had admin/maintain/push access; that is not proof of exclusive
+writes or secure settings. A search of the current tracked workflows found the
+Telegram secret names only in the preflight and live steps of this workflow;
+that cannot audit old refs, other repositories, manual tools or who can access
+the secrets. No settings or secrets were changed.
+
+**Live publishing is blocked by these findings.** An administrator must arrange
+active GitHub rulesets for the default branch that prohibit non-fast-forward
+updates (`non_fast_forward`) and deletion (`deletion`), audit all bypass actors,
+and ensure unreviewed humans, workflows and external integrations cannot
+replace or modify the ledger or run another publisher. An ordinary
+fast-forward commit can still rewrite the ledger: no-force alone is insufficient.
+Protect the workflow, scripts, bot secrets and configuration from unreviewed
+changes too. Verify that the live Actions token can write the exact-parent ledger
+commit *under the resulting policy*; required PR reviews or other protections
+may block it. Do not remove or weaken a control just to permit automation.
+
+The publisher checks the active ruleset types through GitHub's metadata API
+before preparing a delivery, each public attempt, and each file-part upload; an
+unavailable API or missing rule fails closed. It also restricts live CLI use to
+the named workflow and the repository's default-branch ledger; live manual
+dispatch must select that branch. These checks are necessary but **not sufficient**:
+metadata visibility does not prove that bypasses, other fast-forward writers,
+old workflow definitions, secret access or ruleset changes are controlled, and
+the check cannot eliminate a change between verification and a request. An
+administrator must audit and continuously enforce those controls. Restoring a
+rule after a rollback does not prove the ledger was never tampered with.
+
 ## Read-only preflight and manual dispatch
 
 `workflow_dispatch` defaults to `preflight: false` and `dry_run: true`. An
@@ -76,10 +112,11 @@ non-draft/non-prerelease releases and uses the GitHub API release object.
    dispatches, with cancellation disabled and a queue of at most 100 pending
    runs. Queue order is not an audit trail; excess runs can be canceled. Read-only
    preflights use separate per-run groups and cannot delay or replace a release.
-2. The publisher fetches the **remote default-branch** ledger; missing,
-   malformed, unknown-version, inconsistent, duplicate-key or unactivated state
-   stops the run. It checks the release creation/publish times against the
-   activation fence and freezes the complete rendered pages/buttons and asset
+2. The publisher checks the visible non-fast-forward/deletion rules and fetches
+   the **remote default-branch** ledger; missing rules, missing/malformed state,
+   unknown versions, inconsistencies, duplicate keys or an unactivated ledger
+   stop the run. It checks release creation/publish times against the activation
+   fence and freezes the complete rendered pages/buttons and asset
    metadata/checksums into hashes. It allocates a distinct nonzero signed
    64-bit `random_id` for every page and document, all before any public send.
 3. A single-parent Git commit based on that exact fetched tip writes the ledger
@@ -150,8 +187,14 @@ push workflows; the ledger commit also contains `[skip ci]` as a precaution.
 ## Audited legacy cutover (maintainer action; not performed by this change)
 
 The release-event workflow must be on the repository's **default branch** to run
-for future events. Older release events are not backfilled. Before enabling live
-publishing, maintainers must:
+for future events. Older release events are not backfilled. The read-only audit
+found one visible `main` history entry for the tracked ledger, commit
+`1924ddcd427a95327a1c02518272f65a09363cab`; the current blob
+`e195b31c3371b777cb995f67e38e5b3936157e56` is schema 1 with zero records.
+Visible historical workflow run `42004825171` skipped asset delivery and ledger
+recording. None of this proves that channel posts or unrecorded legacy sends do
+not exist. The local checkout may be shallow and is not a complete history audit.
+Before enabling live publishing, maintainers must:
 
 1. Inventory past channel posts, release IDs **and tags**, including deleted or
    unrecorded releases, through an authorized human review. No bot-only API
@@ -161,10 +204,10 @@ publishing, maintainers must:
    the bot secrets as needed; dispatch only the reviewed default-branch version.
    Verify no prior bot MTProto session is active, or stop; do not add a personal
    account to work around it.
-2. Verify default-branch non-force protection, access control and that the
-   Actions token can make exact-parent ledger commits under the existing branch
-   policy. There must be no concurrent legacy publisher during migration or
-   between migration and the cutover. Establish an operational rule that old or
+2. Apply and verify the active no-force/no-delete rules, bypass and writer
+   controls described above, and that the Actions token can make exact-parent
+   ledger commits under the resulting policy. There must be no concurrent legacy
+   publisher during migration or between migration and the cutover. Establish an operational rule that old or
    previously announced tags will **never** be reused for new releases; a new
    GitHub release ID/creation timestamp alone cannot prove a tag was never
    announced. If that rule or the exclusive-writer assumptions cannot be
@@ -197,16 +240,39 @@ facts the bot can prove. Do not activate automatically based on a blank ledger.
 
 ## Recovery and monitoring
 
-Inspect the authoritative remote ledger and workflow result; never delete,
-reset or regenerate an ID. A `confirmed` entry is skipped. `planned` entries
-have no public attempt; `uploading` means parts may exist but no final send was
-started, so reuploading verified bytes is safe. `sending` or `unknown` means a
-public message may exist. The regular rerun blocks on these states; after
-review, an explicit manual `recover_unknown: true` plus `dry_run: false` can
-replay the **same** ID, provided the session lock is clear and the frozen plan,
-credentials and assets still match. More than three attempts per run or ten per
-operation, an excessive flood wait, an unrecognized error, or insufficient
-response evidence stops for review. Confirmed pages/assets remain recorded.
+Fetch the authoritative remote ledger and inspect a local copy; this summary is
+read-only, validates the full file and does not print tags, operation IDs,
+identity fingerprints or secret values:
+
+```sh
+git fetch --no-tags origin main
+git show FETCH_HEAD:.github/telegram-releases.json > /tmp/streambridge-ledger-snapshot.json
+python3 scripts/telegram_ledger.py --inspect /tmp/streambridge-ledger-snapshot.json
+```
+
+Replace `main` with the repository's actual default branch if it changes. For
+schema 1/2 the summary only reports the legacy-record count and unknown history.
+For schema 3 it also reports `session_locked` and these operation categories:
+
+- `confirmed_sent`: the protocol recorded a response matched to the original
+  request and message ID; it does not prove the message still exists unchanged.
+- `confirmed_unsent_by_protocol`: `planned` has no public attempt, and
+  `uploading` has no final send attempt, though temporary parts may exist.
+  This says nothing about a manual or legacy publisher outside the protocol.
+- `unknown`: `sending` or `unknown` could have produced a public message.
+  `legacy_channel_history` is always `unknown`, even for a zero-record ledger.
+
+Inspect the workflow result and the validated ledger in a controlled environment
+for the affected operation; never delete, reset or regenerate an ID. A
+`confirmed` entry is skipped. A safe-to-retry `uploading` entry re-downloads and
+verifies the same bytes before reuploading parts. The regular rerun blocks on
+unknown sends; after review, an explicit manual `recover_unknown: true` plus
+`dry_run: false` can replay the **same** ID, provided the session lock is clear,
+branch rules are in place, and the frozen plan, credentials and assets still
+match. Choose the reviewed default branch and release tag in the dispatch.
+More than three attempts per run or ten per operation, an excessive flood wait,
+an unrecognized error, or insufficient response evidence stops for review.
+Confirmed pages/assets remain recorded; `RANDOM_ID_DUPLICATE` is not proof.
 
 If `session` is non-null, first prove the original runner cannot resume **and**
 that its bot authorization is revoked. Only then can an authorized maintainer
@@ -269,5 +335,19 @@ combinations and no-write behavior, strict ledger parsing, Git non-fast-forward
 races, ambiguous push results, crash/session locks, duplicate events, partial
 uploads, changed payloads, same-ID lost-response replay, flood waits, secret
 redaction, individual raw requests and real Telethon 512 KiB big-file chunking
-against fake RPCs. Fake server semantics and local Git tests do **not** prove
-live Telegram behavior, server compatibility or GitHub branch permissions.
+against fake RPCs. They include two simultaneous publisher workers using
+separate local Git clones and a simulated accepted-send process killed with
+`SIGKILL`; no remote network or Telegram send is used. Fake server semantics
+and local Git tests do **not** prove live Telegram behavior, server compatibility
+or GitHub branch permissions.
+
+For a current-head GitHub run without publishing files, manually dispatch
+**Build Stream Bridge** on the exact PR branch with `upload_artifacts: false`.
+This runs the Android unit tests, debug/release assemblies, lint, distribution
+checks, tracking-config checks and script tests, while skipping CI artifact
+uploads and CI-failure issue creation/closure. Gradle action caching is disabled
+for this mode; dependency graph submission and build-scan publication are also
+disabled. Normal push/PR runs and manual dispatches explicitly opting in retain
+their normal artifact/issue behavior. GitHub Actions still records job logs and
+summaries and downloads dependencies; never place credentials in those outputs.
+This verification run is not the release or Telegram workflow.

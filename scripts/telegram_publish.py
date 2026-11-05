@@ -12,6 +12,7 @@ import copy
 import datetime as dt
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -45,6 +46,29 @@ def require_secret(name: str) -> str:
     if not value or value != value.strip() or any(c.isspace() for c in value):
         raise PublishError(f"{name} is missing or malformed.")
     return value
+
+
+def require_workflow_context(branch: str) -> str:
+    """Reject other workflows, non-default manual refs and non-authoritative ledgers."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+    workflow_path = os.environ.get("GITHUB_WORKFLOW_REF", "").split("@", 1)[0]
+    if (os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("GITHUB_RUN_ID")
+            or not os.environ.get("GH_TOKEN") or event_name not in {"release", "workflow_dispatch"}
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
+            or workflow_path != f"{repo}/.github/workflows/telegram-release-announcement.yml"):
+        raise PublishError("Live publishing is restricted to the serialized GitHub Actions workflow.")
+    try:
+        with open(os.environ.get("GITHUB_EVENT_PATH", ""), encoding="utf-8") as handle:
+            event = json.load(handle)
+        repository = event["repository"]
+        if not isinstance(repository, dict) or repository.get("full_name") != repo or repository.get("default_branch") != branch:
+            raise ValueError("mismatched repository")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise PublishError("The Actions event does not identify the authoritative default branch.") from exc
+    if event_name == "workflow_dispatch" and os.environ.get("GITHUB_REF") != f"refs/heads/{branch}":
+        raise PublishError("Live manual delivery must use the reviewed default-branch workflow ref.")
+    return repo
 
 
 def bot_details(token: str, chat: str) -> tuple[int, int, str]:
@@ -203,15 +227,20 @@ def retry_delay(exc: Exception, attempt: int) -> float | None:
 
 def deliver(store: Any, owner: str, release_id: int, plan_hash: str, item: dict[str, Any],
             binding: str, transport: Any, request: object, *, filename: str | None = None,
-            size: int | None = None, sleeper: Callable[[float], None] = time.sleep) -> int:
+            size: int | None = None, sleeper: Callable[[float], None] = time.sleep,
+            policy_check: Callable[[], None]) -> int:
     key, identifier = item["key"], item["random_id"]
     for attempt in range(1, MAX_SEND_ATTEMPTS_PER_RUN + 1):
         if item["attempts"] >= MAX_SEND_ATTEMPTS_TOTAL:
             raise PublishError("The lifetime send-attempt limit was reached; operator review is required.")
+        policy_check()
         item = transition(store, owner, release_id, plan_hash, key, {item["state"]},
                           {"state": "sending", "attempts": item["attempts"] + 1}, binding=binding)
         if item["random_id"] != identifier or getattr(request, "random_id", None) != identifier:
             raise PublishError("The persisted random_id changed; no send is allowed.")
+        # If rules changed after the write-ahead commit, no request is issued;
+        # 'sending' remains conservatively unknown until audited recovery.
+        policy_check()
         try:
             message_id = transport.send(request, filename=filename, size=size)
         except Exception as exc:  # deliberately do not print exception or request contents
@@ -234,10 +263,12 @@ def deliver(store: Any, owner: str, release_id: int, plan_hash: str, item: dict[
 def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id: int, api_hash: str,
             upload_assets: bool = True, recover_unknown: bool = False,
             transport_factory: Callable = mtproto.BotTransport, bot_lookup: Callable = bot_details,
-            sleeper: Callable[[float], None] = time.sleep) -> None:
+            sleeper: Callable[[float], None] = time.sleep,
+            policy_check: Callable[[], None]) -> None:
     if release.draft or release.prerelease:
         announce.notice("Draft and pre-release announcements are disabled; nothing was published.")
         return
+    policy_check()
     if type(release.id) is not int or release.id <= 0 or not release.tag_name:
         raise PublishError("The GitHub release identity is invalid.")
     created = ledger.timestamp(release.created_at)
@@ -307,7 +338,8 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
                 raise PublishError("An earlier send remains unresolved; explicit recovery is required.")
             if op["kind"] == "page":
                 request = transport.text_request(op["html"], [tuple(b) for b in op["buttons"]], item["random_id"])
-                message_id = deliver(store, owner, release.id, plan_hash, item, binding, transport, request, sleeper=sleeper)
+                message_id = deliver(store, owner, release.id, plan_hash, item, binding, transport, request,
+                                     sleeper=sleeper, policy_check=policy_check)
             else:
                 plan = op["upload"]
                 with tempfile.TemporaryDirectory(prefix="telegram-release-asset-") as tmp:
@@ -321,10 +353,12 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
                                           {"state": "uploading", "sha256": actual_sha}, binding=binding)
                     # Parts are temporary and not public messages; a failed upload
                     # can be restarted, but never changes the final send ID.
+                    policy_check()
                     media = transport.prepare_document(path, plan.filename)
                     request = transport.media_request(media, plan.caption, item["random_id"])
                     message_id = deliver(store, owner, release.id, plan_hash, item, binding, transport, request,
-                                         filename=plan.filename, size=plan.asset.size, sleeper=sleeper)
+                                         filename=plan.filename, size=plan.asset.size, sleeper=sleeper,
+                                         policy_check=policy_check)
             announce.log(f"Confirmed {op['key']} as Telegram message {message_id}; durable ledger updated.")
             if op["kind"] == "page" and op is not operations[-1]:
                 sleeper(announce.PAGE_INTERVAL)
@@ -357,8 +391,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--recover-unknown", action="store_true")
     args = parser.parse_args(argv)
     try:
-        if os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("GITHUB_RUN_ID"):
-            raise PublishError("Live publishing is restricted to the serialized GitHub Actions workflow.")
+        repository = require_workflow_context(args.branch)
         token, chat = require_secret("TELEGRAM_BOT_TOKEN"), require_secret("TELEGRAM_CHAT_ID")
         api_id_text, api_hash = require_secret("TELEGRAM_API_ID"), require_secret("TELEGRAM_API_HASH")
         if not api_id_text.isdigit() or int(api_id_text) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
@@ -366,7 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         release = announce.load_release(args.release_json)
         store = ledger.GitLedger(os.getcwd(), args.branch)
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
-                upload_assets=not args.no_upload_assets, recover_unknown=args.recover_unknown)
+                upload_assets=not args.no_upload_assets, recover_unknown=args.recover_unknown,
+                policy_check=lambda: ledger.require_branch_rules(repository, args.branch))
     except Exception as exc:  # no raw exception strings, tracebacks or credential material
         if isinstance(exc, (PublishError, ledger.LedgerError, announce.AnnouncementError)):
             announce.error(str(exc))

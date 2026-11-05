@@ -9,11 +9,14 @@ import hashlib
 import importlib.util
 import io
 import json
+import multiprocessing
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -197,7 +200,8 @@ class DurableDeliveryTests(unittest.TestCase):
         return publish.publish(release or sample_release(), self.store, token=TOKEN, chat=CHAT,
                                api_id=12345, api_hash=API_HASH, transport_factory=self.transport,
                                bot_lookup=lambda *_: (777, -1002000000001, CHAT),
-                               sleeper=kwargs.pop("sleeper", lambda _: None), **kwargs)
+                               sleeper=kwargs.pop("sleeper", lambda _: None),
+                               policy_check=kwargs.pop("policy_check", lambda: None), **kwargs)
 
     def item(self, index=0):
         return self.store.doc["releases"][0]["items"][index]
@@ -230,6 +234,44 @@ class DurableDeliveryTests(unittest.TestCase):
             self.run_publish()
         self.assertEqual(self.server.calls, [])
         self.assertEqual(self.item()["state"], "planned")
+
+    def test_unverified_branch_rules_stop_before_ledger_or_session(self):
+        def blocked():
+            raise ledger.LedgerError("rules unavailable")
+        with self.assertRaises(ledger.LedgerError):
+            self.run_publish(policy_check=blocked)
+        self.assertEqual(self.store.history, [])
+        self.assertEqual(self.transport_objects, [])
+        self.assertEqual(self.server.calls, [])
+
+    def test_removed_branch_rules_after_checkpoint_prevent_send(self):
+        checks = 0
+        def rules_change():
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                raise ledger.LedgerError("rules removed")
+        with self.assertRaises(ledger.LedgerError):
+            self.run_publish(policy_check=rules_change)
+        self.assertEqual(self.server.calls, [])
+        self.assertEqual(self.item()["state"], "sending")
+        self.assertEqual(ledger.operation_outcome(self.item()), "unknown")
+        with self.assertRaises(publish.PublishError):
+            self.run_publish()
+
+    def test_removed_branch_rules_block_part_upload(self):
+        checks = 0
+        def rules_change():
+            nonlocal checks
+            checks += 1
+            if checks == 4:
+                raise ledger.LedgerError("rules removed")
+        with self.assertRaises(ledger.LedgerError):
+            self.run_publish(sample_release(assets_count=1), policy_check=rules_change)
+        self.assertEqual(len(self.server.calls), 1)
+        self.assertEqual(self.server.uploads, 0)
+        self.assertEqual(self.item(1)["state"], "uploading")
+        self.assertEqual(ledger.operation_outcome(self.item(1)), "confirmed_unsent_by_protocol")
 
     def test_failed_confirmation_commit_blocks_automatic_rerun_and_recovers_same_id(self):
         self.store.fault = lambda d: "before" if any(
@@ -311,7 +353,8 @@ class DurableDeliveryTests(unittest.TestCase):
         self.run_publish(release, upload_assets=False)
         with self.assertRaisesRegex(publish.PublishError, "identity"):
             publish.publish(release, self.store, token=TOKEN + "changed", chat=CHAT, api_id=12345, api_hash=API_HASH,
-                            transport_factory=self.transport, bot_lookup=lambda *_: (777, -1002000000001, CHAT))
+                            transport_factory=self.transport, bot_lookup=lambda *_: (777, -1002000000001, CHAT),
+                            policy_check=lambda: None)
         self.assertEqual(len(self.server.calls), 1)
 
     def test_crash_stale_session_lock_blocks_even_with_recovery_flag(self):
@@ -592,6 +635,72 @@ class ChecksumAndCutoverTests(unittest.TestCase):
 
 
 
+class BranchPolicyAndContextTests(unittest.TestCase):
+    def test_effective_rules_require_both_force_push_and_deletion_restrictions(self):
+        def runner(stdout, returncode=0):
+            return lambda *_a, **_k: SimpleNamespace(stdout=stdout, stderr=b"private error", returncode=returncode)
+        ledger.require_branch_rules("sascio/MyBridge", "main", runner=runner(b"non_fast_forward\ndeletion\n"))
+        for output, code in ((b"", 0), (b"non_fast_forward\n", 0), (b"deletion\n", 0),
+                             (b"non_fast_forward\ndeletion\n", 1)):
+            with self.subTest(output=output, code=code), self.assertRaises(ledger.LedgerError):
+                ledger.require_branch_rules("sascio/MyBridge", "main", runner=runner(output, code))
+        def timeout(*_args, **_kwargs):
+            raise subprocess.TimeoutExpired("secret-command", 60)
+        with self.assertRaises(ledger.LedgerError) as caught:
+            ledger.require_branch_rules("sascio/MyBridge", "main", runner=timeout)
+        self.assertNotIn("secret-command", str(caught.exception))
+
+    def test_rules_request_uses_metadata_api_and_escapes_branch(self):
+        seen = []
+        def runner(command, **kwargs):
+            seen.append((command, kwargs))
+            return SimpleNamespace(stdout=b"deletion\nnon_fast_forward\n", returncode=0)
+        ledger.require_branch_rules("sascio/MyBridge", "release/branch", runner=runner)
+        self.assertEqual(seen[0][0][-1], "repos/sascio/MyBridge/rules/branches/release%2Fbranch?per_page=100")
+        self.assertIn("--paginate", seen[0][0])
+        self.assertEqual(seen[0][1]["stderr"], subprocess.PIPE)
+        for repo, branch in (("../other/repo", "main"), ("owner/repo", "--bad")):
+            with self.assertRaises(ledger.LedgerError):
+                ledger.require_branch_rules(repo, branch, runner=runner)
+
+    def test_cli_wires_real_policy_guard_to_publisher_without_logging_secrets(self):
+        values = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+                  "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": API_HASH}
+        capture = io.StringIO()
+        with mock.patch.object(publish, "require_workflow_context", return_value="sascio/MyBridge"), \
+             mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
+             mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
+             mock.patch.object(ledger, "GitLedger", return_value=MemoryStore()), \
+             mock.patch.object(ledger, "require_branch_rules") as branch_rules, \
+             mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(capture):
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 0)
+            publisher.call_args.kwargs["policy_check"]()
+            branch_rules.assert_called_once_with("sascio/MyBridge", "main")
+        for secret in values.values():
+            self.assertNotIn(secret, capture.getvalue())
+
+    def test_live_cli_requires_exact_workflow_and_default_branch_for_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp, "event.json")
+            event.write_text(json.dumps({"repository": {"full_name": "sascio/MyBridge", "default_branch": "main"}}))
+            env = {"GITHUB_ACTIONS": "true", "GITHUB_RUN_ID": "101", "GH_TOKEN": "fake-gh-token",
+                   "GITHUB_REPOSITORY": "sascio/MyBridge", "GITHUB_EVENT_NAME": "workflow_dispatch",
+                   "GITHUB_WORKFLOW_REF": "sascio/MyBridge/.github/workflows/telegram-release-announcement.yml@refs/heads/main",
+                   "GITHUB_EVENT_PATH": str(event), "GITHUB_REF": "refs/heads/main"}
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(publish.require_workflow_context("main"), "sascio/MyBridge")
+                for key, value in (("GITHUB_WORKFLOW_REF", "sascio/MyBridge/.github/workflows/other.yml@refs/heads/main"),
+                                   ("GITHUB_REF", "refs/heads/old-branch"), ("GITHUB_EVENT_NAME", "push"),
+                                   ("GH_TOKEN", "")):
+                    with self.subTest(key=key), mock.patch.dict(os.environ, {key: value}):
+                        with self.assertRaises(publish.PublishError):
+                            publish.require_workflow_context("main")
+                with self.assertRaises(publish.PublishError):
+                    publish.require_workflow_context("untrusted-branch")
+                with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "release", "GITHUB_REF": "refs/tags/v1"}):
+                    self.assertEqual(publish.require_workflow_context("main"), "sascio/MyBridge")
+
+
 class LedgerValidationTests(unittest.TestCase):
     def test_offline_guard_blocks_external_dns_and_tcp(self):
         import socket
@@ -612,6 +721,40 @@ class LedgerValidationTests(unittest.TestCase):
         doc["legacy"]["releases"].clear()
         with self.assertRaises(ledger.LedgerError):
             ledger.validate(doc)
+
+    def test_migration_preserves_all_legacy_announcement_and_upload_fields(self):
+        old = {"schema": 2, "description": "preserve every original field", "releases": [
+            {"release_id": 10, "tag_name": "v1", "announced": True, "message_ids": [11, 12],
+             "announced_at": "2026-01-01T00:00:00Z", "assets": [
+                 {"name": "one.apk", "message_id": 13, "sha256": "a" * 64, "size": 17},
+                 {"name": "two.ipa", "message_id": 14, "sha256": None, "size": 18}]},
+            {"release_id": 20, "tag_name": "v2", "announced": False, "message_ids": [],
+             "assets": [{"name": "partial.apk", "message_id": 21, "custom_evidence": {"old": True}}]},
+        ]}
+        original = copy.deepcopy(old)
+        doc = ledger.migrate(old, "2026-01-01T00:00:00Z")
+        self.assertEqual(doc["legacy"], original)
+        self.assertEqual(doc["activation"]["legacy_sha256"], ledger.digest(original))
+        self.assertEqual(old, original)
+        self.assertEqual(ledger.summarize(doc)["legacy_channel_history"], "unknown")
+
+    def test_tracked_legacy_migration_is_only_prepared_and_never_overwrites_input(self):
+        source = SCRIPTS.parent / ledger.LEDGER_PATH
+        before = source.read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp, "prepared.json")
+            cutoff = utc(dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1))
+            args = [sys.executable, str(SCRIPTS / "telegram_ledger.py"), "--legacy", str(source),
+                    "--output", str(output), "--created-after", cutoff, "--acknowledge-legacy-is-unknown"]
+            result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            prepared = ledger.parse(output.read_bytes())
+            self.assertEqual(prepared["legacy"], json.loads(before))
+            preserved_output = output.read_bytes()
+            second = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(second.returncode, 0)
+            self.assertEqual(output.read_bytes(), preserved_output)
+        self.assertEqual(source.read_bytes(), before)
 
     def test_modified_frozen_plan_is_rejected(self):
         doc = migrated()
@@ -652,6 +795,45 @@ class LedgerValidationTests(unittest.TestCase):
             doc["releases"] = [publish.make_release(sample_release(), planned, set())]
             with self.subTest(planned=planned), self.assertRaises(ledger.LedgerError):
                 ledger.validate(doc)
+
+    def test_later_asset_cannot_be_attempted_after_an_unfinished_asset(self):
+        doc = migrated()
+        entry = publish.make_release(sample_release(), [
+            {"key": "page:1", "kind": "page", "payload": "a" * 64},
+            {"key": "asset:1", "kind": "asset", "payload": "b" * 64},
+            {"key": "asset:2", "kind": "asset", "payload": "c" * 64}], set())
+        entry["items"][0].update(state="confirmed", attempts=1, message_id=77)
+        entry["items"][2].update(state="sending", attempts=1, sha256="d" * 64)
+        doc["identity"] = "e" * 64
+        doc["releases"] = [entry]
+        with self.assertRaisesRegex(ledger.LedgerError, "assets are out of order"):
+            ledger.validate(doc)
+
+    def test_redacted_inspection_distinguishes_sent_unsent_and_unknown(self):
+        doc = migrated()
+        entry = publish.make_release(sample_release(), [
+            {"key": "page:1", "kind": "page", "payload": "a" * 64},
+            {"key": "asset:1", "kind": "asset", "payload": "b" * 64},
+            {"key": "asset:2", "kind": "asset", "payload": "c" * 64}], set())
+        entry["items"][0].update(state="confirmed", attempts=1, message_id=77)
+        entry["items"][1].update(state="unknown", attempts=1, sha256="d" * 64)
+        doc["identity"] = "e" * 64
+        doc["releases"] = [entry]
+        expected = {"confirmed_sent": 1, "confirmed_unsent_by_protocol": 1, "unknown": 1}
+        self.assertEqual(ledger.summarize(doc)["operations"], expected)
+        self.assertEqual(ledger.operation_outcome({"state": "uploading"}), "confirmed_unsent_by_protocol")
+        self.assertEqual(ledger.operation_outcome({"state": "sending"}), "unknown")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "state.json")
+            path.write_bytes(ledger.canonical(doc))
+            result = subprocess.run([sys.executable, str(SCRIPTS / "telegram_ledger.py"), "--inspect", str(path)],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual(report["operations"], expected)
+            self.assertEqual(report["legacy_channel_history"], "unknown")
+            for secret in (TOKEN, CHAT, API_HASH, "v9.9.9"):
+                self.assertNotIn(secret, result.stdout)
 
     def test_session_data_never_contains_token_or_session_material(self):
         doc = migrated()
@@ -729,6 +911,106 @@ class RealGitLedgerTests(unittest.TestCase):
         self.git("push", "origin", "HEAD:main", cwd=self.work)
         with self.assertRaisesRegex(ledger.LedgerError, "missing"):
             self.store.read()
+
+    @unittest.skipUnless(telethon is not None, "Telethon required for publisher plan rendering")
+    def test_two_simultaneous_publishers_use_one_session_and_one_send(self):
+        other = self.root / "other"
+        self.git("clone", str(self.remote), str(other), cwd=self.root)
+        barrier = threading.Barrier(2)
+        mutex = threading.Lock()
+        stats = {"sessions": 0, "max_sessions": 0, "calls": []}
+        outcomes = []
+
+        class RacingStore(ledger.GitLedger):
+            def __init__(worker, repo):
+                super().__init__(str(repo), "main")
+                worker.first = True
+            def read(worker):
+                snapshot = super().read()
+                if worker.first:
+                    worker.first = False
+                    barrier.wait(timeout=20)  # both workers saw the same unlocked parent
+                return snapshot
+
+        class Transport:
+            def connect(worker):
+                with mutex:
+                    stats["sessions"] += 1
+                    stats["max_sessions"] = max(stats["max_sessions"], stats["sessions"])
+            def close(worker):
+                with mutex:
+                    stats["sessions"] -= 1
+                return True
+            def text_request(worker, markup, buttons, random_id):
+                return SimpleNamespace(random_id=random_id)
+            def send(worker, request, **_kwargs):
+                with mutex:
+                    stats["calls"].append(request.random_id)
+                return 12345
+
+        release = sample_release()
+        def run(store):
+            try:
+                publish.publish(release, store, token=TOKEN, chat=CHAT, api_id=12345, api_hash=API_HASH,
+                                transport_factory=lambda *_: Transport(), bot_lookup=lambda *_: (777, -1002000000001, CHAT),
+                                sleeper=lambda _: None, policy_check=lambda: None)
+                outcomes.append("success")
+            except Exception as exc:
+                outcomes.append(type(exc).__name__)
+
+        threads = [threading.Thread(target=run, args=(RacingStore(path),)) for path in (self.work, other)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertCountEqual(outcomes, ["success", "LedgerError"])
+        self.assertEqual(stats["max_sessions"], 1)
+        self.assertEqual(len(stats["calls"]), 1)
+        document = self.store.read().document
+        self.assertIsNone(document["session"])
+        self.assertEqual(document["releases"][0]["items"][0]["state"], "confirmed")
+
+    @unittest.skipUnless(telethon is not None and hasattr(signal, "SIGKILL"), "POSIX and Telethon required")
+    def test_killed_worker_preserves_ambiguous_send_and_session_lock(self):
+        release = sample_release()
+        accepted = self.root / "fake-accepted-id"
+
+        class CrashingTransport:
+            def connect(worker):
+                pass
+            def close(worker):
+                return True
+            def text_request(worker, markup, buttons, random_id):
+                return SimpleNamespace(random_id=random_id)
+            def send(worker, request, **_kwargs):
+                accepted.write_text(str(request.random_id))  # fake server acceptance, no network
+                os.kill(os.getpid(), signal.SIGKILL)  # cleanup/finally cannot run
+
+        def child():
+            publish.publish(release, self.store, token=TOKEN, chat=CHAT, api_id=12345, api_hash=API_HASH,
+                            transport_factory=lambda *_: CrashingTransport(),
+                            bot_lookup=lambda *_: (777, -1002000000001, CHAT),
+                            sleeper=lambda _: None, policy_check=lambda: None)
+
+        process = multiprocessing.get_context("fork").Process(target=child)
+        process.start()
+        process.join(timeout=30)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=5)
+            self.fail("crash simulation did not finish")
+        self.assertEqual(process.exitcode, -signal.SIGKILL)
+        snapshot = self.store.read()
+        item = snapshot.document["releases"][0]["items"][0]
+        self.assertEqual(item["state"], "sending")
+        self.assertEqual(item["random_id"], int(accepted.read_text()))
+        self.assertIsNotNone(snapshot.document["session"])
+        with self.assertRaisesRegex(publish.PublishError, "session"):
+            publish.publish(release, self.store, token=TOKEN, chat=CHAT, api_id=12345, api_hash=API_HASH,
+                            recover_unknown=True, transport_factory=lambda *_: self.fail("must not log in"),
+                            bot_lookup=lambda *_: self.fail("must not contact Bot API"), policy_check=lambda: None)
+        self.assertEqual(self.store.read().document, snapshot.document)
 
 @unittest.skipUnless(telethon is not None, "Telethon is required for raw RPC/part tests")
 class RawTransportTests(unittest.TestCase):

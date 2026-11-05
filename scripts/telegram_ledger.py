@@ -19,7 +19,8 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from urllib.parse import quote
 
 LEDGER_PATH = ".github/telegram-releases.json"
 SCHEMA = 3
@@ -147,6 +148,7 @@ def validate(doc: object) -> None:
         page_count = 0
         saw_asset = False
         unfinished_page = False
+        unfinished_asset = False
         for item in release["items"]:
             if not isinstance(item, dict) or set(item) != {"key", "kind", "payload", "random_id", "state", "message_id", "sha256", "attempts"}:
                 raise LedgerError("Ledger operation entry is invalid.")
@@ -167,6 +169,9 @@ def validate(doc: object) -> None:
                 saw_asset = True
                 if not page_count or (unfinished_page and state != "planned"):
                     raise LedgerError("Ledger asset was attempted before all pages were confirmed.")
+                if unfinished_asset and state != "planned":
+                    raise LedgerError("Ledger assets are out of order.")
+                unfinished_asset = unfinished_asset or state != "confirmed"
             if not isinstance(item["payload"], str) or not HEX.fullmatch(item["payload"]):
                 raise LedgerError("Ledger operation payload hash is invalid.")
             random_id = item["random_id"]
@@ -204,6 +209,50 @@ def validate(doc: object) -> None:
             raise LedgerError("Ledger operation payloads do not match their frozen release plan.")
     if identity is None and any(item["state"] != "planned" for release in releases for item in release["items"]):
         raise LedgerError("Attempted operations require a bound bot/channel identity.")
+
+
+def require_branch_rules(repository: str, branch: str, *, runner: Callable = subprocess.run) -> None:
+    """Require visible active no-force/no-delete rules; this is necessary, not sufficient.
+
+    Metadata-read GitHub rules do not expose every bypass actor. An administrator
+    must separately audit bypasses and exclusive writers. All output is captured:
+    neither GitHub's error text nor credentials are emitted in diagnostics.
+    """
+    if (not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+            or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch) or branch.startswith("-")):
+        raise LedgerError("GitHub repository or ledger branch is invalid.")
+    endpoint = f"repos/{repository}/rules/branches/{quote(branch, safe='')}?per_page=100"
+    try:
+        result = runner(["gh", "api", "--paginate", "--jq", ".[] | .type", endpoint],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
+        types = set(result.stdout.decode("utf-8").splitlines())
+    except (OSError, subprocess.TimeoutExpired, UnicodeDecodeError) as exc:
+        raise LedgerError("GitHub branch rules could not be verified; publishing is blocked.") from exc
+    if result.returncode or not {"non_fast_forward", "deletion"}.issubset(types):
+        raise LedgerError("Active no-force and no-delete rulesets could not be verified; publishing is blocked.")
+
+
+def operation_outcome(item: dict[str, Any]) -> str:
+    """Classify validated schema-3 state; unsent means *by this protocol* only."""
+    if item["state"] == "confirmed":
+        return "confirmed_sent"
+    if item["state"] in {"planned", "uploading"}:
+        return "confirmed_unsent_by_protocol"
+    if item["state"] in {"sending", "unknown"}:
+        return "unknown"
+    raise LedgerError("Ledger operation state is invalid.")
+
+
+def summarize(doc: dict[str, Any]) -> dict[str, Any]:
+    """Redacted read-only counts; never infer a clean channel from legacy data."""
+    validate(doc)
+    counts = {"confirmed_sent": 0, "confirmed_unsent_by_protocol": 0, "unknown": 0}
+    for release in doc["releases"]:
+        for item in release["items"]:
+            counts[operation_outcome(item)] += 1
+    return {"schema": SCHEMA, "session_locked": doc["session"] is not None,
+            "operations": counts, "legacy_release_records": len(doc["legacy"]["releases"]),
+            "legacy_channel_history": "unknown"}
 
 
 def migrate(legacy: object, created_after: str) -> dict[str, Any]:
@@ -288,12 +337,32 @@ class GitLedger:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Prepare an audited legacy cutover; never deploys it or contacts Telegram.")
-    parser.add_argument("--legacy", required=True, help="existing legacy schema-1 or schema-2 ledger")
-    parser.add_argument("--output", required=True, help="new file to inspect; must not already exist")
-    parser.add_argument("--created-after", required=True, help="future UTC cutoff, e.g. 2027-01-01T00:00:00Z")
-    parser.add_argument("--acknowledge-legacy-is-unknown", action="store_true", required=True)
+    parser = argparse.ArgumentParser(description="Inspect a ledger or prepare an audited legacy cutover; never deploys it or contacts Telegram.")
+    parser.add_argument("--inspect", help="read-only summary of a local ledger snapshot")
+    parser.add_argument("--legacy", help="existing legacy schema-1 or schema-2 ledger")
+    parser.add_argument("--output", help="new file to inspect; must not already exist")
+    parser.add_argument("--created-after", help="future UTC cutoff, e.g. 2027-01-01T00:00:00Z")
+    parser.add_argument("--acknowledge-legacy-is-unknown", action="store_true")
     args = parser.parse_args()
+    if args.inspect:
+        if args.legacy or args.output or args.created_after or args.acknowledge_legacy_is_unknown:
+            parser.error("--inspect cannot be combined with migration arguments")
+        try:
+            raw = Path(args.inspect).read_bytes()
+            doc = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+            if isinstance(doc, dict) and type(doc.get("schema")) is int and doc["schema"] in (1, 2):
+                validate_legacy(doc)
+                report = {"schema": doc["schema"], "legacy_release_records": len(doc["releases"]),
+                          "legacy_channel_history": "unknown"}
+            else:
+                report = summarize(doc)
+            print(json.dumps(report, sort_keys=True))
+            return 0
+        except (LedgerError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+            print("Ledger inspection failed: state is missing, malformed or unsupported.")
+            return 1
+    if not (args.legacy and args.output and args.created_after and args.acknowledge_legacy_is_unknown):
+        parser.error("migration requires --legacy, --output, --created-after and --acknowledge-legacy-is-unknown")
     try:
         cutoff = timestamp(args.created_after)
         if cutoff <= dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1):

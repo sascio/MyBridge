@@ -1363,6 +1363,35 @@ class PreflightWorkflowTests(unittest.TestCase):
                 self.assertIn("**Failed:**", summary)
 
 
+@unittest.skipUnless(yaml is not None, "PyYAML is required for CI verification-mode tests")
+class CiVerificationWorkflowTests(unittest.TestCase):
+    def test_manual_verification_runs_all_checks_without_artifact_or_cache_uploads(self) -> None:
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/build.yml").read_text())
+        triggers = workflow.get("on", workflow.get(True))
+        self.assertIs(triggers["workflow_dispatch"]["inputs"]["upload_artifacts"]["default"], False)
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(workflow["jobs"]["build"]["permissions"], {"contents": "read", "issues": "write"})
+        jobs = workflow["jobs"]
+        self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests"})
+        build = jobs["build"]["steps"]
+        for step in build:
+            if "actions/upload-artifact@" in step.get("uses", ""):
+                self.assertIn("github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true", step["if"])
+            if step.get("name") in {"Close resolved CI-failure issues", "Report failure log as an issue"}:
+                self.assertIn("inputs.upload_artifacts == true", step["if"])
+        for job in (jobs["build"], jobs["tracking-config-check"]):
+            setup = next(step for step in job["steps"] if "gradle/actions/setup-gradle@" in step.get("uses", ""))
+            self.assertIn("inputs.upload_artifacts != true", setup["with"]["cache-disabled"])
+            self.assertIn("inputs.upload_artifacts != true", setup["with"]["cache-read-only"])
+            self.assertEqual(setup["with"]["dependency-graph"], "disabled")
+            self.assertIs(setup["with"]["build-scan-publish"], False)
+        names = {step.get("name") for step in build}
+        self.assertTrue({"Run unit tests", "Assemble Nuvio full debug and release APKs",
+                         "Run Android lint (full release)",
+                         "Verify Play Store distribution excludes the CloudStream runtime"} <= names)
+        self.assertTrue(any(step.get("name") == "Run script tests" for step in jobs["script-tests"]["steps"]))
+
+
 class WorkflowRefTests(unittest.TestCase):
     def test_checkout_uses_the_default_branch_not_the_release_tag(self) -> None:
         if yaml is None:
@@ -1379,6 +1408,8 @@ class WorkflowRefTests(unittest.TestCase):
         workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text())
         publish = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("name") == "Publish individual messages and documents")
         self.assertNotIn("--pin", publish["run"])
+        self.assertEqual(publish["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write"})
 
 
 if __name__ == "__main__":

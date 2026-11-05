@@ -5,15 +5,23 @@ on:
     branches: [main, arena/**]
   pull_request:
   workflow_dispatch:
+    inputs:
+      upload_artifacts:
+        description: Upload CI reports/APKs and allow CI issue updates
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   build:
     name: Nuvio-core full Android APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
 
     steps:
       - name: Checkout
@@ -88,7 +96,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          cache-read-only: false
+          # No remote cache reads/writes for a verification-only manual run.
+          cache-disabled: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
+          cache-read-only: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
+          dependency-graph: disabled
+          build-scan-publish: false
 
       - name: Check the shipped brand assets are optimised
         run: |
@@ -125,7 +137,7 @@ jobs:
           python3 .github/report-failing-tests.py composeApp/build/test-results
 
       - name: Upload unit test report
-        if: always()
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true) }}
         uses: actions/upload-artifact@v7
         with:
           name: Stream-Bridge-unit-test-report
@@ -215,6 +227,7 @@ jobs:
           EOF
 
       - name: Upload full debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true }}
         uses: actions/upload-artifact@v7
         with:
           name: Stream-Bridge-CI-full-debug-APK
@@ -222,6 +235,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload full release APK (debug-signed, not production)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true }}
         uses: actions/upload-artifact@v7
         with:
           name: Stream-Bridge-CI-full-release-APK-not-production
@@ -231,7 +245,7 @@ jobs:
           if-no-files-found: error
 
       - name: Close resolved CI-failure issues
-        if: success()
+        if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true) }}
         uses: actions/github-script@v8
         with:
           script: |
@@ -266,7 +280,7 @@ jobs:
             core.info('Closed ' + closed + ' of ' + issues.length + ' open ci-failure issue(s).');
 
       - name: Report failure log as an issue
-        if: failure()
+        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true) }}
         uses: actions/github-script@v8
         with:
           script: |
@@ -370,7 +384,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          cache-read-only: false
+          # No remote cache reads/writes for a verification-only manual run.
+          cache-disabled: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
+          cache-read-only: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
+          dependency-graph: disabled
+          build-scan-publish: false
 
       - name: Verify properties reach the generated runtime configs
         run: |
