@@ -251,10 +251,13 @@ preflight nor offline mocks validate these live recovery procedures.
   was active on 2026-11-05 but reports no license; it uses high-level sends and
   its JSON state resets on read errors, so it is not a safe ledger replacement.
 * [Telethon](https://github.com/LonamiWebs/Telethon) is MIT and already used by
-  the project; version 1.42.0 is pinned, but its upstream repository is archived
-  (last push 2026-02-21). This is a maintenance/security risk, not an assertion
-  of ongoing support. Evaluate a maintained, license-compatible replacement
-  before long-term deployment; do not change identity or weaken the protocol.
+  the project. Its GitHub repository was archived on 2026-02-21 because the
+  project moved to [Codeberg](https://codeberg.org/Lonami/Telethon), not because
+  an archive alone proves development stopped. [PyPI](https://pypi.org/project/Telethon/)
+  listed 1.45.0 as the latest release on 2026-11-05; that version is pinned and
+  exercised by the offline tests. Monitor its maintenance and security updates.
+  An upgrade can change parsed entities or button types and thereby block a
+  pending frozen plan; review and test upgrades without changing IDs or identity.
 
 ## Offline verification
 

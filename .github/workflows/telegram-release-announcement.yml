@@ -233,7 +233,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --quiet \
-            'telethon==1.42.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
+            'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
       - name: Fetch the current published release by ID
         env:
           GH_TOKEN: ${{ github.token }}

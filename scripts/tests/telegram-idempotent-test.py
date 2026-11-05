@@ -806,7 +806,11 @@ class RawTransportTests(unittest.TestCase):
         self.assertEqual(request.message, 'StreamBridge & more')
         self.assertTrue(any(isinstance(x, types.MessageEntityBold) for x in request.entities))
         self.assertIsInstance(self.transport.send(request), int)
-        self.assertEqual(request.reply_markup.rows[0].buttons[0].url, 'https://github.com/a/b')
+        button = request.reply_markup.rows[0].buttons[0]
+        self.assertIsInstance(button, types.KeyboardInlineButton)
+        self.assertIsInstance(button.type, types.InlineButtonTypeUrl)
+        self.assertEqual(button.type.url, 'https://github.com/a/b')
+        bytes(request)  # actual TL serialization, not just construction
 
     def test_raw_document_uses_real_chunking_and_same_preallocated_id(self):
         path = Path(self.tmp.name, 'app.apk')
@@ -821,6 +825,7 @@ class RawTransportTests(unittest.TestCase):
         request = self.transport.media_request(media, '<b>StreamBridge</b> IPA', 987654321)
         self.assertIsInstance(request, functions.messages.SendMediaRequest)
         self.assertEqual(request.random_id, 987654321)
+        bytes(request)  # verify the prepared upload handle and media TL schema serialize
         self.assertEqual(self.transport.send(request, filename='app.apk', size=len(body)), self.server.next_message_id)
         self.assertNotIn('SendMultiMediaRequest', self.client.rpc_log)
         self.assertNotIn('UploadMediaRequest', self.client.rpc_log)

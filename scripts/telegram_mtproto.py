@@ -97,7 +97,9 @@ class BotTransport:
         if not buttons:
             return None
         return types.ReplyInlineMarkup(rows=[
-            types.KeyboardButtonRow(buttons=[types.KeyboardButtonUrl(text=label, url=url)])
+            types.KeyboardInlineButtonRow(buttons=[
+                types.KeyboardInlineButton(text=label, type=types.InlineButtonTypeUrl(url=url))
+            ])
             for label, url in buttons
         ])
 

@@ -1266,7 +1266,7 @@ class PreflightWorkflowTests(unittest.TestCase):
     def test_published_release_event_and_pinned_dependencies(self) -> None:
         publish_job = self.workflow['jobs']['publish']
         install = next(s for s in publish_job['steps'] if s.get('name') == 'Install pinned MTProto dependencies')
-        for dep in ('telethon==1.42.0', 'pyaes==1.6.1', 'rsa==4.9.1', 'pyasn1==0.6.1'):
+        for dep in ('telethon==1.45.0', 'pyaes==1.6.1', 'rsa==4.9.1', 'pyasn1==0.6.1'):
             self.assertIn(dep, install['run'])
         resolve = next(s for s in self.announce_job['steps'] if s.get('id') == 'release')['run']
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}"', resolve)
