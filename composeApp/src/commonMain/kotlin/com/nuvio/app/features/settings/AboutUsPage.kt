@@ -39,6 +39,7 @@ import nuvio.composeapp.generated.resources.about_us_telegram_title
 import nuvio.composeapp.generated.resources.about_us_what_body
 import nuvio.composeapp.generated.resources.about_us_what_title
 import nuvio.composeapp.generated.resources.discord_logo
+import nuvio.composeapp.generated.resources.telegram_logo
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -159,6 +160,12 @@ private fun TelegramRow() {
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            Icon(
+                painter = painterResource(Res.drawable.telegram_logo),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),

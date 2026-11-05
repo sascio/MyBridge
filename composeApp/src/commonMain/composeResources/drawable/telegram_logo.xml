@@ -1,0 +1,11 @@
+<!-- Telegram brand mark — paper plane (24x24) for the About Us community row.
+     Authentic Telegram plane silhouette, centered and proportioned to match discord_logo. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M21.04,2.98 L3.73,9.80 C2.64,10.23 2.67,10.88 3.55,11.16 L8.46,12.69 L19.03,6.05 C19.51,5.75 19.95,5.89 19.60,6.21 L10.94,14.63 L10.92,15.37 L17.41,20.06 C17.83,20.29 18.14,20.19 18.26,19.70 L21.78,3.46 C21.95,2.67 21.46,2.30 20.58,2.75 Z" />
+</vector>
