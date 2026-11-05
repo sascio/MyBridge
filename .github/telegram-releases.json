@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "description": "StreamBridge release announcements that Telegram confirmed. Written by .github/workflows/telegram-release-announcement.yml after a successful send; the release id is the idempotency key.",
+  "releases": []
+}
