@@ -7,5 +7,5 @@
 //
 // The synced core baseline is the 0.6.7-beta tree. StreamBridge never ships the
 // core's version as its own.
-CURRENT_PROJECT_VERSION=115
+CURRENT_PROJECT_VERSION=116
 MARKETING_VERSION=0.1.15

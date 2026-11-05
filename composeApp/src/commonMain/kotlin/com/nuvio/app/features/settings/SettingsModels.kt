@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VideoSettings
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.AccountCircle
@@ -302,8 +303,8 @@ internal val SettingsPage.icon: ImageVector
     get() = when (this) {
         SettingsPage.Root -> Icons.Rounded.Settings
         SettingsPage.Account -> Icons.Default.Person
-        SettingsPage.SupportersContributors -> Icons.Rounded.Info
-        SettingsPage.LicensesAttributions -> Icons.Default.Info
+        SettingsPage.SupportersContributors -> Icons.Rounded.Groups
+        SettingsPage.LicensesAttributions -> Icons.Filled.Description
         SettingsPage.Playback -> Icons.Rounded.PlayArrow
         SettingsPage.Appearance -> Icons.Default.Palette
         SettingsPage.Layout -> Icons.Default.GridView
