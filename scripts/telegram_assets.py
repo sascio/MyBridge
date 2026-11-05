@@ -15,10 +15,11 @@ Flow per asset:
 3. upload        -- MTProto ``upload_file`` + ``send_file`` as a document
 4. record        -- write the confirmed message id into the post ledger
 
-Every step is resumable. An asset is only recorded after Telegram returns a
-message id, so a rerun skips what succeeded and retries only what failed.
+An asset is recorded only after Telegram returns a message id. A rerun skips
+confirmed assets only if their ledger records were successfully persisted; a
+cancelled run or failed push can still cause duplicate uploads.
 
-Nothing here prints, logs or persists the bot token, the API hash or a session.
+Nothing here prints, logs or persists the configured Telegram secrets or a session.
 """
 
 from __future__ import annotations
@@ -72,20 +73,28 @@ class ConfigError(AssetError):
     """A required secret is missing or malformed."""
 
 
+def redact(message: str) -> str:
+    # Share the announcement client's secret handling without creating a
+    # module-import cycle: telegram_announce loads this module lazily too.
+    from telegram_announce import redact as redact_telegram  # noqa: PLC0415
+
+    return redact_telegram(message)
+
+
 def log(message: str) -> None:
-    print(message, flush=True)
+    print(redact(message), flush=True)
 
 
 def notice(message: str) -> None:
-    print(f"::notice::{message}", flush=True)
+    print(redact(f"::notice::{message}"), flush=True)
 
 
 def warning(message: str) -> None:
-    print(f"::warning::{message}", flush=True)
+    print(redact(f"::warning::{message}"), flush=True)
 
 
 def error(message: str) -> None:
-    print(f"::error::{message}", flush=True)
+    print(redact(f"::error::{message}"), flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -378,7 +387,7 @@ class MtprotoUploader:
         self._closed = False
 
     def __repr__(self) -> str:  # never leak a secret through a repr
-        return f"MtprotoUploader(chat_id={self._chat_id!r}, api_id=***, api_hash=***, token=***)"
+        return "MtprotoUploader(chat_id=***, api_id=***, api_hash=***, token=***)"
 
     # -- connection -------------------------------------------------------- #
 
@@ -479,23 +488,25 @@ class MtprotoUploader:
         raise AssetError(f"could not upload {filename} after {self._attempts} attempts: {last_error}")
 
     def find_marker(self, marker: str, limit: int = 100) -> bool:
-        """True when a recent channel message already carries ``marker``.
+        """Try to find ``marker`` in recent history.
 
-        The Bot API exposes no message history, so an announcement cannot be
-        looked up that way -- which is why the usual guard was a pinned message
-        and therefore needed the "Pin Messages" administrator right. MTProto can
-        read the channel the bot posts to, so the guard works with *Post Messages*
-        alone and does not depend on a pin that a moderator may have replaced.
+        Telethon's ``iter_messages`` uses ``messages.getHistory``, which Telegram
+        permits for user accounts but not bot accounts. Since this uploader logs
+        in as a bot, callers must treat an RPC failure as an unknown result, not
+        as evidence that no announcement exists. See Telegram's method reference:
+        https://core.telegram.org/method/messages.getHistory
         """
         if not marker:
             return False
         client = self._connect()
+        # A prefix is not the same release: #SB123 must not match #SB1234.
+        marker_pattern = re.compile(rf"{re.escape(marker)}\b")
 
         async def scan() -> bool:
             entity = await client.get_entity(self._chat_id)  # type: ignore[attr-defined]
             async for message in client.iter_messages(entity, limit=limit):  # type: ignore[attr-defined]
                 text = getattr(message, "message", None) or ""
-                if marker in text:
+                if marker_pattern.search(text):
                     return True
             return False
 
@@ -645,7 +656,11 @@ def record_upload(
     sha256: str = "",
     chat_id: str = "",
 ) -> None:
-    """Record one confirmed upload, preserving everything else in the ledger."""
+    """Record one confirmed upload, preserving everything else in the ledger.
+
+    ``chat_id`` remains an accepted caller argument but is not written to the
+    repository: it is a secret and is not needed to identify an uploaded asset.
+    """
     data = load_ledger(path)
     releases = [entry for entry in data["releases"] if isinstance(entry, dict)]
     entry = _release_entry({"releases": releases}, release.id) or {
@@ -665,7 +680,6 @@ def record_upload(
             "size": plan.asset.size,
             "sha256": sha256 or None,
             "message_id": int(message_id),
-            "chat_id": chat_id or None,
             "uploaded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
     )
@@ -732,10 +746,9 @@ def upload_release_assets(
 ) -> UploadRun:
     """Download and publish every production binary for ``release``.
 
-    An asset that is already recorded is skipped, so a rerun after a partial
-    failure retries only the missing files. A failure on one asset never stops
-    the others: the caller reports it, and its verified GitHub link is already in
-    the announcement's buttons, so users are never left without a route.
+    An asset recorded in the supplied ledger is skipped. A later runner can
+    rely on that only if the ledger was persisted successfully. A failure on one
+    asset never stops the others; the verified GitHub links remain available.
     """
     run = UploadRun(release=release, dry_run=dry_run)
     run.plans, run.skipped = plan_uploads(release)
@@ -804,7 +817,9 @@ def upload_release_assets(
                 UploadRecord(plan.asset.name, plan.kind, plan.asset.size, "uploaded", message_id, plan.asset.url)
             )
         except AssetError as exc:
-            message = str(exc)
+            # This detail is also written to the JSON/GitHub summary, not only
+            # to the log where Actions would normally mask repository secrets.
+            message = redact(str(exc))
             run.records.append(
                 UploadRecord(plan.asset.name, plan.kind, plan.asset.size, "failed", None, plan.asset.url, message)
             )
@@ -815,10 +830,11 @@ def upload_release_assets(
                 f"It is still available at {plan.asset.url}"
             )
         except Exception as exc:  # noqa: BLE001 - one bad asset must not stop the rest
+            message = redact(str(exc))
             run.records.append(
-                UploadRecord(plan.asset.name, plan.kind, plan.asset.size, "failed", None, plan.asset.url, str(exc))
+                UploadRecord(plan.asset.name, plan.kind, plan.asset.size, "failed", None, plan.asset.url, message)
             )
-            error(f"{plan.asset.name} was not delivered to Telegram: {exc}. It is still available at {plan.asset.url}")
+            error(f"{plan.asset.name} was not delivered to Telegram: {message}. It is still available at {plan.asset.url}")
         finally:
             # Temporary downloads never survive the job, whatever happened.
             _discard(f"{destination}.part")
@@ -829,10 +845,10 @@ def upload_release_assets(
 def channel_has_marker(*, marker: str, chat_id: str, transport: "MtprotoUploader | None") -> bool | None:
     """Best-effort duplicate check through MTProto.
 
-    Returns True when a recent channel message carries ``marker``, False when it
-    definitively does not, and None when the check could not run (no credentials,
-    a bot without read access, or any Telegram error). None means "unknown", and
-    callers fall back to the other guards rather than guessing.
+    Returns True when an inspected message carries ``marker``, False when no
+    inspected message does, and None when the check could not run. A negative
+    result is limited to the inspected window; the current history method is
+    unavailable to bot accounts, so an RPC error means "unknown".
     """
     if transport is None or not marker:
         return None
@@ -959,7 +975,8 @@ def main(argv: list[str] | None = None) -> int:
     if run.failed:
         error(
             f"{len(run.failed)} of {len(run.plans)} binaries were not delivered. The GitHub release "
-            "is unaffected; re-run this workflow to retry only the missing files."
+            "is unaffected. Before retrying, inspect the channel and ensure confirmed uploads "
+            "are recorded in the persisted ledger."
         )
         return EXIT_ERROR
     notice(

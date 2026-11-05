@@ -23,12 +23,21 @@ the GitHub API object of the release that fired the event.
 
 ## Read-only Telegram preflight
 
-After this workflow is merged into the default branch, open **Actions → Telegram
-release announcement → Run workflow**, select **Preflight**, and run it. The
-preflight input defaults to false and takes precedence over `dry_run`, `tag` and
-`upload_assets`. It uses an independent job, so the announcement, upload and
-ledger steps are skipped even if the other inputs request a real announcement.
-The equivalent GitHub CLI command is:
+**Review blocker:** the existing MTProto history check calls
+[`messages.getHistory`](https://core.telegram.org/method/messages.getHistory),
+which Telegram allows only for user accounts, not bots. The uploader authenticates
+as a bot, so a real preflight cannot currently verify history and should fail at
+that check even with valid credentials. Successful offline mocks are not evidence
+that Telegram permits the call. This restriction does not by itself establish
+whether MTProto file uploads work. A bot-compatible duplicate check must be
+implemented and validated before this preflight is ready for use.
+
+Once that blocker is resolved and the workflow is merged into the default branch,
+open **Actions → Telegram release announcement → Run workflow** and select
+**Preflight**. The input defaults to false and takes precedence over `dry_run`,
+`tag` and `upload_assets`. It uses an independent job, so the announcement,
+upload and ledger steps are skipped even if the other inputs request a real
+announcement. The equivalent GitHub CLI command is:
 
 ```bash
 gh workflow run telegram-release-announcement.yml --ref main -f preflight=true
@@ -53,18 +62,18 @@ The workflow additionally uses the existing Bot API client for `getMe` and
 `getChatMember`: `getChat` alone does not report the bot's administrator status
 or Post Messages right. The existing CLI may therefore print a membership warning
 based on `getChat`; the preceding `getChatMember` check and the **final job
-result** are authoritative. MTProto uses the existing bot login and reads recent
-channel history with the fixture marker `#SB0`; this is an access check, not a
-claim about any real release or duplicate. The existing CLI gives `--dry-run`
-priority over `--preflight`, so the workflow deliberately passes only
-`--preflight`, regardless of the dispatch's dry-run input.
+result** are authoritative. The CLI attempts the existing bot login and history
+lookup with the fixture marker `#SB0`; Telegram's bot restriction above prevents
+that lookup from succeeding. The existing CLI gives `--dry-run` priority over
+`--preflight`, so the workflow deliberately passes only `--preflight`, regardless
+of the dispatch's dry-run input.
 
 No real release is fetched or changed; no tag or post ledger is modified; no
 message is sent, file uploaded, or message pinned or unpinned. The normal release
 job retains its existing behavior and ledger write permission. Note that the
-current announcement step receives only the bot token and chat ID, so its
-optional MTProto duplicate-history guard is not enabled by this preflight; the
-existing pinned-message and ledger guards remain unchanged.
+current announcement step receives only the bot token and chat ID. Giving it the
+MTProto API credentials alone would not enable a working history guard: the
+underlying method is unavailable to bots. The independent ledger remains in use.
 
 ## How the message is built
 
@@ -153,8 +162,10 @@ is never written to disk.
 5. **Record** — the confirmed message id is written to the ledger for that asset.
 
 A failure on one asset never stops the others. Every failure is reported with the
-asset's verified GitHub link, `continue-on-error` keeps the job green, and a
-re-run uploads only the files that are still missing.
+asset's verified GitHub link and `continue-on-error` keeps the job green. If the
+ledger was successfully pushed, a re-run skips recorded files and retries the
+others. A cancellation or failed ledger push can lose successful upload records,
+so a re-run can upload the same files again; inspect the channel before retrying.
 
 ### Credentials for large-file delivery
 
@@ -177,23 +188,30 @@ refused rather than truncated, with an instruction to shorten the notes.
 
 ## Duplicate protection
 
-Idempotency is keyed on the **release id**, not on the workflow event:
+The independent post ledger (`.github/telegram-releases.json`) is keyed on the
+**release id**:
 
-* every page carries `#SB<release id>` in its footer;
-* before sending, the workflow reads the channel's pinned message (`getChat`)
-  and stops if it carries the same tag — a rerun, a retried job or a duplicated
-  `release` event is reported as "already announced" and nothing is sent;
-* after Telegram confirms **every** page (`ok: true` plus a `message_id`), the
-  first message is pinned and `.github/telegram-releases.json` records the
-  release id and message ids. The ledger is committed, so the guard still works
-  if the pin later moves to another message;
-* each uploaded binary is recorded in the same ledger with its own message id, so
-  a re-run skips files Telegram already confirmed and retries only the rest. An
-  asset is recorded only after its upload returned a message id.
+* Every page carries `#SB<release id>`. Before sending, the script checks the
+  pinned message and the persistent ledger for that release id.
+* The workflow does **not** pass `--pin`; it does not request Pin Messages rights
+  or create a pin. A matching pin can help if one already exists, but is not a
+  dependable protection for this workflow.
+* The ledger records an announcement only after **every** page is confirmed. Each
+  confirmed binary is added to the same ledger individually. The workflow pushes
+  the ledger after attempting asset delivery; push failures only warn. A retry
+  skips a recorded release or asset only if that record was actually persisted.
+* The optional MTProto history lookup currently uses a user-only method and cannot
+  protect bot retries. The normal publish step therefore does not receive the API
+  id/hash just to invoke this unsupported lookup.
 
-`concurrency` (grouped by release id, never cancelling) only stops two runs from
-racing; it is not the protection. Nothing is marked as posted before Telegram
-confirms delivery, and a partial failure reports the message ids that arrived.
+**Retry risk:** a partially sent announcement, runner interruption, or failed
+ledger push can leave channel posts without a durable record. Retrying can then
+post duplicate pages or re-upload files. A response lost after Telegram accepted a
+send can also trigger a duplicate during the same run's automatic retries. If a
+future history guard finds one page of a multi-page announcement, it must not be
+assumed to have completed or resumed the remaining pages. Inspect the channel and
+workflow logs before retrying an interrupted or partially failed run. Concurrency
+reduces races only within the same group; it is not an exactly-once guarantee.
 
 ## Failure handling
 
@@ -206,30 +224,26 @@ confirms delivery, and a partial failure reports the message ids that arrived.
   *Settings → Secrets and variables → Actions*, plus a note that the GitHub
   release is unaffected.
 * A pin failure only warns: the announcement is already delivered.
-* Credentials are read from the step environment and masked in GitHub Actions
-  logs. The Bot API includes the token in its HTTPS request URL, so it must never
-  be printed; the scripts redact token-shaped values in their diagnostics. No
-  credential is passed as an argument or written to an artifact. The workflow
-  uploads no artifacts at all.
+* Credentials are read from step-scoped environment variables and masked in
+  GitHub Actions logs. Diagnostics and upload-error summaries also redact the
+  configured secret values and token-shaped strings. New ledger records do not
+  store the chat ID; older ledger entries are preserved. No credential is passed
+  as an argument or written to an artifact. The workflow uploads no artifacts.
 
 ## Setup
 
 1. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are repository secrets.
    `TELEGRAM_CHAT_ID` is `@StreamBridge_App`.
 2. `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are repository secrets, from
-   [my.telegram.org](https://my.telegram.org) → *API development tools*. They are
-   needed only for the APK/IPA uploads; without them the announcement still posts.
-2. **Merge this workflow into the default branch (`main`).** GitHub only creates
-   a `release: published` trigger for workflows that exist on the default branch.
-   On any other branch the file is inert: no run starts, and the workflow does
-   not appear in the Actions list until the merge lands. `workflow_dispatch` also
-   only offers workflows from the default branch in the UI.
+   [my.telegram.org](https://my.telegram.org) → *API development tools*. The
+   upload and preflight steps need them; without them announcements can still post.
+3. Resolve the preflight history blocker above before merging. GitHub only creates
+   a `release: published` trigger for workflows on the default branch, and the UI
+   offers `workflow_dispatch` workflows from that branch.
 4. The bot must be an **administrator** of the channel with *Post Messages*.
-   *Pin Messages* enables the pinned duplicate guard (and the pin itself); without
-   it the announcement still posts and the step reports a warning.
-5. That is all. The first release published after the merge is announced
-   automatically. Releases published before the merge are not backfilled; use a
-   manual dispatch with `dry_run` unchecked if one should be announced.
+   Pinning is off in the workflow; merely granting *Pin Messages* does not enable it.
+5. Once merged, future releases are announced automatically. Releases published
+   earlier are not backfilled; a real manual dispatch is a publication operation.
 
 ## Testing
 
@@ -247,7 +261,8 @@ duplicate guards, idempotent reruns, and the workflow's own guardrails. The
 preflight tests execute the workflow's actual shell with mocked Bot API and
 MTProto clients, check the input and permission matrix, and reject any ledger,
 send, upload or pin access. A separate test drives Telethon's real bot login and
-history RPC construction through an offline allowlisted RPC server.
+history RPC construction through an offline allowlisted RPC server that rejects
+the user-only history call as Telegram does for bots.
 
 Binary delivery is covered in two layers. The download side runs against a
 loopback HTTP server and proves that a truncated body, a wrong digest, a missing
@@ -274,8 +289,8 @@ python3 scripts/telegram_announce.py --release-json /tmp/release.json --dry-run
    and creates a **draft** release. Nothing is announced.
 2. A maintainer publishes the draft (for example with `gh release edit <tag> --draft=false`).
 3. `release: published` fires both this workflow and the sideload-source workflow.
-   This one posts the announcement, pins it and records it in the ledger.
-   `update-store-source.yml` refreshes `store.json` independently.
+   This one posts the announcement without pinning and attempts to persist the
+   ledger. `update-store-source.yml` refreshes `store.json` independently.
 
-If the announcement fails, the release stays published and can be re-run safely
-at any time: it will not post twice.
+If the announcement fails, the release stays published. Check the channel and
+ledger before a retry: partial delivery or a lost ledger update can cause duplicates.

@@ -9,14 +9,12 @@ name: Telegram release announcement
 # and pre-releases are not announced (the job re-checks draft/prerelease and the
 # scripts exit cleanly for them anyway).
 #
-# Duplicate protection is the release id, not the event delivery:
-#   * every page carries the hashtag `#SB<release id>` in its footer;
-#   * before sending, `getChat` is read and the channel's pinned message is
-#     checked for that tag;
-#   * after a fully confirmed send, `.github/telegram-releases.json` records the
-#     release id and the first message is pinned.
-# A rerun, a retried job or a duplicated event therefore finds the tag and stops.
-# `concurrency` below only keeps two runs from racing; it is not the protection.
+# Duplicate checks use the release id, not the event delivery: every page has
+# `#SB<release id>`; before sending, the script checks the pinned message and
+# `.github/telegram-releases.json`. Pinning is disabled in this workflow. The
+# ledger is written only after a fully confirmed send and pushed after uploads;
+# a partial send or failed push can leave posts without a durable record, so a
+# retry can duplicate them. Concurrency only serialises runs in the same group.
 #
 # Binary delivery: the production APKs (52-56 MiB) and the unsigned IPA (~70 MiB)
 # exceed the 50 MB ceiling of the public Bot API, so they are uploaded over
@@ -33,9 +31,8 @@ name: Telegram release announcement
 # patterns. If TELEGRAM_API_ID/HASH are absent the announcement is still posted
 # and the binaries are reported as not delivered; the GitHub release is unaffected.
 #
-# The bot must be an administrator of @StreamBridge_App with "Post Messages"
-# (and "Pin Messages" for the pinned duplicate guard). Without pin rights the
-# announcement still posts; only the pin step reports a warning.
+# The bot must be an administrator of @StreamBridge_App with "Post Messages".
+# The workflow does not request pinning or require "Pin Messages".
 #
 # Manual runs: `preflight` checks Telegram readiness without publishing anything,
 # independently of every other input. Otherwise `dry_run` renders and validates
@@ -72,10 +69,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Serialise by release id when the id is known, so a rerun cannot interleave
-  # with the run it is retrying. cancel-in-progress stays false: a run that is
-  # already posting must be allowed to finish before the retry inspects the
-  # channel.
+  # Serialise within the same release/tag/latest group and never cancel a run
+  # that is already posting. Different event forms may produce different groups
+  # for the same release, so this is not a universal duplicate guard.
   # Preflight has its own group, so it cannot delay or replace a pending release
   # announcement (or be grouped according to the otherwise ignored tag input).
   group: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight == true && format('telegram-preflight-{0}', github.run_id) || format('telegram-announcement-{0}', github.event.release.id || inputs.tag || 'latest') }}
@@ -367,7 +363,7 @@ jobs:
               echo "announced=true" >>"${GITHUB_OUTPUT}"
               ;;
             *)
-              echo "::error title=Telegram announcement failed::StreamBridge ${RELEASE_VERSION} was not announced (exit ${status}). The published GitHub release is unaffected. Fix the cause above and re-run this workflow: a duplicate cannot be posted, because the release id is checked before every send."
+              echo "::error title=Telegram announcement failed::StreamBridge ${RELEASE_VERSION} may be partially announced (exit ${status}). The GitHub release is unaffected. Inspect the channel and ledger before retrying: a retry can duplicate pages that were already sent."
               exit "${status}"
               ;;
           esac
@@ -428,11 +424,11 @@ jobs:
               # Missing TELEGRAM_API_ID / TELEGRAM_API_HASH. The announcement has
               # already been posted and the release is live, so this is a warning
               # with an exact remedy rather than a failed run.
-              echo "::warning title=Large-file uploads are not configured::StreamBridge ${RELEASE_VERSION} was announced, but the APK/IPA files were not uploaded because TELEGRAM_API_ID and TELEGRAM_API_HASH are not set. Add both in Settings -> Secrets and variables -> Actions (my.telegram.org -> API development tools); nothing else changes, and a manual re-run will upload the files without re-posting the announcement."
+              echo "::warning title=Large-file uploads are not configured::StreamBridge ${RELEASE_VERSION} was announced, but the MTProto credentials are missing or invalid. Check TELEGRAM_API_ID and TELEGRAM_API_HASH in Settings -> Secrets and variables -> Actions. Before retrying, inspect the channel and confirm the ledger was pushed to avoid duplicate posts or uploads."
               echo "delivered=false" >>"${GITHUB_OUTPUT}"
               ;;
             *)
-              echo "::warning title=Some files were not delivered::One or more APK/IPA files for StreamBridge ${RELEASE_VERSION} could not be uploaded. The announcement and the GitHub release are unaffected, and every file keeps its verified direct link in the announcement. Re-run this workflow: files Telegram already confirmed are skipped, so only the missing ones are retried."
+              echo "::warning title=Some files were not delivered::One or more APK/IPA files for StreamBridge ${RELEASE_VERSION} could not be uploaded. The announcement and GitHub release are unaffected. Before retrying, inspect the channel and confirm that successful uploads were recorded in the pushed ledger."
               echo "delivered=false" >>"${GITHUB_OUTPUT}"
               ;;
           esac
@@ -466,7 +462,7 @@ jobs:
           set -euo pipefail
           ledger=.github/telegram-releases.json
           if [[ ! -f "${ledger}" ]]; then
-            echo "::warning::No post ledger was written; the channel pin remains the duplicate guard."
+            echo "::warning::No post ledger was written. Inspect the channel before retrying: duplicate posts or uploads are possible."
             exit 0
           fi
           if [[ -z "$(git status --porcelain -- "${ledger}")" ]]; then
@@ -474,9 +470,9 @@ jobs:
             exit 0
           fi
 
-          # The ledger is written only after Telegram confirmed every page. It is
-          # committed so a future run can still recognise this announcement if the
-          # channel's pin has since moved to another message.
+          # The announcement entry is written only after every page was
+          # confirmed. Persist it, together with any confirmed asset records, so a
+          # later run can skip the deliveries that are actually recorded.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${ledger}"
@@ -484,5 +480,5 @@ jobs:
           # Best effort: a protected branch or a fork without write access must not
           # turn a delivered announcement into a failed run.
           if ! git push origin "HEAD:${DEFAULT_BRANCH}"; then
-            echo "::warning::The announcement was delivered but the post ledger could not be pushed. The pinned channel message still prevents a duplicate."
+            echo "::warning::The announcement was delivered but the post ledger could not be pushed. Inspect the channel before retrying: duplicate posts or uploads are possible."
           fi

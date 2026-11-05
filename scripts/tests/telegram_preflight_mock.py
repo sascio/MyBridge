@@ -88,6 +88,10 @@ def fake_urlopen(request, timeout=None):  # noqa: ARG001 - urllib-compatible
     return Response({"ok": True, "result": member})
 
 
+class BotMethodInvalidError(RuntimeError):
+    """Telegram rejects messages.getHistory for bot identities."""
+
+
 class FakeMtprotoClient:
     def __init__(self, *_args, **_kwargs) -> None:
         self.loop = asyncio.new_event_loop()
@@ -106,8 +110,17 @@ class FakeMtprotoClient:
 
     async def iter_messages(self, _entity, limit):
         record("mtproto_history", limit=limit)
-        if os.environ.get("FAKE_MTPROTO_MODE") == "history_failure":
+        mode = os.environ.get("FAKE_MTPROTO_MODE")
+        if mode == "history_failure":
             raise RuntimeError("channel history is not accessible")
+        if mode == "history_secret_failure":
+            raise RuntimeError(" ".join(os.environ[name] for name in (
+                "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH"
+            )))
+        if mode != "hypothetical_history_success":
+            # The real GetHistory RPC is documented as user-only. The fake must
+            # not turn a bot-incompatible call into a misleading green result.
+            raise BotMethodInvalidError("messages.getHistory is unavailable to bots")
         if False:  # make this an empty asynchronous generator
             yield None
 
