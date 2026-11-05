@@ -46,6 +46,9 @@ scripts/*
 !scripts/prepare-ios-dependencies.sh
 # Release tooling that the workflows invoke directly.
 !scripts/release-api.sh
+# Telegram release announcements: the tested renderer and sender plus their tests.
+!scripts/telegram_release_notes.py
+!scripts/telegram_announce.py
 !scripts/verify-release-target.sh
 !scripts/update-store-source.py
 !scripts/optimize-app-assets.py

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 #
 # Repository-side tests that do not need a JDK: the release lookup that publishes
-# store.json, the store metadata itself, and the release/README version wiring.
+# store.json, the Telegram release announcement (rendering, splitting, duplicate
+# protection, retries -- all offline), the store metadata itself, and the
+# release/README version wiring.
 #
 # Run locally with `scripts/tests/run-tests.sh`; CI runs the same script
 # (`Script tests` job in .github/workflows/build.yml).
@@ -31,6 +33,19 @@ if ! "${SCRIPT_DIR}/release-lookup-test.sh"; then
   failures=$((failures + 1))
 fi
 if ! "${SCRIPT_DIR}/release-api-test.sh"; then
+  failures=$((failures + 1))
+fi
+
+section "Telegram release announcement"
+# The announcement tests parse the workflow to check its own guardrails; PyYAML
+# is already present on GitHub's ubuntu runners. Without it those checks skip
+# rather than fail.
+python3 -c "import yaml" 2>/dev/null \
+  || printf '  note PyYAML is not installed; the workflow YAML checks will skip\n'
+# Formatting, escaping, pagination, asset detection, idempotency, retries and the
+# workflow's own guardrails. Runs entirely offline against a mock Bot API, so no
+# announcement can ever reach the public channel from CI.
+if ! "${SCRIPT_DIR}/telegram-announcement-test.py"; then
   failures=$((failures + 1))
 fi
 
