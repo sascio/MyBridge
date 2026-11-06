@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed, exact-parent Git ledger for bot-only Telegram delivery.
 
-The separately configured state repository/ref is authoritative for live delivery.
+The explicitly configured state repository/ref is authoritative for live delivery.
 Each update is a single-parent commit containing only the ledger, pushed without
 force, then verified against the remote. This module never creates or updates
 releases or tags. Legacy schemas are deliberately not upgraded automatically:
@@ -13,6 +13,7 @@ import argparse
 import copy
 import datetime as dt
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -60,6 +61,10 @@ def _no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise LedgerError("Ledger contains duplicate JSON keys.")
         result[key] = value
     return result
+
+
+def _json_input(data: bytes) -> Any:
+    return json.loads(data.decode("utf-8"), object_pairs_hook=_no_duplicates)
 
 
 def parse(data: bytes) -> dict[str, Any]:
@@ -120,8 +125,8 @@ def validate_legacy(legacy: object) -> None:
 
 def validate_inventory(inventory: object) -> None:
     """Require an explicit, duplicate-free historical release/tag inventory."""
-    if (not isinstance(inventory, dict)
-            or set(inventory) not in ({"release_ids", "tags"}, {"release_ids", "tags", "message_ids"})):
+    if (not isinstance(inventory, dict) or not {"release_ids", "tags"}.issubset(inventory)
+            or set(inventory) - {"release_ids", "tags", "message_ids", "protected"}):
         raise LedgerError("Historical release/tag inventory is missing or invalid.")
     ids, tags = inventory["release_ids"], inventory["tags"]
     messages = inventory.get("message_ids", [])
@@ -135,6 +140,77 @@ def validate_inventory(inventory: object) -> None:
                                            or any(c in value for c in "\x00\r\n") for value in tags)
             or len(set(tags)) != len(tags)):
         raise LedgerError("Historical tag inventory contains invalid or repeated tags.")
+    if "protected" in inventory:
+        protected = inventory["protected"]
+        if (not isinstance(protected, dict)
+                or set(protected) != {"key_check", "release_id_digests", "tag_digests"}
+                or not isinstance(protected["key_check"], str) or not HEX.fullmatch(protected["key_check"])):
+            raise LedgerError("Protected historical inventory is invalid.")
+        for field in ("release_id_digests", "tag_digests"):
+            values = protected[field]
+            if (not isinstance(values, list) or any(not isinstance(v, str) or not HEX.fullmatch(v) for v in values)
+                    or len(set(values)) != len(values)):
+                raise LedgerError("Protected historical inventory contains invalid or repeated digests.")
+
+
+def _inventory_mac(token: str, domain: str, value: str = "") -> str:
+    if (not isinstance(token, str) or not token or token != token.strip()
+            or any(char.isspace() for char in token)):
+        raise LedgerError("A stable bot token is required to verify protected history.")
+    return hmac.new(token.encode("utf-8"), ("streambridge-history-v1:" + domain + "\0" + value).encode("utf-8"),
+                    hashlib.sha256).hexdigest()
+
+
+def protect_inventory(inventory: dict[str, Any], public_release_ids: set[int], public_tags: set[str],
+                      token: str) -> dict[str, Any]:
+    """Blind non-public identifiers for a public state branch; never mutate the input.
+
+    Public classifications must be independently reviewed at the frozen cutover.
+    The token remains secret; it is never written into the returned inventory.
+    """
+    validate_inventory(inventory)
+    if "protected" in inventory:
+        raise LedgerError("Historical inventory is already protected.")
+    if (not isinstance(public_release_ids, set) or any(type(i) is not int or i <= 0 for i in public_release_ids)
+            or not isinstance(public_tags, set) or any(not isinstance(tag, str) or not tag for tag in public_tags)):
+        raise LedgerError("Public historical release/tag classification is invalid.")
+    result: dict[str, Any] = {
+        "release_ids": sorted(rid for rid in inventory["release_ids"] if rid in public_release_ids),
+        "tags": sorted(tag for tag in inventory["tags"] if tag in public_tags),
+        "protected": {
+            "key_check": _inventory_mac(token, "key-check"),
+            "release_id_digests": sorted(_inventory_mac(token, "release-id", str(rid))
+                                         for rid in inventory["release_ids"] if rid not in public_release_ids),
+            "tag_digests": sorted(_inventory_mac(token, "tag", tag)
+                                  for tag in inventory["tags"] if tag not in public_tags),
+        },
+    }
+    if "message_ids" in inventory:
+        result["message_ids"] = list(inventory["message_ids"])
+    validate_inventory(result)
+    return result
+
+
+def require_inventory_key(inventory: dict[str, Any], token: str, *, required: bool = False) -> None:
+    """Refuse delivery if protected history is absent or the bot token changed."""
+    validate_inventory(inventory)
+    protected = inventory.get("protected")
+    if protected is None:
+        if required:
+            raise LedgerError("Same-repository state requires a protected historical inventory.")
+        return
+    if not hmac.compare_digest(protected["key_check"], _inventory_mac(token, "key-check")):
+        raise LedgerError("The protected historical inventory key changed; audited migration is required.")
+
+
+def historically_seen(inventory: dict[str, Any], token: str, release_id: int, tag: str) -> bool:
+    """Match public or blinded historical identifiers after require_inventory_key."""
+    if release_id in inventory["release_ids"] or tag in inventory["tags"]:
+        return True
+    protected = inventory.get("protected")
+    return bool(protected and (
+        _inventory_mac(token, "release-id", str(release_id)) in protected["release_id_digests"]
+        or _inventory_mac(token, "tag", tag) in protected["tag_digests"]))
 
 
 def validate(doc: object) -> None:
@@ -307,8 +383,10 @@ def summarize(doc: dict[str, Any]) -> dict[str, Any]:
             counts[operation_outcome(item)] += 1
     return {"schema": SCHEMA, "session_locked": doc["session"] is not None,
             "operations": counts, "legacy_release_records": len(doc["legacy"]["releases"]),
-            "inventoried_release_ids": len(doc["inventory"]["release_ids"]),
-            "inventoried_tags": len(doc["inventory"]["tags"]),
+            "inventoried_release_ids": len(doc["inventory"]["release_ids"]) +
+                                       len(doc["inventory"].get("protected", {}).get("release_id_digests", [])),
+            "inventoried_tags": len(doc["inventory"]["tags"]) +
+                                len(doc["inventory"].get("protected", {}).get("tag_digests", [])),
             "inventoried_message_ids": len(doc["inventory"].get("message_ids", [])),
             "legacy_channel_history": "unknown"}
 
@@ -319,12 +397,19 @@ def migrate(legacy: object, created_after: str, inventory: object) -> dict[str, 
     validate_inventory(inventory)
     timestamp(created_after)
     old = copy.deepcopy(legacy)
+    if "protected" in inventory and (
+        not {entry["release_id"] for entry in old["releases"]}.issubset(inventory["release_ids"])
+        or not {entry["tag_name"] for entry in old["releases"]}.issubset(inventory["tags"])
+    ):
+        raise LedgerError("Protected migration cannot publish a non-public legacy entry; review it privately.")
     historical = {
         "release_ids": sorted(set(inventory["release_ids"]) | {entry["release_id"] for entry in old["releases"]}),
         "tags": sorted(set(inventory["tags"]) | {entry["tag_name"] for entry in old["releases"]}),
     }
     if "message_ids" in inventory:
         historical["message_ids"] = sorted(inventory["message_ids"])
+    if "protected" in inventory:
+        historical["protected"] = copy.deepcopy(inventory["protected"])
     doc = {"schema": SCHEMA, "activation": {"created_after": created_after, "legacy_sha256": digest(old),
                                              "inventory_sha256": digest(historical)},
            "legacy": old, "inventory": historical, "identity": None, "session": None, "releases": []}
@@ -409,6 +494,8 @@ class GitLedger:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect a ledger or prepare an audited legacy cutover; never deploys it or contacts Telegram.")
     parser.add_argument("--inspect", help="read-only summary of a local ledger snapshot")
+    parser.add_argument("--protect-inventory", action="store_true", help="blind non-public historical identifiers")
+    parser.add_argument("--public-inventory", help="reviewed public release-ID/tag classification JSON")
     parser.add_argument("--legacy", help="existing legacy schema-1 or schema-2 ledger")
     parser.add_argument("--inventory", help="reviewed historical release-ID/tag inventory JSON")
     parser.add_argument("--output", help="new file to inspect; must not already exist")
@@ -417,8 +504,8 @@ def main() -> int:
     parser.add_argument("--acknowledge-release-freeze", action="store_true")
     args = parser.parse_args()
     if args.inspect:
-        if (args.legacy or args.inventory or args.output or args.created_after
-                or args.acknowledge_legacy_is_unknown or args.acknowledge_release_freeze):
+        if (args.protect_inventory or args.public_inventory or args.legacy or args.inventory or args.output
+                or args.created_after or args.acknowledge_legacy_is_unknown or args.acknowledge_release_freeze):
             parser.error("--inspect cannot be combined with migration arguments")
         try:
             raw = Path(args.inspect).read_bytes()
@@ -434,6 +521,31 @@ def main() -> int:
         except (LedgerError, OSError, UnicodeDecodeError, json.JSONDecodeError):
             print("Ledger inspection failed: state is missing, malformed or unsupported.")
             return 1
+    if args.protect_inventory:
+        if (not args.inventory or not args.public_inventory or not args.output or args.legacy or args.created_after
+                or args.acknowledge_legacy_is_unknown or args.acknowledge_release_freeze):
+            parser.error("--protect-inventory requires --inventory, --public-inventory and --output only")
+        try:
+            inventory = _json_input(Path(args.inventory).read_bytes())
+            public = _json_input(Path(args.public_inventory).read_bytes())
+            validate_inventory(public)
+            if "protected" in public:
+                raise LedgerError("Public classification must contain plain public identifiers only.")
+            protected = protect_inventory(inventory, set(public["release_ids"]), set(public["tags"]),
+                                          os.environ.get("TELEGRAM_BOT_TOKEN", ""))
+            fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(canonical(protected))
+        except LedgerError as exc:
+            print(f"Inventory protection failed: {exc}")
+            return 1
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            print("Inventory protection failed: input/output could not be read or created.")
+            return 1
+        print("Prepared a protected inventory for review; it is not deployed or proof of completeness.")
+        return 0
+    if args.public_inventory:
+        parser.error("--public-inventory is only used with --protect-inventory")
     if not (args.legacy and args.inventory and args.output and args.created_after
             and args.acknowledge_legacy_is_unknown and args.acknowledge_release_freeze):
         parser.error("migration requires --legacy, --inventory, --output, --created-after and both acknowledgements")

@@ -112,6 +112,8 @@ def bot_details(token: str, chat: str) -> tuple[int, int, str]:
         # A fresh in-memory session cannot reliably resolve a bare numeric ID
         # without an access hash. Never guess a different destination.
         raise PublishError("A resolvable public channel username is required for a fresh bot session.")
+    if channel_ref.casefold() != "@streambridge_app":
+        raise PublishError("The configured channel is not the reviewed @StreamBridge_App destination.")
     return bot_id, channel_id, channel_ref
 
 
@@ -282,7 +284,8 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             upload_assets: bool = True, recover_unknown: bool = False,
             transport_factory: Callable = mtproto.BotTransport, bot_lookup: Callable = bot_details,
             sleeper: Callable[[float], None] = time.sleep,
-            policy_check: Callable[[], None], allow_new_release: bool) -> None:
+            policy_check: Callable[[], None], allow_new_release: bool,
+            require_protected_inventory: bool = False) -> None:
     if release.draft or release.prerelease:
         announce.notice("Draft and pre-release announcements are disabled; nothing was published.")
         return
@@ -301,6 +304,11 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
 
     snapshot = store.read()
     document = copy.deepcopy(snapshot.document)
+    inventory = document["inventory"]
+    ledger.require_inventory_key(inventory, token, required=require_protected_inventory)
+    if any(ledger.historically_seen(inventory, token, entry["id"], entry["tag"])
+           for entry in document["releases"]):
+        raise PublishError("The delivery ledger overlaps protected historical release identities.")
     cutoff = ledger.timestamp(document["activation"]["created_after"])
     if created <= cutoff or published <= cutoff or now <= cutoff:
         raise PublishError("The release predates the audited activation cutoff or activation is not yet effective.")
@@ -310,8 +318,7 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
     if entry is None:
         if not allow_new_release:
             raise PublishError("Manual recovery requires a release already planned by a published-release event.")
-        inventory = document["inventory"]
-        if (release.id in inventory["release_ids"] or release.tag_name in inventory["tags"]
+        if (ledger.historically_seen(inventory, token, release.id, release.tag_name)
                 or any(e["tag"] == release.tag_name for e in document["releases"])):
             raise PublishError("The release or tag appears in the historical inventory or ledger; automatic reposting is blocked.")
         used = {i["random_id"] for e in document["releases"] for i in e["items"]}
@@ -452,7 +459,8 @@ def main(argv: list[str] | None = None) -> int:
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
                 upload_assets=not args.no_upload_assets, recover_unknown=args.recover_unknown,
                 policy_check=lambda: state.verify_state(config, args.state_dir, repository),
-                allow_new_release=not is_manual)
+                allow_new_release=not is_manual,
+                require_protected_inventory=isinstance(config, state.SameRepositoryConfig))
     except Exception as exc:  # no raw exception strings, tracebacks or credential material
         if isinstance(exc, (PublishError, ledger.LedgerError, announce.AnnouncementError)):
             announce.error(str(exc))

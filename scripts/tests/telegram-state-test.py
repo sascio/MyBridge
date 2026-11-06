@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests for the private state repository and its OIDC policy guard."""
+"""Offline tests for same-repository state and legacy private-policy compatibility."""
 from __future__ import annotations
 
 import copy
@@ -215,6 +215,117 @@ class StateGuardTests(unittest.TestCase):
                 self.assertNotIn("do not expose secret", str(caught.exception))
 
 
+class FakeSameRepository(FakePlatform):
+    def __init__(self, repo_dir: str):
+        super().__init__(repo_dir)
+        self.remote = self.push_remote = f"https://github.com/{SOURCE}"
+        self.metadata = {"id": 1349123452, "full_name": SOURCE, "default_branch": "main",
+                         "archived": False, "disabled": False, "private": False}
+        self.branch = {"name": state.STATE_BRANCH}
+        self.main_rules = [{"type": "pull_request", "ruleset_id": 20},
+                           {"type": "non_fast_forward", "ruleset_id": 20},
+                           {"type": "deletion", "ruleset_id": 20}]
+
+    def __call__(self, command, **kwargs):
+        if command[:2] != ["gh", "api"]:
+            return super().__call__(command, **kwargs)
+        self.calls.append(command)
+        if self.fail and self.fail in " ".join(command):
+            return SimpleNamespace(stdout=b"", stderr=b"do not expose secret", returncode=1)
+        endpoint = command[-1]
+        if endpoint == f"repos/{SOURCE}":
+            value = self.metadata
+        elif endpoint == f"repos/{SOURCE}/branches/{state.STATE_BRANCH}":
+            value = self.branch
+        elif endpoint == f"repos/{SOURCE}/rules/branches/{state.STATE_BRANCH}?per_page=100":
+            value = self.state_rules
+        elif endpoint == f"repos/{SOURCE}/rules/branches/main?per_page=100":
+            value = self.main_rules
+        elif endpoint.startswith(f"repos/{SOURCE}/rulesets/"):
+            rid = int(endpoint.split("/")[-1].split("?")[0])
+            value = self.details[rid]
+        else:
+            raise AssertionError(f"unexpected fake API call {endpoint}")
+        result = ("\n".join(json.dumps(item) for item in value)
+                  if "--paginate" in command else json.dumps(value))
+        return SimpleNamespace(stdout=result.encode(), stderr=b"", returncode=0)
+
+
+class SameRepositoryStateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.platform = FakeSameRepository(self.temp.name)
+        self.config = state.SameRepositoryConfig(SOURCE, 1349123452)
+
+    def verify(self):
+        with mock.patch.dict(os.environ, ENV, clear=False):
+            state.verify_state(self.config, self.temp.name, SOURCE, runner=self.platform)
+
+    def test_only_explicit_same_repository_shared_writer_config_is_accepted(self):
+        config = Path(self.temp.name, "config.json")
+        good = {"enabled": True, "mode": "repository-branch", "repository_id": 1349123452,
+                "shared_writers_acknowledged": True}
+        def load(doc, source=SOURCE):
+            config.write_text(json.dumps(doc))
+            return state.load_config(source, str(config))
+        self.assertEqual(load(good), self.config)
+        for key, bad in (("enabled", False), ("shared_writers_acknowledged", False),
+                         ("repository_id", True), ("repository_id", 0), ("mode", "other")):
+            with self.subTest(key=key), self.assertRaises(ledger.LedgerError):
+                load(dict(good, **{key: bad}))
+        with self.assertRaises(ledger.LedgerError):
+            load(dict(good, repository="other/repo"))
+        with self.assertRaises(ledger.LedgerError):
+            load(good, "sascio/..")
+
+    def test_correct_source_and_distinct_protected_state_rules_pass(self):
+        self.verify()
+        endpoints = [command[-1] for command in self.platform.calls if command[:2] == ["gh", "api"]]
+        self.assertIn(f"repos/{SOURCE}/rules/branches/main?per_page=100", endpoints)
+        self.assertIn(f"repos/{SOURCE}/rules/branches/{state.STATE_BRANCH}?per_page=100", endpoints)
+        self.assertFalse(any("installation/repositories" in endpoint or "/actions/permissions" in endpoint
+                             for endpoint in endpoints))
+
+    def test_non_admin_token_may_not_see_bypass_list_which_needs_owner_review(self):
+        self.platform.details[10].pop("bypass_actors")
+        self.verify()
+        self.assertEqual(self.platform.details[10]["current_user_can_bypass"], "never")
+
+    def test_missing_protection_or_incorrect_identity_fails_closed(self):
+        cases = [
+            ("wrong source identity", lambda p: p.metadata.update(id=998)),
+            ("wrong source name", lambda p: p.metadata.update(full_name="other/repo")),
+            ("archived", lambda p: p.metadata.update(archived=True)),
+            ("disabled", lambda p: p.metadata.update(disabled=True)),
+            ("state is default branch", lambda p: p.metadata.update(default_branch=state.STATE_BRANCH)),
+            ("wrong state branch", lambda p: p.branch.update(name="main")),
+            ("wrong fetch URL", lambda p: setattr(p, "remote", "https://github.com/other/repo")),
+            ("wrong push URL", lambda p: setattr(p, "push_remote", "https://github.com/other/repo")),
+            ("missing no-force rule", lambda p: p.state_rules.pop(0)),
+            ("missing no-delete rule", lambda p: p.state_rules.pop()),
+            ("state requires PR", lambda p: p.state_rules.append({"type": "pull_request", "ruleset_id": 10})),
+            ("state requires checks", lambda p: p.state_rules.append({"type": "required_status_checks", "ruleset_id": 10})),
+            ("main ruleset applies to state", lambda p: p.state_rules.append({"type": "deletion", "ruleset_id": 20})),
+            ("main PR rule missing", lambda p: p.main_rules.pop(0)),
+            ("state credential can bypass", lambda p: p.details[10].update(current_user_can_bypass="always")),
+            ("state ruleset has bypass actor", lambda p: p.details[10].update(bypass_actors=[{"actor_id": 1}])),
+            ("state ruleset inactive", lambda p: p.details[10].update(enforcement="disabled")),
+            ("rules API denied", lambda p: setattr(p, "fail", "rules/branches")),
+            ("state branch missing", lambda p: setattr(p, "fail", "/branches/telegram-delivery-state")),
+        ]
+        for label, corrupt in cases:
+            with self.subTest(label=label):
+                self.platform = FakeSameRepository(self.temp.name)
+                corrupt(self.platform)
+                with self.assertRaises(ledger.LedgerError) as caught:
+                    self.verify()
+                self.assertNotIn("do not expose secret", str(caught.exception))
+        with mock.patch.dict(os.environ, dict(ENV, GITHUB_REPOSITORY_ID="1"), clear=False):
+            with self.assertRaises(ledger.LedgerError):
+                state.verify_state(self.config, self.temp.name, SOURCE, runner=self.platform)
+
+
 class SeparateRepositoryGitTests(unittest.TestCase):
     """Real local Git remotes; neither remote is the user's checkout or GitHub."""
     def setUp(self):
@@ -265,6 +376,31 @@ class SeparateRepositoryGitTests(unittest.TestCase):
         self.assertTrue(refs[0].endswith(" refs/heads/main"))
         self.assertEqual(self.git("diff", "--name-only", old.parent, saved.parent, cwd=self.work).splitlines(),
                          [ledger.LEDGER_PATH.encode()])
+
+    def test_same_remote_state_updates_never_touch_main(self):
+        # This fixture is a separate local bare repository, never GitHub or the
+        # user's working tree. Both refs intentionally share the same remote.
+        source_work = self.root / "source-work"
+        self.git("checkout", "--detach", cwd=source_work)
+        path = source_work / ledger.LEDGER_PATH
+        path.parent.mkdir(parents=True)
+        path.write_bytes(ledger.canonical(ledger.migrate(
+            {"schema": 1, "releases": []}, "2020-01-01T00:00:00Z", {"release_ids": [], "tags": []})))
+        self.git("add", ledger.LEDGER_PATH, cwd=source_work)
+        self.git("commit", "-m", "initial state fixture", cwd=source_work)
+        self.git("push", "origin", f"HEAD:refs/heads/{state.STATE_BRANCH}", cwd=source_work)
+        work = self.root / "same-remote-work"
+        self.git("clone", "--branch", state.STATE_BRANCH, str(self.source), str(work), cwd=self.root)
+        store = ledger.GitLedger(str(work), state.STATE_BRANCH)
+        before = store.read()
+        new = copy.deepcopy(before.document)
+        new["session"] = {"owner": "run-same-repository"}
+        after = store.save(before, new)
+        self.assertEqual(after.document["session"], {"owner": "run-same-repository"})
+        self.assertEqual(self.git("rev-parse", "refs/heads/main", cwd=self.source), self.source_before)
+        self.assertEqual(self.git("diff", "--name-only", before.parent, after.parent, cwd=work).splitlines(),
+                         [ledger.LEDGER_PATH.encode()])
+        self.git("merge-base", "--is-ancestor", before.parent, after.parent, cwd=work)
 
     def test_git_policy_tree_query_finds_only_exact_reviewed_policy(self):
         policy = self.work / state.POLICY_PATH

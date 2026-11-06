@@ -73,12 +73,14 @@ proves at least one announcement existed, not that this run sent it.
    unmodified schema-1/2 document and the independently reviewed inventory.
    The local preview created during this audit is a simulation, **not** an
    approved migration.
-4. Provision and verify the separate state repository and its exclusive-writer
-   controls as described in `TELEGRAM-ANNOUNCEMENTS.md`. Restore/migration and
-   crash recovery must be exercised without Telegram before activation.
-5. Continue the freeze until the reviewed ledger, trust policy, gates and
+4. Provision and verify the dedicated same-repository state branch and its
+   no-force/no-delete controls as described in `TELEGRAM-ANNOUNCEMENTS.md`.
+   Repository writers share access; real write/migration and crash recovery
+   must be exercised without a Telegram send before activation. The public
+   ledger must not reveal the draft identifier or tag.
+5. Continue the freeze until the reviewed ledger, rules, gates and
    workflow are in place before the future fence. New plans are allowed only
    for genuine `release: published` events after the fence; every inventoried
    ID/tag is blocked. Manual dispatch is recovery-only for an already frozen
-   plan. Never reuse a previously announced tag. If completeness, exclusivity,
+   plan. Never reuse a previously announced tag. If completeness, trusted writers,
    the freeze, or authorization cannot be established, leave publishing off.

@@ -512,6 +512,30 @@ class DurableDeliveryTests(unittest.TestCase):
                 self.assertEqual(self.server.calls, [])
                 self.assertEqual(self.store.history, [])
 
+    def test_protected_historical_identity_and_changed_token_block_before_session(self):
+        raw = {"release_ids": [123, 999], "tags": ["v9.9.9", "private-draft-tag"]}
+        protected = ledger.protect_inventory(raw, set(), set(), TOKEN)
+        cutoff = utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1))
+        for release in (sample_release(release_id=123, tag="new-tag"),
+                        sample_release(release_id=456, tag="private-draft-tag")):
+            with self.subTest(release_id=release.id):
+                self.store = MemoryStore(ledger.migrate({"schema": 1, "releases": []}, cutoff, protected))
+                self.server = FakeServer(self.store)
+                with self.assertRaisesRegex(publish.PublishError, "historical inventory"):
+                    self.run_publish(release, require_protected_inventory=True)
+                self.assertEqual(self.store.history, [])
+                self.assertEqual(self.server.calls, [])
+        changed_key = ledger.protect_inventory(raw, set(), set(), TOKEN + "-changed")
+        self.store = MemoryStore(ledger.migrate({"schema": 1, "releases": []}, cutoff, changed_key))
+        self.server = FakeServer(self.store)
+        with self.assertRaisesRegex(ledger.LedgerError, "key changed"):
+            self.run_publish(sample_release(release_id=456, tag="new-tag"), require_protected_inventory=True)
+        self.assertEqual(self.store.history, [])
+        self.assertEqual(self.transport_objects, [])
+        self.store = MemoryStore()
+        with self.assertRaisesRegex(ledger.LedgerError, "requires a protected"):
+            self.run_publish(require_protected_inventory=True)
+
     def test_observed_v0115_announcement_is_never_initialized_as_new(self):
         inventory = {"release_ids": [434756896], "tags": ["v0.1.15"], "message_ids": [5]}
         cutoff = utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1))
@@ -924,6 +948,69 @@ class LedgerValidationTests(unittest.TestCase):
         for raw in (b"", b"{", b"null", b'{"schema":3,"schema":3}', b'{"schema":1,"releases":[]}'):
             with self.subTest(raw=raw), self.assertRaises(ledger.LedgerError):
                 ledger.parse(raw)
+
+    def test_protected_inventory_blinds_nonpublic_ids_and_tags_and_detects_key_changes(self):
+        original = {"release_ids": [10, 1122334455], "tags": ["public-tag", "nonpublic-draft-tag"],
+                    "message_ids": [5]}
+        before = copy.deepcopy(original)
+        inventory = ledger.protect_inventory(original, {10}, {"public-tag"}, TOKEN)
+        encoded = ledger.canonical(inventory).decode()
+        self.assertEqual(original, before)
+        self.assertNotIn("1122334455", encoded)
+        self.assertNotIn("nonpublic-draft-tag", encoded)
+        self.assertNotIn(TOKEN, encoded)
+        self.assertEqual(inventory["release_ids"], [10])
+        self.assertEqual(inventory["tags"], ["public-tag"])
+        ledger.require_inventory_key(inventory, TOKEN, required=True)
+        self.assertTrue(ledger.historically_seen(inventory, TOKEN, 1122334455, "another"))
+        self.assertTrue(ledger.historically_seen(inventory, TOKEN, 11, "nonpublic-draft-tag"))
+        self.assertFalse(ledger.historically_seen(inventory, TOKEN, 11, "new-tag"))
+        with self.assertRaises(ledger.LedgerError):
+            ledger.require_inventory_key(inventory, TOKEN + "-changed", required=True)
+        doc = ledger.migrate({"schema": 1, "releases": []}, "2026-01-01T00:00:00Z", inventory)
+        self.assertEqual(doc["inventory"], inventory)
+        self.assertEqual(ledger.summarize(doc)["inventoried_release_ids"], 2)
+        self.assertEqual(ledger.summarize(doc)["inventoried_tags"], 2)
+        self.assertNotIn("nonpublic-draft-tag", ledger.canonical(doc).decode())
+        with self.assertRaisesRegex(ledger.LedgerError, "non-public legacy"):
+            ledger.migrate({"schema": 2, "releases": [{"release_id": 1122334455,
+                                                       "tag_name": "nonpublic-draft-tag"}]},
+                           "2026-01-01T00:00:00Z", inventory)
+        for bad in ({"key_check": "invalid", "release_id_digests": [], "tag_digests": []},
+                    {"key_check": "a" * 64, "release_id_digests": ["b" * 64] * 2, "tag_digests": []},
+                    {"key_check": "a" * 64, "release_id_digests": [], "tag_digests": [123]}):
+            altered = copy.deepcopy(inventory)
+            altered["protected"] = bad
+            with self.subTest(bad=bad), self.assertRaises(ledger.LedgerError):
+                ledger.validate_inventory(altered)
+
+    def test_inventory_protection_cli_is_new_file_only_and_never_prints_private_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            private = Path(tmp, "private.json")
+            public = Path(tmp, "public.json")
+            output = Path(tmp, "protected.json")
+            private.write_text(json.dumps({"release_ids": [101, 1122334455],
+                                           "tags": ["v-public", "private-draft"], "message_ids": [5]}))
+            public.write_text(json.dumps({"release_ids": [101], "tags": ["v-public"]}))
+            env = dict(os.environ, TELEGRAM_BOT_TOKEN=TOKEN)
+            cmd = [sys.executable, str(SCRIPTS / "telegram_ledger.py"), "--protect-inventory",
+                   "--inventory", str(private), "--public-inventory", str(public), "--output", str(output)]
+            result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertNotIn(TOKEN, result.stdout + result.stderr)
+            self.assertNotIn("private-draft", result.stdout + result.stderr + output.read_text())
+            self.assertNotIn("1122334455", output.read_text())
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            protected = json.loads(output.read_text())
+            ledger.require_inventory_key(protected, TOKEN, required=True)
+            self.assertTrue(ledger.historically_seen(protected, TOKEN, 1122334455, "unused"))
+            previous = output.read_bytes()
+            self.assertNotEqual(subprocess.run(cmd, env=env, capture_output=True, timeout=30).returncode, 0)
+            self.assertEqual(output.read_bytes(), previous)
+            output.unlink()
+            env["TELEGRAM_BOT_TOKEN"] = ""
+            self.assertNotEqual(subprocess.run(cmd, env=env, capture_output=True, timeout=30).returncode, 0)
+            self.assertFalse(output.exists())
 
     def test_legacy_snapshot_is_preserved_and_hash_verified(self):
         old = {"schema": 2, "releases": [{"release_id": 1, "tag_name": "v1.0", "assets": [{"name": "old.apk", "message_id": 9}]}]}

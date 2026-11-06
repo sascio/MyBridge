@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       preflight:
-        description: Read-only Bot API readiness check (ignores other inputs)
+        description: No-send bot/channel readiness check (ignores other inputs)
         required: false
         type: boolean
         default: false
@@ -131,8 +131,26 @@ jobs:
               announce.error("MTProto credentials are unusable by syntax; authentication was not attempted.")
               raise SystemExit(announce.EXIT_CONFIG)
           print("Bot API authentication, channel access, administrator status and Post Messages verified.")
-          print("MTProto login, channel history and uploads were not tested.")
+          print("MTProto login, channel history and uploads were not tested in this step.")
           PY
+      # The in-memory login can leave an unconfirmed authorization if its
+      # logout fails. Only do it while publishing is disabled; do not let a
+      # diagnostic create an unfenced session during live delivery.
+      - name: Install pinned MTProto preflight dependencies
+        if: vars.TELEGRAM_PUBLISHING_ENABLED != 'true'
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet \
+            'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
+      - name: Verify MTProto bot login without sending
+        if: vars.TELEGRAM_PUBLISHING_ENABLED != 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          PYTHONUNBUFFERED: "1"
+        run: python3 scripts/telegram_mtproto_preflight.py
 
   announce:
     name: Resolve and validate the release
@@ -249,11 +267,10 @@ jobs:
         inputs.recover_unknown == true && inputs.tag != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    # This environment must be provisioned and reviewed before activation.
-    environment: telegram-delivery
+    # GITHUB_TOKEN is scoped to this repository, not exclusively to this
+    # workflow. Other repository writers remain within the trust boundary.
     permissions:
-      contents: read
-      id-token: write
+      contents: write
     steps:
       - name: Check out the announcement tooling
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -264,24 +281,15 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - name: Validate reviewed isolated state configuration
+      - name: Validate reviewed same-repository state configuration
         id: state
         run: python3 scripts/telegram_state.py --check-config
-      # The broker must be explicitly approved and installed only on the private
-      # state repository. Its protected policy matches this exact workflow/ref/SHA.
-      - name: Obtain workflow-bound state access
-        id: state-token
-        uses: octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05 # v1.1.1
-        with:
-          domain: ${{ steps.state.outputs.broker_domain }}
-          scope: ${{ steps.state.outputs.repository }}
-          identity: telegram-delivery
-      - name: Check out the private state branch
+      - name: Check out the dedicated state branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ${{ steps.state.outputs.repository }}
           ref: ${{ steps.state.outputs.branch }}
-          token: ${{ steps.state-token.outputs.token }}
+          token: ${{ github.token }}
           path: .telegram-state
           persist-credentials: true
       - name: Install pinned MTProto dependencies
@@ -299,9 +307,9 @@ jobs:
           gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" >"${RUNNER_TEMP}/telegram-release.json"
       - name: Publish individual messages and documents
         env:
-          # This short-lived token is scoped to the separate state repository;
-          # the source repository token remains contents:read only.
-          GH_TOKEN: ${{ steps.state-token.outputs.token }}
+          # The short-lived token can write repository contents, including the
+          # state branch; it is not an exclusive workflow identity.
+          GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}

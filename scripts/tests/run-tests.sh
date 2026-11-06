@@ -62,8 +62,12 @@ fi
 if ! python3 "${SCRIPT_DIR}/telegram-idempotent-test.py"; then
   failures=$((failures + 1))
 fi
-# Private-state configuration, OIDC policy, and separate-repository Git checks.
+# Same-repository state rules, legacy migration compatibility, and local Git checks.
 if ! python3 "${SCRIPT_DIR}/telegram-state-test.py"; then
+  failures=$((failures + 1))
+fi
+# Bot login/logout preflight uses only fakes here; it cannot send or upload.
+if ! python3 "${SCRIPT_DIR}/telegram-mtproto-preflight-test.py"; then
   failures=$((failures + 1))
 fi
 

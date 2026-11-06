@@ -738,9 +738,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["preflight"]["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "read"})
-        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "read", "id-token": "write"})
+        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write"})
         for job in workflow["jobs"].values():
-            self.assertLessEqual(set(job.get("permissions", {})), {"contents", "id-token"})
+            self.assertLessEqual(set(job.get("permissions", {})), {"contents"})
 
     def test_workflow_never_prints_or_persists_credentials(self) -> None:
         for risky in ("echo ${{ secrets.TELEGRAM_BOT_TOKEN }}", "token: ${{ secrets.TELEGRAM_BOT_TOKEN }}"):
@@ -781,6 +781,7 @@ class WorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(self.text)
         telegram = {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH"}
         expected = {"Verify Telegram readiness (read-only)": telegram,
+                    "Verify MTProto bot login without sending": telegram,
                     "Publish individual messages and documents": telegram}
         self.assertFalse(telegram & set(workflow.get("env", {})))
         for job in workflow["jobs"].values():
@@ -1210,7 +1211,7 @@ class PreflightWorkflowTests(unittest.TestCase):
             self.assertFalse([event for event in events if event["event"] in {"forbidden", "ledger_access"}], events)
             return result, events, summary.read_text(encoding="utf-8"), json.loads(fixture.read_text()) if fixture.exists() else None
 
-    def test_preflight_is_default_off_read_only_and_does_not_create_a_session(self) -> None:
+    def test_preflight_is_default_off_and_bot_api_step_does_not_create_a_session(self) -> None:
         triggers = self.workflow.get('on', self.workflow.get(True))
         self.assertEqual(triggers['release'], {'types': ['published']})
         self.assertNotIn('push', triggers)
@@ -1220,7 +1221,7 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertIs(triggers['workflow_dispatch']['inputs']['recover_unknown']['default'], False)
         self.assertEqual(self.preflight['permissions'], {'contents': 'read'})
         self.assertNotIn('needs', self.preflight)
-        checkout, setup, verify = self.preflight['steps']
+        checkout, setup, verify = self.preflight['steps'][:3]
         self.assertFalse(checkout['with']['persist-credentials'])
         self.assertEqual(checkout['with']['ref'], '${{ github.event.repository.default_branch }}')
         self.assertNotIn('telethon', verify['run'].lower())
@@ -1230,6 +1231,12 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow['concurrency']['queue'], 'max')
         self.assertIs(self.workflow['concurrency']['cancel-in-progress'], False)
         self.assertTrue(all(verify['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
+        install, login = self.preflight['steps'][3:]
+        self.assertEqual(install['if'], "vars.TELEGRAM_PUBLISHING_ENABLED != 'true'")
+        self.assertEqual(login['if'], install['if'])
+        self.assertIn('telethon==1.45.0', install['run'])
+        self.assertEqual(login['run'], 'python3 scripts/telegram_mtproto_preflight.py')
+        self.assertTrue(all(login['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
 
     def test_all_dispatch_combinations_require_explicit_publish_and_preflight_wins(self) -> None:
         publish_job = self.workflow['jobs']['publish']
@@ -1443,7 +1450,14 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["build"]["permissions"], {"contents": "read", "issues": "write"})
         jobs = workflow["jobs"]
-        self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests"})
+        self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests", "telegram-readiness"})
+        for name in ("build", "tracking-config-check", "script-tests"):
+            self.assertEqual(jobs[name]["if"], "github.event_name != 'workflow_dispatch' || inputs.telegram_readiness != true")
+        probe = jobs["telegram-readiness"]
+        self.assertEqual(probe["if"], "github.event_name == 'workflow_dispatch' && inputs.telegram_readiness == true")
+        self.assertEqual(probe["permissions"], {"contents": "read"})
+        self.assertIs(triggers["workflow_dispatch"]["inputs"]["telegram_readiness"]["default"], False)
+        self.assertTrue(any(step.get("run") == "python3 scripts/telegram_mtproto_preflight.py" for step in probe["steps"]))
         build = jobs["build"]["steps"]
         uploads = [step for job in jobs.values() for step in job["steps"]
                    if "actions/upload-artifact@" in step.get("uses", "")]
@@ -1500,29 +1514,25 @@ class WorkflowRefTests(unittest.TestCase):
             self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
             self.assertIs(checkout["with"]["persist-credentials"], persisted)
 
-    def test_state_access_is_separate_workflow_bound_and_default_off(self) -> None:
+    def test_state_access_uses_same_repo_github_token_and_is_default_off(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
         workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml").read_text())
         job = workflow["jobs"]["publish"]
-        self.assertEqual(job["environment"], "telegram-delivery")
-        self.assertEqual(job["permissions"], {"contents": "read", "id-token": "write"})
+        self.assertNotIn("environment", job)
+        self.assertEqual(job["permissions"], {"contents": "write"})
         self.assertEqual(json.loads((SCRIPTS.parent / ".github/telegram-state.json").read_text()), {"enabled": False})
         steps = job["steps"]
         config_index = next(i for i, step in enumerate(steps) if step.get("id") == "state")
-        token_index = next(i for i, step in enumerate(steps) if step.get("id") == "state-token")
-        state_index = next(i for i, step in enumerate(steps) if step.get("name") == "Check out the private state branch")
+        state_index = next(i for i, step in enumerate(steps) if step.get("name") == "Check out the dedicated state branch")
         publish_index = next(i for i, step in enumerate(steps) if step.get("name") == "Publish individual messages and documents")
-        self.assertLess(config_index, token_index)
-        self.assertLess(token_index, state_index)
+        self.assertLess(config_index, state_index)
         self.assertLess(state_index, publish_index)
-        token = steps[token_index]
-        self.assertEqual(token["uses"], "octo-sts/action@f603d3be9d8dd9871a265776e625a27b00effe05")
-        self.assertEqual(token["with"]["identity"], "telegram-delivery")
+        self.assertFalse(any("octo-sts" in step.get("uses", "") for step in steps))
         checkout = steps[state_index]["with"]
         self.assertEqual(checkout["repository"], "${{ steps.state.outputs.repository }}")
         self.assertEqual(checkout["ref"], "${{ steps.state.outputs.branch }}")
-        self.assertEqual(checkout["token"], "${{ steps.state-token.outputs.token }}")
+        self.assertEqual(checkout["token"], "${{ github.token }}")
         self.assertEqual(checkout["path"], ".telegram-state")
         self.assertIn('--state-dir "${STATE_DIR}"', steps[publish_index]["run"])
 
@@ -1532,9 +1542,9 @@ class WorkflowRefTests(unittest.TestCase):
         workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml").read_text())
         publish = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("name") == "Publish individual messages and documents")
         self.assertNotIn("--pin", publish["run"])
-        self.assertEqual(publish["env"]["GH_TOKEN"], "${{ steps.state-token.outputs.token }}")
+        self.assertEqual(publish["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertEqual(publish["env"]["TELEGRAM_PUBLISHING_ENABLED"], "${{ vars.TELEGRAM_PUBLISHING_ENABLED }}")
-        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "read", "id-token": "write"})
+        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write"})
 
 
 if __name__ == "__main__":

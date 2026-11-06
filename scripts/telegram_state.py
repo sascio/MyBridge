@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Fail-closed configuration and policy checks for an isolated Git state repository.
+"""Fail-closed configuration and policy checks for Git-backed delivery state.
 
-No repository, branch, policy, credential or Telegram session is created here.
-Provisioning and exclusive-writer controls require administrator review. The
-GitHub/OIDC checks supplement, rather than replace, that review.
+The selected production path uses a dedicated branch in the source repository.
+No branch, credential or Telegram session is created here. GitHub's repository
+GITHUB_TOKEN is shared with other eligible workflows: it is not a workflow-level
+exclusive credential. The legacy private-repository policy helpers remain for
+migration compatibility, but the delivery workflow does not use a broker.
 """
 from __future__ import annotations
 
@@ -39,6 +41,12 @@ class StateConfig:
     trusted_admin_ids: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class SameRepositoryConfig:
+    repository: str
+    repository_id: int
+
+
 def _json(raw: bytes) -> Any:
     try:
         return json.loads(raw.decode("utf-8"), object_pairs_hook=ledger._no_duplicates)
@@ -46,12 +54,22 @@ def _json(raw: bytes) -> Any:
         raise ledger.LedgerError("State configuration or policy is not valid JSON.") from exc
 
 
-def load_config(source_repository: str, path: str = CONFIG_PATH) -> StateConfig:
-    """Only a reviewed, separate repository can be used; disabled is the default."""
+def load_config(source_repository: str, path: str = CONFIG_PATH) -> StateConfig | SameRepositoryConfig:
+    """Load explicitly reviewed storage; missing/disabled configuration fails closed."""
     try:
         doc = _json(Path(path).read_bytes())
     except OSError as exc:
         raise ledger.LedgerError("Reviewed state storage configuration is missing.") from exc
+    if isinstance(doc, dict) and doc.get("mode") == "repository-branch":
+        required = {"enabled", "mode", "repository_id", "shared_writers_acknowledged"}
+        rid = doc.get("repository_id")
+        if (set(doc) != required or doc.get("enabled") is not True
+                or doc.get("shared_writers_acknowledged") is not True
+                or not isinstance(source_repository, str) or not REPOSITORY.fullmatch(source_repository)
+                or any(part in {".", ".."} for part in source_repository.split("/"))
+                or type(rid) is not int or rid <= 0):
+            raise ledger.LedgerError("Same-repository state configuration is unsafe or incomplete.")
+        return SameRepositoryConfig(source_repository, rid)
     required = {"enabled", "repository", "repository_id", "policy_branch", "broker_domain",
                 "trusted_admin_ids", "access_controls_reviewed"}
     if not isinstance(doc, dict) or set(doc) != required or doc.get("enabled") is not True:
@@ -137,9 +155,11 @@ def _api(endpoint: str, *, runner: Callable = subprocess.run, paginate: bool = F
     return _json(raw)
 
 
-def _check_rules(repository: str, branch: str, *, policy_branch: bool, runner: Callable) -> None:
-    rules = _api(f"repos/{repository}/rules/branches/{quote(branch, safe='')}?per_page=100",
-                 runner=runner, paginate=True)
+def _check_rules(repository: str, branch: str, *, policy_branch: bool, runner: Callable,
+                 rules: list[Any] | None = None) -> None:
+    if rules is None:
+        rules = _api(f"repos/{repository}/rules/branches/{quote(branch, safe='')}?per_page=100",
+                     runner=runner, paginate=True)
     if any(not isinstance(rule, dict) for rule in rules):
         raise ledger.LedgerError("State branch rules are malformed.")
     required = {"non_fast_forward", "deletion"} | ({"pull_request"} if policy_branch else set())
@@ -156,12 +176,16 @@ def _check_rules(repository: str, branch: str, *, policy_branch: bool, runner: C
                 params = rule.get("parameters")
                 if not isinstance(params, dict) or params.get("required_status_checks") != []:
                     raise ledger.LedgerError("State branch requires status checks before direct writes.")
+    checked: set[int] = set()
     for rule in rules:
         if rule.get("type") not in required:
             continue
         rid = rule.get("ruleset_id")
         if type(rid) is not int or rid <= 0:
             raise ledger.LedgerError("State branch rule identity is unavailable.")
+        if rid in checked:
+            continue
+        checked.add(rid)
         detail = _api(f"repos/{repository}/rulesets/{rid}?includes_parents=true", runner=runner)
         if (not isinstance(detail, dict) or detail.get("id") != rid or detail.get("enforcement") != "active"
                 or detail.get("current_user_can_bypass") != "never"
@@ -169,7 +193,7 @@ def _check_rules(repository: str, branch: str, *, policy_branch: bool, runner: C
             raise ledger.LedgerError("Cannot verify that the state credential obeys the required protections.")
 
 
-def _verify_checkout(repo_dir: str, config: StateConfig, *, runner: Callable) -> None:
+def _verify_checkout(repo_dir: str, config: StateConfig | SameRepositoryConfig, *, runner: Callable) -> None:
     top = _call(["git", "rev-parse", "--show-toplevel"], cwd=repo_dir, runner=runner).decode("utf-8").strip()
     if Path(top).resolve() != Path(repo_dir).resolve():
         raise ledger.LedgerError("State checkout is not an isolated Git repository.")
@@ -177,15 +201,53 @@ def _verify_checkout(repo_dir: str, config: StateConfig, *, runner: Callable) ->
     push_remote = _call(["git", "remote", "get-url", "--push", "--all", "origin"], cwd=repo_dir, runner=runner).decode("utf-8").splitlines()
     allowed = {f"https://github.com/{config.repository}".casefold(), f"https://github.com/{config.repository}.git".casefold()}
     if len(remote) != 1 or len(push_remote) != 1 or remote[0].casefold() not in allowed or push_remote[0].casefold() not in allowed:
-        raise ledger.LedgerError("State checkout does not point exclusively to the reviewed private repository.")
+        raise ledger.LedgerError("State checkout does not point exclusively to the reviewed repository.")
 
 
-def verify_state(config: StateConfig, repo_dir: str, source: str, *, runner: Callable = subprocess.run) -> None:
-    """Recheck private storage, effective rules and exact OIDC policy before sends.
+def _verify_same_repository(config: SameRepositoryConfig, repo_dir: str, source: str, *, runner: Callable) -> None:
+    if config.repository != source:
+        raise ledger.LedgerError("State repository must match the source repository.")
+    try:
+        source_id = int(os.environ.get("GITHUB_REPOSITORY_ID", ""))
+    except ValueError as exc:
+        raise ledger.LedgerError("The source repository identity is unavailable.") from exc
+    if source_id != config.repository_id:
+        raise ledger.LedgerError("The configured state repository ID does not match the workflow source.")
+    _verify_checkout(repo_dir, config, runner=runner)
+    metadata = _api(f"repos/{source}", runner=runner)
+    if (not isinstance(metadata, dict) or metadata.get("id") != config.repository_id
+            or str(metadata.get("full_name", "")).casefold() != source.casefold()
+            or metadata.get("archived") is not False or metadata.get("disabled") is not False):
+        raise ledger.LedgerError("State repository identity or availability is not confirmed.")
+    default_branch = metadata.get("default_branch")
+    if (not isinstance(default_branch, str) or not BRANCH.fullmatch(default_branch)
+            or default_branch.startswith("-") or default_branch == STATE_BRANCH):
+        raise ledger.LedgerError("The source default branch is unavailable or is the state branch.")
+    branch = _api(f"repos/{source}/branches/{quote(STATE_BRANCH, safe='')}", runner=runner)
+    if not isinstance(branch, dict) or branch.get("name") != STATE_BRANCH:
+        raise ledger.LedgerError("The dedicated delivery state branch is unavailable.")
+    state_rules = _api(f"repos/{source}/rules/branches/{quote(STATE_BRANCH, safe='')}?per_page=100",
+                       runner=runner, paginate=True)
+    main_rules = _api(f"repos/{source}/rules/branches/{quote(default_branch, safe='')}?per_page=100",
+                      runner=runner, paginate=True)
+    if (not isinstance(state_rules, list) or not isinstance(main_rules, list)
+            or any(not isinstance(rule, dict) for rule in state_rules + main_rules)):
+        raise ledger.LedgerError("Effective repository branch rules are unavailable.")
+    main_pr_rulesets = {rule.get("ruleset_id") for rule in main_rules if rule.get("type") == "pull_request"}
+    if (not main_pr_rulesets or any(type(rid) is not int or rid <= 0 for rid in main_pr_rulesets)
+            or any(rule.get("ruleset_id") in main_pr_rulesets for rule in state_rules)):
+        raise ledger.LedgerError("The protected default-branch ruleset must not apply to the state branch.")
+    _check_rules(source, STATE_BRANCH, policy_branch=False, runner=runner, rules=state_rules)
 
-    Administrator review is still required for every other App, user, deploy key,
-    external broker, and the possibility of settings changing between checks.
-    """
+
+def verify_state(config: StateConfig | SameRepositoryConfig, repo_dir: str, source: str, *,
+                 runner: Callable = subprocess.run) -> None:
+    """Recheck effective rules before sends; repository writers remain a shared trust boundary."""
+    if isinstance(config, SameRepositoryConfig):
+        _verify_same_repository(config, repo_dir, source, runner=runner)
+        return
+    # Compatibility for the previously implemented private-repository policy.
+    # The delivery workflow no longer provisions or uses its broker.
     try:
         source_id = int(os.environ.get("GITHUB_REPOSITORY_ID", ""))
         owner_id = int(os.environ.get("GITHUB_REPOSITORY_OWNER_ID", ""))
@@ -251,15 +313,18 @@ def main() -> int:
     del args
     try:
         config = load_config(os.environ.get("GITHUB_REPOSITORY", ""))
+        if not isinstance(config, SameRepositoryConfig):
+            raise ledger.LedgerError("The delivery workflow requires same-repository branch storage.")
         output = os.environ.get("GITHUB_OUTPUT", "")
         if not output:
             raise ledger.LedgerError("GitHub Actions output is unavailable.")
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"repository={config.repository}\nbranch={STATE_BRANCH}\nbroker_domain={config.broker_domain}\n")
+            handle.write(f"repository={config.repository}\nbranch={STATE_BRANCH}\n")
     except (ledger.LedgerError, OSError) as exc:
         print(f"::error::{exc}")
         return 1
-    print("Reviewed isolated state configuration validated; live access is checked separately.")
+    print("Same-repository state configuration validated; live access is checked separately.")
+    print("Repository writers and workflows with contents:write can also write the state branch.")
     return 0
 
 
