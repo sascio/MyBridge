@@ -37,17 +37,16 @@ def verify(token: str, chat: str, api_id: str, api_hash: str, *,
         connected = True
     except Exception as exc:
         # Never print exception messages, requests or authorization data. Only
-        # fixed phase labels and a small allowlist of exception class names are
-        # reported, so operators can distinguish auth from peer resolution.
+        # fixed phase labels and identifier-shaped exception class names from
+        # trusted libraries are reported; arbitrary/custom names are suppressed.
         phases = {"not-started", "bot-authentication", "bot-identity", "channel-resolution", "identity-comparison"}
         candidate = getattr(transport, "connection_stage", "unknown")
-        stage = candidate if candidate in phases else "unknown"
-        allowed = {"ValueError", "TypeError", "AttributeError", "RuntimeError", "OSError", "TimeoutError",
-                   "ConnectionError", "TransportError", "ApiIdInvalidError", "AccessTokenInvalidError",
-                   "AccessTokenExpiredError", "AuthKeyUnregisteredError", "FloodWaitError", "ChannelPrivateError",
-                   "UsernameInvalidError", "UsernameNotOccupiedError", "PeerIdInvalidError", "UserIsBotError"}
-        name = type(exc).__name__
-        kind = name if name in allowed else "other"
+        stage = candidate if isinstance(candidate, str) and candidate in phases else "unknown"
+        cls = type(exc)
+        module, name = cls.__module__, cls.__name__
+        trusted = module in {"builtins", "telegram_mtproto", "asyncio.exceptions"} or module.startswith("telethon.")
+        if trusted and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}(?:Error|Exception)", name):
+            kind = name
     finally:
         # log_out revokes this in-memory authorization, not the bot token.
         # Do not report success if revocation is ambiguous.

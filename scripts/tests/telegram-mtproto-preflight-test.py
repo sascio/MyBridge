@@ -68,6 +68,15 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("unknown (RuntimeError)", str(caught.exception))
         self.assertNotIn(TOKEN, str(caught.exception))
 
+    def test_untrusted_or_credential_shaped_exception_name_is_never_reported(self):
+        for name, module in ((TOKEN + "Error", "builtins"), ("InventedError", "untrusted.module")):
+            exception = type(name, (Exception,), {"__module__": module})()
+            self.transport.connect = mock.Mock(side_effect=exception)
+            with self.assertRaises(probe.PreflightError) as caught:
+                self.run_probe()
+            self.assertIn("(other)", str(caught.exception))
+            self.assertNotIn(name, str(caught.exception))
+
     def test_unconfirmed_logout_fails_even_after_successful_login(self):
         self.transport.revoked = False
         with self.assertRaisesRegex(probe.PreflightError, "logout was not confirmed"):
