@@ -80,6 +80,14 @@ def _api(endpoint: str, *, runner: Callable = subprocess.run, paginate: bool = F
     return _json(raw)
 
 
+def require_disabled_legacy(repository: str, *, api: Callable = _api) -> None:
+    """The historical workflow must stay disabled before every live operation."""
+    workflow = api(f"repos/{repository}/actions/workflows/407947021")
+    if (not isinstance(workflow, dict) or workflow.get("state") != "disabled_manually"
+            or workflow.get("path") != ".github/workflows/telegram-release-announcement.yml"):
+        raise ledger.LedgerError("The legacy Telegram workflow is not confirmed disabled.")
+
+
 def _check_rules(repository: str, branch: str, *, runner: Callable,
                  rules: list[Any] | None = None) -> None:
     if rules is None:

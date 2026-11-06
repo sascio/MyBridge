@@ -1,11 +1,20 @@
 name: Telegram release announcement
 
 # Official published releases only. No tag, release, asset, pin or build is
-# created or changed. Live delivery is default-off and requires an explicitly
-# reviewed activation and ledger cutover; see docs/TELEGRAM-ANNOUNCEMENTS.md.
+# created or changed. Bootstrap and scheduled detection use protected ledger
+# readiness and exclude observed historical releases and tags from replay.
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/telegram-release-delivery.yml'
+      - '.github/telegram-publishing.json'
+      - '.github/telegram-state.json'
+      - 'scripts/telegram_*.py'
+  schedule:
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       preflight:
@@ -137,36 +146,68 @@ jobs:
           print("Bot API authentication, channel access, administrator status and Post Messages verified.")
           print("MTProto login, channel history and uploads were not tested in this step.")
           PY
-      # The in-memory login can leave an unconfirmed authorization if its
-      # logout fails. Do not create an unfenced diagnostic session while live
-      # publishing is enabled, and never report a partial preflight as passed.
-      - name: Refuse an incomplete live preflight
-        if: vars.TELEGRAM_PUBLISHING_ENABLED == 'true'
-        run: |
-          echo '::error::MTProto login was not checked because publishing is enabled; full preflight is not verified.'
-          exit 1
-      - name: Install pinned MTProto preflight dependencies
-        if: vars.TELEGRAM_PUBLISHING_ENABLED != 'true'
+      # Only automatic bootstrap may log in: it holds a persistent session
+      # lock until logout is confirmed, even if its runner is interrupted.
+
+  automatic:
+    name: Automatically initialize state and detect new releases
+    if: >-
+      vars.TELEGRAM_PUBLISHING_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the exact default-branch workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Validate reviewed same-repository state configuration
+        id: state
+        run: python3 scripts/telegram_state.py --check-config
+      - name: Check out the pre-existing protected state branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ steps.state.outputs.repository }}
+          ref: ${{ steps.state.outputs.branch }}
+          token: ${{ github.token }}
+          path: .telegram-state
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Install pinned MTProto dependencies
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --quiet \
             'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
-      - name: Verify MTProto bot login without sending
-        if: vars.TELEGRAM_PUBLISHING_ENABLED != 'true'
+      - name: Bootstrap safely or poll real published releases
         env:
+          GH_TOKEN: ${{ github.token }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          # schedule payloads need not include github.event.repository.
+          SOURCE_BRANCH: main
+          STATE_DIR: ${{ github.workspace }}/.telegram-state
+          TMPDIR: ${{ runner.temp }}
           PYTHONUNBUFFERED: "1"
-        run: python3 scripts/telegram_mtproto_preflight.py
+        run: python3 scripts/telegram_auto.py
 
   announce:
     name: Resolve and validate the release
     if: >-
-      (github.event_name != 'workflow_dispatch' || inputs.preflight != true) &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.release.draft == false && github.event.release.prerelease == false))
+      (github.event_name == 'workflow_dispatch' && inputs.preflight != true) ||
+      (github.event_name == 'release' && github.event.release.draft == false &&
+       github.event.release.prerelease == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -298,6 +339,7 @@ jobs:
     # workflow. Other repository writers remain within the trust boundary.
     permissions:
       contents: write
+      actions: read # Verify the legacy workflow remains disabled.
     steps:
       - name: Check out the announcement tooling
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

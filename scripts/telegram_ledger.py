@@ -28,6 +28,10 @@ LEGACY_PATH = ".github/telegram-releases.json"
 LEDGER_PATH = "telegram-delivery-state.json"
 PUBLISHING_CONFIG_PATH = ".github/telegram-publishing.json"
 SCHEMA = 4
+BOOTSTRAP_PENDING_FENCE = "9999-12-31T23:59:59Z"
+# The automatic publication fence is captured immediately before the final
+# inventory scans, never in the future after those scans have already finished.
+BOOTSTRAP_SNAPSHOT_MAX_AGE = dt.timedelta(minutes=15)
 HEX = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 OWNER = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -109,9 +113,19 @@ def publishing_not_before(path: str = PUBLISHING_CONFIG_PATH) -> dt.datetime | N
 
 
 def publishing_enabled(path: str = PUBLISHING_CONFIG_PATH) -> bool:
-    """Allow delivery only after an explicitly reviewed activation fence."""
+    """A ledger-controlled gate cannot be considered enabled without the ledger."""
     after = publishing_not_before(path)
     return after is not None and dt.datetime.now(dt.timezone.utc) > after
+
+
+def publishing_ledger_mode(path: str = PUBLISHING_CONFIG_PATH) -> bool:
+    """The tracked opt-in delegates the activation fence to the protected ledger."""
+    try:
+        doc = _json_input(Path(path).read_bytes())
+        return (isinstance(doc, dict) and set(doc) == {"enabled", "activation"}
+                and doc["enabled"] is True and doc["activation"] == "ledger")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, LedgerError):
+        return False
 
 
 def strict_publishing_status(path: str = PUBLISHING_CONFIG_PATH) -> bool:
@@ -122,6 +136,12 @@ def strict_publishing_status(path: str = PUBLISHING_CONFIG_PATH) -> bool:
         raise LedgerError("Publishing configuration is missing or malformed.") from exc
     if doc == {"enabled": False} and type(doc.get("enabled")) is bool:
         return False
+    if isinstance(doc, dict) and set(doc) == {"enabled", "activation"}:
+        if doc.get("enabled") is True and doc.get("activation") == "ledger":
+            # This only permits the workflow to inspect state. The publisher
+            # still requires a ready ledger and its future-only fence.
+            return True
+        raise LedgerError("Publishing configuration is invalid.")
     if not isinstance(doc, dict) or set(doc) != {"enabled", "not_before"} or doc.get("enabled") is not True:
         raise LedgerError("Publishing configuration is invalid.")
     return dt.datetime.now(dt.timezone.utc) > timestamp(doc["not_before"])
@@ -325,9 +345,13 @@ def validate(doc: object) -> None:
     if set(doc) != {"schema", "activation", "legacy", "inventory", "identity", "session", "releases", "verification"}:
         raise LedgerError("Remote ledger has missing or unexpected top-level fields.")
     activation = doc["activation"]
-    if not isinstance(activation, dict) or set(activation) != {"published_after", "legacy_sha256", "inventory_sha256"}:
+    activation_fields = {"published_after", "legacy_sha256", "inventory_sha256"}
+    if (not isinstance(activation, dict) or set(activation) not in (activation_fields, activation_fields | {"ready"})
+            or ("ready" in activation and type(activation["ready"]) is not bool)):
         raise LedgerError("Ledger activation is invalid.")
     cutoff = timestamp(activation["published_after"])
+    if activation.get("ready") is False and activation["published_after"] != BOOTSTRAP_PENDING_FENCE:
+        raise LedgerError("An unfinished bootstrap must have the non-delivery sentinel fence.")
     legacy = doc["legacy"]
     validate_legacy(legacy)
     if not isinstance(activation["legacy_sha256"], str) or digest(legacy) != activation["legacy_sha256"]:
@@ -364,6 +388,8 @@ def validate(doc: object) -> None:
     releases = doc["releases"]
     if not isinstance(releases, list):
         raise LedgerError("Ledger releases are invalid.")
+    if activation.get("ready") is False and releases:
+        raise LedgerError("A bootstrap ledger cannot contain delivery plans before it is ready.")
     release_ids: set[int] = set()
     release_tags: set[str] = set()
     legacy_ids = set(inventory["release_ids"])
@@ -576,11 +602,52 @@ def migrate(legacy: object, published_after: str, inventory: object) -> dict[str
     return doc
 
 
+def _bootstrap_inventory_extends(old: dict[str, Any], new: dict[str, Any]) -> bool:
+    """Allow only additive exclusions while closing an unfinished bootstrap."""
+    if set(old) != set(new) or "protected" not in old:
+        return False
+    for field in ("release_ids", "tags", "message_ids"):
+        if not set(old.get(field, [])).issubset(new.get(field, [])):
+            return False
+    if not {canonical(entry) for entry in old.get("exclusions", [])}.issubset(
+            {canonical(entry) for entry in new.get("exclusions", [])}):
+        return False
+    before, after = old["protected"], new["protected"]
+    return (set(before) == set(after) and before["key_check"] == after["key_check"]
+            and set(before["release_id_digests"]).issubset(after["release_id_digests"])
+            and set(before["tag_digests"]).issubset(after["tag_digests"]))
+
+
 def validate_append_only(old: dict[str, Any], new: dict[str, Any]) -> None:
     """Do not erase or rewrite historical identities, plans or successful deliveries."""
-    for key in ("legacy", "inventory", "activation"):
-        if old[key] != new[key]:
-            raise LedgerError("Historical snapshots and the audited activation fence are immutable during delivery.")
+    before, after = old["activation"], new["activation"]
+    if old["legacy"] != new["legacy"]:
+        raise LedgerError("The preserved legacy snapshot is immutable.")
+    if old["inventory"] != new["inventory"] and not (
+            before.get("ready") is False and after.get("ready") is True
+            and _bootstrap_inventory_extends(old["inventory"], new["inventory"])):
+        raise LedgerError("Historical exclusions are immutable and cannot be removed or altered.")
+    if old["activation"] != new["activation"]:
+        # One non-delivery transition arms an automatically bootstrapped ledger.
+        # Once armed, its fence and history can never be changed or reset.
+        required_phases = {"interrupted", "unknown-simulation", "first", "second", "race-a", "race-b"}
+        completed: dict[int, set[str]] = {}
+        for record in new["verification"]:
+            if record["status"] == "archived":
+                completed.setdefault(record["run_id"], set()).add(record["phase"])
+        scan_started = timestamp(after.get("published_after"))
+        current_time = dt.datetime.now(dt.timezone.utc)
+        if (before.get("ready") is not False or after.get("ready") is not True
+                or before.get("published_after") != BOOTSTRAP_PENDING_FENCE
+                or scan_started > current_time or current_time - scan_started > BOOTSTRAP_SNAPSHOT_MAX_AGE
+                or set(before) != set(after)
+                or before["legacy_sha256"] != after["legacy_sha256"]
+                or old["identity"] is None or new["identity"] != old["identity"]
+                or old["verification"] != new["verification"]
+                or not any(required_phases.issubset(phases) for phases in completed.values())
+                or old["releases"] or new["releases"] or old["session"] is not None or new["session"] is not None
+                or any(record["status"] == "active" for record in new["verification"])):
+            raise LedgerError("The activation fence is immutable after the one safe bootstrap transition.")
     if old["identity"] is not None and new["identity"] != old["identity"]:
         raise LedgerError("The bound bot/channel identity cannot be rewritten.")
     before, after = old["releases"], new["releases"]

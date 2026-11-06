@@ -739,9 +739,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["preflight"]["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["announce"]["permissions"], {"contents": "read"})
-        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write"})
-        for job in workflow["jobs"].values():
-            self.assertLessEqual(set(job.get("permissions", {})), {"contents"})
+        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write", "actions": "read"})
+        self.assertEqual(workflow["jobs"]["automatic"]["permissions"], {"contents": "write", "actions": "read"})
+        for name, job in workflow["jobs"].items():
+            self.assertLessEqual(set(job.get("permissions", {})),
+                                 {"contents", "actions"} if name in {"automatic", "publish"} else {"contents"})
 
     def test_workflow_never_prints_or_persists_credentials(self) -> None:
         for risky in ("echo ${{ secrets.TELEGRAM_BOT_TOKEN }}", "token: ${{ secrets.TELEGRAM_BOT_TOKEN }}"):
@@ -782,7 +784,7 @@ class WorkflowTests(unittest.TestCase):
         workflow = yaml.safe_load(self.text)
         telegram = {"TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH"}
         expected = {"Verify Telegram readiness (read-only)": telegram,
-                    "Verify MTProto bot login without sending": telegram,
+                    "Bootstrap safely or poll real published releases": telegram,
                     "Publish individual messages and documents": telegram}
         self.assertFalse(telegram & set(workflow.get("env", {})))
         for job in workflow["jobs"].values():
@@ -1221,7 +1223,8 @@ class PreflightWorkflowTests(unittest.TestCase):
     def test_preflight_is_default_off_and_bot_api_step_does_not_create_a_session(self) -> None:
         triggers = self.workflow.get('on', self.workflow.get(True))
         self.assertEqual(triggers['release'], {'types': ['published']})
-        self.assertNotIn('push', triggers)
+        self.assertEqual(triggers['push']['branches'], ['main'])
+        self.assertEqual(triggers['schedule'], [{'cron': '*/5 * * * *'}])
         self.assertNotIn('pull_request', triggers)
         self.assertIs(triggers['workflow_dispatch']['inputs']['preflight']['default'], False)
         self.assertIs(triggers['workflow_dispatch']['inputs']['dry_run']['default'], True)
@@ -1238,18 +1241,16 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow['concurrency']['queue'], 'max')
         self.assertIs(self.workflow['concurrency']['cancel-in-progress'], False)
         self.assertTrue(all(verify['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
-        blocked, install, login = self.preflight['steps'][3:]
-        self.assertEqual(blocked['if'], "vars.TELEGRAM_PUBLISHING_ENABLED == 'true'")
-        self.assertIn('full preflight is not verified', blocked['run'])
-        result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', blocked['run']],
-                                capture_output=True, text=True, timeout=30)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn('MTProto login was not checked', result.stdout)
-        self.assertEqual(install['if'], "vars.TELEGRAM_PUBLISHING_ENABLED != 'true'")
-        self.assertEqual(login['if'], install['if'])
-        self.assertIn('telethon==1.45.0', install['run'])
-        self.assertEqual(login['run'], 'python3 scripts/telegram_mtproto_preflight.py')
-        self.assertTrue(all(login['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
+        self.assertEqual(len(self.preflight['steps']), 3)
+        self.assertNotIn('telegram_mtproto_preflight.py', '\n'.join(step.get('run', '') for step in self.preflight['steps']))
+        automatic = self.workflow['jobs']['automatic']
+        self.assertIn("vars.TELEGRAM_PUBLISHING_ENABLED == 'true'", automatic['if'])
+        self.assertIn("github.event_name == 'schedule'", automatic['if'])
+        self.assertIn("github.event_name == 'push'", automatic['if'])
+        self.assertEqual(automatic['permissions'], {'contents': 'write', 'actions': 'read'})
+        bootstrap = next(step for step in automatic['steps'] if step.get('name') == 'Bootstrap safely or poll real published releases')
+        self.assertEqual(bootstrap['run'], 'python3 scripts/telegram_auto.py')
+        self.assertTrue(all(bootstrap['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
 
     def test_all_dispatch_combinations_require_explicit_publish_and_preflight_wins(self) -> None:
         publish_job = self.workflow['jobs']['publish']
@@ -1295,7 +1296,9 @@ class PreflightWorkflowTests(unittest.TestCase):
                     self.assertEqual(output.read_text().strip(), '')
                 else:
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertEqual(output.read_text().strip(), 'enabled=false')
+                    # This means the tracked configuration permits a later
+                    # ledger check, not that Telegram delivery is enabled.
+                    self.assertEqual(output.read_text().strip(), 'enabled=true')
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
             (temp / 'scripts').symlink_to(SCRIPTS, target_is_directory=True)
@@ -1468,8 +1471,7 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["jobs"]["build"]["permissions"], {"contents": "read", "issues": "write"})
         jobs = workflow["jobs"]
         self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests", "telegram-readiness",
-                                    "telegram-state-verification", "telegram-state-cutover", "telegram-input-validation",
-                                    "telegram-history-preview"})
+                                    "telegram-state-verification", "telegram-reconciliation", "telegram-input-validation"})
         for name in ("build", "tracking-config-check", "script-tests"):
             condition = jobs[name]["if"]
             self.assertIn("inputs.telegram_readiness != true", condition)
@@ -1479,24 +1481,21 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'workflow_dispatch' && inputs.telegram_readiness == true", probe["if"])
         self.assertIn("inputs.telegram_state_verification != true", probe["if"])
         self.assertEqual(jobs["telegram-state-verification"]["permissions"], {"contents": "write"})
-        self.assertEqual(jobs["telegram-state-cutover"]["permissions"], {"contents": "write", "actions": "read"})
-        preview = jobs["telegram-history-preview"]
-        self.assertEqual(preview["permissions"], {"contents": "write", "actions": "read"})  # GitHub draft visibility
-        self.assertIn("inputs.telegram_cutover_mode == 'preview'", preview["if"])
-        self.assertNotIn("inputs.telegram_cutover_mode == 'preview'", jobs["telegram-state-cutover"]["if"])
-        self.assertTrue(any("--mode preview" in step.get("run", "") for step in preview["steps"]))
-        combined_steps = jobs["telegram-state-cutover"]["steps"]
-        verification = next(step for step in combined_steps if step.get("name") == "Verify initialized state without delivery")
-        self.assertEqual(verification["if"], "inputs.telegram_cutover_mode == 'initialize'")
-        self.assertEqual(verification["env"]["STATE_VERIFICATION_REQUESTED"], "true")
-        self.assertIn("python3 scripts/telegram_state_verify.py", verification["run"])
+        self.assertEqual(jobs["telegram-reconciliation"]["permissions"], {"contents": "write", "actions": "read"})
+        self.assertEqual(triggers["workflow_dispatch"]["inputs"]["telegram_cutover_mode"]["options"], ['none', 'reconcile'])
+        self.assertNotIn('telegram_cutover_cutoff', triggers["workflow_dispatch"]["inputs"])
+        self.assertNotIn('telegram_cutover_fingerprint', triggers["workflow_dispatch"]["inputs"])
+        self.assertNotIn('telegram_cutover_ack', triggers["workflow_dispatch"]["inputs"])
+        self.assertIn("inputs.telegram_cutover_mode == 'reconcile'", jobs["telegram-reconciliation"]["if"])
         self.assertEqual(jobs["telegram-input-validation"]["permissions"], {})
-        for name in ("telegram-state-verification", "telegram-state-cutover"):
+        for name in ("telegram-state-verification", "telegram-reconciliation"):
             self.assertEqual(jobs[name]["concurrency"],
                              {"group": "telegram-streambridge-channel", "queue": "max", "cancel-in-progress": False})
-        self.assertEqual(probe["permissions"], {"contents": "read"})
+        self.assertEqual(probe["permissions"], {"contents": "read", "actions": "read"})
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["telegram_readiness"]["default"], False)
         self.assertTrue(any(step.get("run") == "python3 scripts/telegram_mtproto_preflight.py" for step in probe["steps"]))
+        self.assertTrue(any("telegram_state.verify_state" in step.get("run", "") for step in probe["steps"]))
+        self.assertTrue(any("telegram_state.require_disabled_legacy" in step.get("run", "") for step in probe["steps"]))
         build = jobs["build"]["steps"]
         uploads = [step for job in jobs.values() for step in job["steps"]
                    if "actions/upload-artifact@" in step.get("uses", "")]
@@ -1562,8 +1561,10 @@ class WorkflowRefTests(unittest.TestCase):
         workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml").read_text())
         job = workflow["jobs"]["publish"]
         self.assertNotIn("environment", job)
-        self.assertEqual(job["permissions"], {"contents": "write"})
-        self.assertEqual(json.loads((SCRIPTS.parent / ".github/telegram-state.json").read_text()), {"enabled": False})
+        self.assertEqual(job["permissions"], {"contents": "write", "actions": "read"})
+        self.assertEqual(json.loads((SCRIPTS.parent / ".github/telegram-state.json").read_text()),
+                         {"enabled": True, "mode": "repository-branch", "repository_id": 1349123452,
+                          "shared_writers_acknowledged": True})
         steps = job["steps"]
         config_index = next(i for i, step in enumerate(steps) if step.get("id") == "state")
         state_index = next(i for i, step in enumerate(steps) if step.get("name") == "Check out the dedicated state branch")
@@ -1586,7 +1587,7 @@ class WorkflowRefTests(unittest.TestCase):
         self.assertNotIn("--pin", publish["run"])
         self.assertEqual(publish["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertEqual(publish["env"]["TELEGRAM_PUBLISHING_ENABLED"], "${{ vars.TELEGRAM_PUBLISHING_ENABLED }}")
-        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write"})
+        self.assertEqual(workflow["jobs"]["publish"]["permissions"], {"contents": "write", "actions": "read"})
 
 
 if __name__ == "__main__":

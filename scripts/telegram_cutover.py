@@ -44,8 +44,10 @@ def tag_ref_snapshot(refs: list[Any], token: str) -> str:
 
 
 def build_snapshot(releases: list[Any], refs: list[Any], legacy: object, cutoff: str, token: str,
-                   *, resolve: Callable[[str], str], now: dt.datetime) -> dict[str, Any]:
-    """Build a protected *candidate*; a human freeze/review is still mandatory."""
+                   *, resolve: Callable[[str], str], now: dt.datetime,
+                   observed_old_tags: set[str] | None = None,
+                   observed_old_release_ids: set[int] | None = None) -> dict[str, Any]:
+    """Build a protected exclusion snapshot, never a queue of releases to send."""
     fence = ledger.timestamp(cutoff)
     if fence < now + dt.timedelta(hours=1):
         raise CutoverError("The reviewed cutoff must be at least one hour in the future.")
@@ -95,6 +97,19 @@ def build_snapshot(releases: list[Any], refs: list[Any], legacy: object, cutoff:
                            "status": "historical_excluded", "reason": ledger.HISTORICAL_REASON,
                            "message_id": ledger.KNOWN_MESSAGE_ID if confirmed else None,
                            "evidence": ledger.KNOWN_EVIDENCE if confirmed else None, "delivered_at": None})
+    # Activity may reveal recently deleted tags. Keep these as protected
+    # exclusions; the API is bounded and is not a complete historical log.
+    if observed_old_tags is not None:
+        if not isinstance(observed_old_tags, set):
+            raise CutoverError("Historical tag activity is invalid.")
+        for tag in observed_old_tags:
+            identity.validate_tag(tag)
+        tags.update(observed_old_tags)
+    if observed_old_release_ids is not None:
+        if (not isinstance(observed_old_release_ids, set)
+                or any(type(rid) is not int or rid <= 0 for rid in observed_old_release_ids)):
+            raise CutoverError("Historical release activity is invalid.")
+        ids = sorted(set(ids) | observed_old_release_ids)
     # Even if a draft's tag happens to be a visible Git ref, blind its name in
     # the state ledger unless it is also an independently published release tag.
     public_release_tags = {entry["tag"] for entry in exclusions}
@@ -110,13 +125,38 @@ def build_snapshot(releases: list[Any], refs: list[Any], legacy: object, cutoff:
     return doc
 
 
-def collect(repository: str, legacy: object, cutoff: str, token: str) -> dict[str, Any]:
+def collect(repository: str, legacy: object, cutoff: str, token: str, *,
+            include_activity: bool = False) -> dict[str, Any]:
     """Capture API responses in memory only; never print private draft metadata."""
     releases = state._api(f"repos/{repository}/releases?per_page=100", paginate=True)
     refs = state._api(f"repos/{repository}/git/matching-refs/tags/?per_page=100", paginate=True)
+    old_tags: set[str] = set()
+    old_ids: set[int] = set()
+    if include_activity:
+        events = state._api(f"repos/{repository}/events?per_page=100", paginate=True)
+        if not isinstance(events, list):
+            raise CutoverError("Historical tag activity is unavailable.")
+        for event in events:
+            if not isinstance(event, dict) or event.get("type") not in {"CreateEvent", "DeleteEvent", "ReleaseEvent"}:
+                continue
+            payload, repo = event.get("payload"), event.get("repo")
+            if not isinstance(payload, dict):
+                raise CutoverError("Historical release/tag activity is malformed.")
+            if event["type"] == "ReleaseEvent" or payload.get("ref_type") == "tag":
+                if not isinstance(repo, dict) or repo.get("name") != repository:
+                    raise CutoverError("Historical activity has the wrong repository.")
+                if event["type"] == "ReleaseEvent":
+                    release = payload.get("release")
+                    if not isinstance(release, dict) or type(release.get("id")) is not int or release["id"] <= 0:
+                        raise CutoverError("Historical release activity is malformed.")
+                    old_ids.add(release["id"])
+                    old_tags.add(identity.validate_tag(release.get("tag_name")))
+                else:
+                    old_tags.add(identity.validate_tag(payload.get("ref")))
     doc = build_snapshot(releases, refs, legacy, cutoff, token,
                          resolve=lambda tag: identity.resolve_tag_commit(repository, tag),
-                         now=dt.datetime.now(dt.timezone.utc))
+                         now=dt.datetime.now(dt.timezone.utc), observed_old_tags=old_tags,
+                         observed_old_release_ids=old_ids)
     refs_after = state._api(f"repos/{repository}/git/matching-refs/tags/?per_page=100", paginate=True)
     if tag_ref_snapshot(refs_after, token) != doc["inventory"]["protected"]["tag_ref_snapshot"]:
         raise CutoverError("Tag ref objects changed during the inventory snapshot.")
@@ -151,8 +191,8 @@ def remote_head(store: ledger.GitLedger, branch: str) -> str | None:
 
 
 def initialize(store: ledger.GitLedger, doc: dict[str, Any], *, expected_parent: str | None,
-               default_branch: str, expected_main: str) -> str:
-    """Create an orphan root or a verified single-file child of an unchanged main tip."""
+               default_branch: str, expected_main: str, bootstrap_base: str | None = None) -> str:
+    """Create a verified single-file child; never overwrite an advanced state ref."""
     ledger.validate(doc)
     ref = f"refs/heads/{store.branch}"
     parent = remote_head(store, store.branch)
@@ -160,11 +200,20 @@ def initialize(store: ledger.GitLedger, doc: dict[str, Any], *, expected_parent:
     if (parent != expected_parent or main is None or main != expected_main or default_branch == store.branch):
         raise CutoverError("The state or default branch changed since the reviewed preview.")
     if parent is not None:
-        # A pre-created state ref is safe to initialize only if it is exactly the
-        # current default tip and its legacy ledger equals the frozen candidate.
-        # The child removes source from the *tip* without rewriting Git history.
+        # Ordinarily require the unchanged default tip. Automatic bootstrap may
+        # instead use the explicitly pinned, pre-created state base after the
+        # PR has merged, but only if that exact base is an ancestor of main.
+        # No force or history rewrite is used, and a moved state ref is refused.
         if parent != main:
-            raise CutoverError("The existing state ref is not the unchanged default-branch tip.")
+            if (not bootstrap_base or parent != bootstrap_base
+                    or not ledger.COMMIT_SHA.fullmatch(bootstrap_base)):
+                raise CutoverError("The existing state ref is not the unchanged default-branch tip.")
+            store._git("fetch", "--no-tags", "origin", f"refs/heads/{default_branch}")
+            if store._git("merge-base", "--is-ancestor", parent, main, check=False).returncode != 0:
+                raise CutoverError("The pinned bootstrap state base is not an ancestor of main.")
+            main_legacy = store._git("show", f"{main}:{ledger.LEGACY_PATH}", check=False)
+            if main_legacy.returncode or ledger._json_input(main_legacy.stdout) != doc["legacy"]:
+                raise CutoverError("The default branch legacy ledger changed since the pinned state base.")
         store._git("fetch", "--no-tags", "origin", ref)
         fetched = store._git("rev-parse", "FETCH_HEAD").stdout.decode("ascii").strip()
         old = store._git("show", f"{parent}:{ledger.LEGACY_PATH}", check=False)

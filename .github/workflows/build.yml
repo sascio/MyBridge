@@ -12,7 +12,7 @@ on:
         type: boolean
         default: false
       telegram_readiness:
-        description: No-send Telegram bot/MTProto readiness only (while publishing is off)
+        description: No-send bot/channel rights and MTProto credential syntax (no login)
         required: false
         type: boolean
         default: false
@@ -26,23 +26,11 @@ on:
         required: false
         type: string
       telegram_cutover_mode:
-        description: Preview, approved initialization with state verification, or confirmed-response reconciliation
+        description: Optional confirmed-response reconciliation (never sends)
         required: false
         type: choice
-        options: [none, preview, initialize, reconcile]
+        options: [none, reconcile]
         default: none
-      telegram_cutover_cutoff:
-        description: Future UTC cutoff at least one hour away (for cutover only)
-        required: false
-        type: string
-      telegram_cutover_fingerprint:
-        description: Exact protected preview fingerprint (initialize only)
-        required: false
-        type: string
-      telegram_cutover_ack:
-        description: Enter RELEASES_AND_TAGS_FROZEN_AND_REVIEWED after the independent owner review
-        required: false
-        type: string
       telegram_reconciliation:
         description: Exact reviewed JSON request for a confirmed-response reconciliation only
         required: false
@@ -595,36 +583,26 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Check out the requested workflow ref
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Confirm publishing is disabled
+      - name: Confirm the live delivery switch is off
         env:
           TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, sys
-          sys.path.insert(0, 'scripts')
-          import telegram_ledger
-          from pathlib import Path
-          gate = telegram_ledger._json_input(Path('.github/telegram-publishing.json').read_bytes())
-          if (os.environ.get('TELEGRAM_PUBLISHING_ENABLED') == 'true' or not isinstance(gate, dict)
-                  or set(gate) != {'enabled'} or gate['enabled'] is not False):
-              raise SystemExit('No-send login readiness is only allowed while publishing is disabled.')
-          PY
+          if [[ "${TELEGRAM_PUBLISHING_ENABLED}" == "true" ]]; then
+            echo '::error::The live delivery switch is on; this readiness check requires it to remain off.'
+            exit 1
+          fi
+          echo 'Telegram live delivery switch is off.'
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
-      - name: Install pinned MTProto dependencies
-        run: |
-          set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --quiet \
-            'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
-      - name: Verify bot login and channel without sending
+      - name: Verify bot API and channel without sending or opening a session
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -632,6 +610,23 @@ jobs:
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           PYTHONUNBUFFERED: "1"
         run: python3 scripts/telegram_mtproto_preflight.py
+      - name: Verify state protection and legacy disablement without writes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          import telegram_auto, telegram_cutover, telegram_ledger, telegram_state
+          repo = os.environ['GITHUB_REPOSITORY']
+          config = telegram_state.load_config(repo)
+          telegram_state.verify_state(config, os.getcwd(), repo)
+          telegram_state.require_disabled_legacy(repo)
+          store = telegram_ledger.GitLedger(os.getcwd(), telegram_state.STATE_BRANCH)
+          if telegram_cutover.remote_head(store, telegram_state.STATE_BRANCH) != telegram_auto.BOOTSTRAP_BASE:
+              raise SystemExit('The pre-existing state branch is not at the pinned bootstrap base.')
+          print('Read-only state/legacy policy and pinned state ref verified; no state write was attempted.')
+          PY
 
   # This owner-triggered job performs ledger-only writes after the protected,
   # reviewed state branch has been provisioned. It never sends Telegram data.
@@ -689,46 +684,13 @@ jobs:
           fi
           python3 scripts/telegram_state_verify.py "${args[@]}"
 
-  # This preview performs only reads. Contents:write is needed because GitHub
-  # does not list draft releases to a read-only token; the credential can still
-  # write the repository and is part of the shared-writer trust boundary.
-  telegram-history-preview:
-    name: Telegram historical inventory preview (no writes)
+  # Exceptional recovery of an already-confirmed response; normal bootstrap is
+  # automatic and never requires a manual cutover workflow.
+  telegram-reconciliation:
+    name: Telegram confirmed-response reconciliation
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.telegram_readiness != true &&
-      inputs.telegram_state_verification != true && inputs.telegram_cutover_mode == 'preview'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - name: Check out the requested workflow ref
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: true
-      - name: Preview the protected historical inventory without writing state
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
-          CUTOFF: ${{ inputs.telegram_cutover_cutoff }}
-          FINGERPRINT: ${{ inputs.telegram_cutover_fingerprint }}
-          ACKNOWLEDGE: ${{ inputs.telegram_cutover_ack }}
-          SOURCE_DIR: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/telegram_cutover.py --mode preview --cutoff "${CUTOFF}" \
-            --fingerprint "${FINGERPRINT}" --acknowledge "${ACKNOWLEDGE}" --source-dir "${SOURCE_DIR}"
-
-  # The maintainer may initialize frozen history or reconcile a previously
-  # confirmed response from a trusted Actions log. No Telegram request occurs.
-  telegram-state-cutover:
-    name: Telegram state cutover and reconciliation
-    if: >-
-      github.event_name == 'workflow_dispatch' && inputs.telegram_readiness != true &&
-      inputs.telegram_state_verification != true &&
-      (inputs.telegram_cutover_mode == 'initialize' || inputs.telegram_cutover_mode == 'reconcile')
+      inputs.telegram_state_verification != true && inputs.telegram_cutover_mode == 'reconcile'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -742,53 +704,15 @@ jobs:
       - name: Check out the requested workflow ref
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          persist-credentials: true
-      - name: Refuse mixed diagnostic modes
+          persist-credentials: false
+      - name: Require publishing to be disabled for reconciliation
         env:
-          READINESS: ${{ inputs.telegram_readiness }}
-          VERIFY: ${{ inputs.telegram_state_verification }}
           TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
         run: |
-          set -euo pipefail
-          if [[ "${READINESS}" == "true" || "${VERIFY}" == "true" || "${TELEGRAM_PUBLISHING_ENABLED}" == "true" ]]; then
-            echo '::error::Historical cutover must run alone while Telegram publishing is disabled.'
+          if [[ "${TELEGRAM_PUBLISHING_ENABLED}" == "true" ]]; then
+            echo '::error::Disable publishing before reconciling a confirmed response.'
             exit 1
           fi
-      - name: Prepare or initialize reviewed historical state
-        if: inputs.telegram_cutover_mode != 'reconcile'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
-          CUTOVER_MODE: ${{ inputs.telegram_cutover_mode }}
-          CUTOFF: ${{ inputs.telegram_cutover_cutoff }}
-          FINGERPRINT: ${{ inputs.telegram_cutover_fingerprint }}
-          ACKNOWLEDGE: ${{ inputs.telegram_cutover_ack }}
-          SOURCE_DIR: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          python3 scripts/telegram_cutover.py --mode "${CUTOVER_MODE}" --cutoff "${CUTOFF}" \
-            --fingerprint "${FINGERPRINT}" --acknowledge "${ACKNOWLEDGE}" --source-dir "${SOURCE_DIR}"
-      - name: Check out initialized state for no-send verification
-        if: inputs.telegram_cutover_mode == 'initialize'
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: ${{ github.repository }}
-          ref: telegram-delivery-state
-          token: ${{ github.token }}
-          path: .telegram-state
-          persist-credentials: true
-      - name: Verify initialized state without delivery
-        if: inputs.telegram_cutover_mode == 'initialize'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
-          STATE_VERIFICATION_REQUESTED: "true"
-          STATE_DIR: ${{ github.workspace }}/.telegram-state
-        run: |
-          set -euo pipefail
-          python3 scripts/telegram_state_verify.py --state-dir "${STATE_DIR}"
       - name: Check out the state branch for reconciliation
         if: inputs.telegram_cutover_mode == 'reconcile'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

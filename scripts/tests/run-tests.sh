@@ -78,6 +78,10 @@ fi
 if ! python3 "${SCRIPT_DIR}/telegram-cutover-test.py"; then
   failures=$((failures + 1))
 fi
+# Automatic bootstrap, session locking and polling use only local Git and fakes.
+if ! python3 "${SCRIPT_DIR}/telegram-auto-test.py"; then
+  failures=$((failures + 1))
+fi
 # Exact tag resolution and confirmed-response reconciliation use fake GitHub data only.
 if ! python3 "${SCRIPT_DIR}/telegram-identity-test.py"; then
   failures=$((failures + 1))

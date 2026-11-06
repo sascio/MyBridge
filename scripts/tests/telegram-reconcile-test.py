@@ -78,6 +78,20 @@ class ReconciliationTests(unittest.TestCase):
         with self.assertRaises(reconcile.ReconciliationError):
             self.perform()  # already confirmed; cannot rewrite
 
+    def test_confirmed_scheduled_poll_can_be_reconciled_without_a_resend(self):
+        self.job["name"] = reconcile.POLL_JOB_NAME
+        self.run["event"] = "schedule"
+        saved = self.perform()
+        self.assertEqual(saved.document["releases"][0]["items"][0]["state"], "sent")
+
+    def test_scheduled_and_release_job_identities_cannot_be_interchanged(self):
+        for name, event in ((reconcile.POLL_JOB_NAME, "release"), (reconcile.POLL_JOB_NAME, "push"),
+                            (reconcile.JOB_NAME, "schedule")):
+            self.job["name"], self.run["event"] = name, event
+            with self.subTest(name=name, event=event), self.assertRaises(reconcile.ReconciliationError):
+                self.perform()
+        self.assertEqual(self.store.read().document, self.doc)
+
     def test_delivery_unknown_without_exact_marker_stays_blocked(self):
         item = self.store.document["releases"][0]["items"][0]
         item.update(state="delivery_unknown", reconciliation={"status": "review_required", "reason": "unconfirmed_telegram_response"})

@@ -182,6 +182,32 @@ class SnapshotTests(unittest.TestCase):
                     self.assertEqual(cutover.main(), 1)
                 initializer.assert_not_called()
 
+    def test_automatic_snapshot_blinds_old_release_and_deleted_tag_activity(self):
+        releases, refs = fixtures()
+        events = [
+            {"type": "ReleaseEvent", "repo": {"name": "sascio/MyBridge"},
+             "payload": {"release": {"id": 87654321, "tag_name": "deleted-release-tag"}}},
+            {"type": "DeleteEvent", "repo": {"name": "sascio/MyBridge"},
+             "payload": {"ref_type": "tag", "ref": "deleted-git-tag"}},
+        ]
+        def api(endpoint, paginate=False):
+            if "/releases?" in endpoint:
+                return releases
+            if "/git/matching-refs/" in endpoint:
+                return refs
+            if "/events?" in endpoint:
+                return events
+            raise AssertionError(endpoint)
+        with mock.patch.object(state, "_api", side_effect=api), \
+             mock.patch.object(cutover.identity, "resolve_tag_commit", return_value="a" * 40):
+            doc = cutover.collect("sascio/MyBridge", {"schema": 1, "releases": []},
+                                  ledger.BOOTSTRAP_PENDING_FENCE, TOKEN, include_activity=True)
+        for identifier in ("87654321", "deleted-release-tag", "deleted-git-tag"):
+            self.assertNotIn(identifier.encode(), ledger.canonical(doc))
+        self.assertTrue(ledger.historically_seen(doc["inventory"], TOKEN, 87654321, "unseen"))
+        self.assertTrue(ledger.historically_seen(doc["inventory"], TOKEN, 1, "deleted-release-tag"))
+        self.assertTrue(ledger.historically_seen(doc["inventory"], TOKEN, 1, "deleted-git-tag"))
+
     def test_draft_is_not_resolved_as_a_public_release(self):
         releases, refs = fixtures()
         resolved = []

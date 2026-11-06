@@ -353,6 +353,8 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
         ledger.require_inventory_key(inventory, token, required=require_protected_inventory)
         if require_protected_inventory:
             ledger.require_reviewed_history(inventory)
+            if document["activation"].get("ready") is not True:
+                raise PublishError("Automatic state bootstrap is not ready; no delivery is allowed.")
         if any(ledger.historically_seen(inventory, token, entry["id"], entry["tag"])
                for entry in document["releases"]):
             raise PublishError("The delivery ledger overlaps protected historical release identities.")
@@ -361,6 +363,9 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             raise PublishError("The release predates the audited activation cutoff or activation is not yet effective.")
         if document["session"] is not None:
             raise PublishError("A previous bot session is not confirmed revoked; audited operator recovery is required.")
+        # An ambiguous send in any release blocks all further public messages.
+        for prior in document["releases"]:
+            require_no_unresolved_items(prior["items"])
         if any(record["status"] == "active" for record in document["verification"]):
             raise PublishError("State-only verification is unfinished; no delivery is allowed.")
         entry = stored_release(document, release.id)
@@ -490,8 +495,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         repository, event_release_id, event_tag = require_workflow_context(args.branch)
+        automatic = ledger.publishing_ledger_mode()
         not_before = ledger.publishing_not_before()
-        if not_before is None or dt.datetime.now(dt.timezone.utc) <= not_before:
+        if not automatic and (not_before is None or dt.datetime.now(dt.timezone.utc) <= not_before):
             raise PublishError("The reviewed publishing configuration is disabled, invalid or not yet effective.")
         is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
         if is_manual and not args.resume_unsent:
@@ -504,7 +510,17 @@ def main(argv: list[str] | None = None) -> int:
         release = announce.load_release(args.release_json)
         if release.id != event_release_id or release.tag_name != event_tag:
             raise PublishError("The resolved release does not match the exact event or recovery identity.")
-        if not is_manual and ledger.timestamp(release.published_at) <= not_before:
+        if not automatic and not is_manual and (not_before is None or ledger.timestamp(release.published_at) <= not_before):
+            raise PublishError("The release was published before the reviewed activation fence.")
+        store = ledger.GitLedger(args.state_dir, state.STATE_BRANCH)
+        if automatic:
+            snapshot = store.read().document
+            if snapshot["activation"].get("ready") is not True:
+                raise PublishError("The protected ledger is not yet ready for delivery.")
+            not_before = ledger.timestamp(snapshot["activation"]["published_after"])
+            if dt.datetime.now(dt.timezone.utc) <= not_before:
+                raise PublishError("The future-only activation fence is not yet effective.")
+        if not is_manual and (not_before is None or ledger.timestamp(release.published_at) <= not_before):
             raise PublishError("The release was published before the reviewed activation fence.")
         source_sha = identity.resolve_tag_commit(repository, event_tag)
         if not is_manual and os.environ.get("GITHUB_SHA") != source_sha:
@@ -513,11 +529,13 @@ def main(argv: list[str] | None = None) -> int:
         if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[1-9][0-9]*", run_attempt):
             raise PublishError("The GitHub workflow run identity is invalid.")
         code_sha = tooling_commit()
-        store = ledger.GitLedger(args.state_dir, state.STATE_BRANCH)
+        def policy() -> None:
+            state.verify_state(config, args.state_dir, repository)
+            state.require_disabled_legacy(repository)
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
                 source_sha=source_sha, workflow_run_id=int(run_id), run_attempt=int(run_attempt), tooling_sha=code_sha,
                 upload_assets=not args.no_upload_assets, resume_unsent=args.resume_unsent,
-                policy_check=lambda: state.verify_state(config, args.state_dir, repository),
+                policy_check=policy,
                 allow_new_release=not is_manual,
                 require_protected_inventory=True)
     except Exception as exc:  # no raw exception strings, tracebacks or credential material

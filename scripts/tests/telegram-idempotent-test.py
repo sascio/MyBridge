@@ -564,7 +564,9 @@ class DurableDeliveryTests(unittest.TestCase):
         for release in (sample_release(release_id=123, tag="new-tag"),
                         sample_release(release_id=456, tag="private-draft-tag")):
             with self.subTest(release_id=release.id):
-                self.store = MemoryStore(ledger.migrate({"schema": 1, "releases": []}, cutoff, protected))
+                doc = ledger.migrate({"schema": 1, "releases": []}, cutoff, protected)
+                doc["activation"]["ready"] = True
+                self.store = MemoryStore(doc)
                 self.server = FakeServer(self.store)
                 with self.assertRaisesRegex(publish.PublishError, "historical inventory"):
                     self.run_publish(release, require_protected_inventory=True)
@@ -793,6 +795,13 @@ class ChecksumAndCutoverTests(unittest.TestCase):
 
 
 class BranchPolicyAndContextTests(unittest.TestCase):
+    def setUp(self):
+        # This group exercises the older explicit timestamp gate. Ledger-mode
+        # activation and automatic polling have their own dedicated tests.
+        patcher = mock.patch.object(ledger, "publishing_ledger_mode", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_effective_rules_require_both_force_push_and_deletion_restrictions(self):
         def runner(stdout, returncode=0):
             return lambda *_a, **_k: SimpleNamespace(stdout=stdout, stderr=b"private error", returncode=returncode)
@@ -836,10 +845,12 @@ class BranchPolicyAndContextTests(unittest.TestCase):
              mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
              mock.patch.object(ledger, "GitLedger", return_value=MemoryStore()), \
              mock.patch.object(state, "verify_state") as branch_rules, \
+             mock.patch.object(state, "require_disabled_legacy") as legacy_check, \
              mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(capture):
             self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 0)
             publisher.call_args.kwargs["policy_check"]()
             branch_rules.assert_called_once_with(STATE_CONFIG, "/tmp/state-checkout", "sascio/MyBridge")
+            legacy_check.assert_called_once_with("sascio/MyBridge")
         for secret in values.values():
             self.assertNotIn(secret, capture.getvalue())
 
@@ -856,6 +867,7 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         fence = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
         with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, "v9.9.9")), \
              mock.patch.object(ledger, "publishing_not_before", return_value=fence), \
+             mock.patch.object(state, "load_config", side_effect=ledger.LedgerError("state storage is disabled")), \
              mock.patch.object(publish, "require_secret") as secrets_read, \
              mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 1)
@@ -972,7 +984,9 @@ class BranchPolicyAndContextTests(unittest.TestCase):
 class LedgerValidationTests(unittest.TestCase):
     def test_publishing_activation_is_default_off_and_malformed_values_fail_closed(self):
         tracked = SCRIPTS.parent / ledger.PUBLISHING_CONFIG_PATH
-        self.assertEqual(json.loads(tracked.read_text()), {"enabled": False})
+        self.assertEqual(json.loads(tracked.read_text()), {"enabled": True, "activation": "ledger"})
+        self.assertTrue(ledger.publishing_ledger_mode(str(tracked)))
+        # Tracked opt-in alone is not evidence that the protected ledger is ready.
         self.assertFalse(ledger.publishing_enabled(str(tracked)))
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp, "activation.json")
@@ -1002,6 +1016,16 @@ class LedgerValidationTests(unittest.TestCase):
             self.assertFalse(ledger.strict_publishing_status(str(path)))
             path.write_text('{"enabled":true,"not_before":"2000-01-01T00:00:00Z"}', encoding="utf-8")
             self.assertTrue(ledger.strict_publishing_status(str(path)))
+            path.write_text('{"enabled":true,"activation":"ledger"}', encoding="utf-8")
+            self.assertTrue(ledger.strict_publishing_status(str(path)))
+            self.assertTrue(ledger.publishing_ledger_mode(str(path)))
+            self.assertFalse(ledger.publishing_enabled(str(path)))
+            for raw in ('{"enabled":1,"activation":"ledger"}', '{"enabled":true,"activation":"other"}',
+                        '{"enabled":true,"activation":"ledger","extra":0}'):
+                path.write_text(raw, encoding="utf-8")
+                self.assertFalse(ledger.publishing_ledger_mode(str(path)))
+                with self.assertRaises(ledger.LedgerError):
+                    ledger.strict_publishing_status(str(path))
 
     def test_offline_guard_blocks_external_dns_and_tcp(self):
         import socket

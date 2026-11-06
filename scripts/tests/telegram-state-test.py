@@ -147,6 +147,17 @@ class SameRepositoryStateTests(unittest.TestCase):
                 state.verify_state(self.config, self.temp.name, SOURCE, runner=self.platform)
 
 
+    def test_live_policy_requires_legacy_workflow_to_remain_manually_disabled(self):
+        endpoint = f"repos/{SOURCE}/actions/workflows/407947021"
+        valid = {"state": "disabled_manually", "path": ".github/workflows/telegram-release-announcement.yml"}
+        seen = []
+        state.require_disabled_legacy(SOURCE, api=lambda path: seen.append(path) or valid)
+        self.assertEqual(seen, [endpoint])
+        for bad in ({**valid, "state": "active"}, {**valid, "state": "disabled_inactivity"},
+                    {**valid, "path": ".github/workflows/other.yml"}, {}):
+            with self.subTest(bad=bad), self.assertRaises(ledger.LedgerError):
+                state.require_disabled_legacy(SOURCE, api=lambda _path: bad)
+
     def test_bootstrap_checks_rules_without_requiring_a_created_ref(self):
         self.platform.branch = {"name": "not-the-state-branch"}
         with mock.patch.dict(os.environ, ENV, clear=False):
@@ -156,9 +167,11 @@ class SameRepositoryStateTests(unittest.TestCase):
 
     def test_disabled_legacy_or_duplicate_config_fails_closed(self):
         tracked = SCRIPTS.parent / state.CONFIG_PATH
-        with self.assertRaises(ledger.LedgerError):
-            state.load_config(SOURCE, str(tracked))
+        self.assertEqual(state.load_config(SOURCE, str(tracked)), self.config)
         path = Path(self.temp.name, "config.json")
+        path.write_text('{"enabled":false}')
+        with self.assertRaises(ledger.LedgerError):
+            state.load_config(SOURCE, str(path))
         path.write_text('{"enabled":true,"enabled":false}')
         with self.assertRaises(ledger.LedgerError):
             state.load_config(SOURCE, str(path))

@@ -224,13 +224,15 @@ def main() -> int:
                 or not re.fullmatch(r"[1-9][0-9]*", run_id) or not os.environ.get("GH_TOKEN")
                 or os.environ.get("TELEGRAM_PUBLISHING_ENABLED") == "true"):
             raise VerificationError("State verification requires the explicit, publishing-disabled Actions dispatch.")
-        for path in (ledger.PUBLISHING_CONFIG_PATH, state.CONFIG_PATH):
-            with open(path, encoding="utf-8") as handle:
-                gate = json.load(handle, object_pairs_hook=ledger._no_duplicates)
-                if not isinstance(gate, dict) or set(gate) != {"enabled"} or gate["enabled"] is not False:
-                    raise VerificationError("Tracked publishing and state gates must both remain disabled.")
+        # This diagnostic never sends and still requires the independent live
+        # switch to be off. Permit the reviewed ledger-controlled configuration
+        # as well as the old explicitly disabled form.
+        with open(ledger.PUBLISHING_CONFIG_PATH, encoding="utf-8") as handle:
+            gate = json.load(handle, object_pairs_hook=ledger._no_duplicates)
+        if not (gate == {"enabled": False} and type(gate.get("enabled")) is bool) and not ledger.publishing_ledger_mode():
+            raise VerificationError("The tracked publishing configuration is invalid.")
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        config = state.SameRepositoryConfig(repo, int(repository_id))
+        config = state.load_config(repo)
         policy = lambda: state.verify_state(config, args.state_dir, repo)
         store = ledger.GitLedger(args.state_dir, state.STATE_BRANCH)
         policy()

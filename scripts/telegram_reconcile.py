@@ -22,6 +22,7 @@ class ReconciliationError(RuntimeError):
 
 ACKNOWLEDGEMENT = "VERIFIED_TRUSTED_RUN_AND_RESPONSE"
 JOB_NAME = "Deliver with durable bot-only MTProto state"
+POLL_JOB_NAME = "Automatically initialize state and detect new releases"
 WORKFLOW_PATH = ".github/workflows/telegram-release-delivery.yml"
 OPERATION = re.compile(r"^(?:page|asset):[1-9][0-9]*$")
 
@@ -94,9 +95,10 @@ def reconcile(store: Any, request: dict[str, Any], *, repository: str,
     run = api(f"repos/{repository}/actions/runs/{run_id}")
     if (not isinstance(job, dict) or job.get("id") != job_id or job.get("run_id") != run_id
             or job.get("run_attempt") != baseline["run_attempt"]
-            or job.get("name") != JOB_NAME or job.get("status") != "completed"
+            or job.get("status") != "completed"
             or not isinstance(run, dict) or run.get("id") != run_id or run.get("status") != "completed"
-            or run.get("event") not in {"release", "workflow_dispatch"}
+            or (job.get("name"), run.get("event")) not in {
+                (JOB_NAME, "release"), (JOB_NAME, "workflow_dispatch"), (POLL_JOB_NAME, "schedule")}
             or not isinstance(run.get("repository"), dict) or run["repository"].get("id") != 1349123452
             or not isinstance(run.get("head_repository"), dict) or run["head_repository"].get("id") != 1349123452
             or type(run.get("workflow_id")) is not int or run["workflow_id"] == 407947021):

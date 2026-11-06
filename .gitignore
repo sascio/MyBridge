@@ -59,6 +59,7 @@ scripts/*
 !scripts/telegram_mtproto.py
 !scripts/telegram_mtproto_preflight.py
 !scripts/telegram_publish.py
+!scripts/telegram_auto.py
 !scripts/verify-release-target.sh
 !scripts/update-store-source.py
 !scripts/optimize-app-assets.py
