@@ -70,6 +70,21 @@ fi
 if ! python3 "${SCRIPT_DIR}/telegram-mtproto-preflight-test.py"; then
   failures=$((failures + 1))
 fi
+# State-only verification exercises local Git races and recovery, never GitHub/Telegram.
+if ! python3 "${SCRIPT_DIR}/telegram-state-verification-test.py"; then
+  failures=$((failures + 1))
+fi
+# Historical cutover and orphan initialization run against fake API data/local Git only.
+if ! python3 "${SCRIPT_DIR}/telegram-cutover-test.py"; then
+  failures=$((failures + 1))
+fi
+# Exact tag resolution and confirmed-response reconciliation use fake GitHub data only.
+if ! python3 "${SCRIPT_DIR}/telegram-identity-test.py"; then
+  failures=$((failures + 1))
+fi
+if ! python3 "${SCRIPT_DIR}/telegram-reconcile-test.py"; then
+  failures=$((failures + 1))
+fi
 
 section "Release workflows"
 

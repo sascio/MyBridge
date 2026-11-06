@@ -70,10 +70,13 @@ proves at least one announcement existed, not that this run sent it.
    deleted/reused refs, and every known announcement message ID.
 3. Compare and independently review the inventory against the preserved legacy
    ledger and release/tag history. Choose a future cutoff and prepare a
-   checksummed schema-3 migration only after the freeze is in place. Retain the
+   checksummed schema-4 migration only after the freeze is in place. Retain the
    unmodified schema-1/2 document and the independently reviewed inventory.
-   The local preview created during this audit is a simulation, **not** an
-   approved migration.
+   The owner-triggered preview/initializer described in the runbook observes
+   current API identities, not deleted or invisible ones. If an independently
+   known historical ID/tag is absent, do not initialize that candidate; prepare
+   a separately reviewed protected migration that includes it. No preview has
+   been frozen or approved and no migration has been deployed.
 4. Provision and verify the dedicated same-repository state branch and its
    no-force/no-delete controls as described in `TELEGRAM-ANNOUNCEMENTS.md`.
    Repository writers share access; real write/migration and crash recovery

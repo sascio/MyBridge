@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,14 +25,11 @@ from typing import Any, Callable
 
 import telegram_announce as announce
 import telegram_assets as assets
+import telegram_identity as identity
 import telegram_ledger as ledger
 import telegram_state as state
 import telegram_mtproto as mtproto
 import telegram_release_notes as notes
-
-MAX_SEND_ATTEMPTS_PER_RUN = 3
-MAX_SEND_ATTEMPTS_TOTAL = 10
-MAX_FLOOD_SECONDS = 60
 
 # Third-party exception/debug logs may contain request or authorization material.
 # Controlled user-facing diagnostics below never print those objects.
@@ -49,7 +47,7 @@ def require_secret(name: str) -> str:
     return value
 
 
-def require_workflow_context(branch: str) -> tuple[str, int | None, str | None]:
+def require_workflow_context(branch: str) -> tuple[str, int, str]:
     """Require the designated workflow, activation and a bound release/recovery event."""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
@@ -75,18 +73,40 @@ def require_workflow_context(branch: str) -> tuple[str, int | None, str | None]:
         inputs = event.get("inputs")
         if not isinstance(inputs, dict):
             raise PublishError("Live manual dispatch requires explicit recovery and a release tag.")
-        preflight, dry_run, recovery = (inputs.get("preflight"), inputs.get("dry_run"), inputs.get("recover_unknown"))
+        preflight, dry_run, resume = (inputs.get("preflight"), inputs.get("dry_run"), inputs.get("resume_unsent"))
+        rid = inputs.get("release_id")
         if (not (preflight is None or preflight is False or preflight == "false")
                 or not (dry_run is False or dry_run == "false")
-                or not (recovery is True or recovery == "true")
-                or not isinstance(inputs.get("tag"), str) or not inputs["tag"].strip()):
-            raise PublishError("Live manual dispatch requires explicit recovery and a release tag.")
-        return repo, None, inputs["tag"]
+                or not (resume is True or resume == "true")
+                or not isinstance(rid, str) or not re.fullmatch(r"[1-9][0-9]*", rid)):
+            raise PublishError("Live manual dispatch requires an exact release ID and explicit unsent-operation recovery.")
+        try:
+            tag = identity.validate_tag(inputs.get("tag"))
+        except identity.IdentityError as exc:
+            raise PublishError("Live manual dispatch requires an exact release tag.") from exc
+        return repo, int(rid), tag
     release = event.get("release")
     if (event.get("action") != "published" or not isinstance(release, dict)
             or type(release.get("id")) is not int or release["id"] <= 0):
         raise PublishError("Initial delivery requires a published-release event with a valid release ID.")
-    return repo, release["id"], None
+    try:
+        tag = identity.validate_tag(release.get("tag_name"))
+    except identity.IdentityError as exc:
+        raise PublishError("The published-release event has no exact release tag.") from exc
+    return repo, release["id"], tag
+
+
+def tooling_commit() -> str:
+    """Record the exact source checkout that performed the delivery."""
+    try:
+        result = subprocess.run(["git", "rev-parse", "--verify", "HEAD^{commit}"], stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=30, check=False)
+        sha = result.stdout.decode("ascii").strip()
+    except (OSError, UnicodeDecodeError, subprocess.TimeoutExpired) as exc:
+        raise PublishError("The delivery tooling commit could not be verified.") from exc
+    if result.returncode or not ledger.COMMIT_SHA.fullmatch(sha):
+        raise PublishError("The delivery tooling commit could not be verified.")
+    return sha
 
 
 def bot_details(token: str, chat: str) -> tuple[int, int, str]:
@@ -194,19 +214,25 @@ def stored_release(document: dict[str, Any], release_id: int) -> dict[str, Any] 
     return next((entry for entry in document["releases"] if entry["id"] == release_id), None)
 
 
-def make_release(release: notes.Release, operations: list[dict[str, Any]], used: set[int]) -> dict[str, Any]:
+def make_release(release: notes.Release, operations: list[dict[str, Any]], used: set[int],
+                 source_sha: str) -> dict[str, Any]:
     frozen = [{"key": op["key"], "kind": op["kind"], "payload": op["payload"]} for op in operations]
-    return {"id": release.id, "tag": release.tag_name, "created_at": release.created_at,
+    return {"id": release.id, "tag": release.tag_name, "source_sha": source_sha,
+            "created_at": release.created_at, "published_at": release.published_at, "status": "pending",
             "plan": ledger.digest(frozen),
-            "items": [{**op, "random_id": random_id(used), "state": "planned", "message_id": None,
-                       "sha256": None, "attempts": 0} for op in frozen]}
+            "items": [{**op, "random_id": random_id(used), "state": "pending", "message_id": None,
+                       "sha256": None, "attempts": 0, "attempted_at": None, "delivered_at": None,
+                       "workflow_run_id": None, "run_attempt": None, "tooling_sha": None,
+                       "reconciliation": None} for op in frozen]}
 
 
-def same_plan(stored: dict[str, Any], release: notes.Release, operations: list[dict[str, Any]]) -> bool:
+def same_plan(stored: dict[str, Any], release: notes.Release, operations: list[dict[str, Any]],
+              source_sha: str) -> bool:
     frozen = [{"key": op["key"], "kind": op["kind"], "payload": op["payload"]} for op in operations]
-    return (stored["tag"] == release.tag_name and stored["created_at"] == release.created_at and
-            stored["plan"] == ledger.digest(frozen) and
-            [{key: item[key] for key in ("key", "kind", "payload")} for item in stored["items"]] == frozen)
+    return (stored["tag"] == release.tag_name and stored["source_sha"] == source_sha
+            and stored["created_at"] == release.created_at and stored["published_at"] == release.published_at
+            and stored["plan"] == ledger.digest(frozen)
+            and [{key: item[key] for key in ("key", "kind", "payload")} for item in stored["items"]] == frozen)
 
 
 def item_by_key(entry: dict[str, Any], key: str) -> dict[str, Any]:
@@ -218,70 +244,76 @@ def item_by_key(entry: dict[str, Any], key: str) -> dict[str, Any]:
 
 def transition(store: Any, owner: str, release_id: int, plan_hash: str, key: str,
                expected_states: set[str], updates: dict[str, Any], *, binding: str | None = None) -> dict[str, Any]:
-    snapshot = store.read()
-    document = copy.deepcopy(snapshot.document)
-    entry = stored_release(document, release_id)
-    if document["session"] != {"owner": owner} or entry is None or entry["plan"] != plan_hash:
-        raise PublishError("The durable session/plan changed; this worker is fenced off.")
-    if binding is not None and document["identity"] != binding:
-        raise PublishError("The durable bot/channel binding changed.")
-    item = item_by_key(entry, key)
-    if item["state"] not in expected_states:
-        raise PublishError("The durable operation state changed concurrently.")
-    item.update(updates)
-    store.save(snapshot, document)
-    return copy.deepcopy(item)
+    baseline: dict[str, Any] | None = None
+    def apply(document: dict[str, Any]) -> dict[str, Any]:
+        nonlocal baseline
+        entry = stored_release(document, release_id)
+        if document["session"] != {"owner": owner} or entry is None or entry["plan"] != plan_hash:
+            raise PublishError("The durable session/plan changed; this worker is fenced off.")
+        if binding is not None and document["identity"] != binding:
+            raise PublishError("The durable bot/channel binding changed.")
+        item = item_by_key(entry, key)
+        if item["state"] not in expected_states:
+            raise PublishError("The durable operation state changed concurrently.")
+        if baseline is None:
+            baseline = copy.deepcopy(item)
+        elif item != baseline:
+            raise PublishError("The durable operation changed during conflict recovery.")
+        item.update(updates)
+        entry["status"] = ledger.release_status(entry["items"])
+        return copy.deepcopy(item)
+    _, changed = ledger.update(store, apply)
+    return changed
 
 
-def retry_delay(exc: Exception, attempt: int) -> float | None:
-    """Only explicit flood/transport ambiguity and duplicate-in-flight qualify."""
-    from telethon import errors
-    if isinstance(exc, (errors.FloodWaitError, errors.SlowModeWaitError)):
-        seconds = max(1, int(exc.seconds))
-        return float(seconds) if seconds <= MAX_FLOOD_SECONDS else None
-    if isinstance(exc, (errors.RandomIdDuplicateError, errors.ServerError, errors.TimedOutError,
-                        TimeoutError, ConnectionError, OSError, mtproto.UnconfirmedResponse)):
-        return float(min(2 ** attempt, 10))
-    return None
+def utc_now() -> str:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def deliver(store: Any, owner: str, release_id: int, plan_hash: str, item: dict[str, Any],
-            binding: str, transport: Any, request: object, *, filename: str | None = None,
-            size: int | None = None, sleeper: Callable[[float], None] = time.sleep,
+            binding: str, transport: Any, request: object, *, workflow_run_id: int, run_attempt: int,
+            tooling_sha: str, filename: str | None = None, size: int | None = None,
             policy_check: Callable[[], None]) -> int:
     key, identifier = item["key"], item["random_id"]
-    for attempt in range(1, MAX_SEND_ATTEMPTS_PER_RUN + 1):
-        if item["attempts"] >= MAX_SEND_ATTEMPTS_TOTAL:
-            raise PublishError("The lifetime send-attempt limit was reached; operator review is required.")
-        policy_check()
-        item = transition(store, owner, release_id, plan_hash, key, {item["state"]},
-                          {"state": "sending", "attempts": item["attempts"] + 1}, binding=binding)
-        if item["random_id"] != identifier or getattr(request, "random_id", None) != identifier:
-            raise PublishError("The persisted random_id changed; no send is allowed.")
-        # If rules changed after the write-ahead commit, no request is issued;
-        # 'sending' remains conservatively unknown until audited recovery.
-        policy_check()
-        try:
-            message_id = transport.send(request, filename=filename, size=size)
-        except Exception as exc:  # deliberately do not print exception or request contents
-            item = transition(store, owner, release_id, plan_hash, key, {"sending"},
-                              {"state": "unknown"}, binding=binding)
-            delay = retry_delay(exc, attempt)
-            if delay is None or attempt == MAX_SEND_ATTEMPTS_PER_RUN:
-                raise PublishError("A send outcome is unresolved; its original ID is retained for audited recovery.") from exc
-            announce.warning(f"Send outcome uncertain; rechecking durable state before same-ID replay ({attempt}/{MAX_SEND_ATTEMPTS_PER_RUN}).")
-            sleeper(delay)
-            continue
+    if item["state"] not in {"pending", "uploading"} or item["attempts"] != 0:
+        raise PublishError("A previously attempted or unresolved send cannot be retried.")
+    policy_check()
+    item = transition(store, owner, release_id, plan_hash, key, {item["state"]},
+                      {"state": "sending", "attempts": 1, "attempted_at": utc_now(),
+                       "workflow_run_id": workflow_run_id, "run_attempt": run_attempt,
+                       "tooling_sha": tooling_sha}, binding=binding)
+    if item["random_id"] != identifier or getattr(request, "random_id", None) != identifier:
+        raise PublishError("The persisted operation identifier changed; no send is allowed.")
+    # If policy changed after write-ahead, sending remains conservatively
+    # unresolved even though this worker does not issue a public request.
+    policy_check()
+    try:
+        message_id = transport.send(request, filename=filename, size=size)
         if type(message_id) is not int or message_id <= 0:
-            raise PublishError("Telegram returned an invalid message id; the operation remains unconfirmed.")
+            raise mtproto.UnconfirmedResponse("Telegram returned no valid message identifier.")
+    except Exception as exc:  # never print Telegram errors, payloads, or credentials
         transition(store, owner, release_id, plan_hash, key, {"sending"},
-                   {"state": "confirmed", "message_id": message_id}, binding=binding)
-        return message_id
-    raise PublishError("The send retry budget was exhausted.")
-
+                   {"state": "delivery_unknown", "reconciliation": {
+                       "status": "review_required", "reason": "unconfirmed_telegram_response"}}, binding=binding)
+        raise PublishError("A Telegram outcome is unresolved; automatic and manual resend are blocked until reconciliation.") from exc
+    # This marker is emitted only after the transport verifies the response.
+    # If the final state write fails, it gives an operator a specific run and
+    # message ID to investigate; it does not itself change the ledger to sent.
+    confirmed_at = utc_now()
+    announce.log(f"TELEGRAM_CONFIRMED_RESPONSE run_id={workflow_run_id} run_attempt={run_attempt} "
+                 f"release_id={release_id} operation={key} operation_id={identifier} "
+                 f"message_id={message_id} confirmed_at={confirmed_at} tooling_sha={tooling_sha}")
+    try:
+        transition(store, owner, release_id, plan_hash, key, {"sending"},
+                   {"state": "sent", "message_id": message_id, "delivered_at": confirmed_at}, binding=binding)
+    except Exception:
+        announce.error("A confirmed response was not durably recorded; do not resend. Reconcile the run marker with the ledger.")
+        raise
+    return message_id
 
 def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id: int, api_hash: str,
-            upload_assets: bool = True, recover_unknown: bool = False,
+            source_sha: str, workflow_run_id: int, run_attempt: int, tooling_sha: str,
+            upload_assets: bool = True, resume_unsent: bool = False,
             transport_factory: Callable = mtproto.BotTransport, bot_lookup: Callable = bot_details,
             sleeper: Callable[[float], None] = time.sleep,
             policy_check: Callable[[], None], allow_new_release: bool,
@@ -290,8 +322,15 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
         announce.notice("Draft and pre-release announcements are disabled; nothing was published.")
         return
     policy_check()
-    if type(release.id) is not int or release.id <= 0 or not release.tag_name:
-        raise PublishError("The GitHub release identity is invalid.")
+    if (type(release.id) is not int or release.id <= 0 or not isinstance(source_sha, str)
+            or not ledger.COMMIT_SHA.fullmatch(source_sha) or type(workflow_run_id) is not int
+            or workflow_run_id <= 0 or type(run_attempt) is not int or run_attempt <= 0
+            or not isinstance(tooling_sha, str) or not ledger.COMMIT_SHA.fullmatch(tooling_sha)):
+        raise PublishError("The release, source commit or workflow attempt identity is invalid.")
+    try:
+        identity.validate_tag(release.tag_name)
+    except identity.IdentityError as exc:
+        raise PublishError("The release tag is not an exact tag.") from exc
     created = ledger.timestamp(release.created_at)
     published = ledger.timestamp(release.published_at)
     now = dt.datetime.now(dt.timezone.utc)
@@ -301,54 +340,63 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
     plans, _skipped = assets.plan_uploads(release)
     checksums = checksum_manifest(release, plans) if plans else {}
     operations = operation_plan(release, announcement, pages, plans, checksums)
+    owner = f"run-{workflow_run_id}-" + secrets.token_hex(12)
 
-    snapshot = store.read()
-    document = copy.deepcopy(snapshot.document)
-    inventory = document["inventory"]
-    ledger.require_inventory_key(inventory, token, required=require_protected_inventory)
-    if any(ledger.historically_seen(inventory, token, entry["id"], entry["tag"])
-           for entry in document["releases"]):
-        raise PublishError("The delivery ledger overlaps protected historical release identities.")
-    cutoff = ledger.timestamp(document["activation"]["created_after"])
-    if created <= cutoff or published <= cutoff or now <= cutoff:
-        raise PublishError("The release predates the audited activation cutoff or activation is not yet effective.")
-    if document["session"] is not None:
-        raise PublishError("A previous bot session is not confirmed revoked; audited operator recovery is required.")
-    entry = stored_release(document, release.id)
+    def acquire(document: dict[str, Any]) -> dict[str, Any] | None:
+        inventory = document["inventory"]
+        ledger.require_inventory_key(inventory, token, required=require_protected_inventory)
+        if require_protected_inventory:
+            ledger.require_reviewed_history(inventory)
+        if any(ledger.historically_seen(inventory, token, entry["id"], entry["tag"])
+               for entry in document["releases"]):
+            raise PublishError("The delivery ledger overlaps protected historical release identities.")
+        cutoff = ledger.timestamp(document["activation"]["published_after"])
+        if published <= cutoff or now <= cutoff:
+            raise PublishError("The release predates the audited activation cutoff or activation is not yet effective.")
+        if document["session"] is not None:
+            raise PublishError("A previous bot session is not confirmed revoked; audited operator recovery is required.")
+        if any(record["status"] == "active" for record in document["verification"]):
+            raise PublishError("State-only verification is unfinished; no delivery is allowed.")
+        entry = stored_release(document, release.id)
+        if entry is None:
+            if not allow_new_release:
+                raise PublishError("Manual recovery requires a release already planned by a published-release event.")
+            if (ledger.historically_seen(inventory, token, release.id, release.tag_name)
+                    or any(e["tag"] == release.tag_name for e in document["releases"])):
+                raise PublishError("The release or tag appears in the historical inventory or ledger; automatic reposting is blocked.")
+            used = {i["random_id"] for e in document["releases"] for i in e["items"]}
+            entry = make_release(release, operations, used, source_sha)
+            document["releases"].append(entry)
+        elif not same_plan(entry, release, operations, source_sha):
+            raise PublishError("Release identity, source commit or asset plan changed after it was frozen; manual review is required.")
+        # An uncertain operation anywhere in the release blocks the whole plan,
+        # even when a manual dispatch requests only text or only some assets.
+        if any(i["state"] in {"sending", "delivery_unknown"} for i in entry["items"]):
+            raise PublishError("An earlier send is unresolved; no resend is allowed until independently reconciled.")
+        relevant = [i for i in entry["items"] if upload_assets or i["kind"] == "page"]
+        if all(i["state"] == "sent" for i in relevant):
+            return None
+        if not resume_unsent and any(i["state"] == "failed" for i in relevant):
+            raise PublishError("A pre-send failure requires explicit, exact-identity manual recovery.")
+        document["session"] = {"owner": owner}
+        return copy.deepcopy(entry)
+
+    _, entry = ledger.update(store, acquire)  # frozen IDs and lock must be durable before login
     if entry is None:
-        if not allow_new_release:
-            raise PublishError("Manual recovery requires a release already planned by a published-release event.")
-        if (ledger.historically_seen(inventory, token, release.id, release.tag_name)
-                or any(e["tag"] == release.tag_name for e in document["releases"])):
-            raise PublishError("The release or tag appears in the historical inventory or ledger; automatic reposting is blocked.")
-        used = {i["random_id"] for e in document["releases"] for i in e["items"]}
-        entry = make_release(release, operations, used)
-        document["releases"].append(entry)
-    elif not same_plan(entry, release, operations):
-        raise PublishError("Release content or asset plan changed after it was frozen; manual review is required.")
-    relevant = [i for i in entry["items"] if upload_assets or i["kind"] == "page"]
-    if all(i["state"] == "confirmed" for i in relevant):
         announce.notice("All requested release operations are already confirmed in the remote ledger.")
         return
-    if not recover_unknown and any(i["state"] in {"sending", "unknown"} for i in relevant):
-        raise PublishError("An earlier send is unresolved; explicit same-ID recovery is required.")
-    owner = "run-" + re.sub(r"[^0-9]", "", os.environ.get("GITHUB_RUN_ID", "0"))[:20] + "-" + secrets.token_hex(12)
-    document["session"] = {"owner": owner}
-    snapshot = store.save(snapshot, document)  # IDs and lock must be durable before login
     plan_hash = entry["plan"]
     transport = None
     failure: Exception | None = None
     try:
         bot_id, channel_id, channel_ref = bot_lookup(token, chat)
         binding = identity_binding(token, bot_id, channel_id)
-        # Bind the account/peer before any public send; changed credentials fail closed.
-        current = store.read()
-        bound = copy.deepcopy(current.document)
-        if bound["session"] != {"owner": owner} or bound["identity"] not in (None, binding):
-            raise PublishError("The bot/channel identity differs from the durable ledger or the session lock changed.")
-        if bound["identity"] is None:
-            bound["identity"] = binding
-            store.save(current, bound)
+        def bind(document: dict[str, Any]) -> None:
+            if document["session"] != {"owner": owner} or document["identity"] not in (None, binding):
+                raise PublishError("The bot/channel identity differs from the durable ledger or the session lock changed.")
+            if document["identity"] is None:
+                document["identity"] = binding
+        ledger.update(store, bind)
         transport = transport_factory(api_id, api_hash, token, channel_ref, bot_id, channel_id)
         transport.connect()
         asset_failures = 0
@@ -357,50 +405,53 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
                 continue
             current = store.read()
             current_entry = stored_release(current.document, release.id)
-            if current.document["session"] != {"owner": owner} or current.document["identity"] != binding or current_entry is None or not same_plan(current_entry, release, operations):
+            if (current.document["session"] != {"owner": owner} or current.document["identity"] != binding
+                    or current_entry is None or not same_plan(current_entry, release, operations, source_sha)):
                 raise PublishError("The authoritative release plan or session changed.")
             item = copy.deepcopy(item_by_key(current_entry, op["key"]))
-            if item["state"] == "confirmed":
+            if item["state"] == "sent":
                 continue
-            if item["state"] in {"sending", "unknown"} and not recover_unknown:
-                raise PublishError("An earlier send remains unresolved; explicit recovery is required.")
+            if item["state"] in {"sending", "delivery_unknown"}:
+                raise PublishError("An earlier send remains unresolved; no resend is allowed.")
+            if item["state"] == "failed" and not resume_unsent:
+                raise PublishError("A pre-send failure requires explicit manual recovery.")
             if op["kind"] == "page":
                 request = transport.text_request(op["html"], [tuple(b) for b in op["buttons"]], item["random_id"])
                 message_id = deliver(store, owner, release.id, plan_hash, item, binding, transport, request,
-                                     sleeper=sleeper, policy_check=policy_check)
+                                     workflow_run_id=workflow_run_id, run_attempt=run_attempt, tooling_sha=tooling_sha, policy_check=policy_check)
             else:
                 plan = op["upload"]
                 with tempfile.TemporaryDirectory(prefix="telegram-release-asset-") as tmp:
                     path = os.path.join(tmp, plan.filename)
-                    # The downloader verifies byte count and published digests when present.
                     try:
                         path, actual_sha = assets.download_asset(plan.asset, path, checksums=checksums, sleeper=sleeper)
                     except assets.AssetError as exc:
-                        if item["state"] in {"sending", "unknown"}:
-                            raise PublishError("An unresolved asset cannot be verified for recovery; later sends are blocked.") from exc
+                        transition(store, owner, release.id, plan_hash, op["key"], {item["state"]},
+                                   {"state": "failed", "reconciliation": {"status": "unsent", "reason": "pre_send_failure"}},
+                                   binding=binding)
                         asset_failures += 1
-                        announce.warning("A document failed download or verification before public send; checking other documents independently.")
+                        announce.warning("A document failed verification before public send; checking other documents independently.")
                         continue
                     if actual_sha is None or (item["sha256"] is not None and item["sha256"] != actual_sha):
                         raise PublishError("Downloaded asset differs from its frozen SHA-256.")
-                    if item["state"] in {"planned", "uploading"}:
-                        item = transition(store, owner, release.id, plan_hash, op["key"], {item["state"]},
-                                          {"state": "uploading", "sha256": actual_sha}, binding=binding)
-                    # Parts are temporary and not public messages; a failed upload
-                    # can be restarted, but never changes the final send ID.
+                    item = transition(store, owner, release.id, plan_hash, op["key"], {item["state"]},
+                                      {"state": "uploading", "sha256": actual_sha, "reconciliation": None}, binding=binding)
+                    # Uploaded parts are not channel messages. If preparation
+                    # fails before SendMedia, record an explicitly unsent failure.
                     policy_check()
                     try:
                         media = transport.prepare_document(path, plan.filename)
-                    except (ConnectionError, TimeoutError, OSError) as exc:
-                        if item["state"] in {"sending", "unknown"}:
-                            raise PublishError("An unresolved asset's parts could not be prepared; later sends are blocked.") from exc
+                    except (ConnectionError, TimeoutError, OSError):
+                        transition(store, owner, release.id, plan_hash, op["key"], {"uploading"},
+                                   {"state": "failed", "reconciliation": {"status": "unsent", "reason": "pre_send_failure"}},
+                                   binding=binding)
                         asset_failures += 1
                         announce.warning("A document's temporary parts failed before public send; checking other documents independently.")
                         continue
                     request = transport.media_request(media, plan.caption, item["random_id"])
                     message_id = deliver(store, owner, release.id, plan_hash, item, binding, transport, request,
-                                         filename=plan.filename, size=plan.asset.size, sleeper=sleeper,
-                                         policy_check=policy_check)
+                                         workflow_run_id=workflow_run_id, run_attempt=run_attempt, tooling_sha=tooling_sha,
+                                         filename=plan.filename, size=plan.asset.size, policy_check=policy_check)
             announce.log(f"Confirmed {op['key']} as Telegram message {message_id}; durable ledger updated.")
             if op["kind"] == "page" and op is not operations[-1]:
                 sleeper(announce.PAGE_INTERVAL)
@@ -412,12 +463,11 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
         revoked = True if transport is None else transport.close()
         if revoked:
             try:
-                current = store.read()
-                released = copy.deepcopy(current.document)
-                if released["session"] != {"owner": owner}:
-                    raise PublishError("The bot session lock changed before cleanup.")
-                released["session"] = None
-                store.save(current, released)
+                def unlock(document: dict[str, Any]) -> None:
+                    if document["session"] != {"owner": owner}:
+                        raise PublishError("The bot session lock changed before cleanup.")
+                    document["session"] = None
+                ledger.update(store, unlock)
             except Exception as exc:
                 failure = PublishError("The bot session was closed, but its durable lock could not be released; operator review is required.")
                 failure.__cause__ = exc
@@ -426,43 +476,48 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
     if failure is not None:
         raise failure
 
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--release-json", required=True)
     parser.add_argument("--branch", required=True, help="reviewed source repository default branch")
-    parser.add_argument("--state-dir", required=True, help="isolated checkout of the reviewed private state repository")
+    parser.add_argument("--state-dir", required=True, help="checkout of the reviewed same-repository state branch")
     parser.add_argument("--no-upload-assets", action="store_true")
-    parser.add_argument("--recover-unknown", action="store_true")
+    parser.add_argument("--resume-unsent", action="store_true")
     args = parser.parse_args(argv)
     try:
-        repository, event_release_id, manual_tag = require_workflow_context(args.branch)
+        repository, event_release_id, event_tag = require_workflow_context(args.branch)
         not_before = ledger.publishing_not_before()
         if not_before is None or dt.datetime.now(dt.timezone.utc) <= not_before:
             raise PublishError("The reviewed publishing configuration is disabled, invalid or not yet effective.")
         is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-        if is_manual and not args.recover_unknown:
-            raise PublishError("Live manual dispatch is recovery-only.")
+        if is_manual and not args.resume_unsent:
+            raise PublishError("Live manual dispatch is limited to explicitly reviewed unsent operations.")
         config = state.load_config(repository)
         token, chat = require_secret("TELEGRAM_BOT_TOKEN"), require_secret("TELEGRAM_CHAT_ID")
         api_id_text, api_hash = require_secret("TELEGRAM_API_ID"), require_secret("TELEGRAM_API_HASH")
         if not api_id_text.isdigit() or int(api_id_text) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
             raise PublishError("MTProto API credentials are malformed.")
         release = announce.load_release(args.release_json)
-        if ((event_release_id is not None and release.id != event_release_id)
-                or (manual_tag is not None and release.tag_name != manual_tag)):
-            raise PublishError("The resolved release does not match the triggering event or recovery tag.")
-        if (not is_manual and (ledger.timestamp(release.created_at) <= not_before
-                               or ledger.timestamp(release.published_at) <= not_before)):
-            raise PublishError("The release was created or published before the reviewed activation fence.")
+        if release.id != event_release_id or release.tag_name != event_tag:
+            raise PublishError("The resolved release does not match the exact event or recovery identity.")
+        if not is_manual and ledger.timestamp(release.published_at) <= not_before:
+            raise PublishError("The release was published before the reviewed activation fence.")
+        source_sha = identity.resolve_tag_commit(repository, event_tag)
+        if not is_manual and os.environ.get("GITHUB_SHA") != source_sha:
+            raise PublishError("The published-release event commit does not match the exact current tag commit.")
+        run_id, run_attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "")
+        if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[1-9][0-9]*", run_attempt):
+            raise PublishError("The GitHub workflow run identity is invalid.")
+        code_sha = tooling_commit()
         store = ledger.GitLedger(args.state_dir, state.STATE_BRANCH)
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
-                upload_assets=not args.no_upload_assets, recover_unknown=args.recover_unknown,
+                source_sha=source_sha, workflow_run_id=int(run_id), run_attempt=int(run_attempt), tooling_sha=code_sha,
+                upload_assets=not args.no_upload_assets, resume_unsent=args.resume_unsent,
                 policy_check=lambda: state.verify_state(config, args.state_dir, repository),
                 allow_new_release=not is_manual,
-                require_protected_inventory=isinstance(config, state.SameRepositoryConfig))
+                require_protected_inventory=True)
     except Exception as exc:  # no raw exception strings, tracebacks or credential material
-        if isinstance(exc, (PublishError, ledger.LedgerError, announce.AnnouncementError)):
+        if isinstance(exc, (PublishError, identity.IdentityError, ledger.LedgerError, announce.AnnouncementError)):
             announce.error(str(exc))
         else:
             announce.error("Telegram delivery failed safely; inspect the remote ledger and recovery runbook.")

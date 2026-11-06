@@ -14,7 +14,11 @@ on:
         type: boolean
         default: false
       tag:
-        description: Published release tag to render (empty = latest published release)
+        description: Exact published release tag (required except for no-send preflight)
+        required: false
+        type: string
+      release_id:
+        description: Exact immutable GitHub release ID (required for live recovery)
         required: false
         type: string
       dry_run:
@@ -27,8 +31,8 @@ on:
         required: false
         type: boolean
         default: true
-      recover_unknown:
-        description: Recover an existing release plan with its original IDs after operator review
+      resume_unsent:
+        description: Resume only never-sent operations in an existing plan after operator review
         required: false
         type: boolean
         default: false
@@ -190,9 +194,10 @@ jobs:
           sys.path.insert(0, "scripts")
           try:
               import telegram_ledger
-              enabled = telegram_ledger.publishing_enabled()
+              enabled = telegram_ledger.strict_publishing_status()
           except Exception:
-              enabled = False
+              print("::error::The publishing configuration could not be verified; no delivery is allowed.")
+              raise SystemExit(1)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write("enabled=" + ("true" if enabled else "false") + "\n")
           if not enabled:
@@ -207,15 +212,25 @@ jobs:
           EVENT_RELEASE_DRAFT: ${{ github.event.release.draft }}
           EVENT_RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
           INPUT_TAG: ${{ inputs.tag }}
+          INPUT_RELEASE_ID: ${{ inputs.release_id }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
-          RECOVER_INPUT: ${{ inputs.recover_unknown }}
+          RESUME_INPUT: ${{ inputs.resume_unsent }}
           PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
         run: |
           set -euo pipefail
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${DRY_RUN_INPUT}" == "false" &&
-                ( "${RECOVER_INPUT}" != "true" || -z "${INPUT_TAG//[[:space:]]/}" ) ]]; then
-            echo "::error::Live manual dispatch is recovery-only; select a release tag and recover_unknown=true."
-            exit 1
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # Even dry runs must not interpret an empty tag or 'latest'. The
+            # dedicated preflight job never reaches this release resolver.
+            python3 scripts/telegram_identity.py --check-tag="${INPUT_TAG}"
+            if [[ -n "${INPUT_RELEASE_ID}" && ! "${INPUT_RELEASE_ID}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::The manual release ID must be a positive integer."
+              exit 1
+            fi
+            if [[ "${DRY_RUN_INPUT}" == "false" &&
+                  ( "${RESUME_INPUT}" != "true" || ! "${INPUT_RELEASE_ID}" =~ ^[1-9][0-9]*$ ) ]]; then
+              echo "::error::Live manual dispatch requires resume_unsent=true and the exact release ID."
+              exit 1
+            fi
           fi
           if [[ "${PUBLISHING_ENABLED}" != "true" ]]; then
             echo "::notice::Telegram publishing is not activated; no live delivery will run."
@@ -234,16 +249,23 @@ jobs:
               exit 0
             fi
             gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}" >"${release_json}"
-          elif [[ -n "${INPUT_TAG}" ]]; then
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
             encoded_tag="$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["INPUT_TAG"], safe=""))')"
             gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${encoded_tag}" >"${release_json}"
           else
-            gh api "repos/${GITHUB_REPOSITORY}/releases/latest" >"${release_json}"
+            echo "::error::Unsupported release event."
+            exit 1
           fi
           python3 - "${release_json}" <<'PY'
           import json, os, sys
           with open(sys.argv[1], encoding="utf-8") as handle:
               data = json.load(handle)
+          if os.environ["EVENT_NAME"] == "workflow_dispatch":
+              if data.get("tag_name") != os.environ["INPUT_TAG"]:
+                  raise SystemExit("The resolved release does not match the exact requested tag.")
+              requested_id = os.environ["INPUT_RELEASE_ID"]
+              if requested_id and (type(data.get("id")) is not int or str(data["id"]) != requested_id):
+                  raise SystemExit("The resolved release does not match the exact requested release ID.")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               if data.get("draft") or data.get("prerelease"):
                   out.write("skip=true\n")
@@ -269,7 +291,7 @@ jobs:
       needs.announce.outputs.skip != 'true' && needs.announce.outputs.dry_run == 'false' &&
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && inputs.preflight != true &&
-        inputs.recover_unknown == true && inputs.tag != ''))
+        inputs.resume_unsent == true && inputs.tag != '' && inputs.release_id != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # GITHUB_TOKEN is scoped to this repository, not exclusively to this
@@ -324,7 +346,7 @@ jobs:
           STATE_DIR: ${{ github.workspace }}/.telegram-state
           EVENT_NAME: ${{ github.event_name }}
           UPLOAD_INPUT: ${{ inputs.upload_assets }}
-          RECOVER_INPUT: ${{ inputs.recover_unknown }}
+          RESUME_INPUT: ${{ inputs.resume_unsent }}
           TMPDIR: ${{ runner.temp }}
           PYTHONUNBUFFERED: "1"
         run: |
@@ -333,7 +355,7 @@ jobs:
           if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${UPLOAD_INPUT}" == "false" ]]; then
             args+=(--no-upload-assets)
           fi
-          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${RECOVER_INPUT}" == "true" ]]; then
-            args+=(--recover-unknown)
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${RESUME_INPUT}" == "true" ]]; then
+            args+=(--resume-unsent)
           fi
           python3 scripts/telegram_publish.py "${args[@]}"

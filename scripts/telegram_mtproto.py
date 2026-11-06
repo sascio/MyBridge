@@ -53,11 +53,12 @@ class BotTransport:
         from telethon.tl import types
 
         factory = self._factory or TelegramClient
-        # request_retries=0 disables high-level RPC retries. The caller decides
-        # whether/how to replay the *same* persisted request ID. The short flood
-        # threshold prevents hidden, unbounded sleeps inside Telethon.
+        # Disable BOTH high-level RPC retries and automatic reconnect. Telethon's
+        # reconnect path otherwise requeues pending requests after an ambiguous
+        # disconnect even when request_retries=0. Initial connection and the
+        # explicitly rejected pre-send login migration may still be retried.
         client = factory(StringSession(), self._api_id, self._api_hash, request_retries=0,
-                         connection_retries=2, flood_sleep_threshold=0, timeout=30,
+                         auto_reconnect=False, connection_retries=2, flood_sleep_threshold=0, timeout=30,
                          raise_last_call_error=True)
         self._client = client
         self.login_attempted = True  # set before network activity: failure may be ambiguous

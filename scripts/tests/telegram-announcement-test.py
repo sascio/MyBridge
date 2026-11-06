@@ -1072,6 +1072,10 @@ class LedgerStateTests(unittest.TestCase):
             handle.write("{not json")
         with self.assertRaises(assets.AssetError):
             assets.recorded_uploads(self.path, self.release.id)
+        for schema in (3, 4, 99, True):
+            Path(self.path).write_text(json.dumps({"schema": schema, "releases": []}))
+            with self.subTest(schema=schema), self.assertRaises(assets.AssetError):
+                assets.recorded_uploads(self.path, self.release.id)
 
 
 assets_512k = 512 * 1024
@@ -1218,7 +1222,7 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertNotIn('pull_request', triggers)
         self.assertIs(triggers['workflow_dispatch']['inputs']['preflight']['default'], False)
         self.assertIs(triggers['workflow_dispatch']['inputs']['dry_run']['default'], True)
-        self.assertIs(triggers['workflow_dispatch']['inputs']['recover_unknown']['default'], False)
+        self.assertIs(triggers['workflow_dispatch']['inputs']['resume_unsent']['default'], False)
         self.assertEqual(self.preflight['permissions'], {'contents': 'read'})
         self.assertNotIn('needs', self.preflight)
         checkout, setup, verify = self.preflight['steps'][:3]
@@ -1246,11 +1250,11 @@ class PreflightWorkflowTests(unittest.TestCase):
 
     def test_all_dispatch_combinations_require_explicit_publish_and_preflight_wins(self) -> None:
         publish_job = self.workflow['jobs']['publish']
-        for preflight, dry, upload, recover, tag, enabled, activated in itertools.product(
-                (False, True), (False, True), (False, True), (False, True), ('', 'v9.9.9'), ('', 'true'), ('false', 'true')):
+        for preflight, dry, upload, recover, tag, rid, enabled, activated in itertools.product(
+                (False, True), (False, True), (False, True), (False, True), ('', 'v9.9.9'), ('', '987654321'), ('', 'true'), ('false', 'true')):
             context = {'github.event_name': 'workflow_dispatch', 'inputs.preflight': preflight,
-                       'inputs.dry_run': dry, 'inputs.upload_assets': upload, 'inputs.recover_unknown': recover,
-                       'inputs.tag': tag, 'vars.TELEGRAM_PUBLISHING_ENABLED': enabled,
+                       'inputs.dry_run': dry, 'inputs.upload_assets': upload, 'inputs.resume_unsent': recover,
+                       'inputs.tag': tag, 'inputs.release_id': rid, 'vars.TELEGRAM_PUBLISHING_ENABLED': enabled,
                        'github.event.release.draft': None, 'github.event.release.prerelease': None,
                        'needs.announce.outputs.skip': 'false', 'needs.announce.outputs.activated': activated,
                        'needs.announce.outputs.dry_run': 'true' if dry else 'false'}
@@ -1259,11 +1263,11 @@ class PreflightWorkflowTests(unittest.TestCase):
                 self.assertEqual(evaluate_actions_if(self.preflight['if'], context), preflight)
                 self.assertEqual(evaluate_actions_if(self.announce_job['if'], context), not preflight)
                 self.assertEqual(evaluate_actions_if(publish_job['if'], context),
-                                 enabled == 'true' and activated == 'true' and not preflight and not dry and recover and bool(tag))
+                                 enabled == 'true' and activated == 'true' and not preflight and not dry and recover and bool(tag) and bool(rid))
         for draft, prerelease, enabled, activated in itertools.product(
                 (False, True), (False, True), ('', 'true'), ('false', 'true')):
-            context = {'github.event_name': 'release', 'inputs.preflight': None, 'inputs.recover_unknown': None,
-                       'inputs.tag': None, 'vars.TELEGRAM_PUBLISHING_ENABLED': enabled,
+            context = {'github.event_name': 'release', 'inputs.preflight': None, 'inputs.resume_unsent': None,
+                       'inputs.tag': None, 'inputs.release_id': None, 'vars.TELEGRAM_PUBLISHING_ENABLED': enabled,
                        'github.event.release.draft': draft, 'github.event.release.prerelease': prerelease,
                        'needs.announce.outputs.skip': 'true' if draft or prerelease else 'false',
                        'needs.announce.outputs.dry_run': 'false', 'needs.announce.outputs.activated': activated}
@@ -1282,8 +1286,13 @@ class PreflightWorkflowTests(unittest.TestCase):
                 env['GITHUB_OUTPUT'] = str(output)
                 result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', step],
                                         cwd=cwd or directory, env=env, capture_output=True, text=True, timeout=30)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertEqual(output.read_text().strip(), 'enabled=false')
+                if cwd is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('::error::', result.stdout)
+                    self.assertEqual(output.read_text().strip(), '')
+                else:
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(output.read_text().strip(), 'enabled=false')
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
             (temp / 'scripts').symlink_to(SCRIPTS, target_is_directory=True)
@@ -1339,20 +1348,26 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertIn('gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}"', resolve)
         self.assertIn('echo "dry_run=false"', resolve)
 
-    def test_existing_release_resolution_and_dry_run_behavior_with_mock_gh(self) -> None:
+    def test_exact_release_resolution_and_dry_run_behavior_with_mock_gh(self) -> None:
         resolve = next(step["run"] for step in self.announce_job["steps"] if step.get("id") == "release")
+        self.assertNotIn("releases/latest", resolve)
+        # event, dry, tag, ID, prerelease, resume, expected GitHub call, succeeds
         cases = (
-            ("release", "true", "ignored", "false", "false", "", "api repos/sascio/MyBridge/releases/987654321", "false", "false"),
-            ("release", "true", "ignored", "true", "false", "true", None, "false", "true"),
-            ("workflow_dispatch", "true", "v9.9.9", "false", "false", "true", "api repos/sascio/MyBridge/releases/tags/v9.9.9", "true", "false"),
-            ("workflow_dispatch", "true", "release/v1", "false", "false", "true", "api repos/sascio/MyBridge/releases/tags/release%2Fv1", "true", "false"),
-            ("workflow_dispatch", "true", "", "false", "false", "true", "api repos/sascio/MyBridge/releases/latest", "true", "false"),
-            ("workflow_dispatch", "false", "v9.9.9", "false", "true", "true", "api repos/sascio/MyBridge/releases/tags/v9.9.9", "false", "false"),
-            ("workflow_dispatch", "false", "", "false", "true", "true", None, None, None),
-            ("workflow_dispatch", "false", "v9.9.9", "false", "false", "true", None, None, None),
+            ("release", "true", "ignored", "", "false", "false", "api repos/sascio/MyBridge/releases/987654321", True),
+            ("release", "true", "ignored", "", "true", "false", None, True),
+            ("workflow_dispatch", "true", "v9.9.9", "", "false", "false", "api repos/sascio/MyBridge/releases/tags/v9.9.9", True),
+            ("workflow_dispatch", "true", "release/v1", "", "false", "false", "api repos/sascio/MyBridge/releases/tags/release%2Fv1", True),
+            ("workflow_dispatch", "true", "", "", "false", "false", None, False),
+            ("workflow_dispatch", "true", "latest", "", "false", "false", None, False),
+            ("workflow_dispatch", "true", "LATEST", "", "false", "false", None, False),
+            ("workflow_dispatch", "true", " v1", "", "false", "false", None, False),
+            ("workflow_dispatch", "false", "v9.9.9", "987654321", "false", "true", "api repos/sascio/MyBridge/releases/tags/v9.9.9", True),
+            ("workflow_dispatch", "false", "v9.9.9", "", "false", "true", None, False),
+            ("workflow_dispatch", "false", "v9.9.9", "987654321", "false", "false", None, False),
+            ("workflow_dispatch", "false", "v9.9.9", "123", "false", "true", "api repos/sascio/MyBridge/releases/tags/v9.9.9", False),
         )
-        for event, dry_run, tag, prerelease, recover, enabled, expected_call, expected_dry_run, expected_skip in cases:
-            with self.subTest(event=event, dry_run=dry_run, tag=tag, prerelease=prerelease, recover=recover), tempfile.TemporaryDirectory() as directory:
+        for event, dry_run, tag, rid, prerelease, resume, expected_call, succeeds in cases:
+            with self.subTest(event=event, dry_run=dry_run, tag=tag, rid=rid, resume=resume), tempfile.TemporaryDirectory() as directory:
                 temp = Path(directory)
                 bin_dir = temp / "bin"
                 bin_dir.mkdir()
@@ -1361,7 +1376,7 @@ class PreflightWorkflowTests(unittest.TestCase):
                 gh.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GH_TEST_TRACE"\ncat "$GH_TEST_RELEASE"\n', encoding="utf-8")
                 gh.chmod(0o755)
                 trace, payload, output = temp / "gh-trace", temp / "payload.json", temp / "output"
-                payload.write_text(json.dumps(release_payload()), encoding="utf-8")
+                payload.write_text(json.dumps(release_payload(tag_name=tag if event == "workflow_dispatch" else "v9.9.9")), encoding="utf-8")
                 output.touch()
                 env = os.environ.copy()
                 env.pop("GH_TOKEN", None)
@@ -1371,26 +1386,19 @@ class PreflightWorkflowTests(unittest.TestCase):
                     "GH_TEST_TRACE": str(trace), "GH_TEST_RELEASE": str(payload),
                     "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(temp / "summary"), "RUNNER_TEMP": str(temp),
                     "GITHUB_REPOSITORY": "sascio/MyBridge", "EVENT_NAME": event,
-                    "EVENT_RELEASE_ID": "987654321", "EVENT_RELEASE_TAG": "v9.9.9",
-                    "EVENT_RELEASE_DRAFT": "false", "EVENT_RELEASE_PRERELEASE": prerelease,
-                    "INPUT_TAG": tag, "DRY_RUN_INPUT": dry_run, "RECOVER_INPUT": recover,
-                    "PUBLISHING_ENABLED": enabled,
+                    "EVENT_RELEASE_ID": "987654321", "EVENT_RELEASE_DRAFT": "false", "EVENT_RELEASE_PRERELEASE": prerelease,
+                    "INPUT_TAG": tag, "INPUT_RELEASE_ID": rid, "DRY_RUN_INPUT": dry_run, "RESUME_INPUT": resume,
+                    "PUBLISHING_ENABLED": "true",
                 })
                 result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", resolve],
                                         cwd=SCRIPTS.parent, env=env, capture_output=True, text=True, timeout=30)
                 calls = trace.read_text().splitlines() if trace.exists() else []
                 self.assertEqual(calls, [expected_call] if expected_call else [])
-                if expected_dry_run is None:
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertIn("recovery-only", result.stdout)
-                    self.assertEqual(output.read_text(), "")
-                else:
-                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+                if succeeds:
                     outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
-                    self.assertEqual(outputs["dry_run"], expected_dry_run)
-                    self.assertEqual(outputs["skip"], expected_skip)
-                    if not enabled:
-                        self.assertIn("Publishing is not activated", (temp / "summary").read_text())
+                    self.assertEqual(outputs["dry_run"], "true" if event == "workflow_dispatch" and dry_run == "true" else "false")
+                    self.assertEqual(outputs["skip"], "true" if prerelease == "true" else "false")
 
     def test_each_missing_or_blank_credential_fails_before_any_client_is_used(self) -> None:
         for name, value in itertools.product(self.SECRETS, ("", "   ")):
@@ -1456,11 +1464,22 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["jobs"]["build"]["permissions"], {"contents": "read", "issues": "write"})
         jobs = workflow["jobs"]
-        self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests", "telegram-readiness"})
+        self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests", "telegram-readiness",
+                                    "telegram-state-verification", "telegram-state-cutover", "telegram-input-validation"})
         for name in ("build", "tracking-config-check", "script-tests"):
-            self.assertEqual(jobs[name]["if"], "github.event_name != 'workflow_dispatch' || inputs.telegram_readiness != true")
+            condition = jobs[name]["if"]
+            self.assertIn("inputs.telegram_readiness != true", condition)
+            self.assertIn("inputs.telegram_state_verification != true", condition)
+            self.assertIn("inputs.telegram_cutover_mode == 'none'", condition)
         probe = jobs["telegram-readiness"]
-        self.assertEqual(probe["if"], "github.event_name == 'workflow_dispatch' && inputs.telegram_readiness == true")
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.telegram_readiness == true", probe["if"])
+        self.assertIn("inputs.telegram_state_verification != true", probe["if"])
+        self.assertEqual(jobs["telegram-state-verification"]["permissions"], {"contents": "write"})
+        self.assertEqual(jobs["telegram-state-cutover"]["permissions"], {"contents": "write", "actions": "read"})
+        self.assertEqual(jobs["telegram-input-validation"]["permissions"], {})
+        for name in ("telegram-state-verification", "telegram-state-cutover"):
+            self.assertEqual(jobs[name]["concurrency"],
+                             {"group": "telegram-streambridge-channel", "queue": "max", "cancel-in-progress": False})
         self.assertEqual(probe["permissions"], {"contents": "read"})
         self.assertIs(triggers["workflow_dispatch"]["inputs"]["telegram_readiness"]["default"], False)
         self.assertTrue(any(step.get("run") == "python3 scripts/telegram_mtproto_preflight.py" for step in probe["steps"]))

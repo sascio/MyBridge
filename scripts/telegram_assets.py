@@ -379,10 +379,9 @@ def load_ledger(path: str) -> dict:
             data = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:
         raise AssetError(f"post ledger {path} is unreadable: {exc}") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("releases"), list):
-        raise AssetError(f"post ledger {path} does not have the expected shape")
-    if data.get("schema") == 3:
-        raise AssetError("Schema-3 state may only be read or written by the durable ledger implementation.")
+    if (not isinstance(data, dict) or type(data.get("schema")) is not int
+            or data.get("schema") not in (1, 2) or not isinstance(data.get("releases"), list)):
+        raise AssetError("The ledger is invalid or is not a legacy schema; durable state must use the ledger implementation.")
     return data
 
 

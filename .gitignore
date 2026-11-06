@@ -51,7 +51,11 @@ scripts/*
 !scripts/telegram_announce.py
 !scripts/telegram_assets.py
 !scripts/telegram_ledger.py
+!scripts/telegram_identity.py
 !scripts/telegram_state.py
+!scripts/telegram_state_verify.py
+!scripts/telegram_cutover.py
+!scripts/telegram_reconcile.py
 !scripts/telegram_mtproto.py
 !scripts/telegram_mtproto_preflight.py
 !scripts/telegram_publish.py

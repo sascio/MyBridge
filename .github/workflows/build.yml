@@ -16,6 +16,37 @@ on:
         required: false
         type: boolean
         default: false
+      telegram_state_verification:
+        description: Owner-triggered state-only ledger verification (requires an initialized protected branch)
+        required: false
+        type: boolean
+        default: false
+      telegram_verification_cleanup_run:
+        description: Optional exact prior verification run ID to archive after a failed state-only check
+        required: false
+        type: string
+      telegram_cutover_mode:
+        description: Owner-reviewed state preview, initialization or confirmed-response reconciliation
+        required: false
+        type: choice
+        options: [none, preview, initialize, reconcile]
+        default: none
+      telegram_cutover_cutoff:
+        description: Future UTC cutoff at least one hour away (for cutover only)
+        required: false
+        type: string
+      telegram_cutover_fingerprint:
+        description: Exact protected preview fingerprint (initialize only)
+        required: false
+        type: string
+      telegram_cutover_ack:
+        description: Enter RELEASES_AND_TAGS_FROZEN_AND_REVIEWED after the independent owner review
+        required: false
+        type: string
+      telegram_reconciliation:
+        description: Exact reviewed JSON request for a confirmed-response reconciliation only
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,7 +62,7 @@ env:
 jobs:
   build:
     name: Nuvio-core full Android APK
-    if: github.event_name != 'workflow_dispatch' || inputs.telegram_readiness != true
+    if: github.event_name != 'workflow_dispatch' || (inputs.telegram_readiness != true && inputs.telegram_state_verification != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == ''))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -354,7 +385,7 @@ jobs:
   # or malformed. Only presence is printed; values are never echoed.
   tracking-config-check:
     name: Tracking credential pipeline check
-    if: github.event_name != 'workflow_dispatch' || inputs.telegram_readiness != true
+    if: github.event_name != 'workflow_dispatch' || (inputs.telegram_readiness != true && inputs.telegram_state_verification != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == ''))
     runs-on: ubuntu-latest
 
     steps:
@@ -495,7 +526,7 @@ jobs:
   # properties and the release workflow.
   script-tests:
     name: Script tests (release lookup, store source, version wiring)
-    if: github.event_name != 'workflow_dispatch' || inputs.telegram_readiness != true
+    if: github.event_name != 'workflow_dispatch' || (inputs.telegram_readiness != true && inputs.telegram_state_verification != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == ''))
     runs-on: ubuntu-latest
 
     steps:
@@ -529,12 +560,27 @@ jobs:
           done < "$log"
           exit 1
 
+  # Reject conflicting diagnostic modes instead of silently skipping them.
+  telegram-input-validation:
+    name: Validate Telegram dispatch inputs
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      ((inputs.telegram_readiness == true && inputs.telegram_state_verification == true) ||
+       ((inputs.telegram_readiness == true || inputs.telegram_state_verification == true) &&
+        inputs.telegram_cutover_mode != 'none' && inputs.telegram_cutover_mode != ''))
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - run: |
+          echo '::error::Select exactly one Telegram diagnostic or state operation.'
+          exit 1
+
   # The delivery workflow is not registered until it lands on the default
   # branch. This explicit diagnostic lets the reviewed branch be verified
   # before merge without building, uploading, or posting a test release.
   telegram-readiness:
     name: Telegram no-send readiness
-    if: github.event_name == 'workflow_dispatch' && inputs.telegram_readiness == true
+    if: github.event_name == 'workflow_dispatch' && inputs.telegram_readiness == true && inputs.telegram_state_verification != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == '')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -550,10 +596,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os
+          import os, sys
+          sys.path.insert(0, 'scripts')
+          import telegram_ledger
           from pathlib import Path
-          if (os.environ.get('TELEGRAM_PUBLISHING_ENABLED') == 'true'
-                  or json.loads(Path('.github/telegram-publishing.json').read_text()) != {'enabled': False}):
+          gate = telegram_ledger._json_input(Path('.github/telegram-publishing.json').read_bytes())
+          if (os.environ.get('TELEGRAM_PUBLISHING_ENABLED') == 'true' or not isinstance(gate, dict)
+                  or set(gate) != {'enabled'} or gate['enabled'] is not False):
               raise SystemExit('No-send login readiness is only allowed while publishing is disabled.')
           PY
       - name: Set up Python
@@ -573,3 +622,129 @@ jobs:
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           PYTHONUNBUFFERED: "1"
         run: python3 scripts/telegram_mtproto_preflight.py
+
+  # This owner-triggered job performs ledger-only writes after the protected,
+  # reviewed state branch has been provisioned. It never sends Telegram data.
+  telegram-state-verification:
+    name: Telegram state-only ledger verification
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.telegram_state_verification == true &&
+      inputs.telegram_readiness != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: telegram-streambridge-channel
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the requested workflow ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Refuse mixed diagnostic modes
+        env:
+          READINESS: ${{ inputs.telegram_readiness }}
+          CUTOVER_MODE: ${{ inputs.telegram_cutover_mode }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "${READINESS}" == "true" || ( -n "${CUTOVER_MODE}" && "${CUTOVER_MODE}" != "none" ) ||
+                "${TELEGRAM_PUBLISHING_ENABLED}" == "true" ]]; then
+            echo '::error::State verification must run alone while Telegram publishing is disabled.'
+            exit 1
+          fi
+      - name: Check out the pre-existing state branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: telegram-delivery-state
+          token: ${{ github.token }}
+          path: .telegram-state
+          persist-credentials: true
+      - name: Verify or archive non-delivery ledger records
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          STATE_VERIFICATION_REQUESTED: ${{ inputs.telegram_state_verification }}
+          CLEANUP_RUN: ${{ inputs.telegram_verification_cleanup_run }}
+          STATE_DIR: ${{ github.workspace }}/.telegram-state
+        run: |
+          set -euo pipefail
+          args=(--state-dir "${STATE_DIR}")
+          if [[ -n "${CLEANUP_RUN}" ]]; then
+            args+=(--archive-run "${CLEANUP_RUN}")
+          fi
+          python3 scripts/telegram_state_verify.py "${args[@]}"
+
+  # The maintainer may preview/init frozen history or reconcile a previously
+  # confirmed response from a trusted Actions log. No Telegram request occurs.
+  telegram-state-cutover:
+    name: Telegram state cutover and reconciliation
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.telegram_readiness != true &&
+      inputs.telegram_state_verification != true &&
+      (inputs.telegram_cutover_mode == 'preview' || inputs.telegram_cutover_mode == 'initialize' ||
+       inputs.telegram_cutover_mode == 'reconcile')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: telegram-streambridge-channel
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the requested workflow ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: true
+      - name: Refuse mixed diagnostic modes
+        env:
+          READINESS: ${{ inputs.telegram_readiness }}
+          VERIFY: ${{ inputs.telegram_state_verification }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "${READINESS}" == "true" || "${VERIFY}" == "true" || "${TELEGRAM_PUBLISHING_ENABLED}" == "true" ]]; then
+            echo '::error::Historical cutover must run alone while Telegram publishing is disabled.'
+            exit 1
+          fi
+      - name: Prepare or initialize reviewed historical state
+        if: inputs.telegram_cutover_mode != 'reconcile'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          CUTOVER_MODE: ${{ inputs.telegram_cutover_mode }}
+          CUTOFF: ${{ inputs.telegram_cutover_cutoff }}
+          FINGERPRINT: ${{ inputs.telegram_cutover_fingerprint }}
+          ACKNOWLEDGE: ${{ inputs.telegram_cutover_ack }}
+          SOURCE_DIR: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 scripts/telegram_cutover.py --mode "${CUTOVER_MODE}" --cutoff "${CUTOFF}" \
+            --fingerprint "${FINGERPRINT}" --acknowledge "${ACKNOWLEDGE}" --source-dir "${SOURCE_DIR}"
+      - name: Check out the state branch for reconciliation
+        if: inputs.telegram_cutover_mode == 'reconcile'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: telegram-delivery-state
+          token: ${{ github.token }}
+          path: .telegram-state
+          persist-credentials: true
+      - name: Reconcile an independently confirmed response
+        if: inputs.telegram_cutover_mode == 'reconcile'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          RECONCILIATION_REQUESTED: "true"
+          RECONCILIATION: ${{ inputs.telegram_reconciliation }}
+          STATE_DIR: ${{ github.workspace }}/.telegram-state
+        run: |
+          set -euo pipefail
+          python3 scripts/telegram_reconcile.py --state-dir "${STATE_DIR}" --request "${RECONCILIATION}"
