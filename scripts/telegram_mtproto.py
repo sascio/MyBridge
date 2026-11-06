@@ -34,6 +34,9 @@ class BotTransport:
         self._client = None
         self.peer = None
         self.login_attempted = False
+        # A fixed, non-sensitive phase label supports no-send diagnostics; it
+        # never contains credentials, peer data, request contents or errors.
+        self.connection_stage = "not-started"
 
     def __repr__(self) -> str:
         return "BotTransport(credentials=<redacted>)"
@@ -58,14 +61,19 @@ class BotTransport:
                          raise_last_call_error=True)
         self._client = client
         self.login_attempted = True  # set before network activity: failure may be ambiguous
+        self.connection_stage = "bot-authentication"
         self._await(client, client.start(bot_token=self._token))
+        self.connection_stage = "bot-identity"
         me = self._await(client, client.get_me())
+        self.connection_stage = "channel-resolution"
         peer = self._await(client, client.get_input_entity(self._channel_ref))
+        self.connection_stage = "identity-comparison"
         if getattr(me, "bot", False) is not True or getattr(me, "id", None) != self._bot_id:
             raise TransportError("MTProto identity does not match the Bot API bot.")
         if not isinstance(peer, types.InputPeerChannel) or utils.get_peer_id(peer) != self._chat_id:
             raise TransportError("MTProto peer does not match the Bot API channel.")
         self.peer = peer
+        self.connection_stage = "ready"
 
     def close(self) -> bool:
         """Revoke this session; False means the durable session lock must remain."""

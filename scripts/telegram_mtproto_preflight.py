@@ -20,20 +20,34 @@ class PreflightError(RuntimeError):
 
 
 def verify(token: str, chat: str, api_id: str, api_hash: str, *,
-           bot_lookup: Callable = publish.bot_details, factory: Callable = mtproto.BotTransport) -> None:
+           bot_lookup: Callable = publish.bot_details, factory: Callable = mtproto.BotTransport,
+           progress: Callable[[str], None] | None = None) -> None:
     if not api_id.isdigit() or int(api_id) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
         raise PreflightError("MTProto credentials are invalid.")
     bot_id, channel_id, channel_ref = bot_lookup(token, chat)
     if channel_ref.casefold() != "@streambridge_app":
         raise PreflightError("The configured channel is not the reviewed destination.")
+    if progress:
+        progress("Bot API authentication, reviewed channel and administrator Post Messages rights verified.")
     transport = factory(int(api_id), api_hash, token, channel_ref, bot_id, channel_id)
     connected = False
+    stage, kind = "unknown", "other"
     try:
         transport.connect()
         connected = True
-    except Exception:
-        # Third-party exceptions can contain request or authorization data.
-        pass
+    except Exception as exc:
+        # Never print exception messages, requests or authorization data. Only
+        # fixed phase labels and a small allowlist of exception class names are
+        # reported, so operators can distinguish auth from peer resolution.
+        phases = {"not-started", "bot-authentication", "bot-identity", "channel-resolution", "identity-comparison"}
+        candidate = getattr(transport, "connection_stage", "unknown")
+        stage = candidate if candidate in phases else "unknown"
+        allowed = {"ValueError", "TypeError", "AttributeError", "RuntimeError", "OSError", "TimeoutError",
+                   "ConnectionError", "TransportError", "ApiIdInvalidError", "AccessTokenInvalidError",
+                   "AccessTokenExpiredError", "AuthKeyUnregisteredError", "FloodWaitError", "ChannelPrivateError",
+                   "UsernameInvalidError", "UsernameNotOccupiedError", "PeerIdInvalidError", "UserIsBotError"}
+        name = type(exc).__name__
+        kind = name if name in allowed else "other"
     finally:
         # log_out revokes this in-memory authorization, not the bot token.
         # Do not report success if revocation is ambiguous.
@@ -41,13 +55,14 @@ def verify(token: str, chat: str, api_id: str, api_hash: str, *,
     if not revoked:
         raise PreflightError("MTProto session logout was not confirmed; investigate before activation.")
     if not connected:
-        raise PreflightError("MTProto bot authentication or channel resolution failed.")
+        raise PreflightError(f"MTProto readiness failed at {stage} ({kind}); session logout was confirmed.")
 
 
 def main() -> int:
     try:
         verify(*(publish.require_secret(name) for name in (
-            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH")))
+            "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "TELEGRAM_API_ID", "TELEGRAM_API_HASH")),
+               progress=lambda message: print(f"::notice::{message}"))
     except PreflightError as exc:
         print(f"::error::{exc}")
         return 1

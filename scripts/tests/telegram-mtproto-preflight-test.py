@@ -27,6 +27,7 @@ class FakeTransport:
         self.calls = []
         self.connect_error = False
         self.revoked = True
+        self.connection_stage = "channel-resolution"
 
     def connect(self):
         self.calls.append("connect")
@@ -59,6 +60,12 @@ class PreflightTests(unittest.TestCase):
         with self.assertRaises(probe.PreflightError) as caught:
             self.run_probe()
         self.assertEqual(self.transport.calls, ["connect", "logout"])
+        self.assertNotIn(TOKEN, str(caught.exception))
+        self.assertIn("channel-resolution (RuntimeError)", str(caught.exception))
+        self.transport.connection_stage = TOKEN
+        with self.assertRaises(probe.PreflightError) as caught:
+            self.run_probe()
+        self.assertIn("unknown (RuntimeError)", str(caught.exception))
         self.assertNotIn(TOKEN, str(caught.exception))
 
     def test_unconfirmed_logout_fails_even_after_successful_login(self):
