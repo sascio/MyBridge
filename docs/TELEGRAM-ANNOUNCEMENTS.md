@@ -132,6 +132,21 @@ send; the no-send preflight can temporarily create a bot authorization. Merging
 this code or changing a gate is not a release trigger and never initiates a
 backfill. No old workflow may be re-enabled during this cutover.
 
+## Release event requirements
+
+GitHub does not start a downstream workflow for a `release: published` event
+caused by the repository's `GITHUB_TOKEN`; see [GitHub's workflow-triggering
+rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow).
+A release published that way will therefore not automatically reach this
+workflow. The existing `release-draft.yml` uses `github.token` to **create a
+draft only**; it does not establish who or what publishes the draft. Before
+activation, the owner must confirm that the actual publication method emits an
+eligible event (for example, an authorized maintainer publishing in the UI, or
+an appropriately authorized GitHub App token), and that the released tag
+contains the reviewed workflow. Do not assume the manual recovery dispatch can
+create a plan for a missed event: it only resumes an already-planned release.
+Investigate a missed event without making a test release or blindly replaying.
+
 ## No-send preflight and manual dispatch
 
 `workflow_dispatch` defaults to `preflight: false` and `dry_run: true`. An
