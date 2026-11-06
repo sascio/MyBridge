@@ -267,13 +267,19 @@ verified.** These steps are for the repository owner, not an automatic deploy:
    Dispatch registered **Build Stream Bridge** on the reviewed PR branch with
    `upload_artifacts=false`, `telegram_cutover_mode=preview`, and
    `telegram_cutover_cutoff=<UTC cutoff>`. Other Telegram flags must be false.
-   This reads GitHub only and prints the two branch tips, counts, and a digest
-   of **protected**, not raw private, inventory; it does not modify a ref. Its
+   This reads GitHub only and prints the two branch tips, reviewed tooling SHA,
+   counts, and a digest of **protected**, not raw private, inventory; it does
+   not modify a ref. The protected inventory includes a bot-keyed HMAC over
+   every tag ref's exact name, object type and object SHA, rechecked during
+   collection, so a moved tag invalidates the reviewed fingerprint. Its
    job nevertheless needs `contents: write`: GitHub only lists draft releases
    to a token with push access. That token can write to the repository and is
    subject to the same shared-writer trust boundary. For an actual cutover,
-   establish the continuous freeze first, repeat the preview, and review the
-   privately held complete inventory against that snapshot. The built-in
+   establish the continuous freeze and review the complete private evidence
+   before submitting approval. If the proposal preview preceded the freeze,
+   initialization itself re-collects the snapshot under that freeze and will
+   refuse it unless the protected fingerprint is identical; obtain a new
+   preview if it changed. The built-in
    preparer includes current API releases/tags plus known v0.1.15 evidence;
    it cannot discover deleted/invisible identities or additional channel message
    IDs. If any independently known historical release, tag, or message ID is
@@ -285,8 +291,9 @@ verified.** These steps are for the repository owner, not an automatic deploy:
    workflow/branch with `telegram_cutover_mode=initialize`, the **same** cutoff,
    `telegram_cutover_fingerprint=<exact protected preview fingerprint>`, and
    `telegram_cutover_ack=RELEASES_AND_TAGS_FROZEN_AND_REVIEWED`. It re-reads
-   the inventory and both ref tips, verifies the legacy workflow is disabled,
-   checks the state rules and validates the pre-existing legacy ledger. A
+   the inventory, both ref tips and exact tooling commit, verifies the legacy
+   workflow is disabled, checks the state rules and validates the pre-existing
+   legacy ledger. A
    pre-created state branch is accepted only if its tip still exactly equals the
    reviewed default-branch tip. It creates a **single-parent non-force child**
    whose tree contains only `telegram-delivery-state.json`; it verifies the
@@ -298,17 +305,23 @@ verified.** These steps are for the repository owner, not an automatic deploy:
    commit, leave gates off; never delete, force-push or reset the branch. A
    separately reviewed non-force migration is required for amendments. The
    initializer never overwrites a changed or already-initialized state branch.
-5. Dispatch **Build Stream Bridge** on that same reviewed branch with
-   `telegram_state_verification=true` and `upload_artifacts=false` (all other
-   Telegram modes off). Inspect its result: it reads the remote, adds unique
-   non-delivery markers, reads exact bytes, adds a second while preserving the
-   first, races two updates, refetches/reapplies a definite conflict, checks the
-   fast-forward graph, and archives its markers by a non-force commit. No send,
-   upload, release/tag change or destructive protection test is performed.
-   A failed run is not a pass; after review the optional
-   `telegram_verification_cleanup_run=<exact failed run ID>` archives only that
-   run's active markers, and a fresh full verification is still required.
-   Independently inspect bypass actors, shared writers and both branch policies.
+   **The same initialization dispatch automatically continues into state-only
+   verification**; no second dispatch is needed if both steps succeed.
+5. Inspect the verification result in that run: it reads the remote, simulates
+   an interrupted verification using only non-delivery markers, confirms a new
+   run would be blocked, and archives those markers by normal commit. It checks
+   the real publisher's `sending`/`delivery_unknown` guard against synthetic
+   in-memory operations linked to a remote marker (no fake release is written).
+   It then tests exact byte readback, preserving writes, a two-writer race,
+   refetch/reapply after a definite conflict, fast-forward history and normal
+   archival. No send, upload, release/tag change or destructive protection
+   test is performed. This does **not** simulate an actual Telegram delivery
+   or prove remote recovery of an actual ambiguous Telegram response.
+   A failed run is not a pass; after review use the separate state-verification
+   dispatch with `telegram_verification_cleanup_run=<exact failed run ID>` to
+   archive only that run's active markers, then run a fresh full verification
+   with `telegram_state_verification=true`. Independently inspect bypass actors,
+   shared writers and both branch policies.
 6. Obtain passing current-head no-upload CI, no-send authentication/peer/rights/
    logout, complete frozen-history review and live state-only verification.
    Merge only after all applicable gates pass; never weaken `main`. Confirm the

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS / "tests"))
@@ -57,16 +58,31 @@ class StateOnlyVerificationTests(unittest.TestCase):
         before = self.store.read()
         report = verification.verify(self.store, 12345, policy_check=lambda: None)
         after = self.store.read()
-        self.assertEqual(report, {"head": after.parent, "records_archived": 4, "definite_conflicts_recovered": 1})
-        self.assertEqual(len(after.document["verification"]), 4)
+        self.assertEqual(report, {"head": after.parent, "records_archived": 6, "definite_conflicts_recovered": 1,
+                                  "interrupted_verification_recovered": True, "synthetic_ambiguous_guard_checked": True})
+        self.assertEqual(len(after.document["verification"]), 6)
         self.assertTrue(all(r["status"] == "archived" and r["run_id"] == 12345 for r in after.document["verification"]))
-        self.assertEqual({r["phase"] for r in after.document["verification"]}, {"first", "second", "race-a", "race-b"})
-        self.assertEqual(len({r["id"] for r in after.document["verification"]}), 4)
+        self.assertEqual({r["phase"] for r in after.document["verification"]},
+                         {"interrupted", "unknown-simulation", "first", "second", "race-a", "race-b"})
+        self.assertEqual(len({r["id"] for r in after.document["verification"]}), 6)
         for key in ("activation", "legacy", "inventory", "identity", "session", "releases"):
             self.assertEqual(before.document[key], after.document[key])
-        self.assertEqual(self.git("rev-list", "--count", f"{before.parent}..{after.parent}", cwd=self.store.repo).strip(), b"5")
+        self.assertEqual(self.git("rev-list", "--count", f"{before.parent}..{after.parent}", cwd=self.store.repo).strip(), b"7")
         self.assertEqual(self.git("diff", "--name-only", before.parent, after.parent, cwd=self.store.repo).splitlines(),
                          [ledger.LEDGER_PATH.encode()])
+
+    def test_synthetic_unknown_exercises_the_actual_publisher_guard_without_a_release_record(self):
+        before = self.store.read()
+        marker = verification._marker(123, "unknown-simulation")
+        doc = copy.deepcopy(before.document)
+        verification._append(doc, marker)
+        ledger.validate(doc)
+        verification._check_synthetic_ambiguity(doc, marker)
+        with mock.patch.object(verification.publish, "require_no_unresolved_items"):
+            with self.assertRaises(verification.VerificationError):
+                verification._check_synthetic_ambiguity(doc, marker)
+        self.assertEqual(self.store.read().raw, before.raw)
+        self.assertEqual(self.store.read().document["releases"], [])
 
     def test_policy_failure_does_not_write(self):
         before = self.store.read()
@@ -89,16 +105,16 @@ class StateOnlyVerificationTests(unittest.TestCase):
         broken = FailSecond(self.store.repo, self.store.branch)
         with self.assertRaises(ledger.LedgerError):
             verification.verify(broken, 123, policy_check=lambda: None)
-        self.assertEqual([r["status"] for r in self.store.read().document["verification"]], ["active"])
+        self.assertEqual([r["status"] for r in self.store.read().document["verification"]], ["active", "active"])
         with self.assertRaises(verification.VerificationError):
             verification.verify(self.store, 456, policy_check=lambda: None)
         with self.assertRaises(verification.VerificationError):
             verification.archive_run(self.store, 999, policy_check=lambda: None)
-        self.assertEqual(verification.archive_run(self.store, 123, policy_check=lambda: None), 1)
-        self.assertEqual(self.store.read().document["verification"][0]["status"], "archived")
+        self.assertEqual(verification.archive_run(self.store, 123, policy_check=lambda: None), 2)
+        self.assertTrue(all(r["status"] == "archived" for r in self.store.read().document["verification"]))
         report = verification.verify(self.store, 456, policy_check=lambda: None)
-        self.assertEqual(report["records_archived"], 4)
-        self.assertEqual(len(self.store.read().document["verification"]), 5)
+        self.assertEqual(report["records_archived"], 6)
+        self.assertEqual(len(self.store.read().document["verification"]), 8)
 
     def test_verification_records_cannot_be_deleted_or_rewritten(self):
         verification.verify(self.store, 123, policy_check=lambda: None)

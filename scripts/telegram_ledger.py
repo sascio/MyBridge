@@ -176,9 +176,13 @@ def validate_inventory(inventory: object) -> None:
         raise LedgerError("Historical tag inventory contains invalid or repeated tags.")
     if "protected" in inventory:
         protected = inventory["protected"]
-        if (not isinstance(protected, dict)
-                or set(protected) != {"key_check", "release_id_digests", "tag_digests"}
-                or not isinstance(protected["key_check"], str) or not HEX.fullmatch(protected["key_check"])):
+        required_protected = {"key_check", "release_id_digests", "tag_digests"}
+        if (not isinstance(protected, dict) or not required_protected.issubset(protected)
+                or set(protected) - (required_protected | {"tag_ref_snapshot"})
+                or not isinstance(protected["key_check"], str) or not HEX.fullmatch(protected["key_check"])
+                or ("tag_ref_snapshot" in protected and
+                    (not isinstance(protected["tag_ref_snapshot"], str) or
+                     not HEX.fullmatch(protected["tag_ref_snapshot"])))):
             raise LedgerError("Protected historical inventory is invalid.")
         for field in ("release_id_digests", "tag_digests"):
             values = protected[field]
@@ -352,7 +356,8 @@ def validate(doc: object) -> None:
         if (not isinstance(record, dict) or set(record) != {"id", "run_id", "phase", "status"}
                 or not isinstance(record["id"], str) or not re.fullmatch(r"[0-9a-f]{32}", record["id"])
                 or record["id"] in verification_ids or type(record["run_id"]) is not int or record["run_id"] <= 0
-                or not isinstance(record["phase"], str) or record["phase"] not in {"first", "second", "race-a", "race-b"}
+                or not isinstance(record["phase"], str) or record["phase"] not in
+                    {"interrupted", "unknown-simulation", "first", "second", "race-a", "race-b"}
                 or not isinstance(record["status"], str) or record["status"] not in {"active", "archived"}):
             raise LedgerError("Ledger verification record is invalid or repeated.")
         verification_ids.add(record["id"])

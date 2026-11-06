@@ -26,7 +26,7 @@ on:
         required: false
         type: string
       telegram_cutover_mode:
-        description: Owner-reviewed state preview, initialization or confirmed-response reconciliation
+        description: Preview, approved initialization with state verification, or confirmed-response reconciliation
         required: false
         type: choice
         options: [none, preview, initialize, reconcile]
@@ -543,7 +543,17 @@ jobs:
           set -o pipefail
           log="${RUNNER_TEMP}/script-tests.log"
           trap 'rm -f "$log"' EXIT
+          # Offline failure-path fixtures intentionally print ::error:: strings.
+          # Do not misrepresent those simulated failures as real annotations.
+          marker="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::stop-commands::${marker}"
           if scripts/tests/run-tests.sh 2>&1 | tee "$log"; then
+            status=0
+          else
+            status=1
+          fi
+          echo "::${marker}::"
+          if [[ "${status}" == 0 ]]; then
             exit 0
           fi
           # Logs may not be available via the Actions API. Report only failing
@@ -759,6 +769,26 @@ jobs:
           set -euo pipefail
           python3 scripts/telegram_cutover.py --mode "${CUTOVER_MODE}" --cutoff "${CUTOFF}" \
             --fingerprint "${FINGERPRINT}" --acknowledge "${ACKNOWLEDGE}" --source-dir "${SOURCE_DIR}"
+      - name: Check out initialized state for no-send verification
+        if: inputs.telegram_cutover_mode == 'initialize'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ github.repository }}
+          ref: telegram-delivery-state
+          token: ${{ github.token }}
+          path: .telegram-state
+          persist-credentials: true
+      - name: Verify initialized state without delivery
+        if: inputs.telegram_cutover_mode == 'initialize'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          STATE_VERIFICATION_REQUESTED: "true"
+          STATE_DIR: ${{ github.workspace }}/.telegram-state
+        run: |
+          set -euo pipefail
+          python3 scripts/telegram_state_verify.py --state-dir "${STATE_DIR}"
       - name: Check out the state branch for reconciliation
         if: inputs.telegram_cutover_mode == 'reconcile'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

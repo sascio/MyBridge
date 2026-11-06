@@ -1044,7 +1044,8 @@ class LedgerValidationTests(unittest.TestCase):
                            "2026-01-01T00:00:00Z", inventory)
         for bad in ({"key_check": "invalid", "release_id_digests": [], "tag_digests": []},
                     {"key_check": "a" * 64, "release_id_digests": ["b" * 64] * 2, "tag_digests": []},
-                    {"key_check": "a" * 64, "release_id_digests": [], "tag_digests": [123]}):
+                    {"key_check": "a" * 64, "release_id_digests": [], "tag_digests": [123]},
+                    {"key_check": "a" * 64, "release_id_digests": [], "tag_digests": [], "tag_ref_snapshot": "invalid"}):
             altered = copy.deepcopy(inventory)
             altered["protected"] = bad
             with self.subTest(bad=bad), self.assertRaises(ledger.LedgerError):

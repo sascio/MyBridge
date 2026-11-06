@@ -23,6 +23,26 @@ class CutoverError(RuntimeError):
 ACKNOWLEDGEMENT = "RELEASES_AND_TAGS_FROZEN_AND_REVIEWED"
 
 
+def tag_ref_snapshot(refs: list[Any], token: str) -> str:
+    """HMAC exact tag names, object kinds and SHAs, including non-public names."""
+    if not isinstance(refs, list):
+        raise CutoverError("The tag ref snapshot is unavailable.")
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in refs:
+        if not isinstance(item, dict) or not isinstance(item.get("ref"), str) or not item["ref"].startswith("refs/tags/"):
+            raise CutoverError("A tag ref is malformed.")
+        tag, obj = item["ref"][len("refs/tags/"):], item.get("object")
+        if (not tag or any(char in tag for char in "\x00\r\n") or tag in seen or not isinstance(obj, dict)
+                or obj.get("type") not in {"commit", "tag"} or not isinstance(obj.get("sha"), str)
+                or not ledger.COMMIT_SHA.fullmatch(obj["sha"])):
+            raise CutoverError("A tag ref has an invalid or repeated object identity.")
+        seen.add(tag)
+        records.append({"tag": tag, "type": obj["type"], "sha": obj["sha"]})
+    records.sort(key=lambda record: record["tag"])
+    return ledger._inventory_mac(token, "tag-ref-snapshot", ledger.canonical(records).decode("utf-8"))
+
+
 def build_snapshot(releases: list[Any], refs: list[Any], legacy: object, cutoff: str, token: str,
                    *, resolve: Callable[[str], str], now: dt.datetime) -> dict[str, Any]:
     """Build a protected *candidate*; a human freeze/review is still mandatory."""
@@ -34,6 +54,7 @@ def build_snapshot(releases: list[Any], refs: list[Any], legacy: object, cutoff:
         raise CutoverError("Non-empty legacy records require a separately reviewed manual migration.")
     if not isinstance(releases, list) or not isinstance(refs, list):
         raise CutoverError("The release or tag inventory is unavailable.")
+    refs_mac = tag_ref_snapshot(refs, token)
     ids: list[int] = []
     tags: set[str] = set()
     public_ids: set[int] = set()
@@ -81,6 +102,7 @@ def build_snapshot(releases: list[Any], refs: list[Any], legacy: object, cutoff:
     raw = {"release_ids": ids, "tags": sorted(tags), "message_ids": [ledger.KNOWN_MESSAGE_ID],
            "exclusions": sorted(exclusions, key=lambda entry: entry["release_id"])}
     protected = ledger.protect_inventory(raw, public_ids, public_tags, token)
+    protected["protected"]["tag_ref_snapshot"] = refs_mac
     ledger.require_reviewed_history(protected)
     doc = ledger.migrate(legacy, cutoff, protected)
     if token.encode("utf-8") in ledger.canonical(doc):
@@ -92,18 +114,25 @@ def collect(repository: str, legacy: object, cutoff: str, token: str) -> dict[st
     """Capture API responses in memory only; never print private draft metadata."""
     releases = state._api(f"repos/{repository}/releases?per_page=100", paginate=True)
     refs = state._api(f"repos/{repository}/git/matching-refs/tags/?per_page=100", paginate=True)
-    return build_snapshot(releases, refs, legacy, cutoff, token,
-                          resolve=lambda tag: identity.resolve_tag_commit(repository, tag),
-                          now=dt.datetime.now(dt.timezone.utc))
+    doc = build_snapshot(releases, refs, legacy, cutoff, token,
+                         resolve=lambda tag: identity.resolve_tag_commit(repository, tag),
+                         now=dt.datetime.now(dt.timezone.utc))
+    refs_after = state._api(f"repos/{repository}/git/matching-refs/tags/?per_page=100", paginate=True)
+    if tag_ref_snapshot(refs_after, token) != doc["inventory"]["protected"]["tag_ref_snapshot"]:
+        raise CutoverError("Tag ref objects changed during the inventory snapshot.")
+    return doc
 
 
-def preview_fingerprint(doc: dict[str, Any], state_parent: str | None, default_parent: str) -> str:
-    """Bind protected candidate data to the exact reviewed remote ref tips."""
+def preview_fingerprint(doc: dict[str, Any], state_parent: str | None, default_parent: str,
+                        tooling_commit: str) -> str:
+    """Bind protected candidate data to the exact reviewed refs and tooling."""
     ledger.validate(doc)
     if ((state_parent is not None and (not isinstance(state_parent, str) or not ledger.COMMIT_SHA.fullmatch(state_parent)))
-            or not isinstance(default_parent, str) or not ledger.COMMIT_SHA.fullmatch(default_parent)):
-        raise CutoverError("The preview branch identities are invalid.")
-    return ledger.digest({"candidate": doc, "state_parent": state_parent, "default_parent": default_parent})
+            or not isinstance(default_parent, str) or not ledger.COMMIT_SHA.fullmatch(default_parent)
+            or not isinstance(tooling_commit, str) or not ledger.COMMIT_SHA.fullmatch(tooling_commit)):
+        raise CutoverError("The preview branch or tooling identities are invalid.")
+    return ledger.digest({"candidate": doc, "state_parent": state_parent,
+                          "default_parent": default_parent, "tooling_commit": tooling_commit})
 
 
 def remote_head(store: ledger.GitLedger, branch: str) -> str | None:
@@ -216,17 +245,20 @@ def main() -> int:
             raise CutoverError("The source repository or default branch identity is inconsistent.")
         default_branch = metadata["default_branch"]
         store = ledger.GitLedger(args.source_dir, state.STATE_BRANCH)
+        tooling_commit = store._git("rev-parse", "--verify", "HEAD^{commit}").stdout.decode("ascii").strip()
+        if not ledger.COMMIT_SHA.fullmatch(tooling_commit) or tooling_commit != os.environ.get("GITHUB_SHA"):
+            raise CutoverError("The reviewed workflow and checked-out tooling commit do not match.")
         state_parent = remote_head(store, state.STATE_BRANCH)
         main_parent = remote_head(store, default_branch)
         if main_parent is None:
             raise CutoverError("The source default branch could not be verified.")
         doc = collect(repo, legacy, args.cutoff, token)
-        # Bind the protected candidate and both ref tips to the reviewed preview.
-        # Never digest or print the raw private inventory.
-        fingerprint = preview_fingerprint(doc, state_parent, main_parent)
+        # Bind the protected candidate, both ref tips and exact workflow code to
+        # the reviewed preview. Never digest or print raw private inventory.
+        fingerprint = preview_fingerprint(doc, state_parent, main_parent, tooling_commit)
         protected = doc["inventory"].get("protected", {})
         summary = {"mode": args.mode, "candidate_cutoff": args.cutoff, "protected_fingerprint": fingerprint,
-                   "state_parent": state_parent, "default_parent": main_parent,
+                   "state_parent": state_parent, "default_parent": main_parent, "tooling_commit": tooling_commit,
                    "public_exclusions": len(doc["inventory"].get("exclusions", [])),
                    "protected_release_ids": len(protected.get("release_id_digests", [])),
                    "total_tags": len(doc["inventory"]["tags"]) + len(protected.get("tag_digests", []))}
@@ -255,7 +287,13 @@ def main() -> int:
                 or final_state.raw != ledger.canonical(doc)):
             raise CutoverError("The inventory or branch tips changed during initialization; leave publishing disabled.")
         summary["state_head"] = head
-        print(json.dumps(summary, sort_keys=True))
+        report = json.dumps(summary, sort_keys=True)
+        print(report)
+        print("::notice title=Telegram historical state initialized::" + report)
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            with open(summary_path, "a", encoding="utf-8") as handle:
+                handle.write("### Telegram historical state initialized\n\n```json\n" + report + "\n```\n")
         print("The single-file state tip was initialized; live write/race verification and owner bypass review remain mandatory.")
         return 0
     except Exception:  # do not print API payloads, credentials, private draft fields, or remote errors

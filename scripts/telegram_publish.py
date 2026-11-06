@@ -214,6 +214,12 @@ def stored_release(document: dict[str, Any], release_id: int) -> dict[str, Any] 
     return next((entry for entry in document["releases"] if entry["id"] == release_id), None)
 
 
+def require_no_unresolved_items(items: list[dict[str, Any]]) -> None:
+    """Never re-send a write-ahead or ambiguous operation, including on recovery."""
+    if any(item["state"] in {"sending", "delivery_unknown"} for item in items):
+        raise PublishError("An earlier send is unresolved; no resend is allowed until independently reconciled.")
+
+
 def make_release(release: notes.Release, operations: list[dict[str, Any]], used: set[int],
                  source_sha: str) -> dict[str, Any]:
     frozen = [{"key": op["key"], "kind": op["kind"], "payload": op["payload"]} for op in operations]
@@ -371,8 +377,7 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             raise PublishError("Release identity, source commit or asset plan changed after it was frozen; manual review is required.")
         # An uncertain operation anywhere in the release blocks the whole plan,
         # even when a manual dispatch requests only text or only some assets.
-        if any(i["state"] in {"sending", "delivery_unknown"} for i in entry["items"]):
-            raise PublishError("An earlier send is unresolved; no resend is allowed until independently reconciled.")
+        require_no_unresolved_items(entry["items"])
         relevant = [i for i in entry["items"] if upload_assets or i["kind"] == "page"]
         if all(i["state"] == "sent" for i in relevant):
             return None
@@ -411,8 +416,7 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             item = copy.deepcopy(item_by_key(current_entry, op["key"]))
             if item["state"] == "sent":
                 continue
-            if item["state"] in {"sending", "delivery_unknown"}:
-                raise PublishError("An earlier send remains unresolved; no resend is allowed.")
+            require_no_unresolved_items([item])
             if item["state"] == "failed" and not resume_unsent:
                 raise PublishError("A pre-send failure requires explicit manual recovery.")
             if op["kind"] == "page":

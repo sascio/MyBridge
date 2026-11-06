@@ -1485,6 +1485,11 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.telegram_cutover_mode == 'preview'", preview["if"])
         self.assertNotIn("inputs.telegram_cutover_mode == 'preview'", jobs["telegram-state-cutover"]["if"])
         self.assertTrue(any("--mode preview" in step.get("run", "") for step in preview["steps"]))
+        combined_steps = jobs["telegram-state-cutover"]["steps"]
+        verification = next(step for step in combined_steps if step.get("name") == "Verify initialized state without delivery")
+        self.assertEqual(verification["if"], "inputs.telegram_cutover_mode == 'initialize'")
+        self.assertEqual(verification["env"]["STATE_VERIFICATION_REQUESTED"], "true")
+        self.assertIn("python3 scripts/telegram_state_verify.py", verification["run"])
         self.assertEqual(jobs["telegram-input-validation"]["permissions"], {})
         for name in ("telegram-state-verification", "telegram-state-cutover"):
             self.assertEqual(jobs[name]["concurrency"],
@@ -1527,9 +1532,12 @@ class CiVerificationWorkflowTests(unittest.TestCase):
                 fixture.chmod(0o755)
                 return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]],
                                       cwd=root, env=env, text=True, capture_output=True)
-            passed = run_fixture("echo 'all passed'\nexit 0\n")
+            passed = run_fixture("echo 'all passed'\necho '::error::simulated offline failure'\nexit 0\n")
             self.assertEqual(passed.returncode, 0)
             self.assertNotIn("::error title=Script", passed.stdout)
+            pause = re.search(r"::stop-commands::([0-9a-f]{64})", passed.stdout)
+            self.assertIsNotNone(pause)
+            self.assertLess(passed.stdout.index("::error::simulated"), passed.stdout.index(f"::{pause.group(1)}::"))
             failed = run_fixture("printf '%s\\n' 'FAIL: test_bad (suite.Test)' "
                                  "'ERROR: test_other (suite.Test)' '  FAIL release check'\nexit 2\n")
             self.assertNotEqual(failed.returncode, 0)

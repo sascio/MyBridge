@@ -45,8 +45,9 @@ def fixtures():
     public = [{"id": rid, "tag_name": tag, "draft": False, "published_at": "2026-11-05T01:00:00Z"}
               for rid, tag in ledger.KNOWN_HISTORICAL_RELEASES.items()]
     draft = {"id": PRIVATE_ID, "tag_name": PRIVATE_TAG, "draft": True, "published_at": None}
-    refs = [{"ref": "refs/tags/" + item["tag_name"]} for item in public]
-    refs.append({"ref": "refs/tags/" + PRIVATE_TAG})
+    refs = [{"ref": "refs/tags/" + item["tag_name"], "object": {"type": "commit", "sha": "a" * 40}}
+            for item in public]
+    refs.append({"ref": "refs/tags/" + PRIVATE_TAG, "object": {"type": "tag", "sha": "b" * 40}})
     return public + [draft], refs
 
 
@@ -113,17 +114,34 @@ class SnapshotTests(unittest.TestCase):
     def test_snapshot_fingerprint_detects_tag_release_or_cutoff_changes(self):
         original = snapshot()
         releases, refs = fixtures()
-        refs.append({"ref": "refs/tags/new-public-tag"})
+        refs.append({"ref": "refs/tags/new-public-tag", "object": {"type": "commit", "sha": "c" * 40}})
         self.assertNotEqual(ledger.digest(original), ledger.digest(snapshot(refs=refs)))
         self.assertNotEqual(ledger.digest(original), ledger.digest(snapshot(cutoff="2026-12-01T05:00:00Z")))
         releases[-1]["id"] += 1
         self.assertNotEqual(ledger.digest(original), ledger.digest(snapshot(releases=releases)))
-        original_fingerprint = cutover.preview_fingerprint(original, "a" * 40, "a" * 40)
-        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, "b" * 40, "a" * 40))
-        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, "a" * 40, "b" * 40))
-        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, None, "a" * 40))
+        _, moved_refs = fixtures()
+        self.assertEqual(cutover.tag_ref_snapshot(moved_refs, TOKEN), cutover.tag_ref_snapshot(list(reversed(moved_refs)), TOKEN))
+        moved_refs[-1]["object"]["sha"] = "d" * 40  # same tag name, different immutable ref object
+        self.assertNotEqual(ledger.digest(original), ledger.digest(snapshot(refs=moved_refs)))
+        moved_refs[-1]["object"]["sha"] = "invalid"
         with self.assertRaises(cutover.CutoverError):
-            cutover.preview_fingerprint(original, "invalid", "a" * 40)
+            snapshot(refs=moved_refs)
+        original_fingerprint = cutover.preview_fingerprint(original, "a" * 40, "a" * 40, "c" * 40)
+        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, "b" * 40, "a" * 40, "c" * 40))
+        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, "a" * 40, "b" * 40, "c" * 40))
+        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, None, "a" * 40, "c" * 40))
+        self.assertNotEqual(original_fingerprint, cutover.preview_fingerprint(original, "a" * 40, "a" * 40, "d" * 40))
+        with self.assertRaises(cutover.CutoverError):
+            cutover.preview_fingerprint(original, "invalid", "a" * 40, "c" * 40)
+
+    def test_collect_refuses_tag_object_drift_during_snapshot(self):
+        releases, refs = fixtures()
+        changed = copy.deepcopy(refs)
+        changed[-1]["object"]["sha"] = "c" * 40
+        with mock.patch.object(state, "_api", side_effect=[releases, refs, changed]), \
+             mock.patch.object(cutover.identity, "resolve_tag_commit", return_value="a" * 40):
+            with self.assertRaisesRegex(cutover.CutoverError, "Tag ref objects changed"):
+                cutover.collect("sascio/MyBridge", {"schema": 1, "releases": []}, CUTOFF, TOKEN)
 
     def test_preview_requires_no_false_freeze_claim_but_initialization_does(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,7 +149,7 @@ class SnapshotTests(unittest.TestCase):
             legacy.write_text(json.dumps({"schema": 1, "releases": []}))
             env = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch",
                    "GITHUB_REPOSITORY": "sascio/MyBridge", "GITHUB_REPOSITORY_ID": "1349123452",
-                   "GH_TOKEN": "fake-token", "TELEGRAM_BOT_TOKEN": TOKEN,
+                   "GITHUB_SHA": "c" * 40, "GH_TOKEN": "fake-token", "TELEGRAM_BOT_TOKEN": TOKEN,
                    "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary.md"))}
             def api(endpoint):
                 if endpoint.endswith("/actions/workflows/407947021"):
@@ -143,9 +161,11 @@ class SnapshotTests(unittest.TestCase):
             output = io.StringIO()
             with mock.patch.dict(os.environ, env), mock.patch.object(ledger, "LEGACY_PATH", str(legacy)), \
                  mock.patch.object(cutover, "_require_disabled_gates"), mock.patch.object(state, "_api", side_effect=api), \
-                 mock.patch.object(ledger, "GitLedger"), mock.patch.object(cutover, "remote_head", return_value="a" * 40), \
+                 mock.patch.object(ledger, "GitLedger") as store_class, \
+                 mock.patch.object(cutover, "remote_head", return_value="a" * 40), \
                  mock.patch.object(cutover, "collect", return_value=snapshot()), \
                  mock.patch.object(cutover, "initialize") as initializer, contextlib.redirect_stdout(output):
+                store_class.return_value._git.return_value.stdout = ("c" * 40).encode()
                 with mock.patch.object(sys, "argv", arguments("preview")):
                     self.assertEqual(cutover.main(), 0)
                 self.assertIn("Unapproved preview only", output.getvalue())
@@ -155,6 +175,9 @@ class SnapshotTests(unittest.TestCase):
                 for rendered in (output.getvalue(), step_summary):
                     self.assertNotIn(PRIVATE_TAG, rendered)
                     self.assertNotIn(TOKEN, rendered)
+                with mock.patch.dict(os.environ, {"GITHUB_SHA": "d" * 40}), \
+                     mock.patch.object(sys, "argv", arguments("preview")):
+                    self.assertEqual(cutover.main(), 1)
                 with mock.patch.object(sys, "argv", arguments("initialize")):
                     self.assertEqual(cutover.main(), 1)
                 initializer.assert_not_called()

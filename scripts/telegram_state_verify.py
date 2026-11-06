@@ -13,6 +13,7 @@ import uuid
 from typing import Any, Callable
 
 import telegram_ledger as ledger
+import telegram_publish as publish
 import telegram_state as state
 
 
@@ -39,6 +40,24 @@ def _contains(document: dict[str, Any], markers: list[dict[str, Any]]) -> bool:
 def _direct_parent(store: ledger.GitLedger, previous: str, current: str) -> bool:
     result = store._git("rev-list", "--parents", "-n", "1", current)
     return result.stdout.decode("ascii").strip().split() == [current, previous]
+
+
+def _require_idle(document: dict[str, Any]) -> None:
+    if document["session"] is not None or any(r["status"] == "active" for r in document["verification"]):
+        raise VerificationError("A session or an earlier unfinished verification blocks this check.")
+
+
+def _check_synthetic_ambiguity(document: dict[str, Any], marker: dict[str, Any]) -> None:
+    """Exercise the production guard without persisting a fake release or sending."""
+    if marker["phase"] != "unknown-simulation" or not _contains(document, [marker]):
+        raise VerificationError("The remote ambiguity-simulation marker is missing.")
+    for state_name in ("sending", "delivery_unknown"):
+        try:
+            publish.require_no_unresolved_items([{"state": state_name}])
+        except publish.PublishError:
+            continue
+        raise VerificationError("An ambiguous synthetic operation was not blocked.")
+    publish.require_no_unresolved_items([{"state": "pending"}, {"state": "sent"}])
 
 
 class _RacingStore(ledger.GitLedger):
@@ -90,14 +109,45 @@ def verify(store: ledger.GitLedger, run_id: int, *, policy_check: Callable[[], N
     policy_check()
     initial = store.read()
     initial_doc = copy.deepcopy(initial.document)
-    if initial_doc["session"] is not None or any(r["status"] == "active" for r in initial_doc["verification"]):
-        raise VerificationError("A session or an earlier unfinished verification blocks this check.")
+    _require_idle(initial_doc)
+    # Simulate a stopped state-only run by persisting non-delivery markers and
+    # constructing a fresh reader. An unfinished run must block a new run; the
+    # exact run's markers are then archived by a normal auditable update.
+    simulation = [_marker(run_id, phase) for phase in ("interrupted", "unknown-simulation")]
+    def append_simulation(document: dict[str, Any]) -> None:
+        for marker in simulation:
+            _append(document, marker)
+    policy_check()
+    interrupted, _ = ledger.update(store, append_simulation)
+    restarted = ledger.GitLedger(store.repo, store.branch)
+    observed = restarted.read()
+    if (observed.parent != interrupted.parent or observed.raw != interrupted.raw
+            or not _contains(observed.document, simulation)
+            or not _direct_parent(store, initial.parent, interrupted.parent)):
+        raise VerificationError("The simulated interruption was not durably read back.")
+    _check_synthetic_ambiguity(observed.document, simulation[1])
+    try:
+        _require_idle(observed.document)
+    except VerificationError:
+        pass
+    else:
+        raise VerificationError("An unfinished verification was not blocked after restart.")
+    unchanged = restarted.read()
+    if unchanged.parent != interrupted.parent or unchanged.raw != interrupted.raw:
+        raise VerificationError("The state changed during the interrupted-run guard check.")
+    if archive_run(store, run_id, policy_check=policy_check) != len(simulation):
+        raise VerificationError("The interrupted verification markers were not archived.")
+    recovered = restarted.read()
+    archived_simulation = [{**marker, "status": "archived"} for marker in simulation]
+    if (not _direct_parent(store, interrupted.parent, recovered.parent)
+            or not _contains(recovered.document, archived_simulation)):
+        raise VerificationError("Interrupted verification recovery was not confirmed.")
     markers = [_marker(run_id, phase) for phase in ("first", "second", "race-a", "race-b")]
     policy_check()
     first, _ = ledger.update(store, lambda doc: _append(doc, markers[0]))
     observed = store.read()
     if (observed.parent != first.parent or observed.raw != first.raw or not _contains(observed.document, markers[:1])
-            or not _direct_parent(store, initial.parent, first.parent)):
+            or not _direct_parent(store, recovered.parent, first.parent)):
         raise VerificationError("First remote write, byte readback or fast-forward verification failed.")
     policy_check()
     second, _ = ledger.update(store, lambda doc: _append(doc, markers[1]))
@@ -133,11 +183,14 @@ def verify(store: ledger.GitLedger, run_id: int, *, policy_check: Callable[[], N
     archived, _ = ledger.update(store, archive)
     final = store.read()
     if (final.parent != archived.parent or final.raw != archived.raw or not _direct_parent(store, raced.parent, final.parent)
-            or any(record["status"] != "archived" for record in final.document["verification"] if record["id"] in ids)
+            or not _contains(final.document, [{**marker, "status": "archived"} for marker in markers])
+            or not _contains(final.document, archived_simulation)
             or any(final.document[key] != initial_doc[key] for key in
                    ("activation", "legacy", "inventory", "identity", "session", "releases"))):
         raise VerificationError("Verification archival or preservation checks failed.")
-    return {"head": final.parent, "records_archived": len(ids), "definite_conflicts_recovered": 1}
+    return {"head": final.parent, "records_archived": len(ids) + len(simulation),
+            "definite_conflicts_recovered": 1, "interrupted_verification_recovered": True,
+            "synthetic_ambiguous_guard_checked": True}
 
 
 def archive_run(store: ledger.GitLedger, run_id: int, *, policy_check: Callable[[], None]) -> int:
@@ -191,7 +244,13 @@ def main() -> int:
             print(f"Archived {count} non-delivery records. This cleanup is not a verification pass.")
         else:
             result = verify(store, int(run_id), policy_check=policy)
-            print(json.dumps({"status": "state_only_verified", **result}, sort_keys=True))
+            report = json.dumps({"status": "state_only_verified", **result}, sort_keys=True)
+            print(report)
+            print("::notice title=Telegram state-only verification::" + report)
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary_path:
+                with open(summary_path, "a", encoding="utf-8") as handle:
+                    handle.write("### Telegram state-only verification\n\n```json\n" + report + "\n```\n")
             print("No Telegram API calls, messages, uploads, releases or tags were made.")
             print("Owner must separately inspect every ruleset bypass actor; no destructive rule test was performed.")
     except Exception:  # never print remote errors, private inventory, or secrets
