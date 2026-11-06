@@ -23,6 +23,7 @@ from typing import Any, Callable
 from urllib.parse import quote
 
 LEDGER_PATH = ".github/telegram-releases.json"
+PUBLISHING_CONFIG_PATH = ".github/telegram-publishing.json"
 SCHEMA = 3
 HEX = re.compile(r"^[0-9a-f]{64}$")
 OWNER = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
@@ -67,6 +68,23 @@ def parse(data: bytes) -> dict[str, Any]:
         raise LedgerError("Remote ledger is unreadable or corrupt; refusing to reset it.") from exc
     validate(doc)
     return doc
+
+
+def publishing_not_before(path: str = PUBLISHING_CONFIG_PATH) -> dt.datetime | None:
+    """Return a reviewed activation fence, or None for disabled/invalid config."""
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_no_duplicates)
+        if not isinstance(doc, dict) or set(doc) != {"enabled", "not_before"} or doc["enabled"] is not True:
+            return None
+        return timestamp(doc["not_before"])
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, LedgerError):
+        return None
+
+
+def publishing_enabled(path: str = PUBLISHING_CONFIG_PATH) -> bool:
+    """Allow delivery only after an explicitly reviewed activation fence."""
+    after = publishing_not_before(path)
+    return after is not None and dt.datetime.now(dt.timezone.utc) > after
 
 
 def validate_legacy(legacy: object) -> None:
@@ -126,8 +144,14 @@ def validate(doc: object) -> None:
         raise LedgerError("Ledger releases are invalid.")
     release_ids: set[int] = set()
     release_tags: set[str] = set()
+    legacy_ids = {entry["release_id"] for entry in legacy["releases"]}
+    legacy_tags = {entry["tag_name"] for entry in legacy["releases"]}
     random_ids: set[int] = set()
-    message_ids: set[int] = set()
+    # A response matching an already recorded legacy message is not a new
+    # confirmation. Legacy history can be incomplete, so this is not proof of
+    # uniqueness against messages absent from that snapshot.
+    message_ids = {message_id for entry in legacy["releases"] for message_id in entry.get("message_ids", [])}
+    message_ids.update(asset["message_id"] for entry in legacy["releases"] for asset in entry.get("assets", []))
     for release in releases:
         if not isinstance(release, dict) or set(release) != {"id", "tag", "created_at", "plan", "items"}:
             raise LedgerError("Ledger release entry is invalid.")
@@ -138,6 +162,8 @@ def validate(doc: object) -> None:
         if not isinstance(release["tag"], str) or not release["tag"] or release["tag"] in release_tags:
             raise LedgerError("Ledger release tag is invalid or repeated.")
         release_tags.add(release["tag"])
+        if rid in legacy_ids or release["tag"] in legacy_tags:
+            raise LedgerError("A schema-3 release overlaps a preserved legacy release or tag.")
         if timestamp(release["created_at"]) <= timestamp(activation["created_after"]):
             raise LedgerError("Ledger release predates the audited activation cutoff.")
         if not isinstance(release["plan"], str) or not HEX.fullmatch(release["plan"]):
@@ -148,7 +174,6 @@ def validate(doc: object) -> None:
         page_count = 0
         saw_asset = False
         unfinished_page = False
-        unfinished_asset = False
         for item in release["items"]:
             if not isinstance(item, dict) or set(item) != {"key", "kind", "payload", "random_id", "state", "message_id", "sha256", "attempts"}:
                 raise LedgerError("Ledger operation entry is invalid.")
@@ -169,9 +194,8 @@ def validate(doc: object) -> None:
                 saw_asset = True
                 if not page_count or (unfinished_page and state != "planned"):
                     raise LedgerError("Ledger asset was attempted before all pages were confirmed.")
-                if unfinished_asset and state != "planned":
-                    raise LedgerError("Ledger assets are out of order.")
-                unfinished_asset = unfinished_asset or state != "confirmed"
+                # Each asset is independently tracked: a pre-send failure for
+                # one file must not invalidate a confirmed later file.
             if not isinstance(item["payload"], str) or not HEX.fullmatch(item["payload"]):
                 raise LedgerError("Ledger operation payload hash is invalid.")
             random_id = item["random_id"]
@@ -214,9 +238,10 @@ def validate(doc: object) -> None:
 def require_branch_rules(repository: str, branch: str, *, runner: Callable = subprocess.run) -> None:
     """Require visible active no-force/no-delete rules; this is necessary, not sufficient.
 
-    Metadata-read GitHub rules do not expose every bypass actor. An administrator
-    must separately audit bypasses and exclusive writers. All output is captured:
-    neither GitHub's error text nor credentials are emitted in diagnostics.
+    PR-only default branches are incompatible with this direct-push store, so
+    stop rather than request a bypass. Metadata-read rules do not prove exclusive
+    writers or expose every bypass actor. All output is captured: neither
+    GitHub's error text nor credentials are emitted in diagnostics.
     """
     if (not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
             or not re.fullmatch(r"[A-Za-z0-9._/-]+", branch) or branch.startswith("-")):
@@ -230,6 +255,8 @@ def require_branch_rules(repository: str, branch: str, *, runner: Callable = sub
         raise LedgerError("GitHub branch rules could not be verified; publishing is blocked.") from exc
     if result.returncode or not {"non_fast_forward", "deletion"}.issubset(types):
         raise LedgerError("Active no-force and no-delete rulesets could not be verified; publishing is blocked.")
+    if "pull_request" in types:
+        raise LedgerError("The default-branch PR requirement conflicts with direct ledger writes; publishing is blocked. Do not bypass it.")
 
 
 def operation_outcome(item: dict[str, Any]) -> str:

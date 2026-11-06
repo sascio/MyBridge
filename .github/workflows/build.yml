@@ -15,6 +15,14 @@ on:
 permissions:
   contents: read
 
+# Opt-in verification-only runs execute the full checks without publishing CI
+# artifacts, caches or issue updates. Normal push/PR behavior remains unchanged.
+env:
+  CI_VERIFICATION_ONLY: >-
+    ${{ (github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true) ||
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[ci no-upload]')) ||
+        (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '<!-- ci:no-upload -->')) }}
+
 jobs:
   build:
     name: Nuvio-core full Android APK
@@ -96,9 +104,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          # No remote cache reads/writes for a verification-only manual run.
-          cache-disabled: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
-          cache-read-only: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
+          # No remote cache reads/writes in verification-only mode.
+          cache-disabled: ${{ env.CI_VERIFICATION_ONLY == 'true' }}
+          cache-read-only: ${{ env.CI_VERIFICATION_ONLY == 'true' }}
           dependency-graph: disabled
           build-scan-publish: false
 
@@ -137,7 +145,7 @@ jobs:
           python3 .github/report-failing-tests.py composeApp/build/test-results
 
       - name: Upload unit test report
-        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true) }}
+        if: ${{ always() && (env.CI_VERIFICATION_ONLY != 'true') }}
         uses: actions/upload-artifact@v7
         with:
           name: Stream-Bridge-unit-test-report
@@ -227,7 +235,7 @@ jobs:
           EOF
 
       - name: Upload full debug APK
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true }}
+        if: ${{ env.CI_VERIFICATION_ONLY != 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: Stream-Bridge-CI-full-debug-APK
@@ -235,7 +243,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload full release APK (debug-signed, not production)
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true }}
+        if: ${{ env.CI_VERIFICATION_ONLY != 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: Stream-Bridge-CI-full-release-APK-not-production
@@ -245,7 +253,7 @@ jobs:
           if-no-files-found: error
 
       - name: Close resolved CI-failure issues
-        if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true) }}
+        if: ${{ success() && (env.CI_VERIFICATION_ONLY != 'true') }}
         uses: actions/github-script@v8
         with:
           script: |
@@ -280,7 +288,7 @@ jobs:
             core.info('Closed ' + closed + ' of ' + issues.length + ' open ci-failure issue(s).');
 
       - name: Report failure log as an issue
-        if: ${{ failure() && (github.event_name != 'workflow_dispatch' || inputs.upload_artifacts == true) }}
+        if: ${{ failure() && (env.CI_VERIFICATION_ONLY != 'true') }}
         uses: actions/github-script@v8
         with:
           script: |
@@ -384,9 +392,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          # No remote cache reads/writes for a verification-only manual run.
-          cache-disabled: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
-          cache-read-only: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_artifacts != true }}
+          # No remote cache reads/writes in verification-only mode.
+          cache-disabled: ${{ env.CI_VERIFICATION_ONLY == 'true' }}
+          cache-read-only: ${{ env.CI_VERIFICATION_ONLY == 'true' }}
           dependency-graph: disabled
           build-scan-publish: false
 

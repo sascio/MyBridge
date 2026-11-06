@@ -1,8 +1,8 @@
 name: Telegram release announcement
 
 # Official published releases only. No tag, release, asset, pin or build is
-# created or changed. Legacy ledger state blocks publishing until an explicitly
-# reviewed cutover; see docs/TELEGRAM-ANNOUNCEMENTS.md.
+# created or changed. Live delivery is default-off and requires an explicitly
+# reviewed activation and ledger cutover; see docs/TELEGRAM-ANNOUNCEMENTS.md.
 on:
   release:
     types: [published]
@@ -28,7 +28,7 @@ on:
         type: boolean
         default: true
       recover_unknown:
-        description: Explicitly replay unresolved operations with their original IDs after operator review
+        description: Recover an existing release plan with its original IDs after operator review
         required: false
         type: boolean
         default: false
@@ -148,6 +148,7 @@ jobs:
       release_id: ${{ steps.release.outputs.release_id }}
       dry_run: ${{ steps.release.outputs.dry_run }}
       skip: ${{ steps.release.outputs.skip }}
+      activated: ${{ steps.activation.outputs.enabled }}
     steps:
       - name: Check out the announcement tooling
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -158,6 +159,22 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+      - name: Check the reviewed publishing activation
+        id: activation
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          try:
+              import telegram_ledger
+              enabled = telegram_ledger.publishing_enabled()
+          except Exception:
+              enabled = False
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("enabled=" + ("true" if enabled else "false") + "\n")
+          if not enabled:
+              print("::notice::The reviewed publishing configuration is disabled or invalid.")
+          PY
       - name: Resolve the release to announce
         id: release
         env:
@@ -168,8 +185,19 @@ jobs:
           EVENT_RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
           INPUT_TAG: ${{ inputs.tag }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          RECOVER_INPUT: ${{ inputs.recover_unknown }}
+          PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
         run: |
           set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${DRY_RUN_INPUT}" == "false" &&
+                ( "${RECOVER_INPUT}" != "true" || -z "${INPUT_TAG//[[:space:]]/}" ) ]]; then
+            echo "::error::Live manual dispatch is recovery-only; select a release tag and recover_unknown=true."
+            exit 1
+          fi
+          if [[ "${PUBLISHING_ENABLED}" != "true" ]]; then
+            echo "::notice::Telegram publishing is not activated; no live delivery will run."
+            printf '### Telegram delivery\n\nPublishing is not activated; no live delivery will run.\n' >>"${GITHUB_STEP_SUMMARY}"
+          fi
           mkdir -p "${RUNNER_TEMP}/telegram"
           release_json="${RUNNER_TEMP}/telegram/release.json"
           if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${DRY_RUN_INPUT}" != "false" ]]; then
@@ -184,7 +212,8 @@ jobs:
             fi
             gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}" >"${release_json}"
           elif [[ -n "${INPUT_TAG}" ]]; then
-            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${INPUT_TAG}" >"${release_json}"
+            encoded_tag="$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["INPUT_TAG"], safe=""))')"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${encoded_tag}" >"${release_json}"
           else
             gh api "repos/${GITHUB_REPOSITORY}/releases/latest" >"${release_json}"
           fi
@@ -213,8 +242,11 @@ jobs:
     name: Deliver with durable bot-only MTProto state
     needs: announce
     if: >-
+      vars.TELEGRAM_PUBLISHING_ENABLED == 'true' && needs.announce.outputs.activated == 'true' &&
       needs.announce.outputs.skip != 'true' && needs.announce.outputs.dry_run == 'false' &&
-      (github.event_name != 'workflow_dispatch' || inputs.preflight != true)
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && inputs.preflight != true &&
+        inputs.recover_unknown == true && inputs.tag != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -250,6 +282,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
           LEDGER_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
           UPLOAD_INPUT: ${{ inputs.upload_assets }}

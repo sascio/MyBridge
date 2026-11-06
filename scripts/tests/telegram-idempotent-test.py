@@ -201,7 +201,8 @@ class DurableDeliveryTests(unittest.TestCase):
                                api_id=12345, api_hash=API_HASH, transport_factory=self.transport,
                                bot_lookup=lambda *_: (777, -1002000000001, CHAT),
                                sleeper=kwargs.pop("sleeper", lambda _: None),
-                               policy_check=kwargs.pop("policy_check", lambda: None), **kwargs)
+                               policy_check=kwargs.pop("policy_check", lambda: None),
+                               allow_new_release=kwargs.pop("allow_new_release", True), **kwargs)
 
     def item(self, index=0):
         return self.store.doc["releases"][0]["items"][index]
@@ -300,7 +301,7 @@ class DurableDeliveryTests(unittest.TestCase):
     def test_partial_asset_uploads_preserve_success_and_resume_only_remaining(self):
         release = sample_release(assets_count=2)
         self.server.fail_upload_number = 2
-        with self.assertRaises(ConnectionError):
+        with self.assertRaisesRegex(publish.PublishError, "document failed before public send"):
             self.run_publish(release)
         items = self.store.doc["releases"][0]["items"]
         self.assertEqual([i["state"] for i in items], ["confirmed", "confirmed", "uploading"])
@@ -312,6 +313,56 @@ class DurableDeliveryTests(unittest.TestCase):
         self.assertEqual(len(set(self.server.calls)), 3)
         self.assertTrue(all(i["state"] == "confirmed" for i in self.store.doc["releases"][0]["items"]))
         self.assertTrue(all(i["sha256"] for i in self.store.doc["releases"][0]["items"] if i["kind"] == "asset"))
+
+    def test_apk_and_ipa_continue_independently_after_a_pre_send_upload_failure(self):
+        base = sample_release(assets_count=2)
+        ipa = notes.Asset(**{**base.assets[1].__dict__, "name": "StreamBridge-ios.ipa",
+                             "url": "https://github.com/example/release/file-1.ipa"})
+        release = notes.Release(**{**base.__dict__, "assets": (base.assets[0], ipa)})
+        plans, _ = assets.plan_uploads(release)
+        self.assertEqual([plan.kind for plan in plans], ["android", "ios"])
+        self.server.fail_upload_number = 1
+        with self.assertRaisesRegex(publish.PublishError, "document failed before public send"):
+            self.run_publish(release)
+        items = self.store.doc["releases"][0]["items"]
+        self.assertEqual([item["state"] for item in items], ["confirmed", "uploading", "confirmed"])
+        original_ids = [item["random_id"] for item in items]
+        self.assertEqual(self.server.calls, [original_ids[0], original_ids[2]])  # IPA succeeded independently
+        self.server.fail_upload_number = None
+        self.run_publish(release, allow_new_release=False, recover_unknown=True)
+        self.assertEqual(self.server.calls, [original_ids[0], original_ids[2], original_ids[1]])
+        self.assertEqual(len(set(original_ids)), 3)
+        self.assertTrue(all(item["state"] == "confirmed" for item in self.store.doc["releases"][0]["items"]))
+
+    def test_download_failure_isolated_to_one_document_and_success_is_not_repeated(self):
+        base = sample_release(assets_count=2)
+        ipa = notes.Asset(**{**base.assets[1].__dict__, "name": "StreamBridge-ios.ipa"})
+        release = notes.Release(**{**base.__dict__, "assets": (base.assets[0], ipa)})
+        def first_unavailable(asset, destination, **kwargs):
+            if asset.id == 100:
+                raise assets.AssetError("unavailable")
+            return download_fake(asset, destination, **kwargs)
+        with mock.patch.object(assets, "download_asset", side_effect=first_unavailable):
+            with self.assertRaisesRegex(publish.PublishError, "document failed before public send"):
+                self.run_publish(release)
+        items = self.store.doc["releases"][0]["items"]
+        ids = [item["random_id"] for item in items]
+        self.assertEqual([item["state"] for item in items], ["confirmed", "planned", "confirmed"])
+        self.assertEqual(self.server.calls, [ids[0], ids[2]])
+        self.run_publish(release, allow_new_release=False, recover_unknown=True)
+        self.assertEqual(self.server.calls, [ids[0], ids[2], ids[1]])
+
+    def test_unknown_asset_send_still_stops_later_documents(self):
+        release = sample_release(assets_count=2)
+        self.server.errors = [None, RuntimeError("unrecognized send error")]
+        with self.assertRaisesRegex(publish.PublishError, "unresolved"):
+            self.run_publish(release)
+        items = self.store.doc["releases"][0]["items"]
+        self.assertEqual([item["state"] for item in items], ["confirmed", "unknown", "planned"])
+        self.assertEqual(len(self.server.calls), 2)
+        with self.assertRaisesRegex(publish.PublishError, "explicit same-ID recovery"):
+            self.run_publish(release)
+        self.assertEqual(len(self.server.calls), 2)
 
     def test_distinct_pages_and_assets_have_distinct_nonzero_ids_before_any_send(self):
         release = sample_release(assets_count=2, body="## New\n" + "\n".join("- " + ("abc " * 70) for _ in range(40)))
@@ -344,9 +395,16 @@ class DurableDeliveryTests(unittest.TestCase):
         release = sample_release(assets_count=1)
         self.run_publish(release, upload_assets=False)
         self.assertEqual([x["state"] for x in self.store.doc["releases"][0]["items"]], ["confirmed", "planned"])
-        self.run_publish(release)
+        self.run_publish(release, allow_new_release=False, recover_unknown=True)
         self.assertEqual(len(self.server.calls), 2)
         self.assertEqual(len(set(self.server.calls)), 2)
+
+    def test_manual_recovery_cannot_create_or_send_a_new_release(self):
+        with self.assertRaisesRegex(publish.PublishError, "already planned"):
+            self.run_publish(sample_release(), allow_new_release=False, recover_unknown=True)
+        self.assertEqual(self.store.history, [])
+        self.assertEqual(self.transport_objects, [])
+        self.assertEqual(self.server.calls, [])
 
     def test_changed_bot_or_channel_is_blocked_before_another_send(self):
         release = sample_release(assets_count=1)
@@ -354,7 +412,7 @@ class DurableDeliveryTests(unittest.TestCase):
         with self.assertRaisesRegex(publish.PublishError, "identity"):
             publish.publish(release, self.store, token=TOKEN + "changed", chat=CHAT, api_id=12345, api_hash=API_HASH,
                             transport_factory=self.transport, bot_lookup=lambda *_: (777, -1002000000001, CHAT),
-                            policy_check=lambda: None)
+                            policy_check=lambda: None, allow_new_release=True)
         self.assertEqual(len(self.server.calls), 1)
 
     def test_crash_stale_session_lock_blocks_even_with_recovery_flag(self):
@@ -470,7 +528,7 @@ class DurableDeliveryTests(unittest.TestCase):
     def test_replayed_asset_with_changed_bytes_is_not_sent(self):
         release = sample_release(assets_count=1)
         self.server.fail_upload_number = 1
-        with self.assertRaises(ConnectionError):
+        with self.assertRaises(publish.PublishError):
             self.run_publish(release)
         with mock.patch.object(assets, "download_asset", return_value=("ignored", "0" * 64)):
             with self.assertRaisesRegex(publish.PublishError, "SHA-256"):
@@ -644,6 +702,9 @@ class BranchPolicyAndContextTests(unittest.TestCase):
                              (b"non_fast_forward\ndeletion\n", 1)):
             with self.subTest(output=output, code=code), self.assertRaises(ledger.LedgerError):
                 ledger.require_branch_rules("sascio/MyBridge", "main", runner=runner(output, code))
+        with self.assertRaisesRegex(ledger.LedgerError, "PR requirement conflicts"):
+            ledger.require_branch_rules("sascio/MyBridge", "main",
+                                        runner=runner(b"non_fast_forward\ndeletion\npull_request\n"))
         def timeout(*_args, **_kwargs):
             raise subprocess.TimeoutExpired("secret-command", 60)
         with self.assertRaises(ledger.LedgerError) as caught:
@@ -667,7 +728,8 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         values = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
                   "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": API_HASH}
         capture = io.StringIO()
-        with mock.patch.object(publish, "require_workflow_context", return_value="sascio/MyBridge"), \
+        with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, None)), \
+             mock.patch.object(ledger, "publishing_not_before", return_value=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), \
              mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
              mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
              mock.patch.object(ledger, "GitLedger", return_value=MemoryStore()), \
@@ -679,29 +741,124 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         for secret in values.values():
             self.assertNotIn(secret, capture.getvalue())
 
+    def test_disabled_tracked_activation_blocks_before_secrets_or_ledger(self):
+        with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, None)), \
+             mock.patch.object(publish, "require_secret") as secrets_read, \
+             mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertIn("configuration is disabled", output.getvalue())
+            secrets_read.assert_not_called()
+            store.assert_not_called()
+
+    def test_queued_release_from_before_activation_fence_cannot_publish(self):
+        values = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+                  "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": API_HASH}
+        release = sample_release()  # created and published before this fence
+        fence = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "release"}), \
+             mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", release.id, None)), \
+             mock.patch.object(ledger, "publishing_not_before", return_value=fence), \
+             mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
+             mock.patch.object(publish.announce, "load_release", return_value=release), \
+             mock.patch.object(ledger, "GitLedger") as store, \
+             mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertIn("before the reviewed activation fence", output.getvalue())
+            store.assert_not_called()
+            publisher.assert_not_called()
+
+    def test_manual_cli_requires_recovery_flag_and_disallows_new_release_plan(self):
+        values = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+                  "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": API_HASH}
+        with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
+             mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", None, "v9.9.9")), \
+             mock.patch.object(ledger, "publishing_not_before", return_value=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), \
+             mock.patch.object(publish, "require_secret", side_effect=values.__getitem__) as secrets_read, \
+             mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
+             mock.patch.object(ledger, "GitLedger", return_value=MemoryStore()), \
+             mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            secrets_read.assert_not_called()
+            publisher.assert_not_called()
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--recover-unknown"]), 0)
+            self.assertFalse(publisher.call_args.kwargs["allow_new_release"])
+
+    def test_live_cli_rejects_release_or_tag_that_does_not_match_event(self):
+        values = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+                  "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": API_HASH}
+        for event_name, context, extra in (("release", ("sascio/MyBridge", 999, None), []),
+                                           ("workflow_dispatch", ("sascio/MyBridge", None, "v-other"), ["--recover-unknown"])):
+            with self.subTest(event=event_name), mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": event_name}), \
+                 mock.patch.object(publish, "require_workflow_context", return_value=context), \
+                 mock.patch.object(ledger, "publishing_not_before", return_value=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), \
+                 mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
+                 mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
+                 mock.patch.object(ledger, "GitLedger") as store, \
+                 mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", *extra]), 1)
+                store.assert_not_called()
+                publisher.assert_not_called()
+
     def test_live_cli_requires_exact_workflow_and_default_branch_for_dispatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             event = Path(tmp, "event.json")
-            event.write_text(json.dumps({"repository": {"full_name": "sascio/MyBridge", "default_branch": "main"}}))
+            payload = {"repository": {"full_name": "sascio/MyBridge", "default_branch": "main"},
+                       "action": "published", "release": {"id": 123},
+                       "inputs": {"preflight": "false", "dry_run": "false", "recover_unknown": "true", "tag": "v1"}}
+            event.write_text(json.dumps(payload))
             env = {"GITHUB_ACTIONS": "true", "GITHUB_RUN_ID": "101", "GH_TOKEN": "fake-gh-token",
+                   "TELEGRAM_PUBLISHING_ENABLED": "true",
                    "GITHUB_REPOSITORY": "sascio/MyBridge", "GITHUB_EVENT_NAME": "workflow_dispatch",
                    "GITHUB_WORKFLOW_REF": "sascio/MyBridge/.github/workflows/telegram-release-announcement.yml@refs/heads/main",
                    "GITHUB_EVENT_PATH": str(event), "GITHUB_REF": "refs/heads/main"}
             with mock.patch.dict(os.environ, env, clear=True):
-                self.assertEqual(publish.require_workflow_context("main"), "sascio/MyBridge")
+                self.assertEqual(publish.require_workflow_context("main"), ("sascio/MyBridge", None, "v1"))
                 for key, value in (("GITHUB_WORKFLOW_REF", "sascio/MyBridge/.github/workflows/other.yml@refs/heads/main"),
                                    ("GITHUB_REF", "refs/heads/old-branch"), ("GITHUB_EVENT_NAME", "push"),
-                                   ("GH_TOKEN", "")):
-                    with self.subTest(key=key), mock.patch.dict(os.environ, {key: value}):
+                                   ("GH_TOKEN", ""), ("TELEGRAM_PUBLISHING_ENABLED", ""),
+                                   ("TELEGRAM_PUBLISHING_ENABLED", "TRUE")):
+                    with self.subTest(key=key, value=value), mock.patch.dict(os.environ, {key: value}):
                         with self.assertRaises(publish.PublishError):
                             publish.require_workflow_context("main")
                 with self.assertRaises(publish.PublishError):
                     publish.require_workflow_context("untrusted-branch")
+                for field, value in (("preflight", "true"), ("dry_run", "true"),
+                                     ("recover_unknown", "false"), ("tag", ""), ("tag", "   ")):
+                    malformed = copy.deepcopy(payload)
+                    malformed["inputs"][field] = value
+                    event.write_text(json.dumps(malformed))
+                    with self.subTest(field=field), self.assertRaises(publish.PublishError):
+                        publish.require_workflow_context("main")
+                event.write_text(json.dumps(payload))
                 with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "release", "GITHUB_REF": "refs/tags/v1"}):
-                    self.assertEqual(publish.require_workflow_context("main"), "sascio/MyBridge")
+                    self.assertEqual(publish.require_workflow_context("main"), ("sascio/MyBridge", 123, None))
+                    for field, value in (("action", "created"), ("release", {"id": True}), ("release", {})):
+                        malformed = copy.deepcopy(payload)
+                        malformed[field] = value
+                        event.write_text(json.dumps(malformed))
+                        with self.subTest(field=field), self.assertRaises(publish.PublishError):
+                            publish.require_workflow_context("main")
 
 
 class LedgerValidationTests(unittest.TestCase):
+    def test_publishing_activation_is_default_off_and_malformed_values_fail_closed(self):
+        tracked = SCRIPTS.parent / ledger.PUBLISHING_CONFIG_PATH
+        self.assertEqual(json.loads(tracked.read_text()), {"enabled": False})
+        self.assertFalse(ledger.publishing_enabled(str(tracked)))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "activation.json")
+            self.assertFalse(ledger.publishing_enabled(str(path)))
+            for raw in (b'', b'{', b'null', b'{"enabled":false}', b'{"enabled":1}',
+                        b'{"enabled":"true"}', b'{"enabled":true}', b'{"enabled":true,"extra":0}',
+                        b'{"enabled":true,"not_before":"invalid"}',
+                        b'{"enabled":true,"not_before":"2999-01-01T00:00:00Z"}',
+                        b'{"enabled":false,"enabled":true}', b'\xff'):
+                path.write_bytes(raw)
+                with self.subTest(raw=raw):
+                    self.assertFalse(ledger.publishing_enabled(str(path)))
+            path.write_text('{"enabled":true,"not_before":"2000-01-01T00:00:00Z"}', encoding="utf-8")
+            self.assertTrue(ledger.publishing_enabled(str(path)))
+
     def test_offline_guard_blocks_external_dns_and_tcp(self):
         import socket
         with self.assertRaisesRegex(OSError, "blocked"):
@@ -763,6 +920,32 @@ class LedgerValidationTests(unittest.TestCase):
             self.assertEqual(output.read_bytes(), preserved_output)
         self.assertEqual(source.read_bytes(), before)
 
+    def test_schema_three_cannot_overlap_preserved_legacy_id_or_tag(self):
+        release = sample_release()
+        operations = [{"key": "page:1", "kind": "page", "payload": "a" * 64}]
+        for legacy_entry in ({"release_id": release.id, "tag_name": "v-old"},
+                             {"release_id": 999, "tag_name": release.tag_name}):
+            doc = ledger.migrate({"schema": 1, "releases": [legacy_entry]},
+                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)))
+            doc["releases"] = [publish.make_release(release, operations, set())]
+            with self.subTest(legacy_entry=legacy_entry), self.assertRaisesRegex(ledger.LedgerError, "overlaps"):
+                ledger.validate(doc)
+
+    def test_schema_three_cannot_confirm_a_preserved_legacy_message_id(self):
+        release = sample_release()
+        legacy_entry = {"release_id": 999, "tag_name": "v-old", "message_ids": [10],
+                        "assets": [{"name": "old.apk", "message_id": 11}]}
+        for message_id in (10, 11):
+            doc = ledger.migrate({"schema": 1, "releases": [legacy_entry]},
+                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)))
+            operation = {"key": "page:1", "kind": "page", "payload": "a" * 64}
+            entry = publish.make_release(release, [operation], set())
+            entry["items"][0].update(state="confirmed", message_id=message_id, attempts=1)
+            doc["identity"] = "b" * 64
+            doc["releases"] = [entry]
+            with self.subTest(message_id=message_id), self.assertRaisesRegex(ledger.LedgerError, "repeated message id"):
+                ledger.validate(doc)
+
     def test_modified_frozen_plan_is_rejected(self):
         doc = migrated()
         entry = publish.make_release(sample_release(), [{"key": "page:1", "kind": "page", "payload": "a" * 64}], set())
@@ -803,18 +986,19 @@ class LedgerValidationTests(unittest.TestCase):
             with self.subTest(planned=planned), self.assertRaises(ledger.LedgerError):
                 ledger.validate(doc)
 
-    def test_later_asset_cannot_be_attempted_after_an_unfinished_asset(self):
+    def test_independent_asset_states_remain_valid_when_an_earlier_file_is_unfinished(self):
         doc = migrated()
         entry = publish.make_release(sample_release(), [
             {"key": "page:1", "kind": "page", "payload": "a" * 64},
             {"key": "asset:1", "kind": "asset", "payload": "b" * 64},
             {"key": "asset:2", "kind": "asset", "payload": "c" * 64}], set())
         entry["items"][0].update(state="confirmed", attempts=1, message_id=77)
-        entry["items"][2].update(state="sending", attempts=1, sha256="d" * 64)
+        entry["items"][2].update(state="confirmed", attempts=1, sha256="d" * 64, message_id=78)
         doc["identity"] = "e" * 64
         doc["releases"] = [entry]
-        with self.assertRaisesRegex(ledger.LedgerError, "assets are out of order"):
-            ledger.validate(doc)
+        ledger.validate(doc)
+        entry["items"][1].update(state="sending", attempts=1, sha256="f" * 64)
+        ledger.validate(doc)  # recovering the earlier file does not invalidate the later confirmation
 
     def test_redacted_inspection_distinguishes_sent_unsent_and_unknown(self):
         doc = migrated()
@@ -960,7 +1144,7 @@ class RealGitLedgerTests(unittest.TestCase):
             try:
                 publish.publish(release, store, token=TOKEN, chat=CHAT, api_id=12345, api_hash=API_HASH,
                                 transport_factory=lambda *_: Transport(), bot_lookup=lambda *_: (777, -1002000000001, CHAT),
-                                sleeper=lambda _: None, policy_check=lambda: None)
+                                sleeper=lambda _: None, policy_check=lambda: None, allow_new_release=True)
                 outcomes.append("success")
             except Exception as exc:
                 outcomes.append(type(exc).__name__)
@@ -998,7 +1182,7 @@ class RealGitLedgerTests(unittest.TestCase):
             publish.publish(release, self.store, token=TOKEN, chat=CHAT, api_id=12345, api_hash=API_HASH,
                             transport_factory=lambda *_: CrashingTransport(),
                             bot_lookup=lambda *_: (777, -1002000000001, CHAT),
-                            sleeper=lambda _: None, policy_check=lambda: None)
+                            sleeper=lambda _: None, policy_check=lambda: None, allow_new_release=True)
 
         process = multiprocessing.get_context("fork").Process(target=child)
         process.start()
@@ -1016,7 +1200,8 @@ class RealGitLedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(publish.PublishError, "session"):
             publish.publish(release, self.store, token=TOKEN, chat=CHAT, api_id=12345, api_hash=API_HASH,
                             recover_unknown=True, transport_factory=lambda *_: self.fail("must not log in"),
-                            bot_lookup=lambda *_: self.fail("must not contact Bot API"), policy_check=lambda: None)
+                            bot_lookup=lambda *_: self.fail("must not contact Bot API"),
+                            policy_check=lambda: None, allow_new_release=False)
         self.assertEqual(self.store.read().document, snapshot.document)
 
 @unittest.skipUnless(telethon is not None, "Telethon is required for raw RPC/part tests")

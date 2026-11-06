@@ -8,12 +8,19 @@ IPA are sent as individual documents, after the text pages. Drafts and
 pre-releases are not announced. The workflow does not pin, create/edit releases,
 change tags or invoke Android/iOS builds.
 
-> **Deployment is deliberately blocked.** The tracked
-> `.github/telegram-releases.json` is the original schema-1 ledger, not proof of
-> an empty channel. This code refuses to publish until a maintainer has completed
-> the audited cutover below. Releases created on or before that cutover are
-> blocked, not backfilled. Do not merge/deploy on the assumption that an empty
-> file means StreamBridge has never posted to the channel.
+> **Deployment is blocked, not merely awaiting a switch.** The tracked ledger
+> is still the original schema-1 file and is not proof of an empty channel. The
+> new workflow is default-off through both a reviewed configuration file and a
+> repository variable. The existing `main` branch rules require a PR with no
+> bypass, so this implementation's direct ledger pushes are **incompatible**
+> and its guard refuses to publish. Do not weaken those rules. A compliant durable
+> state implementation must be designed and verified before activation.
+>
+> The legacy workflow on `main` was manually disabled during the 2026-11-06
+> audit. The new gates do not exist in that legacy code: do **not** re-enable it
+> before the reviewed replacement is merged. Merging the replacement alone does
+> not publish or replay releases; releases created or published at/before the
+> eventual cutoff are blocked.
 
 ## Credentials and permission boundaries
 
@@ -45,39 +52,65 @@ into issues, PRs, logs or the ledger.
 
 ### Repository security audit and required controls
 
-The read-only audit on **2026-11-05** found `main` reported as
-`protected: false` and the effective branch-rules endpoint returned an empty
-list. The detailed classic branch-protection, Actions-permission, runner and
-secret-metadata endpoints returned **403**, so this audit could not determine
-whether secrets exist, which actors can bypass protections, or whether a future
-protected-branch ledger push will be permitted. The API reported the current
-integration had admin/maintain/push access; that is not proof of exclusive
-writes or secure settings. A search of the current tracked workflows found the
-Telegram secret names only in the preflight and live steps of this workflow;
-that cannot audit old refs, other repositories, manual tools or who can access
-the secrets. No settings or secrets were changed.
+The **2026-11-06** read-only audit found active `main` ruleset `26662733`:
+non-fast-forward pushes and deletion are prohibited; a PR, one approval, review
+thread resolution and approval for unattributed changes are required. Stale-review
+dismissal, code-owner review and last-push approval are not required. The
+ruleset response explicitly returned `bypass_actors: []`, and its effective
+rules reported no required status checks. PR #266 had no reviews and was blocked
+on approval. A separate classic branch-protection endpoint, repository Actions
+permissions, runner and secret metadata, and the publishing-variable endpoint
+returned **403**. An administrator must verify those inaccessible settings; an
+empty visible ruleset bypass list is not evidence about separate controls or all
+writers. Recheck all settings before using this runbook.
 
-**Live publishing is blocked by these findings.** An administrator must arrange
-active GitHub rulesets for the default branch that prohibit non-fast-forward
-updates (`non_fast_forward`) and deletion (`deletion`), audit all bypass actors,
-and ensure unreviewed humans, workflows and external integrations cannot
-replace or modify the ledger or run another publisher. An ordinary
-fast-forward commit can still rewrite the ledger: no-force alone is insufficient.
-Protect the workflow, scripts, bot secrets and configuration from unreviewed
-changes too. Verify that the live Actions token can write the exact-parent ledger
-commit *under the resulting policy*; required PR reviews or other protections
-may block it. Do not remove or weaken a control just to permit automation.
+**The current ledger architecture cannot operate under that policy.** The
+publisher commits directly to the default branch, but the visible PR rule has
+no bypass. Its guard now deliberately rejects any active PR-only rule and the
+live guard was verified to stop against the actual metadata before Telegram
+access. No production push was attempted. Do not grant a bypass, remove review,
+allow force pushes or weaken protection merely to make it run. Implement and
+review a durable state mechanism whose allowed writes comply with the policy,
+while preserving atomic compare-and-swap, no rollback/deletion, exclusive writer,
+session fencing and durable ID invariants. Demonstrate that design under the
+actual permissions and rerun its concurrency/crash/recovery tests before
+activation. This PR does not yet provide that mechanism.
 
-The publisher checks the active ruleset types through GitHub's metadata API
-before preparing a delivery, each public attempt, and each file-part upload; an
-unavailable API or missing rule fails closed. It also restricts live CLI use to
-the named workflow and the repository's default-branch ledger; live manual
-dispatch must select that branch. These checks are necessary but **not sufficient**:
-metadata visibility does not prove that bypasses, other fast-forward writers,
-old workflow definitions, secret access or ruleset changes are controlled, and
-the check cannot eliminate a change between verification and a request. An
-administrator must audit and continuously enforce those controls. Restoring a
-rule after a rollback does not prove the ledger was never tampered with.
+The publisher also requires visible non-fast-forward/deletion rules and restricts
+live CLI use to the designated workflow, default-branch ledger and a matching
+published-release event or explicitly tagged recovery dispatch. Missing or
+unavailable metadata fails closed. These checks are necessary but **not
+sufficient**: they do not prove exclusive writers, safe fast-forward changes,
+secret access, historical refs, external publishers or resistance to ruleset
+changes between a check and a request. An administrator must continuously audit
+and enforce those controls. Restoring a rule after a rollback does not prove the
+ledger was never tampered with. The visible required-check list is empty; a
+maintainer must select and enforce appropriate eligible PR checks, and verify
+classic protection separately rather than treating a manual CI run as a gate.
+
+## Default-off activation gates
+
+Both of these independently must be true before live delivery can run:
+
+- `.github/telegram-publishing.json` must be a valid, duplicate-free reviewed
+  object with exactly `enabled: true` and a UTC `not_before` timestamp, e.g.
+  `{"enabled":true,"not_before":"2027-01-01T00:00:00Z"}`. Live delivery stays
+  off until that timestamp passes, and a release event cannot initialize a plan
+  if the release was created or published at/before it. The file is tracked as
+  `{"enabled": false}` in this change; missing or malformed config fails
+  closed. A future activation PR must deliberately update the regression test
+  that currently asserts the tracked value is false.
+- The repository Actions variable `TELEGRAM_PUBLISHING_ENABLED` must be exactly
+  the lowercase string `true`. Missing or any other value is off. The audit's
+  variable read returned 403, so its current value is **unknown**; the tracked
+  false gate still prevents publishing in the new workflow.
+
+The workflow checks both before the live job; the CLI checks both again. They
+are independent of the release-age fence and schema-3 migration and do not
+remove the branch-policy blocker. The preflight and dry render stay read-only
+when activation is off. Merging this code or changing a gate is not a release
+trigger and never initiates a backfill. No old workflow may be re-enabled during
+this cutover.
 
 ## Read-only preflight and manual dispatch
 
@@ -99,12 +132,15 @@ can check a **known** returned message ID; it is not a channel history search.
 No preflight is run merely by merging this code.
 
 With preflight off, manual dispatch resolves the selected `tag` or latest
-published release and renders by default. Live delivery requires the separate,
-explicit `dry_run: false` choice. `upload_assets: false` skips documents for
-that run only; a later authorized run can deliver them without reposting text.
-`recover_unknown: true` has no publishing effect unless `dry_run` is also
-explicitly false. The `release: published` trigger operates only for
-non-draft/non-prerelease releases and uses the GitHub API release object.
+published release and renders by default. A **live** manual dispatch must select
+the default branch, specify a nonempty exact tag, set `dry_run: false` and
+`recover_unknown: true`, and refer to an existing frozen release plan. It cannot
+create a new plan or replay an old release by choosing `latest`. The CLI binds
+that tag to the fetched release. Initial plans are permitted only for an actual
+`release: published` event, bound to its release ID, and non-draft,
+non-prerelease API release data. Both activation gates and the ledger age fence
+also apply. `upload_assets: false` skips documents for that run only; a later
+properly authorized recovery may deliver them without reposting confirmed text.
 
 ## Durable delivery protocol
 
@@ -150,8 +186,14 @@ non-draft/non-prerelease releases and uses the GitHub API release object.
    `uploading` operation can download/verify and upload the parts again; after
    `sending` begins, recovery must reuse the original `random_id`. Telegram
    retains parts only minutes to hours, so an expired handle may require another
-   part upload. Each document is independent: albums/grouped media are
-   intentionally unsupported, because atomic group recovery was not established.
+   part upload. APK and IPA documents have separate IDs, states and confirmations;
+   albums/grouped media are unsupported because atomic group recovery was not
+   established. Processing is sequential, but an asset-specific download or
+   temporary-part I/O failure before a public send does not prevent other assets
+   from being attempted; the run still fails and preserves each state. A failed
+   page, ambiguous public send, policy/ledger failure, changed frozen bytes or
+   unresolved recovery stops later sends. Confirmed documents are not resent
+   during reviewed recovery; this is not unrestricted failure independence.
 
 The code freezes selected asset IDs, names, sizes, URLs, captions, MIME type and
 available published hashes, as well as parsed text, formatting and buttons. A
@@ -196,23 +238,30 @@ recording. None of this proves that channel posts or unrecorded legacy sends do
 not exist. The local checkout may be shallow and is not a complete history audit.
 Before enabling live publishing, maintainers must:
 
-1. Inventory past channel posts, release IDs **and tags**, including deleted or
+1. Keep the legacy workflow **disabled**, verify there are no queued/running
+   legacy executions, and keep both new activation gates off. Review and merge
+   the replacement only through the normal PR controls. Merging is not a release
+   trigger; verify the workflow remains disabled after any merge rather than
+   assuming its state. Obtain required approval and an eligible passing PR check;
+   an administrator must inspect the inaccessible settings and the empty visible
+   required-check list. This PR is safe to review in a disabled state, not ready
+   to activate.
+2. Inventory past channel posts, release IDs **and tags**, including deleted or
    unrecorded releases, through an authorized human review. No bot-only API
    provides a complete history proof. Ensure other bots, scripts and old
    workflows cannot publish with this identity, including manual dispatches of
    historical refs containing older workflow definitions. Restrict access to
    the bot secrets as needed; dispatch only the reviewed default-branch version.
    Verify no prior bot MTProto session is active, or stop; do not add a personal
-   account to work around it.
-2. Apply and verify the active no-force/no-delete rules, bypass and writer
-   controls described above, and that the Actions token can make exact-parent
-   ledger commits under the resulting policy. There must be no concurrent legacy
-   publisher during migration or between migration and the cutover. Establish an operational rule that old or
-   previously announced tags will **never** be reused for new releases; a new
-   GitHub release ID/creation timestamp alone cannot prove a tag was never
-   announced. If that rule or the exclusive-writer assumptions cannot be
-   established, leave publishing disabled.
-3. On an operator-reviewed change, prepare a new file from the complete current
+   account to work around it. Never reuse old or previously announced tags; a
+   new release ID or creation timestamp does not prove a tag was never posted.
+3. Resolve the **blocking** PR-rule/direct-push architecture conflict described
+   above without weakening protection, and verify no-force/no-delete, all bypass
+   actors, exclusive writers, workflow permissions and state-write capability
+   under the resulting design. No concurrent legacy publisher may run during or
+   after migration. If any condition cannot be established, stop with both gates
+   off and the workflow disabled.
+4. On an operator-reviewed change, prepare a new file from the complete current
    schema-1/legacy-schema-2 ledger. Choose an explicit UTC cutoff at least one
    hour in the future, with time to deploy before it. This command is **local
    preparation only**; it neither contacts Telegram nor pushes anything:
@@ -229,14 +278,34 @@ Before enabling live publishing, maintainers must:
    already exist. Review the preserved legacy snapshot, its checksum and any
    sensitive data before proposing it as `.github/telegram-releases.json` in the
    normal reviewed deployment process. Do not reset or discard legacy entries.
-4. Deploy the new workflow and reviewed schema-3 ledger to the default branch
-   **before** the cutoff, with all old publishers disabled. Only releases both
-   created and published strictly after the cutoff are eligible; an older draft
-   published later is still blocked. Same-tag or same-ID legacy entries block.
-   If deployment misses the cutoff, prepare a new future cutoff before enabling.
+5. Deploy the reviewed schema-3 ledger and policy-compatible publisher to the
+   default branch **before** the cutoff, with the workflow disabled and both
+   activation gates still off. The snapshot is preserved; same-tag or same-ID
+   legacy entries and reuse of a recorded legacy message ID block, including on
+   later validation. If deployment misses the
+   cutoff, prepare and review a new future cutoff rather than enabling.
+6. Only after all blockers are resolved and the replacement is verified on the
+   default branch, choose a reviewed `not_before` UTC time far enough in the
+   future for the remaining steps. While the workflow is disabled and the tracked
+   config is false, have an authorized maintainer deliberately set the variable
+   to `true`. Submit a separate reviewed PR setting `enabled: true` and that
+   future `not_before`, and update its default-off regression test. Verify both
+   gates and the actual replacement code, then explicitly enable **the new
+   workflow**, not the legacy definition. Complete all these steps **before**
+   `not_before`. If the time is missed, leave the workflow disabled and review a
+   new future fence before enabling. This ordering is required because the CLI
+   cannot independently prove when a repository variable was changed. Do not
+   dispatch a live manual initialization; it is forbidden by the code.
+7. Wait until both the migration cutoff and `not_before` have passed, then
+   deliberately create and publish a new, never-announced tag/release. Both its
+   creation and publication must be strictly after both fences; an older draft
+   published later is blocked. That future `release: published` event is the
+   only way to create its initial plan. A queued pre-fence event cannot create a
+   plan, and historical releases or old tags are not replayed automatically.
 
 This human attestation and tag-reuse rule are operational prerequisites, not
-facts the bot can prove. Do not activate automatically based on a blank ledger.
+facts the bot can prove. Do not activate automatically based on a blank ledger;
+if the old workflow definition is still on `main`, do not enable it.
 
 ## Recovery and monitoring
 
@@ -341,13 +410,23 @@ separate local Git clones and a simulated accepted-send process killed with
 and local Git tests do **not** prove live Telegram behavior, server compatibility
 or GitHub branch permissions.
 
-For a current-head GitHub run without publishing files, manually dispatch
-**Build Stream Bridge** on the exact PR branch with `upload_artifacts: false`.
-This runs the Android unit tests, debug/release assemblies, lint, distribution
-checks, tracking-config checks and script tests, while skipping CI artifact
-uploads and CI-failure issue creation/closure. Gradle action caching is disabled
-for this mode; dependency graph submission and build-scan publication are also
-disabled. Normal push/PR runs and manual dispatches explicitly opting in retain
-their normal artifact/issue behavior. GitHub Actions still records job logs and
-summaries and downloads dependencies; never place credentials in those outputs.
-This verification run is not the release or Telegram workflow.
+For a current-head GitHub run without publishing files, dispatch **Build Stream
+Bridge** on the exact PR branch with `upload_artifacts: false`, or opt a
+`pull_request` run into the same mode by including the literal HTML comment
+`<!-- ci:no-upload -->` in the PR body. A push can opt in by including
+`[ci no-upload]` in its commit message. These are verification-only controls,
+not `[skip ci]`: all tests still run. Without the markers, normal push/PR runs
+retain their prior artifact/issue behavior; a manual dispatch can explicitly opt
+in to uploads. This mode runs the Android unit tests, debug and **debug-signed,
+non-production** release assemblies, lint, distribution checks, tracking-config
+checks and script tests, while skipping CI artifact uploads, Gradle cache use and
+CI-failure issue creation/closure. Dependency graph submission and build-scan
+publication are disabled. GitHub still records logs and summaries and downloads
+dependencies; the Android job retains `issues: write` even when its issue steps
+are skipped. Never put credentials in outputs.
+
+GitHub does **not** evaluate `workflow_dispatch` job checks as required checks
+for a PR, even when the exact head passes. Use a PR-triggered run for an eligible
+PR check and have an administrator configure the desired required checks; an
+empty rollup/list is not a CI gate. These verification runs are not production
+release workflows or the Telegram workflow.

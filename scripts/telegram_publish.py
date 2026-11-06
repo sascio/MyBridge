@@ -48,8 +48,8 @@ def require_secret(name: str) -> str:
     return value
 
 
-def require_workflow_context(branch: str) -> str:
-    """Reject other workflows, non-default manual refs and non-authoritative ledgers."""
+def require_workflow_context(branch: str) -> tuple[str, int | None, str | None]:
+    """Require the designated workflow, activation and a bound release/recovery event."""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
     workflow_path = os.environ.get("GITHUB_WORKFLOW_REF", "").split("@", 1)[0]
@@ -58,6 +58,8 @@ def require_workflow_context(branch: str) -> str:
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
             or workflow_path != f"{repo}/.github/workflows/telegram-release-announcement.yml"):
         raise PublishError("Live publishing is restricted to the serialized GitHub Actions workflow.")
+    if os.environ.get("TELEGRAM_PUBLISHING_ENABLED") != "true":
+        raise PublishError("Live publishing has not been explicitly activated.")
     try:
         with open(os.environ.get("GITHUB_EVENT_PATH", ""), encoding="utf-8") as handle:
             event = json.load(handle)
@@ -66,9 +68,24 @@ def require_workflow_context(branch: str) -> str:
             raise ValueError("mismatched repository")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise PublishError("The Actions event does not identify the authoritative default branch.") from exc
-    if event_name == "workflow_dispatch" and os.environ.get("GITHUB_REF") != f"refs/heads/{branch}":
-        raise PublishError("Live manual delivery must use the reviewed default-branch workflow ref.")
-    return repo
+    if event_name == "workflow_dispatch":
+        if os.environ.get("GITHUB_REF") != f"refs/heads/{branch}":
+            raise PublishError("Live manual delivery must use the reviewed default-branch workflow ref.")
+        inputs = event.get("inputs")
+        if not isinstance(inputs, dict):
+            raise PublishError("Live manual dispatch requires explicit recovery and a release tag.")
+        preflight, dry_run, recovery = (inputs.get("preflight"), inputs.get("dry_run"), inputs.get("recover_unknown"))
+        if (not (preflight is None or preflight is False or preflight == "false")
+                or not (dry_run is False or dry_run == "false")
+                or not (recovery is True or recovery == "true")
+                or not isinstance(inputs.get("tag"), str) or not inputs["tag"].strip()):
+            raise PublishError("Live manual dispatch requires explicit recovery and a release tag.")
+        return repo, None, inputs["tag"]
+    release = event.get("release")
+    if (event.get("action") != "published" or not isinstance(release, dict)
+            or type(release.get("id")) is not int or release["id"] <= 0):
+        raise PublishError("Initial delivery requires a published-release event with a valid release ID.")
+    return repo, release["id"], None
 
 
 def bot_details(token: str, chat: str) -> tuple[int, int, str]:
@@ -264,7 +281,7 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             upload_assets: bool = True, recover_unknown: bool = False,
             transport_factory: Callable = mtproto.BotTransport, bot_lookup: Callable = bot_details,
             sleeper: Callable[[float], None] = time.sleep,
-            policy_check: Callable[[], None]) -> None:
+            policy_check: Callable[[], None], allow_new_release: bool) -> None:
     if release.draft or release.prerelease:
         announce.notice("Draft and pre-release announcements are disabled; nothing was published.")
         return
@@ -290,6 +307,8 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
         raise PublishError("A previous bot session is not confirmed revoked; audited operator recovery is required.")
     entry = stored_release(document, release.id)
     if entry is None:
+        if not allow_new_release:
+            raise PublishError("Manual recovery requires a release already planned by a published-release event.")
         legacy_entries = [e for e in document["legacy"]["releases"] if isinstance(e, dict)]
         if (any(e.get("tag_name") == release.tag_name or e.get("release_id") == release.id for e in legacy_entries)
                 or any(e["tag"] == release.tag_name for e in document["releases"])):
@@ -324,6 +343,7 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             store.save(current, bound)
         transport = transport_factory(api_id, api_hash, token, channel_ref, bot_id, channel_id)
         transport.connect()
+        asset_failures = 0
         for op in operations:
             if op["kind"] == "asset" and not upload_assets:
                 continue
@@ -345,7 +365,14 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
                 with tempfile.TemporaryDirectory(prefix="telegram-release-asset-") as tmp:
                     path = os.path.join(tmp, plan.filename)
                     # The downloader verifies byte count and published digests when present.
-                    path, actual_sha = assets.download_asset(plan.asset, path, checksums=checksums, sleeper=sleeper)
+                    try:
+                        path, actual_sha = assets.download_asset(plan.asset, path, checksums=checksums, sleeper=sleeper)
+                    except assets.AssetError as exc:
+                        if item["state"] in {"sending", "unknown"}:
+                            raise PublishError("An unresolved asset cannot be verified for recovery; later sends are blocked.") from exc
+                        asset_failures += 1
+                        announce.warning("A document failed download or verification before public send; checking other documents independently.")
+                        continue
                     if actual_sha is None or (item["sha256"] is not None and item["sha256"] != actual_sha):
                         raise PublishError("Downloaded asset differs from its frozen SHA-256.")
                     if item["state"] in {"planned", "uploading"}:
@@ -354,7 +381,14 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
                     # Parts are temporary and not public messages; a failed upload
                     # can be restarted, but never changes the final send ID.
                     policy_check()
-                    media = transport.prepare_document(path, plan.filename)
+                    try:
+                        media = transport.prepare_document(path, plan.filename)
+                    except (ConnectionError, TimeoutError, OSError) as exc:
+                        if item["state"] in {"sending", "unknown"}:
+                            raise PublishError("An unresolved asset's parts could not be prepared; later sends are blocked.") from exc
+                        asset_failures += 1
+                        announce.warning("A document's temporary parts failed before public send; checking other documents independently.")
+                        continue
                     request = transport.media_request(media, plan.caption, item["random_id"])
                     message_id = deliver(store, owner, release.id, plan_hash, item, binding, transport, request,
                                          filename=plan.filename, size=plan.asset.size, sleeper=sleeper,
@@ -362,6 +396,8 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             announce.log(f"Confirmed {op['key']} as Telegram message {message_id}; durable ledger updated.")
             if op["kind"] == "page" and op is not operations[-1]:
                 sleeper(announce.PAGE_INTERVAL)
+        if asset_failures:
+            raise PublishError("At least one document failed before public send; confirmed documents remain recorded for recovery.")
     except Exception as exc:
         failure = exc
     finally:
@@ -391,16 +427,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--recover-unknown", action="store_true")
     args = parser.parse_args(argv)
     try:
-        repository = require_workflow_context(args.branch)
+        repository, event_release_id, manual_tag = require_workflow_context(args.branch)
+        not_before = ledger.publishing_not_before()
+        if not_before is None or dt.datetime.now(dt.timezone.utc) <= not_before:
+            raise PublishError("The reviewed publishing configuration is disabled, invalid or not yet effective.")
+        is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+        if is_manual and not args.recover_unknown:
+            raise PublishError("Live manual dispatch is recovery-only.")
         token, chat = require_secret("TELEGRAM_BOT_TOKEN"), require_secret("TELEGRAM_CHAT_ID")
         api_id_text, api_hash = require_secret("TELEGRAM_API_ID"), require_secret("TELEGRAM_API_HASH")
         if not api_id_text.isdigit() or int(api_id_text) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
             raise PublishError("MTProto API credentials are malformed.")
         release = announce.load_release(args.release_json)
+        if ((event_release_id is not None and release.id != event_release_id)
+                or (manual_tag is not None and release.tag_name != manual_tag)):
+            raise PublishError("The resolved release does not match the triggering event or recovery tag.")
+        if (not is_manual and (ledger.timestamp(release.created_at) <= not_before
+                               or ledger.timestamp(release.published_at) <= not_before)):
+            raise PublishError("The release was created or published before the reviewed activation fence.")
         store = ledger.GitLedger(os.getcwd(), args.branch)
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
                 upload_assets=not args.no_upload_assets, recover_unknown=args.recover_unknown,
-                policy_check=lambda: ledger.require_branch_rules(repository, args.branch))
+                policy_check=lambda: ledger.require_branch_rules(repository, args.branch),
+                allow_new_release=not is_manual)
     except Exception as exc:  # no raw exception strings, tracebacks or credential material
         if isinstance(exc, (PublishError, ledger.LedgerError, announce.AnnouncementError)):
             announce.error(str(exc))
