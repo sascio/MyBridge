@@ -17,11 +17,12 @@ change tags or invoke Android/iOS builds.
 > state implementation must be designed and verified before activation.
 >
 > The legacy workflow on `main` was manually disabled during the 2026-11-06
-> audit. The new gates do not exist in that legacy code: do **not** re-enable it
-> before the reviewed replacement is merged. Merging the replacement alone does
-> not publish or replay releases. Cutover requires a complete historical
-> release/tag inventory and release freeze: GitHub's `created_at` field alone
-> does not prove when a release draft was created.
+> audit. It retains its original path and must **never** be re-enabled: old refs
+> can contain the unsafe definition. The replacement uses a different workflow
+> path/identity and its tracked configuration is false. Merging alone does not
+> publish or replay releases. Cutover requires a complete historical release/tag
+> inventory and release freeze: GitHub's `created_at` field alone does not prove
+> when a release draft was created.
 
 ## Credentials and permission boundaries
 
@@ -233,9 +234,24 @@ push workflows; the ledger commit also contains `[skip ci]` as a precaution.
 
 ## Audited legacy cutover (maintainer action; not performed by this change)
 
-The release-event workflow must be on the repository's **default branch** to run
-for future events. Older release events are not backfilled. The read-only audit
-found one visible `main` history entry for the tracked ledger, commit
+GitHub resolves a [`release` event's workflow definition from the tagged
+commit](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows),
+not merely from the current default branch. The replacement lives at
+`.github/workflows/telegram-release-delivery.yml`; the original
+`.github/workflows/telegram-release-announcement.yml` is a retired stub and its
+existing workflow ID `407947021` must stay `disabled_manually`, including for
+historical refs. After a merge, verify that GitHub registers the replacement as
+**a distinct workflow ID**; do not enable the old ID to activate it. A new
+release tag must point to a trusted commit containing the reviewed replacement
+workflow. Checking out default-branch scripts inside that workflow does not
+protect an unsafe workflow definition selected from another ref. Control who
+can create tags, releases and workflow refs, and audit historical definitions.
+The 2026-11-06 read-only spot-check returned 404 for the old workflow path on
+all 21 then-visible tags; it did not cover deleted tags, branches or other refs,
+and is not proof that no historical unsafe definition can run.
+
+Older release events are not backfilled. The read-only audit found one visible
+`main` history entry for the tracked ledger, commit
 `1924ddcd427a95327a1c02518272f65a09363cab`; the current blob
 `e195b31c3371b777cb995f67e38e5b3936157e56` is schema 1 with zero records.
 Visible historical workflow run `42004825171` skipped asset delivery and ledger
@@ -243,14 +259,15 @@ recording. None of this proves that channel posts or unrecorded legacy sends do
 not exist. The local checkout may be shallow and is not a complete history audit.
 Before enabling live publishing, maintainers must:
 
-1. Keep the legacy workflow **disabled**, verify there are no queued/running
+1. Keep the legacy workflow ID **disabled**, verify there are no queued/running
    legacy executions, and keep both new activation gates off. Review and merge
    the replacement only through the normal PR controls. Merging is not a release
-   trigger; verify the workflow remains disabled after any merge rather than
-   assuming its state. Obtain required approval and an eligible passing PR check;
-   an administrator must inspect the inaccessible settings and the empty visible
-   required-check list. This PR is safe to review in a disabled state, not ready
-   to activate.
+   trigger; afterwards verify the original ID is still disabled and the new path
+   has a distinct ID. Do not assume either workflow's state after a merge; the
+   new path may be registered as active but its two default-off gates still apply.
+   Obtain required approval and an eligible passing PR check; an administrator
+   must inspect inaccessible settings and the empty visible required-check list.
+   This PR is safe to review in a disabled state, not ready to activate.
 2. Freeze release creation, publication, deletion and tag changes from inventory
    through activation; otherwise the snapshot can miss an old draft/tag. Under
    that freeze, inventory **all** accessible release IDs, including drafts, and
@@ -325,19 +342,21 @@ Before enabling live publishing, maintainers must:
    review a new future cutoff rather than enabling.
 6. Only after all blockers are resolved and the replacement is verified on the
    default branch, choose a reviewed `not_before` UTC time far enough in the
-   future for the remaining steps. While the workflow is disabled and the tracked
-   config is false, have an authorized maintainer deliberately set the variable
-   to `true`. Submit a separate reviewed PR setting `enabled: true` and that
-   future `not_before`, and update its default-off regression test. Verify both
-   gates and the actual replacement code, then explicitly enable **the new
-   workflow**, not the legacy definition. Complete all these steps **before**
-   `not_before`. If the time is missed, leave the workflow disabled and review a
-   new future fence before enabling. This ordering is required because the CLI
-   cannot independently prove when a repository variable was changed. Do not
-   dispatch a live manual initialization; it is forbidden by the code.
+   future for the remaining steps. While **both** workflow IDs are disabled and
+   the tracked config is false, have an authorized maintainer deliberately set
+   the variable to `true`. Submit a separate reviewed PR setting `enabled: true`
+   and that future `not_before`, and update its default-off regression test.
+   Verify both gates and the actual replacement code, then explicitly enable
+   only the **distinct new** workflow ID. The legacy ID must remain disabled.
+   Complete all these steps **before** `not_before`. If the time is missed,
+   leave the new workflow disabled and review a new future fence before enabling.
+   This ordering is required because the CLI cannot independently prove when a
+   repository variable was changed. Do not dispatch a live manual initialization;
+   it is forbidden by the code.
 7. Wait until both the migration cutoff and `not_before` have passed, then end
    the freeze by deliberately creating and publishing a new, never-announced
-   tag/release. GitHub's `created_at` (the commit date) and `published_at` must
+   tag/release from a trusted commit containing the reviewed replacement
+   workflow. GitHub's `created_at` (the commit date) and `published_at` must
    both be strictly after both fences, but this alone does not prove a draft or
    tag is new. The frozen inventory rejects known older draft IDs and tag names;
    an incomplete inventory or broken freeze invalidates the safety claim. That

@@ -833,11 +833,12 @@ class BranchPolicyAndContextTests(unittest.TestCase):
             env = {"GITHUB_ACTIONS": "true", "GITHUB_RUN_ID": "101", "GH_TOKEN": "fake-gh-token",
                    "TELEGRAM_PUBLISHING_ENABLED": "true",
                    "GITHUB_REPOSITORY": "sascio/MyBridge", "GITHUB_EVENT_NAME": "workflow_dispatch",
-                   "GITHUB_WORKFLOW_REF": "sascio/MyBridge/.github/workflows/telegram-release-announcement.yml@refs/heads/main",
+                   "GITHUB_WORKFLOW_REF": "sascio/MyBridge/.github/workflows/telegram-release-delivery.yml@refs/heads/main",
                    "GITHUB_EVENT_PATH": str(event), "GITHUB_REF": "refs/heads/main"}
             with mock.patch.dict(os.environ, env, clear=True):
                 self.assertEqual(publish.require_workflow_context("main"), ("sascio/MyBridge", None, "v1"))
                 for key, value in (("GITHUB_WORKFLOW_REF", "sascio/MyBridge/.github/workflows/other.yml@refs/heads/main"),
+                                   ("GITHUB_WORKFLOW_REF", "sascio/MyBridge/.github/workflows/telegram-release-announcement.yml@refs/heads/main"),
                                    ("GITHUB_REF", "refs/heads/old-branch"), ("GITHUB_EVENT_NAME", "push"),
                                    ("GH_TOKEN", ""), ("TELEGRAM_PUBLISHING_ENABLED", ""),
                                    ("TELEGRAM_PUBLISHING_ENABLED", "TRUE")):

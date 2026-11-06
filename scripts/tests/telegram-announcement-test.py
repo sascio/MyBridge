@@ -705,7 +705,7 @@ class DeliveryTests(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 
 class WorkflowTests(unittest.TestCase):
-    WORKFLOW = SCRIPTS.parent / ".github" / "workflows" / "telegram-release-announcement.yml"
+    WORKFLOW = SCRIPTS.parent / ".github" / "workflows" / "telegram-release-delivery.yml"
 
     def setUp(self) -> None:
         self.text = self.WORKFLOW.read_text(encoding="utf-8")
@@ -714,6 +714,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(self.WORKFLOW.is_file())
         self.assertIn("release:", self.text)
         self.assertRegex(self.text, r"release:\s*\n\s*types:\s*\[\s*published\s*\]")
+
+    def test_legacy_workflow_is_a_distinct_retired_identity_without_sends(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        old = SCRIPTS.parent / '.github/workflows/telegram-release-announcement.yml'
+        self.assertNotEqual(old, self.WORKFLOW)
+        text = old.read_text(encoding='utf-8')
+        workflow = yaml.safe_load(text)
+        self.assertEqual(set(workflow.get('on', workflow.get(True))), {'workflow_dispatch'})
+        self.assertEqual(workflow['permissions'], {})
+        steps = workflow['jobs']['retired']['steps']
+        self.assertEqual(len(steps), 1)
+        self.assertIn('exit 1', steps[0]['run'])
+        for forbidden in ('secrets.', 'api.telegram.org', 'telegram_publish.py',
+                          'telegram_announce.py', 'telegram_assets.py', 'actions/checkout'):
+            self.assertNotIn(forbidden, text)
 
     def test_workflow_has_least_privilege_permissions(self) -> None:
         if yaml is None:
@@ -1141,7 +1157,7 @@ class PreflightWorkflowTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        path = SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml"
+        path = SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml"
         cls.workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
         cls.preflight = cls.workflow["jobs"]["preflight"]
         cls.announce_job = cls.workflow["jobs"]["announce"]
@@ -1454,7 +1470,7 @@ class WorkflowRefTests(unittest.TestCase):
     def test_checkout_uses_the_default_branch_not_the_release_tag(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text())
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml").read_text())
         for name, persisted in (("preflight", False), ("announce", False), ("publish", True)):
             checkout = next(step for step in workflow["jobs"][name]["steps"] if "checkout" in str(step.get("uses", "")))
             self.assertEqual(checkout["with"]["ref"], "${{ github.event.repository.default_branch }}")
@@ -1463,7 +1479,7 @@ class WorkflowRefTests(unittest.TestCase):
     def test_the_delivery_step_does_not_request_pin_rights(self) -> None:
         if yaml is None:
             self.skipTest("PyYAML is not installed")
-        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-announcement.yml").read_text())
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml").read_text())
         publish = next(step for step in workflow["jobs"]["publish"]["steps"] if step.get("name") == "Publish individual messages and documents")
         self.assertNotIn("--pin", publish["run"])
         self.assertEqual(publish["env"]["GH_TOKEN"], "${{ github.token }}")

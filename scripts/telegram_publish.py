@@ -56,7 +56,7 @@ def require_workflow_context(branch: str) -> tuple[str, int | None, str | None]:
     if (os.environ.get("GITHUB_ACTIONS") != "true" or not os.environ.get("GITHUB_RUN_ID")
             or not os.environ.get("GH_TOKEN") or event_name not in {"release", "workflow_dispatch"}
             or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo)
-            or workflow_path != f"{repo}/.github/workflows/telegram-release-announcement.yml"):
+            or workflow_path != f"{repo}/.github/workflows/telegram-release-delivery.yml"):
         raise PublishError("Live publishing is restricted to the serialized GitHub Actions workflow.")
     if os.environ.get("TELEGRAM_PUBLISHING_ENABLED") != "true":
         raise PublishError("Live publishing has not been explicitly activated.")
