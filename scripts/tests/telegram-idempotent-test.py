@@ -1581,6 +1581,68 @@ class RawTransportTests(unittest.TestCase):
         self.assertNotIn('SendCodeRequest', rpc.seen)
         self.assertNotIn('SignInRequest', rpc.seen)
 
+    def test_login_retries_only_confirmed_user_dc_migration_and_keeps_send_retries_off(self):
+        base = type(self.client)
+        class MigratingClient(base):
+            def __init__(client, server):
+                super().__init__(server)
+                client.starts = 0
+            async def start(client, *, bot_token):
+                client.starts += 1
+                self.assertEqual(bot_token, TOKEN)
+                if client.starts == 1:
+                    # Telethon's zero-retry _call has already switched this DC
+                    # before surfacing the migrate error.
+                    client.session.set_dc(4, "127.0.0.1", 443)
+                    raise errors.UserMigrateError(request=None, capture=4)
+                return await super().start(bot_token=bot_token)
+        client = MigratingClient(self.server)
+        kwargs = {}
+        def factory(*args, **options):
+            kwargs.update(options)
+            return client
+        transport = mtproto.BotTransport(12345, API_HASH, TOKEN, CHAT, 8000000001, -1002000000001,
+                                         factory=factory)
+        transport.connect()
+        self.assertEqual(client.starts, 2)
+        self.assertEqual(kwargs["request_retries"], 0)
+        self.assertEqual(transport.connection_stage, "ready")
+        self.assertTrue(transport.close())
+
+    def test_unconfirmed_or_repeated_login_migration_fails_closed(self):
+        base = type(self.client)
+        for confirm_switch in (False, True):
+            class MigratingClient(base):
+                def __init__(client, server):
+                    super().__init__(server)
+                    client.starts = 0
+                async def start(client, *, bot_token):
+                    client.starts += 1
+                    if confirm_switch:
+                        client.session.set_dc(4, "127.0.0.1", 443)
+                    raise errors.UserMigrateError(request=None, capture=4)
+            client = MigratingClient(self.server)
+            transport = mtproto.BotTransport(12345, API_HASH, TOKEN, CHAT, 8000000001, -1002000000001,
+                                             factory=lambda *_a, **_k: client)
+            with self.subTest(confirm_switch=confirm_switch), self.assertRaises(mtproto.TransportError):
+                transport.connect()
+            self.assertEqual(client.starts, 3 if confirm_switch else 1)
+            self.assertTrue(transport.close())
+        class OtherFailure(base):
+            def __init__(client, server):
+                super().__init__(server)
+                client.starts = 0
+            async def start(client, *, bot_token):
+                client.starts += 1
+                raise errors.ApiIdInvalidError(request=None)
+        client = OtherFailure(self.server)
+        transport = mtproto.BotTransport(12345, API_HASH, TOKEN, CHAT, 8000000001, -1002000000001,
+                                         factory=lambda *_a, **_k: client)
+        with self.assertRaises(errors.ApiIdInvalidError):
+            transport.connect()
+        self.assertEqual(client.starts, 1)
+        self.assertTrue(transport.close())
+
     def test_logout_revokes_the_one_session_without_logging_secrets(self):
         self.assertTrue(self.client.started_with_bot)
         self.assertTrue(self.transport.close())

@@ -48,7 +48,7 @@ class BotTransport:
         return client.loop.run_until_complete(value)  # type: ignore[attr-defined]
 
     def connect(self) -> None:
-        from telethon import TelegramClient, utils
+        from telethon import TelegramClient, errors, utils
         from telethon.sessions import StringSession
         from telethon.tl import types
 
@@ -62,7 +62,18 @@ class BotTransport:
         self._client = client
         self.login_attempted = True  # set before network activity: failure may be ambiguous
         self.connection_stage = "bot-authentication"
-        self._await(client, client.start(bot_token=self._token))
+        # Telethon switches to the requested DC even with request_retries=0, but
+        # then re-raises UserMigrateError instead of retrying bot authentication.
+        # Retry only this pre-send login, and only after the expected DC switch;
+        # public message/media requests still have *zero* hidden RPC retries.
+        for attempt in range(3):
+            try:
+                self._await(client, client.start(bot_token=self._token))
+                break
+            except errors.UserMigrateError as exc:
+                if (attempt == 2 or type(exc.new_dc) is not int or exc.new_dc <= 0
+                        or getattr(client.session, "dc_id", None) != exc.new_dc):
+                    raise TransportError("Bot login data-center migration was not confirmed or exceeded its limit.") from exc
         self.connection_stage = "bot-identity"
         me = self._await(client, client.get_me())
         self.connection_stage = "channel-resolution"
