@@ -43,11 +43,12 @@ The audit prepared a **private local** migration-input snapshot, including the
 visible draft's ID and tag, at `telegram-audit-private/inventory-2026-11-06.json`
 and its provenance at `telegram-audit-private/evidence-2026-11-06.json`. The
 folder is ignored by Git. Do not publish
-these files without reviewing draft confidentiality. The canonical JSON
-inventory (sorted keys, compact separators, final newline) has SHA-256
-`0f429a408cd53aefa2417b1f4ba2a827c7da5d1ac80540ca0941924cfea7a0cd` and
-contains 16 release IDs, 22 tag names and the observed message ID `5`. It is a
-snapshot, not a reviewed, complete inventory or a freeze.
+these files without reviewing draft confidentiality. The inventory contains
+16 release IDs, 22 tag names and the observed message ID `5`. It is a snapshot,
+not a reviewed, complete inventory or a freeze. A digest of the raw inventory
+was included in an earlier public PR revision; it may permit guesses of a
+non-public tag, and removing it here does not erase Git history. Do not republish
+raw private snapshots or their unkeyed digests.
 
 The sole visible run of the old workflow was manual run
 [42004825171](https://github.com/sascio/MyBridge/actions/runs/42004825171) at
