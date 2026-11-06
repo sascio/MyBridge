@@ -19,8 +19,9 @@ change tags or invoke Android/iOS builds.
 > The legacy workflow on `main` was manually disabled during the 2026-11-06
 > audit. The new gates do not exist in that legacy code: do **not** re-enable it
 > before the reviewed replacement is merged. Merging the replacement alone does
-> not publish or replay releases; releases created or published at/before the
-> eventual cutoff are blocked.
+> not publish or replay releases. Cutover requires a complete historical
+> release/tag inventory and release freeze: GitHub's `created_at` field alone
+> does not prove when a release draft was created.
 
 ## Credentials and permission boundaries
 
@@ -95,11 +96,14 @@ Both of these independently must be true before live delivery can run:
 - `.github/telegram-publishing.json` must be a valid, duplicate-free reviewed
   object with exactly `enabled: true` and a UTC `not_before` timestamp, e.g.
   `{"enabled":true,"not_before":"2027-01-01T00:00:00Z"}`. Live delivery stays
-  off until that timestamp passes, and a release event cannot initialize a plan
-  if the release was created or published at/before it. The file is tracked as
-  `{"enabled": false}` in this change; missing or malformed config fails
-  closed. A future activation PR must deliberately update the regression test
-  that currently asserts the tracked value is false.
+  off until that timestamp passes; a release event also requires its GitHub
+  `created_at` and `published_at` fields to be later. GitHub documents
+  [`created_at`](https://docs.github.com/en/rest/releases/releases#get-the-latest-release)
+  as the release commit date, **not** the draft-creation date. The timestamps
+  alone cannot prove a release or tag is new; the inventory and release freeze
+  below are mandatory. The file is tracked as `{"enabled": false}` in this
+  change; missing or malformed config fails closed. A future activation PR must
+  deliberately update the regression test that currently asserts false.
 - The repository Actions variable `TELEGRAM_PUBLISHING_ENABLED` must be exactly
   the lowercase string `true`. Missing or any other value is off. The audit's
   variable read returned 403, so its current value is **unknown**; the tracked
@@ -151,8 +155,9 @@ properly authorized recovery may deliver them without reposting confirmed text.
 2. The publisher checks the visible non-fast-forward/deletion rules and fetches
    the **remote default-branch** ledger; missing rules, missing/malformed state,
    unknown versions, inconsistencies, duplicate keys or an unactivated ledger
-   stop the run. It checks release creation/publish times against the activation
-   fence and freezes the complete rendered pages/buttons and asset
+   stop the run. It checks the GitHub release `created_at` (commit date) and
+   `published_at` fields against the activation fences and rejects historical
+   inventory IDs/tags; it then freezes the rendered pages/buttons and asset
    metadata/checksums into hashes. It allocates a distinct nonzero signed
    64-bit `random_id` for every page and document, all before any public send.
 3. A single-parent Git commit based on that exact fetched tip writes the ledger
@@ -246,44 +251,78 @@ Before enabling live publishing, maintainers must:
    an administrator must inspect the inaccessible settings and the empty visible
    required-check list. This PR is safe to review in a disabled state, not ready
    to activate.
-2. Inventory past channel posts, release IDs **and tags**, including deleted or
-   unrecorded releases, through an authorized human review. No bot-only API
-   provides a complete history proof. Ensure other bots, scripts and old
-   workflows cannot publish with this identity, including manual dispatches of
-   historical refs containing older workflow definitions. Restrict access to
-   the bot secrets as needed; dispatch only the reviewed default-branch version.
-   Verify no prior bot MTProto session is active, or stop; do not add a personal
-   account to work around it. Never reuse old or previously announced tags; a
-   new release ID or creation timestamp does not prove a tag was never posted.
+2. Freeze release creation, publication, deletion and tag changes from inventory
+   through activation; otherwise the snapshot can miss an old draft/tag. Under
+   that freeze, inventory **all** accessible release IDs, including drafts, and
+   all tags, plus any deleted/unrecorded releases or tags known from a human
+   channel/history audit. No bot-only API provides a complete history proof.
+   Ensure other bots, scripts and old workflows cannot publish with this identity,
+   including dispatches of historical refs. Restrict bot secret access, dispatch
+   only the reviewed default-branch version and verify no prior bot MTProto
+   session is active, or stop. Never reuse old or previously announced tags; a
+   new release ID or commit date does not prove a tag was never posted.
 3. Resolve the **blocking** PR-rule/direct-push architecture conflict described
    above without weakening protection, and verify no-force/no-delete, all bypass
    actors, exclusive writers, workflow permissions and state-write capability
    under the resulting design. No concurrent legacy publisher may run during or
    after migration. If any condition cannot be established, stop with both gates
    off and the workflow disabled.
-4. On an operator-reviewed change, prepare a new file from the complete current
-   schema-1/legacy-schema-2 ledger. Choose an explicit UTC cutoff at least one
-   hour in the future, with time to deploy before it. This command is **local
-   preparation only**; it neither contacts Telegram nor pushes anything:
+4. Under that freeze, create and review `/tmp/streambridge-history.json` with
+   exactly `release_ids` (an array of positive integer IDs) and `tags` (an array
+   of tag names). This read-only example collects visible releases and tags;
+   the authenticated account must have access to drafts. Add independently
+   discovered deleted/unrecorded IDs and tags and verify completeness before
+   using it. GitHub cannot recover every deleted item automatically:
+
+   ```sh
+   export GITHUB_REPOSITORY=sascio/MyBridge  # replace if appropriate
+   python3 - <<'PY'
+   import json, os, subprocess
+   repo = os.environ['GITHUB_REPOSITORY']
+   def lines(resource, field):
+       return subprocess.run(
+           ['gh', 'api', '--paginate', '--jq', f'.[].{field}',
+            f'repos/{repo}/{resource}?per_page=100'],
+           check=True, capture_output=True, text=True).stdout.splitlines()
+   ids = [int(value) for value in lines('releases', 'id')]
+   release_tags = lines('releases', 'tag_name')  # includes draft tag names
+   if any(value in ('', 'null') for value in release_tags):
+       raise RuntimeError('A release has no tag; inventory requires manual review')
+   inventory = {'release_ids': ids,
+                'tags': sorted(set(lines('tags', 'name')) | set(release_tags))}
+   with open('/tmp/streambridge-history.json', 'x', encoding='utf-8') as out:
+       json.dump(inventory, out, indent=2)
+       out.write('\n')
+   PY
+   ```
+
+   Then prepare, but do not deploy, a schema-3 file from the complete current
+   schema-1/legacy-schema-2 ledger and reviewed inventory. Choose a cutoff at
+   least one hour in the future. This command does not contact Telegram or push:
 
    ```sh
    python3 scripts/telegram_ledger.py \
      --legacy .github/telegram-releases.json \
+     --inventory /tmp/streambridge-history.json \
      --output /tmp/streambridge-ledger-for-review.json \
      --created-after 2027-01-01T00:00:00Z \
-     --acknowledge-legacy-is-unknown
+     --acknowledge-legacy-is-unknown --acknowledge-release-freeze
    ```
 
-   Replace the example with the chosen future cutoff. The output must not
-   already exist. Review the preserved legacy snapshot, its checksum and any
-   sensitive data before proposing it as `.github/telegram-releases.json` in the
-   normal reviewed deployment process. Do not reset or discard legacy entries.
+   Replace the example cutoff and use a new output path. The preparer includes
+   IDs/tags already present in the legacy ledger, hashes both snapshots and
+   rejects malformed/duplicate inventory data. Review the complete output and
+   any sensitive data through the normal deployment process; never discard
+   legacy entries. The acknowledgement is an operator attestation, **not** a
+   technical proof that the freeze or inventory is complete.
 5. Deploy the reviewed schema-3 ledger and policy-compatible publisher to the
    default branch **before** the cutoff, with the workflow disabled and both
-   activation gates still off. The snapshot is preserved; same-tag or same-ID
-   legacy entries and reuse of a recorded legacy message ID block, including on
-   later validation. If deployment misses the
-   cutoff, prepare and review a new future cutoff rather than enabling.
+   activation gates still off. The original ledger and complete inventory are
+   preserved. An inventoried release ID/tag or a recorded legacy message ID
+   blocks a new operation, including during later validation. Earlier schema-3
+   preview files that omit the inventory fail closed and must be regenerated from
+   the preserved legacy source. If deployment misses the cutoff, prepare and
+   review a new future cutoff rather than enabling.
 6. Only after all blockers are resolved and the replacement is verified on the
    default branch, choose a reviewed `not_before` UTC time far enough in the
    future for the remaining steps. While the workflow is disabled and the tracked
@@ -296,12 +335,15 @@ Before enabling live publishing, maintainers must:
    new future fence before enabling. This ordering is required because the CLI
    cannot independently prove when a repository variable was changed. Do not
    dispatch a live manual initialization; it is forbidden by the code.
-7. Wait until both the migration cutoff and `not_before` have passed, then
-   deliberately create and publish a new, never-announced tag/release. Both its
-   creation and publication must be strictly after both fences; an older draft
-   published later is blocked. That future `release: published` event is the
-   only way to create its initial plan. A queued pre-fence event cannot create a
-   plan, and historical releases or old tags are not replayed automatically.
+7. Wait until both the migration cutoff and `not_before` have passed, then end
+   the freeze by deliberately creating and publishing a new, never-announced
+   tag/release. GitHub's `created_at` (the commit date) and `published_at` must
+   both be strictly after both fences, but this alone does not prove a draft or
+   tag is new. The frozen inventory rejects known older draft IDs and tag names;
+   an incomplete inventory or broken freeze invalidates the safety claim. That
+   future `release: published` event is the only way to create an initial plan.
+   A queued pre-fence publication cannot create a plan, and inventoried
+   historical releases and tags are not replayed automatically.
 
 This human attestation and tag-reuse rule are operational prerequisites, not
 facts the bot can prove. Do not activate automatically based on a blank ledger;

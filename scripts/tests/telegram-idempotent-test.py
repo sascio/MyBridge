@@ -42,6 +42,7 @@ except ImportError:
 TOKEN = "123456789:abcdefghijklmnopqrstuvwx_fake"
 CHAT = "@StreamBridge_App"
 API_HASH = "0123456789abcdef0123456789abcdef"
+EMPTY_INVENTORY = {"release_ids": [], "tags": []}
 
 
 def setUpModule():
@@ -76,7 +77,7 @@ def sample_release(*, assets_count: int = 0, body: str = "## What's new\n- A new
 
 def migrated() -> dict:
     cutoff = utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1))
-    return ledger.migrate({"schema": 1, "releases": []}, cutoff)
+    return ledger.migrate({"schema": 1, "releases": []}, cutoff, EMPTY_INVENTORY)
 
 
 class MemoryStore:
@@ -492,10 +493,22 @@ class DurableDeliveryTests(unittest.TestCase):
 
     def test_same_legacy_tag_blocks_new_release(self):
         self.store.doc = ledger.migrate({"schema": 2, "releases": [{"tag_name": "v9.9.9", "release_id": 1}]},
-                                        utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)))
+                                        utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), EMPTY_INVENTORY)
         with self.assertRaisesRegex(publish.PublishError, "ledger"):
             self.run_publish()
         self.assertEqual(self.server.calls, [])
+
+    def test_inventoried_old_release_id_or_tag_blocks_before_session(self):
+        for inventory in ({"release_ids": [123], "tags": []},
+                          {"release_ids": [], "tags": ["v9.9.9"]}):
+            with self.subTest(inventory=inventory):
+                cutoff = utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1))
+                self.store = MemoryStore(ledger.migrate({"schema": 1, "releases": []}, cutoff, inventory))
+                self.server = FakeServer(self.store)
+                with self.assertRaisesRegex(publish.PublishError, "historical inventory"):
+                    self.run_publish(sample_release())
+                self.assertEqual(self.server.calls, [])
+                self.assertEqual(self.store.history, [])
 
     def test_draft_and_prerelease_never_acquire_lock_or_send(self):
         release = sample_release()
@@ -681,7 +694,7 @@ class ChecksumAndCutoverTests(unittest.TestCase):
                        {'schema': 1, 'releases': [{'release_id': True, 'tag_name': 'v1'}]},
                        {'schema': 2, 'releases': [{'release_id': 1, 'tag_name': 'v1', 'assets': 'bad'}]}):
             with self.subTest(legacy=legacy), self.assertRaises(ledger.LedgerError):
-                ledger.migrate(legacy, '2026-01-01T00:00:00Z')
+                ledger.migrate(legacy, '2026-01-01T00:00:00Z', EMPTY_INVENTORY)
 
     def test_unsafe_attempt_reset_is_rejected(self):
         doc = migrated()
@@ -747,6 +760,17 @@ class BranchPolicyAndContextTests(unittest.TestCase):
              mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
             self.assertIn("configuration is disabled", output.getvalue())
+            secrets_read.assert_not_called()
+            store.assert_not_called()
+
+    def test_future_activation_fence_blocks_before_secrets_or_ledger(self):
+        fence = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)
+        with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, None)), \
+             mock.patch.object(ledger, "publishing_not_before", return_value=fence), \
+             mock.patch.object(publish, "require_secret") as secrets_read, \
+             mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertIn("not yet effective", output.getvalue())
             secrets_read.assert_not_called()
             store.assert_not_called()
 
@@ -873,7 +897,7 @@ class LedgerValidationTests(unittest.TestCase):
 
     def test_legacy_snapshot_is_preserved_and_hash_verified(self):
         old = {"schema": 2, "releases": [{"release_id": 1, "tag_name": "v1.0", "assets": [{"name": "old.apk", "message_id": 9}]}]}
-        doc = ledger.migrate(old, "2026-01-01T00:00:00Z")
+        doc = ledger.migrate(old, "2026-01-01T00:00:00Z", EMPTY_INVENTORY)
         self.assertEqual(doc["legacy"], old)
         doc["legacy"]["releases"].clear()
         with self.assertRaises(ledger.LedgerError):
@@ -896,9 +920,12 @@ class LedgerValidationTests(unittest.TestCase):
         for old in fixtures:
             with self.subTest(schema=old["schema"]):
                 original = copy.deepcopy(old)
-                doc = ledger.migrate(old, "2026-01-01T00:00:00Z")
+                doc = ledger.migrate(old, "2026-01-01T00:00:00Z", EMPTY_INVENTORY)
                 self.assertEqual(doc["legacy"], original)
                 self.assertEqual(doc["activation"]["legacy_sha256"], ledger.digest(original))
+                self.assertEqual(doc["activation"]["inventory_sha256"], ledger.digest(doc["inventory"]))
+                self.assertEqual(set(doc["inventory"]["release_ids"]), {e["release_id"] for e in original["releases"]})
+                self.assertEqual(set(doc["inventory"]["tags"]), {e["tag_name"] for e in original["releases"]})
                 self.assertEqual(old, original)
                 self.assertEqual(ledger.summarize(doc)["legacy_channel_history"], "unknown")
 
@@ -907,13 +934,30 @@ class LedgerValidationTests(unittest.TestCase):
         before = source.read_bytes()
         with tempfile.TemporaryDirectory() as tmp:
             output = Path(tmp, "prepared.json")
+            inventory = Path(tmp, "inventory.json")
+            inventory.write_text(json.dumps({"release_ids": [42], "tags": ["v-old"]}))
             cutoff = utc(dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=1))
             args = [sys.executable, str(SCRIPTS / "telegram_ledger.py"), "--legacy", str(source),
-                    "--output", str(output), "--created-after", cutoff, "--acknowledge-legacy-is-unknown"]
+                    "--inventory", str(inventory), "--output", str(output), "--created-after", cutoff,
+                    "--acknowledge-legacy-is-unknown", "--acknowledge-release-freeze"]
+            missing_ack = subprocess.run(args[:-1], capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(missing_ack.returncode, 0)
+            self.assertFalse(output.exists())
+            inventory.write_text('{"release_ids":[],"tags":[],"tags":[]}')
+            duplicate_keys = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(duplicate_keys.returncode, 0)
+            self.assertFalse(output.exists())
+            inventory.write_bytes(b'\xff')
+            invalid_utf8 = subprocess.run(args, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(invalid_utf8.returncode, 0)
+            self.assertNotIn('Traceback', invalid_utf8.stdout + invalid_utf8.stderr)
+            self.assertFalse(output.exists())
+            inventory.write_text(json.dumps({"release_ids": [42], "tags": ["v-old"]}))
             result = subprocess.run(args, capture_output=True, text=True, timeout=30)
             self.assertEqual(result.returncode, 0, result.stderr)
             prepared = ledger.parse(output.read_bytes())
             self.assertEqual(prepared["legacy"], json.loads(before))
+            self.assertEqual(prepared["inventory"], {"release_ids": [42], "tags": ["v-old"]})
             preserved_output = output.read_bytes()
             second = subprocess.run(args, capture_output=True, text=True, timeout=30)
             self.assertNotEqual(second.returncode, 0)
@@ -926,7 +970,7 @@ class LedgerValidationTests(unittest.TestCase):
         for legacy_entry in ({"release_id": release.id, "tag_name": "v-old"},
                              {"release_id": 999, "tag_name": release.tag_name}):
             doc = ledger.migrate({"schema": 1, "releases": [legacy_entry]},
-                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)))
+                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), EMPTY_INVENTORY)
             doc["releases"] = [publish.make_release(release, operations, set())]
             with self.subTest(legacy_entry=legacy_entry), self.assertRaisesRegex(ledger.LedgerError, "overlaps"):
                 ledger.validate(doc)
@@ -937,7 +981,7 @@ class LedgerValidationTests(unittest.TestCase):
                         "assets": [{"name": "old.apk", "message_id": 11}]}
         for message_id in (10, 11):
             doc = ledger.migrate({"schema": 1, "releases": [legacy_entry]},
-                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)))
+                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), EMPTY_INVENTORY)
             operation = {"key": "page:1", "kind": "page", "payload": "a" * 64}
             entry = publish.make_release(release, [operation], set())
             entry["items"][0].update(state="confirmed", message_id=message_id, attempts=1)
@@ -945,6 +989,37 @@ class LedgerValidationTests(unittest.TestCase):
             doc["releases"] = [entry]
             with self.subTest(message_id=message_id), self.assertRaisesRegex(ledger.LedgerError, "repeated message id"):
                 ledger.validate(doc)
+
+    def test_schema_three_rejects_inventory_overlap_even_if_legacy_ledger_was_empty(self):
+        release = sample_release()
+        operation = {"key": "page:1", "kind": "page", "payload": "a" * 64}
+        for inventory in ({"release_ids": [release.id], "tags": []},
+                          {"release_ids": [], "tags": [release.tag_name]}):
+            doc = ledger.migrate({"schema": 1, "releases": []},
+                                 utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), inventory)
+            doc["releases"] = [publish.make_release(release, [operation], set())]
+            with self.subTest(inventory=inventory), self.assertRaisesRegex(ledger.LedgerError, "overlaps"):
+                ledger.validate(doc)
+
+    def test_inventory_validation_and_snapshot_checksum_fail_closed(self):
+        old_preview = migrated()
+        del old_preview["inventory"]
+        with self.assertRaises(ledger.LedgerError):
+            ledger.validate(old_preview)
+        bad = (None, {}, {"release_ids": [True], "tags": []},
+               {"release_ids": [1, 1], "tags": []}, {"release_ids": [], "tags": [None]},
+               {"release_ids": [], "tags": ["v1", "v1"]}, {"release_ids": [], "tags": ["v1\n"]})
+        for inventory in bad:
+            with self.subTest(inventory=inventory), self.assertRaises(ledger.LedgerError):
+                ledger.migrate({"schema": 1, "releases": []}, "2026-01-01T00:00:00Z", inventory)
+        doc = ledger.migrate({"schema": 1, "releases": [{"release_id": 42, "tag_name": "old"}]},
+                             "2026-01-01T00:00:00Z", EMPTY_INVENTORY)
+        doc["inventory"]["tags"].clear()
+        with self.assertRaisesRegex(ledger.LedgerError, "checksum"):
+            ledger.validate(doc)
+        doc["activation"]["inventory_sha256"] = ledger.digest(doc["inventory"])
+        with self.assertRaisesRegex(ledger.LedgerError, "omits"):
+            ledger.validate(doc)
 
     def test_modified_frozen_plan_is_rejected(self):
         doc = migrated()

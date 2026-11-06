@@ -117,21 +117,42 @@ def validate_legacy(legacy: object) -> None:
                 names.add(asset["name"])
 
 
+def validate_inventory(inventory: object) -> None:
+    """Require an explicit, duplicate-free historical release/tag inventory."""
+    if not isinstance(inventory, dict) or set(inventory) != {"release_ids", "tags"}:
+        raise LedgerError("Historical release/tag inventory is missing or invalid.")
+    ids, tags = inventory["release_ids"], inventory["tags"]
+    if (not isinstance(ids, list) or any(type(value) is not int or value <= 0 for value in ids)
+            or len(set(ids)) != len(ids)):
+        raise LedgerError("Historical release inventory contains invalid or repeated IDs.")
+    if (not isinstance(tags, list) or any(not isinstance(value, str) or not value
+                                           or any(c in value for c in "\x00\r\n") for value in tags)
+            or len(set(tags)) != len(tags)):
+        raise LedgerError("Historical tag inventory contains invalid or repeated tags.")
+
+
 def validate(doc: object) -> None:
     if not isinstance(doc, dict):
         raise LedgerError("Remote ledger is not a JSON object.")
     if type(doc.get("schema")) is not int or doc.get("schema") != SCHEMA:
         raise LedgerError("Remote ledger is not schema 3; an audited, manual legacy cutover is required before publishing.")
-    if set(doc) != {"schema", "activation", "legacy", "identity", "session", "releases"}:
+    if set(doc) != {"schema", "activation", "legacy", "inventory", "identity", "session", "releases"}:
         raise LedgerError("Remote ledger has missing or unexpected top-level fields.")
     activation = doc["activation"]
-    if not isinstance(activation, dict) or set(activation) != {"created_after", "legacy_sha256"}:
+    if not isinstance(activation, dict) or set(activation) != {"created_after", "legacy_sha256", "inventory_sha256"}:
         raise LedgerError("Ledger activation is invalid.")
     timestamp(activation["created_after"])
     legacy = doc["legacy"]
     validate_legacy(legacy)
     if not isinstance(activation["legacy_sha256"], str) or digest(legacy) != activation["legacy_sha256"]:
         raise LedgerError("Ledger legacy snapshot checksum does not match.")
+    inventory = doc["inventory"]
+    validate_inventory(inventory)
+    if not isinstance(activation["inventory_sha256"], str) or digest(inventory) != activation["inventory_sha256"]:
+        raise LedgerError("Ledger historical inventory checksum does not match.")
+    if (not {entry["release_id"] for entry in legacy["releases"]}.issubset(inventory["release_ids"])
+            or not {entry["tag_name"] for entry in legacy["releases"]}.issubset(inventory["tags"])):
+        raise LedgerError("Historical inventory omits a preserved legacy release or tag.")
     identity = doc["identity"]
     if identity is not None and (not isinstance(identity, str) or not HEX.fullmatch(identity)):
         raise LedgerError("Ledger bot/channel identity binding is invalid.")
@@ -144,8 +165,8 @@ def validate(doc: object) -> None:
         raise LedgerError("Ledger releases are invalid.")
     release_ids: set[int] = set()
     release_tags: set[str] = set()
-    legacy_ids = {entry["release_id"] for entry in legacy["releases"]}
-    legacy_tags = {entry["tag_name"] for entry in legacy["releases"]}
+    legacy_ids = set(inventory["release_ids"])
+    legacy_tags = set(inventory["tags"])
     random_ids: set[int] = set()
     # A response matching an already recorded legacy message is not a new
     # confirmation. Legacy history can be incomplete, so this is not proof of
@@ -163,7 +184,7 @@ def validate(doc: object) -> None:
             raise LedgerError("Ledger release tag is invalid or repeated.")
         release_tags.add(release["tag"])
         if rid in legacy_ids or release["tag"] in legacy_tags:
-            raise LedgerError("A schema-3 release overlaps a preserved legacy release or tag.")
+            raise LedgerError("A schema-3 release overlaps the historical release/tag inventory.")
         if timestamp(release["created_at"]) <= timestamp(activation["created_after"]):
             raise LedgerError("Ledger release predates the audited activation cutoff.")
         if not isinstance(release["plan"], str) or not HEX.fullmatch(release["plan"]):
@@ -279,16 +300,24 @@ def summarize(doc: dict[str, Any]) -> dict[str, Any]:
             counts[operation_outcome(item)] += 1
     return {"schema": SCHEMA, "session_locked": doc["session"] is not None,
             "operations": counts, "legacy_release_records": len(doc["legacy"]["releases"]),
+            "inventoried_release_ids": len(doc["inventory"]["release_ids"]),
+            "inventoried_tags": len(doc["inventory"]["tags"]),
             "legacy_channel_history": "unknown"}
 
 
-def migrate(legacy: object, created_after: str) -> dict[str, Any]:
-    """Prepare, but do not deploy, a migration. No inference about history."""
+def migrate(legacy: object, created_after: str, inventory: object) -> dict[str, Any]:
+    """Prepare, but do not deploy, a migration. Inventory completeness needs human review."""
     validate_legacy(legacy)
+    validate_inventory(inventory)
     timestamp(created_after)
     old = copy.deepcopy(legacy)
-    doc = {"schema": SCHEMA, "activation": {"created_after": created_after, "legacy_sha256": digest(old)},
-           "legacy": old, "identity": None, "session": None, "releases": []}
+    historical = {
+        "release_ids": sorted(set(inventory["release_ids"]) | {entry["release_id"] for entry in old["releases"]}),
+        "tags": sorted(set(inventory["tags"]) | {entry["tag_name"] for entry in old["releases"]}),
+    }
+    doc = {"schema": SCHEMA, "activation": {"created_after": created_after, "legacy_sha256": digest(old),
+                                             "inventory_sha256": digest(historical)},
+           "legacy": old, "inventory": historical, "identity": None, "session": None, "releases": []}
     validate(doc)
     return doc
 
@@ -367,12 +396,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Inspect a ledger or prepare an audited legacy cutover; never deploys it or contacts Telegram.")
     parser.add_argument("--inspect", help="read-only summary of a local ledger snapshot")
     parser.add_argument("--legacy", help="existing legacy schema-1 or schema-2 ledger")
+    parser.add_argument("--inventory", help="reviewed historical release-ID/tag inventory JSON")
     parser.add_argument("--output", help="new file to inspect; must not already exist")
     parser.add_argument("--created-after", help="future UTC cutoff, e.g. 2027-01-01T00:00:00Z")
     parser.add_argument("--acknowledge-legacy-is-unknown", action="store_true")
+    parser.add_argument("--acknowledge-release-freeze", action="store_true")
     args = parser.parse_args()
     if args.inspect:
-        if args.legacy or args.output or args.created_after or args.acknowledge_legacy_is_unknown:
+        if (args.legacy or args.inventory or args.output or args.created_after
+                or args.acknowledge_legacy_is_unknown or args.acknowledge_release_freeze):
             parser.error("--inspect cannot be combined with migration arguments")
         try:
             raw = Path(args.inspect).read_bytes()
@@ -388,20 +420,22 @@ def main() -> int:
         except (LedgerError, OSError, UnicodeDecodeError, json.JSONDecodeError):
             print("Ledger inspection failed: state is missing, malformed or unsupported.")
             return 1
-    if not (args.legacy and args.output and args.created_after and args.acknowledge_legacy_is_unknown):
-        parser.error("migration requires --legacy, --output, --created-after and --acknowledge-legacy-is-unknown")
+    if not (args.legacy and args.inventory and args.output and args.created_after
+            and args.acknowledge_legacy_is_unknown and args.acknowledge_release_freeze):
+        parser.error("migration requires --legacy, --inventory, --output, --created-after and both acknowledgements")
     try:
         cutoff = timestamp(args.created_after)
         if cutoff <= dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=1):
             raise LedgerError("Choose a cutoff at least one hour in the future and deploy before it.")
         legacy = json.loads(Path(args.legacy).read_text(encoding="utf-8"), object_pairs_hook=_no_duplicates)
-        document = migrate(legacy, args.created_after)
+        inventory = json.loads(Path(args.inventory).read_text(encoding="utf-8"), object_pairs_hook=_no_duplicates)
+        document = migrate(legacy, args.created_after, inventory)
         with open(args.output, "xb") as handle:
             handle.write(canonical(document))
     except LedgerError as exc:
         print(f"Migration preparation failed: {exc}")
         return 1
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         print("Migration preparation failed: input/output could not be read or created.")
         return 1
     print("Prepared a migration for review. It is not deployed and proves nothing about older channel posts.")

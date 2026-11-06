@@ -309,10 +309,10 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
     if entry is None:
         if not allow_new_release:
             raise PublishError("Manual recovery requires a release already planned by a published-release event.")
-        legacy_entries = [e for e in document["legacy"]["releases"] if isinstance(e, dict)]
-        if (any(e.get("tag_name") == release.tag_name or e.get("release_id") == release.id for e in legacy_entries)
+        inventory = document["inventory"]
+        if (release.id in inventory["release_ids"] or release.tag_name in inventory["tags"]
                 or any(e["tag"] == release.tag_name for e in document["releases"])):
-            raise PublishError("The release or tag already appears in the ledger; automatic reposting is blocked.")
+            raise PublishError("The release or tag appears in the historical inventory or ledger; automatic reposting is blocked.")
         used = {i["random_id"] for e in document["releases"] for i in e["items"]}
         entry = make_release(release, operations, used)
         document["releases"].append(entry)
