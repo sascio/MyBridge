@@ -25,6 +25,7 @@ from typing import Any, Callable
 import telegram_announce as announce
 import telegram_assets as assets
 import telegram_ledger as ledger
+import telegram_state as state
 import telegram_mtproto as mtproto
 import telegram_release_notes as notes
 
@@ -422,7 +423,8 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--release-json", required=True)
-    parser.add_argument("--branch", required=True)
+    parser.add_argument("--branch", required=True, help="reviewed source repository default branch")
+    parser.add_argument("--state-dir", required=True, help="isolated checkout of the reviewed private state repository")
     parser.add_argument("--no-upload-assets", action="store_true")
     parser.add_argument("--recover-unknown", action="store_true")
     args = parser.parse_args(argv)
@@ -434,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
         is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
         if is_manual and not args.recover_unknown:
             raise PublishError("Live manual dispatch is recovery-only.")
+        config = state.load_config(repository)
         token, chat = require_secret("TELEGRAM_BOT_TOKEN"), require_secret("TELEGRAM_CHAT_ID")
         api_id_text, api_hash = require_secret("TELEGRAM_API_ID"), require_secret("TELEGRAM_API_HASH")
         if not api_id_text.isdigit() or int(api_id_text) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
@@ -445,10 +448,10 @@ def main(argv: list[str] | None = None) -> int:
         if (not is_manual and (ledger.timestamp(release.created_at) <= not_before
                                or ledger.timestamp(release.published_at) <= not_before)):
             raise PublishError("The release was created or published before the reviewed activation fence.")
-        store = ledger.GitLedger(os.getcwd(), args.branch)
+        store = ledger.GitLedger(args.state_dir, state.STATE_BRANCH)
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
                 upload_assets=not args.no_upload_assets, recover_unknown=args.recover_unknown,
-                policy_check=lambda: ledger.require_branch_rules(repository, args.branch),
+                policy_check=lambda: state.verify_state(config, args.state_dir, repository),
                 allow_new_release=not is_manual)
     except Exception as exc:  # no raw exception strings, tracebacks or credential material
         if isinstance(exc, (PublishError, ledger.LedgerError, announce.AnnouncementError)):

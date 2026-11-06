@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Fail-closed, exact-parent Git ledger for bot-only Telegram delivery.
 
-The repository's default-branch ledger is authoritative. Each update is a
-single-parent commit containing only the ledger, pushed without force, then
-verified against the remote. This module never creates or updates releases or
-tags. Legacy schemas are deliberately not upgraded automatically: see the runbook.
+The separately configured state repository/ref is authoritative for live delivery.
+Each update is a single-parent commit containing only the ledger, pushed without
+force, then verified against the remote. This module never creates or updates
+releases or tags. Legacy schemas are deliberately not upgraded automatically:
+see the runbook.
 """
 from __future__ import annotations
 
@@ -119,9 +120,14 @@ def validate_legacy(legacy: object) -> None:
 
 def validate_inventory(inventory: object) -> None:
     """Require an explicit, duplicate-free historical release/tag inventory."""
-    if not isinstance(inventory, dict) or set(inventory) != {"release_ids", "tags"}:
+    if (not isinstance(inventory, dict)
+            or set(inventory) not in ({"release_ids", "tags"}, {"release_ids", "tags", "message_ids"})):
         raise LedgerError("Historical release/tag inventory is missing or invalid.")
     ids, tags = inventory["release_ids"], inventory["tags"]
+    messages = inventory.get("message_ids", [])
+    if (not isinstance(messages, list) or any(type(value) is not int or value <= 0 for value in messages)
+            or len(set(messages)) != len(messages)):
+        raise LedgerError("Historical message inventory contains invalid or repeated IDs.")
     if (not isinstance(ids, list) or any(type(value) is not int or value <= 0 for value in ids)
             or len(set(ids)) != len(ids)):
         raise LedgerError("Historical release inventory contains invalid or repeated IDs.")
@@ -171,7 +177,8 @@ def validate(doc: object) -> None:
     # A response matching an already recorded legacy message is not a new
     # confirmation. Legacy history can be incomplete, so this is not proof of
     # uniqueness against messages absent from that snapshot.
-    message_ids = {message_id for entry in legacy["releases"] for message_id in entry.get("message_ids", [])}
+    message_ids = set(inventory.get("message_ids", []))
+    message_ids.update(message_id for entry in legacy["releases"] for message_id in entry.get("message_ids", []))
     message_ids.update(asset["message_id"] for entry in legacy["releases"] for asset in entry.get("assets", []))
     for release in releases:
         if not isinstance(release, dict) or set(release) != {"id", "tag", "created_at", "plan", "items"}:
@@ -302,6 +309,7 @@ def summarize(doc: dict[str, Any]) -> dict[str, Any]:
             "operations": counts, "legacy_release_records": len(doc["legacy"]["releases"]),
             "inventoried_release_ids": len(doc["inventory"]["release_ids"]),
             "inventoried_tags": len(doc["inventory"]["tags"]),
+            "inventoried_message_ids": len(doc["inventory"].get("message_ids", [])),
             "legacy_channel_history": "unknown"}
 
 
@@ -315,6 +323,8 @@ def migrate(legacy: object, created_after: str, inventory: object) -> dict[str, 
         "release_ids": sorted(set(inventory["release_ids"]) | {entry["release_id"] for entry in old["releases"]}),
         "tags": sorted(set(inventory["tags"]) | {entry["tag_name"] for entry in old["releases"]}),
     }
+    if "message_ids" in inventory:
+        historical["message_ids"] = sorted(inventory["message_ids"])
     doc = {"schema": SCHEMA, "activation": {"created_after": created_after, "legacy_sha256": digest(old),
                                              "inventory_sha256": digest(historical)},
            "legacy": old, "inventory": historical, "identity": None, "session": None, "releases": []}
@@ -363,6 +373,10 @@ class GitLedger:
 
     def save(self, old: Snapshot, document: dict[str, Any]) -> Snapshot:
         validate(document)
+        if parse(old.raw) != old.document:
+            raise LedgerError("The fetched ledger snapshot was modified or is inconsistent.")
+        if any(document[key] != old.document[key] for key in ("legacy", "inventory", "activation")):
+            raise LedgerError("Historical snapshots and the audited activation fence are immutable during delivery.")
         body = canonical(document)
         blob = self._git("hash-object", "-w", "--stdin", data=body).stdout.decode("ascii").strip()
         # A private temporary index starts from precisely the fetched parent; the

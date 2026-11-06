@@ -62,6 +62,10 @@ fi
 if ! python3 "${SCRIPT_DIR}/telegram-idempotent-test.py"; then
   failures=$((failures + 1))
 fi
+# Private-state configuration, OIDC policy, and separate-repository Git checks.
+if ! python3 "${SCRIPT_DIR}/telegram-state-test.py"; then
+  failures=$((failures + 1))
+fi
 
 section "Release workflows"
 

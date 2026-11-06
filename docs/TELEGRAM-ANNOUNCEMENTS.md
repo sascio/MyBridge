@@ -8,21 +8,18 @@ IPA are sent as individual documents, after the text pages. Drafts and
 pre-releases are not announced. The workflow does not pin, create/edit releases,
 change tags or invoke Android/iOS builds.
 
-> **Deployment is blocked, not merely awaiting a switch.** The tracked ledger
-> is still the original schema-1 file and is not proof of an empty channel. The
-> new workflow is default-off through both a reviewed configuration file and a
-> repository variable. The existing `main` branch rules require a PR with no
-> bypass, so this implementation's direct ledger pushes are **incompatible**
-> and its guard refuses to publish. Do not weaken those rules. A compliant durable
-> state implementation must be designed and verified before activation.
+> **Deployment remains blocked.** The original schema-1 ledger is not a
+> complete history: public channel [message 5](https://t.me/StreamBridge_App/5)
+> already announces `v0.1.15`. See [the historical audit](TELEGRAM-HISTORICAL-AUDIT.md).
+> This PR implements an isolated, private Git state-repository path, but no such
+> repository, identity broker, policy, production write or recovery has been
+> provisioned or verified. The tracked publishing and storage configs remain off.
 >
-> The legacy workflow on `main` was manually disabled during the 2026-11-06
-> audit. It retains its original path and must **never** be re-enabled: old refs
-> can contain the unsafe definition. The replacement uses a different workflow
-> path/identity and its tracked configuration is false. Merging alone does not
-> publish or replay releases. Cutover requires a complete historical release/tag
-> inventory and release freeze: GitHub's `created_at` field alone does not prove
-> when a release draft was created.
+> The old workflow ID `407947021` is manually disabled and must **never** be
+> re-enabled; historical refs can contain unsafe workflow definitions. Verify
+> the replacement gets a distinct ID after any future merge. Do not weaken the
+> existing `main` protection, add a bypass, deploy a migration or enable
+> publishing until all controls and the cutover have been independently reviewed.
 
 ## Credentials and permission boundaries
 
@@ -36,14 +33,17 @@ one-time code, password or user session. A fresh in-memory `StringSession` is
 used and neither its authorization key nor credentials are written to the
 ledger, checkout, logs or artifacts.
 
-`preflight` and rendering jobs have `contents: read` and do not persist checkout
-credentials. The live publisher alone has `contents: write`, needed to push the
-ledger to the default branch; that permission technically permits more than the
-ledger, so restrict workflow and branch access accordingly. The code writes only
-`.github/telegram-releases.json`; it does not print request/exception objects or
-credentials. Git command output is captured and not printed. GitHub's secret
-masking is not treated as a security boundary. The workflow installs pinned
-Telethon and transitive dependency versions.
+`preflight` and rendering jobs have `contents: read`. The live job has source
+`contents: read` and `id-token: write`, and does not persist source checkout
+credentials. An OIDC broker must issue a short-lived installation token only
+for the separately reviewed private state repository; that token needs state
+`contents: write` and `administration: read` (to inspect state-repository
+settings). The token must not grant write or administration access to this source
+repository. The intended protected OIDC policy pins the exact source repository
+IDs, workflow path, ref, workflow SHA and event; it must not grant unrelated
+workflows access through a wildcard or shared secret. The code writes only `.github/telegram-releases.json`
+on the state ref. Git output is captured, never printed. GitHub secret masking is
+not a security boundary. Telethon and its transitive dependencies are pinned.
 
 The fresh bot session needs a public channel username that resolves to the same
 numeric channel returned by Bot API `getChat`. A private channel that can only
@@ -66,33 +66,122 @@ returned **403**. An administrator must verify those inaccessible settings; an
 empty visible ruleset bypass list is not evidence about separate controls or all
 writers. Recheck all settings before using this runbook.
 
-**The current ledger architecture cannot operate under that policy.** The
-publisher commits directly to the default branch, but the visible PR rule has
-no bypass. Its guard now deliberately rejects any active PR-only rule and the
-live guard was verified to stop against the actual metadata before Telegram
-access. No production push was attempted. Do not grant a bypass, remove review,
-allow force pushes or weaken protection merely to make it run. Implement and
-review a durable state mechanism whose allowed writes comply with the policy,
-while preserving atomic compare-and-swap, no rollback/deletion, exclusive writer,
-session fencing and durable ID invariants. Demonstrate that design under the
-actual permissions and rerun its concurrency/crash/recovery tests before
-activation. This PR does not yet provide that mechanism.
+### Isolated state repository: design and prerequisites
 
-The publisher also requires visible non-fast-forward/deletion rules and restricts
-live CLI use to the designated workflow, default-branch ledger and a matching
-published-release event or explicitly tagged recovery dispatch. Missing or
-unavailable metadata fails closed. These checks are necessary but **not
-sufficient**: they do not prove exclusive writers, safe fast-forward changes,
-secret access, historical refs, external publishers or resistance to ruleset
-changes between a check and a request. An administrator must continuously audit
-and enforce those controls. Restoring a rule after a rollback does not prove the
-ledger was never tampered with. The visible required-check list is empty; a
-maintainer must select and enforce appropriate eligible PR checks, and verify
-classic protection separately rather than treating a manual CI run as a gate.
+A same-repository `telegram-delivery-state` branch is **not currently safe**:
+it does not exist and the effective-rules API returned no rules for that name.
+The `main` ruleset targets only `main`; classic protection and Actions permissions
+are inaccessible (403). A normal source-repository `GITHUB_TOKEN` with
+`contents: write` can be obtained by other eligible workflows. Classic
+user/team/app push restrictions are documented only for organization-owned
+repositories; this repository has a personal owner. Do not create an unprotected
+state branch or grant a bypass to `main`.
+
+The selected, **not yet provisioned**, alternative is a private state repository
+under the same personal account as this source repository. Organization-owned
+state repositories and their additional organization-level broker policies are
+not supported by this guard.
+
+- Its protected default branch holds the OIDC trust policy. Require PR review,
+  no force-push/deletion, no bypass for the state identity, and independently
+  audit all other bypass actors. Its separate `telegram-delivery-state` branch
+  holds the ledger, with active no-force/no-delete rules and **no PR requirement
+  or required checks for its automated commits**. Never weaken an existing branch
+  or grant a bypass. If the account/plan cannot support these protections, stop.
+- Disable Actions in the state repository. Limit repository access to trusted
+  administrators and a **dedicated** broker/App installation scoped only to that
+  repository; remove other write-capable Apps, collaborators, deploy keys and
+  credentials. Audit organization/user-level credentials and outside writers.
+  Source-repository `GITHUB_TOKEN`s cannot write across repositories by default.
+  Unlike a repository or environment secret, a broker-enforced OIDC policy can
+  distinguish this workflow from unrelated workflows. A protected environment
+  alone is **not** workflow isolation.
+- The workflow uses pinned `octo-sts/action` and a reviewed broker domain from
+  the default-off storage configuration. The broker must validate GitHub OIDC
+  issuer/audience and the exact protected trust policy. Prefer a self-hosted,
+  dedicated Octo STS App limited to state `contents: write` and
+  `administration: read`; review its implementation and infrastructure. The
+  public hosted Octo STS App requests a much broader installation permission set,
+  including administration write; installing it is a separate security decision,
+  not something this PR does or silently approves. A compromised broker can mint
+  credentials, so the broker and its administrators are part of the trust boundary.
+- State runtime checks require the installation token to see only the reviewed
+  repository ID, private visibility, Actions disabled, visible writable
+  collaborators matching the reviewed admin IDs, no writable deploy keys, the
+  protected policy and state rules, `current_user_can_bypass: never` for the
+  credential, the exact HTTPS remote, and exactly one JSON-form trust policy in
+  the policy directory. Missing/403/corrupt results stop
+  before Telegram access. API visibility does not prove every App, external
+  credential, administrator or concurrent setting change is safe: independent
+  access review, no untrusted writers, and monitoring remain mandatory.
+- The publisher never initializes a missing ledger. Each state update is an
+  exact-parent non-force commit, then a fetch verifies ancestry and bytes. The
+  immutable legacy snapshot, inventory and activation fence cannot be changed by
+  ordinary delivery updates. Conflicts stop; no merge or last-writer-wins retry
+  is attempted. Local Git race/crash tests are not proof of live permissions or
+  recovery.
+
+A storage configuration is separately default-off at
+`.github/telegram-state.json`. After the state repository, broker and controls
+have been approved, a later reviewed PR may replace the false-only file with:
+
+```json
+{
+  "enabled": true,
+  "repository": "sascio/PRIVATE-STATE-REPO",
+  "repository_id": 123456,
+  "policy_branch": "main",
+  "broker_domain": "approved-sts.example.org",
+  "trusted_admin_ids": [123456],
+  "access_controls_reviewed": true
+}
+```
+
+Those values are examples, not an existing service or authorization. Admin IDs
+must be the exact visible writable administrator IDs; other human writers are
+rejected. The final boolean is a human attestation, not proof. The state
+repository must differ from the source, and its actual numeric ID/default branch
+must match. Keep this gate
+false until a real audit, token exchange, isolated state-only write, rejected
+unauthorized write, concurrency race and crash/recovery exercise succeed.
+
+Provision the trust policy **before granting the broker installation access**.
+It must be JSON (valid YAML) at
+`.github/chainguard/telegram-delivery.sts.yaml` on the state repository's
+protected default branch. For each approved release or recovery ref, generate
+the exact policy on a trusted machine, review it through a PR on that branch,
+and ensure no previous run is active, queued or holding a session lock before
+changing it. This intentionally requires review when the workflow SHA/ref
+changes; the policy cannot use a wildcard. For example, with the immutable source
+repository and owner IDs read from GitHub, and `REF`, `SHA`, and `EVENT` set to
+the reviewed workflow ref, its 40-hex workflow commit and `release` or
+`workflow_dispatch` respectively:
+
+```sh
+python3 - <<'PY'
+import json, os, sys
+sys.path.insert(0, 'scripts')
+import telegram_state
+print(json.dumps(telegram_state.expected_policy(
+    'sascio/MyBridge', 1349123452, 321979606,
+    os.environ['REF'], os.environ['SHA'], os.environ['EVENT']), indent=2))
+PY
+```
+
+The issuer must use this repository's immutable OIDC subject format and the
+`telegram-delivery` environment. GitHub's OIDC settings, environment protections,
+trusted release-tag permissions, broker policy and exact claim values need an
+administrator to verify. The broker token may expire during a long upload; if a
+confirmation write then fails, the state remains conservative and manual recovery
+is required. Do not assume a failed push did not reach GitHub.
+
+The visible `main` ruleset has an empty required-check list. A maintainer must
+select appropriate eligible PR checks and verify classic protection separately;
+a manual CI dispatch is not a PR gate. Recheck all controls before activation.
 
 ## Default-off activation gates
 
-Both of these independently must be true before live delivery can run:
+Both of these independently must be true before live delivery can run; the separate reviewed storage configuration must also be enabled:
 
 - `.github/telegram-publishing.json` must be a valid, duplicate-free reviewed
   object with exactly `enabled: true` and a UTC `not_before` timestamp, e.g.
@@ -111,8 +200,7 @@ Both of these independently must be true before live delivery can run:
   false gate still prevents publishing in the new workflow.
 
 The workflow checks both before the live job; the CLI checks both again. They
-are independent of the release-age fence and schema-3 migration and do not
-remove the branch-policy blocker. The preflight and dry render stay read-only
+are independent of the release-age fence and schema-3 migration and do not establish state-repository readiness. The preflight and dry render stay read-only
 when activation is off. Merging this code or changing a gate is not a release
 trigger and never initiates a backfill. No old workflow may be re-enabled during
 this cutover.
@@ -153,8 +241,8 @@ properly authorized recovery may deliver them without reposting confirmed text.
    dispatches, with cancellation disabled and a queue of at most 100 pending
    runs. Queue order is not an audit trail; excess runs can be canceled. Read-only
    preflights use separate per-run groups and cannot delay or replace a release.
-2. The publisher checks the visible non-fast-forward/deletion rules and fetches
-   the **remote default-branch** ledger; missing rules, missing/malformed state,
+2. The publisher checks the isolated state and trust-policy protections and fetches
+   the **remote private state-branch** ledger; missing rules, missing/malformed state,
    unknown versions, inconsistencies, duplicate keys or an unactivated ledger
    stop the run. It checks the GitHub release `created_at` (commit date) and
    `published_at` fields against the activation fences and rejects historical
@@ -225,12 +313,11 @@ A write-ahead Git commit and workflow concurrency do not fence a worker that an
 operator wrongly assumes is dead. The session lock must not be cleared while an
 old worker could resume. Only this workflow may use the bot for automated
 publishing; jobs in other repositories or manual tools are not covered by its
-concurrency group. The Git ledger assumes the default branch is not rewound,
-force-pushed, replaced or bypassed. Branch protection and action-token push
-permissions must be verified by a maintainer. If writes are rejected, the job
-fails before the next public send; do not weaken branch protection just to make
-it work. A GitHub Actions `GITHUB_TOKEN` push generally does not trigger new
-push workflows; the ledger commit also contains `[skip ci]` as a precaution.
+concurrency group. The Git ledger assumes its separate state branch is not rewound, deleted,
+replaced or modified by an untrusted writer. State access and no-bypass branch
+rules must be independently verified by a maintainer. If writes are rejected,
+the job fails before the next public send; do not weaken branch protection.
+Actions must be disabled in the state repository; `[skip ci]` is only a precaution.
 
 ## Audited legacy cutover (maintainer action; not performed by this change)
 
@@ -255,8 +342,10 @@ Older release events are not backfilled. The read-only audit found one visible
 `1924ddcd427a95327a1c02518272f65a09363cab`; the current blob
 `e195b31c3371b777cb995f67e38e5b3936157e56` is schema 1 with zero records.
 Visible historical workflow run `42004825171` skipped asset delivery and ledger
-recording. None of this proves that channel posts or unrecorded legacy sends do
-not exist. The local checkout may be shallow and is not a complete history audit.
+recording, but public channel message 5 confirms that `v0.1.15` was announced.
+Its origin and other deleted/non-visible history remain unknown. The local
+checkout may be shallow and is not a complete history audit; see the separate
+[historical audit](TELEGRAM-HISTORICAL-AUDIT.md).
 Before enabling live publishing, maintainers must:
 
 1. Keep the legacy workflow ID **disabled**, verify there are no queued/running
@@ -278,15 +367,16 @@ Before enabling live publishing, maintainers must:
    only the reviewed default-branch version and verify no prior bot MTProto
    session is active, or stop. Never reuse old or previously announced tags; a
    new release ID or commit date does not prove a tag was never posted.
-3. Resolve the **blocking** PR-rule/direct-push architecture conflict described
-   above without weakening protection, and verify no-force/no-delete, all bypass
-   actors, exclusive writers, workflow permissions and state-write capability
-   under the resulting design. No concurrent legacy publisher may run during or
-   after migration. If any condition cannot be established, stop with both gates
-   off and the workflow disabled.
+3. Provision and verify the separate private state repository and exact OIDC
+   trust policy described above, without weakening protection or granting a
+   bypass. Demonstrate real state-only writes, exclusion of unrelated workflows,
+   concurrency and crash recovery without Telegram. Audit all effective rules,
+   bypass actors, credentials and external writers. No concurrent legacy publisher
+   may run during or after migration. If any condition cannot be established,
+   stop with all gates off and the workflow disabled.
 4. Under that freeze, create and review `/tmp/streambridge-history.json` with
-   exactly `release_ids` (an array of positive integer IDs) and `tags` (an array
-   of tag names). This read-only example collects visible releases and tags;
+   `release_ids` (positive integer IDs), `tags` (tag names), and optionally
+   `message_ids` (positive integer known historical Telegram message IDs). This read-only example collects visible releases and tags;
    the authenticated account must have access to drafts. Add independently
    discovered deleted/unrecorded IDs and tags and verify completeness before
    using it. GitHub cannot recover every deleted item automatically:
@@ -306,7 +396,8 @@ Before enabling live publishing, maintainers must:
    if any(value in ('', 'null') for value in release_tags):
        raise RuntimeError('A release has no tag; inventory requires manual review')
    inventory = {'release_ids': ids,
-                'tags': sorted(set(lines('tags', 'name')) | set(release_tags))}
+                'tags': sorted(set(lines('tags', 'name')) | set(release_tags)),
+                'message_ids': [5]}  # add all independently audited message IDs
    with open('/tmp/streambridge-history.json', 'x', encoding='utf-8') as out:
        json.dump(inventory, out, indent=2)
        out.write('\n')
@@ -332,11 +423,11 @@ Before enabling live publishing, maintainers must:
    any sensitive data through the normal deployment process; never discard
    legacy entries. The acknowledgement is an operator attestation, **not** a
    technical proof that the freeze or inventory is complete.
-5. Deploy the reviewed schema-3 ledger and policy-compatible publisher to the
-   default branch **before** the cutoff, with the workflow disabled and both
-   activation gates still off. The original ledger and complete inventory are
-   preserved. An inventoried release ID/tag or a recorded legacy message ID
-   blocks a new operation, including during later validation. Earlier schema-3
+5. Deploy the reviewed schema-3 ledger to the separate private state branch
+   **before** the cutoff, with the workflow disabled and all activation/storage
+   gates still off. The original ledger and complete inventory are preserved. An
+   inventoried release ID/tag or recorded historical message ID blocks a new
+   operation, including during later validation. Earlier schema-3
    preview files that omit the inventory fail closed and must be regenerated from
    the preserved legacy source. If deployment misses the cutoff, prepare and
    review a new future cutoff rather than enabling.
@@ -344,19 +435,21 @@ Before enabling live publishing, maintainers must:
    default branch, choose a reviewed `not_before` UTC time far enough in the
    future for the remaining steps. While **both** workflow IDs are disabled and
    the tracked config is false, have an authorized maintainer deliberately set
-   the variable to `true`. Submit a separate reviewed PR setting `enabled: true`
-   and that future `not_before`, and update its default-off regression test.
-   Verify both gates and the actual replacement code, then explicitly enable
+   the variable to `true`. Submit separate reviewed changes enabling the storage
+   configuration and setting publishing `enabled: true` with that future
+   `not_before`; update the default-off regression tests. Verify all gates and
+   the actual replacement code, then explicitly enable
    only the **distinct new** workflow ID. The legacy ID must remain disabled.
    Complete all these steps **before** `not_before`. If the time is missed,
    leave the new workflow disabled and review a new future fence before enabling.
    This ordering is required because the CLI cannot independently prove when a
    repository variable was changed. Do not dispatch a live manual initialization;
    it is forbidden by the code.
-7. Wait until both the migration cutoff and `not_before` have passed, then end
-   the freeze by deliberately creating and publishing a new, never-announced
-   tag/release from a trusted commit containing the reviewed replacement
-   workflow. GitHub's `created_at` (the commit date) and `published_at` must
+7. Only with separate authorization, wait until both fences have passed. Under
+   the reviewed controlled release process, create a new, never-announced tag
+   from a trusted post-fence commit containing the replacement workflow. Review
+   and install that exact tag/ref/SHA OIDC policy while publication stays frozen;
+   ensure no run or session is active. Only then publish that release. GitHub's `created_at` (the commit date) and `published_at` must
    both be strictly after both fences, but this alone does not prove a draft or
    tag is new. The frozen inventory rejects known older draft IDs and tag names;
    an incomplete inventory or broken freeze invalidates the safety claim. That
@@ -375,13 +468,14 @@ read-only, validates the full file and does not print tags, operation IDs,
 identity fingerprints or secret values:
 
 ```sh
-git fetch --no-tags origin main
-git show FETCH_HEAD:.github/telegram-releases.json > /tmp/streambridge-ledger-snapshot.json
+# Run from the source checkout, with a separately authenticated, independently
+# verified private-state checkout at STATE_CHECKOUT.
+git -C "$STATE_CHECKOUT" fetch --no-tags origin telegram-delivery-state
+git -C "$STATE_CHECKOUT" show FETCH_HEAD:.github/telegram-releases.json > /tmp/streambridge-ledger-snapshot.json
 python3 scripts/telegram_ledger.py --inspect /tmp/streambridge-ledger-snapshot.json
 ```
 
-Replace `main` with the repository's actual default branch if it changes. For
-schema 1/2 the summary only reports the legacy-record count and unknown history.
+For schema 1/2 the summary only reports the legacy-record count and unknown history.
 For schema 3 it also reports `session_locked` and these operation categories:
 
 - `confirmed_sent`: the protocol recorded a response matched to the original

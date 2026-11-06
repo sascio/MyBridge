@@ -28,6 +28,7 @@ sys.path.insert(0, str(SCRIPTS))
 import telegram_announce as announce
 import telegram_assets as assets
 import telegram_ledger as ledger
+import telegram_state as state
 import telegram_mtproto as mtproto
 import telegram_publish as publish
 import telegram_release_notes as notes
@@ -43,6 +44,7 @@ TOKEN = "123456789:abcdefghijklmnopqrstuvwx_fake"
 CHAT = "@StreamBridge_App"
 API_HASH = "0123456789abcdef0123456789abcdef"
 EMPTY_INVENTORY = {"release_ids": [], "tags": []}
+STATE_CONFIG = state.StateConfig("example/private-state", 42, "main", "sts.example.org", (101,))
 
 
 def setUpModule():
@@ -510,6 +512,18 @@ class DurableDeliveryTests(unittest.TestCase):
                 self.assertEqual(self.server.calls, [])
                 self.assertEqual(self.store.history, [])
 
+    def test_observed_v0115_announcement_is_never_initialized_as_new(self):
+        inventory = {"release_ids": [434756896], "tags": ["v0.1.15"], "message_ids": [5]}
+        cutoff = utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1))
+        self.store = MemoryStore(ledger.migrate({"schema": 1, "releases": []}, cutoff, inventory))
+        self.server = FakeServer(self.store)
+        historical = sample_release(release_id=434756896, tag="v0.1.15")
+        with self.assertRaisesRegex(publish.PublishError, "historical inventory"):
+            self.run_publish(historical)
+        self.assertEqual(self.store.history, [])
+        self.assertEqual(self.server.calls, [])
+        self.assertEqual(self.transport_objects, [])
+
     def test_draft_and_prerelease_never_acquire_lock_or_send(self):
         release = sample_release()
         for field in ("draft", "prerelease"):
@@ -627,7 +641,7 @@ class DurableDeliveryTests(unittest.TestCase):
     def test_cli_cannot_publish_outside_the_serialized_actions_context(self):
         with mock.patch.dict(os.environ, {'GITHUB_ACTIONS': '', 'GITHUB_RUN_ID': ''}), \
                 contextlib.redirect_stdout(io.StringIO()) as output:
-            code = publish.main(['--release-json', 'does-not-exist.json', '--branch', 'main'])
+            code = publish.main(['--release-json', 'does-not-exist.json', '--branch', 'main', '--state-dir', '/tmp/state-checkout'])
         self.assertEqual(code, 1)
         self.assertIn('restricted', output.getvalue())
         self.assertEqual(self.server.calls, [])
@@ -743,14 +757,15 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         capture = io.StringIO()
         with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, None)), \
              mock.patch.object(ledger, "publishing_not_before", return_value=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), \
+             mock.patch.object(state, "load_config", return_value=STATE_CONFIG), \
              mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
              mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
              mock.patch.object(ledger, "GitLedger", return_value=MemoryStore()), \
-             mock.patch.object(ledger, "require_branch_rules") as branch_rules, \
+             mock.patch.object(state, "verify_state") as branch_rules, \
              mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(capture):
-            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 0)
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 0)
             publisher.call_args.kwargs["policy_check"]()
-            branch_rules.assert_called_once_with("sascio/MyBridge", "main")
+            branch_rules.assert_called_once_with(STATE_CONFIG, "/tmp/state-checkout", "sascio/MyBridge")
         for secret in values.values():
             self.assertNotIn(secret, capture.getvalue())
 
@@ -758,8 +773,19 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, None)), \
              mock.patch.object(publish, "require_secret") as secrets_read, \
              mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 1)
             self.assertIn("configuration is disabled", output.getvalue())
+            secrets_read.assert_not_called()
+            store.assert_not_called()
+
+    def test_disabled_state_configuration_blocks_before_telegram_secrets(self):
+        fence = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=10)
+        with mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", 123, None)), \
+             mock.patch.object(ledger, "publishing_not_before", return_value=fence), \
+             mock.patch.object(publish, "require_secret") as secrets_read, \
+             mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 1)
+            self.assertIn("state storage is disabled", output.getvalue())
             secrets_read.assert_not_called()
             store.assert_not_called()
 
@@ -769,7 +795,7 @@ class BranchPolicyAndContextTests(unittest.TestCase):
              mock.patch.object(ledger, "publishing_not_before", return_value=fence), \
              mock.patch.object(publish, "require_secret") as secrets_read, \
              mock.patch.object(ledger, "GitLedger") as store, contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 1)
             self.assertIn("not yet effective", output.getvalue())
             secrets_read.assert_not_called()
             store.assert_not_called()
@@ -782,11 +808,12 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "release"}), \
              mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", release.id, None)), \
              mock.patch.object(ledger, "publishing_not_before", return_value=fence), \
+             mock.patch.object(state, "load_config", return_value=STATE_CONFIG), \
              mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
              mock.patch.object(publish.announce, "load_release", return_value=release), \
              mock.patch.object(ledger, "GitLedger") as store, \
              mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(io.StringIO()) as output:
-            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 1)
             self.assertIn("before the reviewed activation fence", output.getvalue())
             store.assert_not_called()
             publisher.assert_not_called()
@@ -797,14 +824,15 @@ class BranchPolicyAndContextTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "workflow_dispatch"}), \
              mock.patch.object(publish, "require_workflow_context", return_value=("sascio/MyBridge", None, "v9.9.9")), \
              mock.patch.object(ledger, "publishing_not_before", return_value=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), \
+             mock.patch.object(state, "load_config", return_value=STATE_CONFIG), \
              mock.patch.object(publish, "require_secret", side_effect=values.__getitem__) as secrets_read, \
              mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
              mock.patch.object(ledger, "GitLedger", return_value=MemoryStore()), \
              mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main"]), 1)
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout"]), 1)
             secrets_read.assert_not_called()
             publisher.assert_not_called()
-            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--recover-unknown"]), 0)
+            self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout", "--recover-unknown"]), 0)
             self.assertFalse(publisher.call_args.kwargs["allow_new_release"])
 
     def test_live_cli_rejects_release_or_tag_that_does_not_match_event(self):
@@ -815,11 +843,12 @@ class BranchPolicyAndContextTests(unittest.TestCase):
             with self.subTest(event=event_name), mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": event_name}), \
                  mock.patch.object(publish, "require_workflow_context", return_value=context), \
                  mock.patch.object(ledger, "publishing_not_before", return_value=dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), \
+                 mock.patch.object(state, "load_config", return_value=STATE_CONFIG), \
                  mock.patch.object(publish, "require_secret", side_effect=values.__getitem__), \
                  mock.patch.object(publish.announce, "load_release", return_value=sample_release()), \
                  mock.patch.object(ledger, "GitLedger") as store, \
                  mock.patch.object(publish, "publish") as publisher, contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", *extra]), 1)
+                self.assertEqual(publish.main(["--release-json", "fixture.json", "--branch", "main", "--state-dir", "/tmp/state-checkout", *extra]), 1)
                 store.assert_not_called()
                 publisher.assert_not_called()
 
@@ -991,6 +1020,24 @@ class LedgerValidationTests(unittest.TestCase):
             with self.subTest(message_id=message_id), self.assertRaisesRegex(ledger.LedgerError, "repeated message id"):
                 ledger.validate(doc)
 
+    def test_audited_message_ids_are_preserved_and_cannot_be_reconfirmed(self):
+        inventory = {"release_ids": [434756896], "tags": ["v0.1.15"], "message_ids": [5]}
+        doc = ledger.migrate({"schema": 1, "releases": []},
+                             utc(dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)), inventory)
+        self.assertEqual(doc["inventory"], inventory)
+        self.assertEqual(ledger.summarize(doc)["inventoried_message_ids"], 1)
+        release = sample_release()
+        entry = publish.make_release(release, [{"key": "page:1", "kind": "page", "payload": "a" * 64}], set())
+        entry["items"][0].update(state="confirmed", message_id=5, attempts=1)
+        doc["identity"] = "b" * 64
+        doc["releases"] = [entry]
+        with self.assertRaisesRegex(ledger.LedgerError, "repeated message id"):
+            ledger.validate(doc)
+        for ids in ([5, 5], [0], [True], "5"):
+            with self.subTest(ids=ids), self.assertRaises(ledger.LedgerError):
+                ledger.migrate({"schema": 1, "releases": []}, "2026-01-01T00:00:00Z",
+                               {"release_ids": [], "tags": [], "message_ids": ids})
+
     def test_schema_three_rejects_inventory_overlap_even_if_legacy_ledger_was_empty(self):
         release = sample_release()
         operation = {"key": "page:1", "kind": "page", "payload": "a" * 64}
@@ -1118,7 +1165,7 @@ class RealGitLedgerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.remote = self.root / "remote.git"
         self.work = self.root / "work"
-        self.git("init", "--bare", "--initial-branch=main", str(self.remote), cwd=self.root)
+        self.git("init", "--bare", "--initial-branch=telegram-delivery-state", str(self.remote), cwd=self.root)
         self.git("clone", str(self.remote), str(self.work), cwd=self.root)
         self.git("config", "user.name", "Test", cwd=self.work)
         self.git("config", "user.email", "test@example.invalid", cwd=self.work)
@@ -1128,8 +1175,8 @@ class RealGitLedgerTests(unittest.TestCase):
         (self.work / "other.txt").write_text("unchanged", encoding="utf-8")
         self.git("add", ".", cwd=self.work)
         self.git("commit", "-m", "initial", cwd=self.work)
-        self.git("push", "origin", "HEAD:refs/heads/main", cwd=self.work)
-        self.store = ledger.GitLedger(str(self.work), "main")
+        self.git("push", "origin", "HEAD:refs/heads/telegram-delivery-state", cwd=self.work)
+        self.store = ledger.GitLedger(str(self.work), state.STATE_BRANCH)
 
     @staticmethod
     def git(*args, cwd):
@@ -1172,10 +1219,34 @@ class RealGitLedgerTests(unittest.TestCase):
             saved = self.store.save(snap, new)
         self.assertEqual(saved.document["session"], {"owner": "ambiguous"})
 
+    def test_preserved_history_cannot_be_rewritten_even_with_new_checksums(self):
+        original = self.store.read()
+        for key in ("legacy", "inventory", "activation"):
+            with self.subTest(field=key):
+                document = copy.deepcopy(original.document)
+                if key == "legacy":
+                    document["legacy"]["description"] = "rewritten"
+                    document["activation"]["legacy_sha256"] = ledger.digest(document["legacy"])
+                elif key == "inventory":
+                    document["inventory"]["tags"].append("old-tag")
+                    document["activation"]["inventory_sha256"] = ledger.digest(document["inventory"])
+                else:
+                    document["activation"]["created_after"] = "2000-01-01T00:00:00Z"
+                ledger.validate(document)
+                with self.assertRaisesRegex(ledger.LedgerError, "immutable"):
+                    self.store.save(original, document)
+                self.assertEqual(self.store.read().raw, original.raw)
+
+    def test_mutated_snapshot_fails_closed(self):
+        snapshot = self.store.read()
+        snapshot.document["session"] = {"owner": "modified-locally"}
+        with self.assertRaisesRegex(ledger.LedgerError, "snapshot"):
+            self.store.save(snapshot, copy.deepcopy(snapshot.document))
+
     def test_missing_remote_ledger_is_not_recreated(self):
         self.git("rm", ledger.LEDGER_PATH, cwd=self.work)
         self.git("commit", "-m", "remove ledger", cwd=self.work)
-        self.git("push", "origin", "HEAD:main", cwd=self.work)
+        self.git("push", "origin", "HEAD:telegram-delivery-state", cwd=self.work)
         with self.assertRaisesRegex(ledger.LedgerError, "missing"):
             self.store.read()
 
@@ -1190,7 +1261,7 @@ class RealGitLedgerTests(unittest.TestCase):
 
         class RacingStore(ledger.GitLedger):
             def __init__(worker, repo):
-                super().__init__(str(repo), "main")
+                super().__init__(str(repo), state.STATE_BRANCH)
                 worker.first = True
             def read(worker):
                 snapshot = super().read()
