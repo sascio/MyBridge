@@ -43,6 +43,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import telegram_announce as announce  # noqa: E402
 import telegram_assets as assets  # noqa: E402
+import telegram_ledger as ledger  # noqa: E402
 import telegram_release_notes as notes  # noqa: E402
 
 try:
@@ -814,7 +815,9 @@ class WorkflowTests(unittest.TestCase):
     def test_download_buttons_and_ledger_flow_are_documented_together(self) -> None:
         doc = (SCRIPTS.parent / "docs" / "TELEGRAM-ANNOUNCEMENTS.md").read_text(encoding="utf-8")
         self.assertIn("⬇️ Download StreamBridge", doc)
-        self.assertIn("telegram-releases.json", doc)
+        self.assertIn(ledger.LEGACY_PATH, doc)
+        self.assertIn(ledger.LEDGER_PATH, doc)
+        self.assertIn(f"show FETCH_HEAD:{ledger.LEDGER_PATH}", doc)
         self.assertIn("release id", doc)
 
     def test_docs_state_the_default_branch_requirement(self) -> None:
@@ -1465,7 +1468,8 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow["jobs"]["build"]["permissions"], {"contents": "read", "issues": "write"})
         jobs = workflow["jobs"]
         self.assertEqual(set(jobs), {"build", "tracking-config-check", "script-tests", "telegram-readiness",
-                                    "telegram-state-verification", "telegram-state-cutover", "telegram-input-validation"})
+                                    "telegram-state-verification", "telegram-state-cutover", "telegram-input-validation",
+                                    "telegram-history-preview"})
         for name in ("build", "tracking-config-check", "script-tests"):
             condition = jobs[name]["if"]
             self.assertIn("inputs.telegram_readiness != true", condition)
@@ -1476,6 +1480,11 @@ class CiVerificationWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.telegram_state_verification != true", probe["if"])
         self.assertEqual(jobs["telegram-state-verification"]["permissions"], {"contents": "write"})
         self.assertEqual(jobs["telegram-state-cutover"]["permissions"], {"contents": "write", "actions": "read"})
+        preview = jobs["telegram-history-preview"]
+        self.assertEqual(preview["permissions"], {"contents": "write", "actions": "read"})  # GitHub draft visibility
+        self.assertIn("inputs.telegram_cutover_mode == 'preview'", preview["if"])
+        self.assertNotIn("inputs.telegram_cutover_mode == 'preview'", jobs["telegram-state-cutover"]["if"])
+        self.assertTrue(any("--mode preview" in step.get("run", "") for step in preview["steps"]))
         self.assertEqual(jobs["telegram-input-validation"]["permissions"], {})
         for name in ("telegram-state-verification", "telegram-state-cutover"):
             self.assertEqual(jobs[name]["concurrency"],

@@ -73,13 +73,15 @@ proves at least one announcement existed, not that this run sent it.
    checksummed schema-4 migration only after the freeze is in place. Retain the
    unmodified schema-1/2 document and the independently reviewed inventory.
    The owner-triggered preview/initializer described in the runbook observes
-   current API identities, not deleted or invisible ones. If an independently
-   known historical ID/tag is absent, do not initialize that candidate; prepare
-   a separately reviewed protected migration that includes it. No preview has
+   current API identities, not deleted or invisible ones or additional channel
+   message IDs. If an independently known historical release, tag, or message
+   ID is absent, do not initialize that candidate; prepare a separately reviewed
+   protected migration that includes it. No preview has
    been frozen or approved and no migration has been deployed.
-4. Provision and verify the dedicated same-repository state branch and its
+4. Verify the existing dedicated same-repository state branch and its
    no-force/no-delete controls as described in `TELEGRAM-ANNOUNCEMENTS.md`.
-   Repository writers share access; real write/migration and crash recovery
+   Its current main-based tip is not an initialized ledger. Repository writers
+   share access; real write/migration and crash recovery
    must be exercised without a Telegram send before activation. The public
    ledger must not reveal the draft identifier or tag.
 5. Continue the freeze until the reviewed ledger, rules, gates and

@@ -679,15 +679,46 @@ jobs:
           fi
           python3 scripts/telegram_state_verify.py "${args[@]}"
 
-  # The maintainer may preview/init frozen history or reconcile a previously
+  # This preview performs only reads. Contents:write is needed because GitHub
+  # does not list draft releases to a read-only token; the credential can still
+  # write the repository and is part of the shared-writer trust boundary.
+  telegram-history-preview:
+    name: Telegram historical inventory preview (no writes)
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.telegram_readiness != true &&
+      inputs.telegram_state_verification != true && inputs.telegram_cutover_mode == 'preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the requested workflow ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: true
+      - name: Preview the protected historical inventory without writing state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          CUTOFF: ${{ inputs.telegram_cutover_cutoff }}
+          FINGERPRINT: ${{ inputs.telegram_cutover_fingerprint }}
+          ACKNOWLEDGE: ${{ inputs.telegram_cutover_ack }}
+          SOURCE_DIR: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python3 scripts/telegram_cutover.py --mode preview --cutoff "${CUTOFF}" \
+            --fingerprint "${FINGERPRINT}" --acknowledge "${ACKNOWLEDGE}" --source-dir "${SOURCE_DIR}"
+
+  # The maintainer may initialize frozen history or reconcile a previously
   # confirmed response from a trusted Actions log. No Telegram request occurs.
   telegram-state-cutover:
     name: Telegram state cutover and reconciliation
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.telegram_readiness != true &&
       inputs.telegram_state_verification != true &&
-      (inputs.telegram_cutover_mode == 'preview' || inputs.telegram_cutover_mode == 'initialize' ||
-       inputs.telegram_cutover_mode == 'reconcile')
+      (inputs.telegram_cutover_mode == 'initialize' || inputs.telegram_cutover_mode == 'reconcile')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:

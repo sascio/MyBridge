@@ -97,13 +97,50 @@ def collect(repository: str, legacy: object, cutoff: str, token: str) -> dict[st
                           now=dt.datetime.now(dt.timezone.utc))
 
 
-def initialize(store: ledger.GitLedger, doc: dict[str, Any]) -> str:
-    """Create a single-file orphan ref, never overwriting an existing state branch."""
+def preview_fingerprint(doc: dict[str, Any], state_parent: str | None, default_parent: str) -> str:
+    """Bind protected candidate data to the exact reviewed remote ref tips."""
+    ledger.validate(doc)
+    if ((state_parent is not None and (not isinstance(state_parent, str) or not ledger.COMMIT_SHA.fullmatch(state_parent)))
+            or not isinstance(default_parent, str) or not ledger.COMMIT_SHA.fullmatch(default_parent)):
+        raise CutoverError("The preview branch identities are invalid.")
+    return ledger.digest({"candidate": doc, "state_parent": state_parent, "default_parent": default_parent})
+
+
+def remote_head(store: ledger.GitLedger, branch: str) -> str | None:
+    """Read exactly one remote branch ref without modifying it."""
+    ref = f"refs/heads/{branch}"
+    probe = store._git("ls-remote", "--heads", "origin", ref, check=False)
+    if probe.returncode:
+        raise CutoverError("The remote branch could not be verified.")
+    lines = probe.stdout.decode("ascii").splitlines()
+    if not lines:
+        return None
+    fields = lines[0].split()
+    if len(lines) != 1 or len(fields) != 2 or fields[1] != ref or not ledger.COMMIT_SHA.fullmatch(fields[0]):
+        raise CutoverError("The remote branch identity is inconsistent.")
+    return fields[0]
+
+
+def initialize(store: ledger.GitLedger, doc: dict[str, Any], *, expected_parent: str | None,
+               default_branch: str, expected_main: str) -> str:
+    """Create an orphan root or a verified single-file child of an unchanged main tip."""
     ledger.validate(doc)
     ref = f"refs/heads/{store.branch}"
-    probe = store._git("ls-remote", "--heads", "origin", ref, check=False)
-    if probe.returncode != 0 or probe.stdout.strip():
-        raise CutoverError("The state ref already exists or its absence cannot be verified.")
+    parent = remote_head(store, store.branch)
+    main = remote_head(store, default_branch)
+    if (parent != expected_parent or main is None or main != expected_main or default_branch == store.branch):
+        raise CutoverError("The state or default branch changed since the reviewed preview.")
+    if parent is not None:
+        # A pre-created state ref is safe to initialize only if it is exactly the
+        # current default tip and its legacy ledger equals the frozen candidate.
+        # The child removes source from the *tip* without rewriting Git history.
+        if parent != main:
+            raise CutoverError("The existing state ref is not the unchanged default-branch tip.")
+        store._git("fetch", "--no-tags", "origin", ref)
+        fetched = store._git("rev-parse", "FETCH_HEAD").stdout.decode("ascii").strip()
+        old = store._git("show", f"{parent}:{ledger.LEGACY_PATH}", check=False)
+        if fetched != parent or old.returncode or ledger._json_input(old.stdout) != doc["legacy"]:
+            raise CutoverError("The existing state ref or preserved legacy ledger is inconsistent.")
     body = ledger.canonical(doc)
     blob = store._git("hash-object", "-w", "--stdin", data=body).stdout.decode("ascii").strip()
     with tempfile.TemporaryDirectory(prefix="telegram-state-init-") as tmp:
@@ -116,9 +153,15 @@ def initialize(store: ledger.GitLedger, doc: dict[str, Any]) -> str:
         store._git("read-tree", "--empty", env=env)
         store._git("update-index", "--add", "--cacheinfo", f"100644,{blob},{ledger.LEDGER_PATH}", env=env)
         tree = store._git("write-tree", env=env).stdout.decode("ascii").strip()
-        commit = store._git("commit-tree", tree, env=env,
+        parent_args = ["-p", parent] if parent else []
+        commit = store._git("commit-tree", tree, *parent_args, env=env,
                             data=b"chore(telegram): initialize reviewed delivery ledger [skip ci]\n").stdout.decode("ascii").strip()
-    # A failed push may have succeeded. Only the exact new root and exact bytes
+    # Recheck immediately before the push. Git also guards the state ref with a
+    # non-force fast-forward check. The two refs cannot be checked atomically,
+    # so the caller rechecks the default tip after the push as well.
+    if remote_head(store, default_branch) != main or remote_head(store, store.branch) != parent:
+        raise CutoverError("A reviewed branch changed before initialization; no state push was attempted.")
+    # A failed push may have succeeded. Only the exact commit, parent and bytes
     # count as success; never force, reset, replace, or delete a remote ref.
     try:
         store._git("push", "origin", f"{commit}:{ref}", check=False)
@@ -126,8 +169,9 @@ def initialize(store: ledger.GitLedger, doc: dict[str, Any]) -> str:
         pass
     snapshot = store.read()
     parents = store._git("rev-list", "--parents", "-n", "1", snapshot.parent).stdout.decode("ascii").split()
-    if snapshot.parent != commit or snapshot.raw != body or parents != [commit]:
-        raise CutoverError("The new state root could not be confirmed; leave publishing disabled.")
+    expected_parents = [commit, parent] if parent else [commit]
+    if snapshot.parent != commit or snapshot.raw != body or parents != expected_parents:
+        raise CutoverError("The initialized state commit could not be confirmed; leave publishing disabled.")
     return commit
 
 
@@ -153,9 +197,10 @@ def main() -> int:
         repo = os.environ.get("GITHUB_REPOSITORY", "")
         repo_id = os.environ.get("GITHUB_REPOSITORY_ID", "")
         if (os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
-                or repo != "sascio/MyBridge" or repo_id != "1349123452" or not os.environ.get("GH_TOKEN")
-                or args.acknowledge != ACKNOWLEDGEMENT):
-            raise CutoverError("Explicit owner-reviewed Actions cutover and freeze acknowledgement are required.")
+                or repo != "sascio/MyBridge" or repo_id != "1349123452" or not os.environ.get("GH_TOKEN")):
+            raise CutoverError("The explicit same-repository Actions dispatch is required.")
+        if args.mode == "initialize" and args.acknowledge != ACKNOWLEDGEMENT:
+            raise CutoverError("Initialization requires the independent freeze and history acknowledgement.")
         _require_disabled_gates()
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
         with open(ledger.LEGACY_PATH, "rb") as handle:
@@ -164,31 +209,54 @@ def main() -> int:
         if (not isinstance(legacy_workflow, dict) or legacy_workflow.get("state") != "disabled_manually"
                 or legacy_workflow.get("path") != ".github/workflows/telegram-release-announcement.yml"):
             raise CutoverError("The legacy workflow is not confirmed manually disabled.")
+        metadata = state._api(f"repos/{repo}")
+        if (not isinstance(metadata, dict) or metadata.get("id") != int(repo_id)
+                or metadata.get("full_name") != repo or not isinstance(metadata.get("default_branch"), str)
+                or not state.BRANCH.fullmatch(metadata["default_branch"])):
+            raise CutoverError("The source repository or default branch identity is inconsistent.")
+        default_branch = metadata["default_branch"]
+        store = ledger.GitLedger(args.source_dir, state.STATE_BRANCH)
+        state_parent = remote_head(store, state.STATE_BRANCH)
+        main_parent = remote_head(store, default_branch)
+        if main_parent is None:
+            raise CutoverError("The source default branch could not be verified.")
         doc = collect(repo, legacy, args.cutoff, token)
-        fingerprint = ledger.digest(doc)  # digest of protected data, never raw private inventory
+        # Bind the protected candidate and both ref tips to the reviewed preview.
+        # Never digest or print the raw private inventory.
+        fingerprint = preview_fingerprint(doc, state_parent, main_parent)
         protected = doc["inventory"].get("protected", {})
         summary = {"mode": args.mode, "candidate_cutoff": args.cutoff, "protected_fingerprint": fingerprint,
+                   "state_parent": state_parent, "default_parent": main_parent,
                    "public_exclusions": len(doc["inventory"].get("exclusions", [])),
                    "protected_release_ids": len(protected.get("release_id_digests", [])),
                    "total_tags": len(doc["inventory"]["tags"]) + len(protected.get("tag_digests", []))}
         if args.mode == "preview":
             if args.fingerprint:
                 raise CutoverError("A preview does not accept an initialization fingerprint.")
-            print(json.dumps(summary, sort_keys=True))
-            print("Preview only: no state ref was created. Freeze and independent owner review remain mandatory.")
+            preview = json.dumps(summary, sort_keys=True)
+            print(preview)
+            print("::notice title=Unapproved Telegram history preview::" + preview)
+            summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+            if summary_path:
+                with open(summary_path, "a", encoding="utf-8") as handle:
+                    handle.write("### Unapproved Telegram history preview\n\n```json\n" + preview + "\n```\n")
+            print("Unapproved preview only: no state ref was created or modified. Freeze and independent owner review remain mandatory.")
             return 0
         if not re.fullmatch(r"[0-9a-f]{64}", args.fingerprint) or args.fingerprint != fingerprint:
             raise CutoverError("The current protected inventory does not match the owner-reviewed preview.")
         config = state.SameRepositoryConfig(repo, int(repo_id))
         state.verify_bootstrap_rules(config, args.source_dir, repo)
-        store = ledger.GitLedger(args.source_dir, state.STATE_BRANCH)
-        head = initialize(store, doc)
+        head = initialize(store, doc, expected_parent=state_parent, default_branch=default_branch,
+                          expected_main=main_parent)
         state.verify_state(config, args.source_dir, repo)
-        if ledger.digest(collect(repo, legacy, args.cutoff, token)) != fingerprint:
-            raise CutoverError("The frozen inventory changed during initialization; leave publishing disabled.")
+        final_state = store.read()
+        if (ledger.digest(collect(repo, legacy, args.cutoff, token)) != ledger.digest(doc)
+                or remote_head(store, default_branch) != main_parent or final_state.parent != head
+                or final_state.raw != ledger.canonical(doc)):
+            raise CutoverError("The inventory or branch tips changed during initialization; leave publishing disabled.")
         summary["state_head"] = head
         print(json.dumps(summary, sort_keys=True))
-        print("The source-free state root was initialized; live write/race verification and owner bypass review remain mandatory.")
+        print("The single-file state tip was initialized; live write/race verification and owner bypass review remain mandatory.")
         return 0
     except Exception:  # do not print API payloads, credentials, private draft fields, or remote errors
         print("::error::Historical cutover failed closed; review the freeze, inventory, branch rules and runbook. Publishing remains disabled.")
