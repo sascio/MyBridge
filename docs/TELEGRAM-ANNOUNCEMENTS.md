@@ -169,11 +169,13 @@ PY
 ```
 
 The issuer must use this repository's immutable OIDC subject format and the
-`telegram-delivery` environment. GitHub's OIDC settings, environment protections,
-trusted release-tag permissions, broker policy and exact claim values need an
-administrator to verify. The broker token may expire during a long upload; if a
-confirmation write then fails, the state remains conservative and manual recovery
-is required. Do not assume a failed push did not reach GitHub.
+`telegram-delivery` environment. The generated claim patterns are escaped and
+explicitly anchored, including the workflow ref; an unanchored policy is rejected.
+GitHub's OIDC settings, environment protections, trusted release-tag permissions,
+broker version/behavior, policy and exact claim values need an administrator to
+verify. The broker token may expire during a long upload; if a confirmation write
+then fails, the state remains conservative and manual recovery is required. Do not
+assume a failed push did not reach GitHub.
 
 The visible `main` ruleset has an empty required-check list. A maintainer must
 select appropriate eligible PR checks and verify classic protection separately;

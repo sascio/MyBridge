@@ -80,6 +80,12 @@ def _go_quote_meta(value: str) -> str:
     return "".join("\\" + c if c in special else c for c in value)
 
 
+def _exact_claim(value: str) -> str:
+    # Anchor independently of the broker version. Otherwise a regex-based
+    # matcher could accept a reviewed workflow ref as a substring of another.
+    return "^" + _go_quote_meta(value) + "$"
+
+
 def expected_policy(source: str, source_id: int, owner_id: int, workflow_ref: str,
                     workflow_sha: str, event_name: str) -> dict[str, Any]:
     """One immutable workflow/ref/SHA per policy; no wildcard federation."""
@@ -96,11 +102,11 @@ def expected_policy(source: str, source_id: int, owner_id: int, workflow_ref: st
         "issuer": "https://token.actions.githubusercontent.com",
         "subject": f"repo:{owner}@{owner_id}/{name}@{source_id}:environment:{ENVIRONMENT}",
         "claim_pattern": {
-            "repository_id": str(source_id),
-            "repository_owner_id": str(owner_id),
-            "workflow_ref": _go_quote_meta(workflow_ref),
-            "workflow_sha": workflow_sha,
-            "event_name": event_name,
+            "repository_id": _exact_claim(str(source_id)),
+            "repository_owner_id": _exact_claim(str(owner_id)),
+            "workflow_ref": _exact_claim(workflow_ref),
+            "workflow_sha": _exact_claim(workflow_sha),
+            "event_name": _exact_claim(event_name),
         },
         "permissions": {"contents": "write", "administration": "read"},
     }

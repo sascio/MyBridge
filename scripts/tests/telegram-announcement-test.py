@@ -1465,6 +1465,30 @@ class CiVerificationWorkflowTests(unittest.TestCase):
                          "Verify Play Store distribution excludes the CloudStream runtime"} <= names)
         self.assertTrue(any(step.get("name") == "Run script tests" for step in jobs["script-tests"]["steps"]))
 
+    def test_script_test_failures_are_annotated_without_uploading_a_report(self) -> None:
+        workflow = yaml.safe_load((SCRIPTS.parent / ".github/workflows/build.yml").read_text())
+        step = next(step for step in workflow["jobs"]["script-tests"]["steps"]
+                    if step.get("name") == "Run script tests")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = root / "scripts/tests/run-tests.sh"
+            fixture.parent.mkdir(parents=True)
+            env = dict(os.environ, RUNNER_TEMP=tmp)
+            def run_fixture(body):
+                fixture.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+                fixture.chmod(0o755)
+                return subprocess.run(["bash", "-e", "-o", "pipefail", "-c", step["run"]],
+                                      cwd=root, env=env, text=True, capture_output=True)
+            passed = run_fixture("echo 'all passed'\nexit 0\n")
+            self.assertEqual(passed.returncode, 0)
+            self.assertNotIn("::error title=Script", passed.stdout)
+            failed = run_fixture("printf '%s\\n' 'FAIL: test_bad (suite.Test)' "
+                                 "'ERROR: test_other (suite.Test)' '  FAIL release check'\nexit 2\n")
+            self.assertNotEqual(failed.returncode, 0)
+            for name in ("FAIL: test_bad (suite.Test)", "ERROR: test_other (suite.Test)", "  FAIL release check"):
+                self.assertIn("::error title=Script test case failed::" + name, failed.stdout)
+            self.assertFalse((root / "script-tests.log").exists())
+
 
 class WorkflowRefTests(unittest.TestCase):
     def test_checkout_uses_the_default_branch_not_the_release_tag(self) -> None:

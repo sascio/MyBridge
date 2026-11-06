@@ -131,11 +131,21 @@ class StateConfigTests(unittest.TestCase):
     def test_policy_pins_immutable_source_workflow_ref_sha_and_event(self):
         policy = state.expected_policy(SOURCE, 1349123452, 321979606, WORKFLOW_REF, SHA, "release")
         self.assertEqual(policy["subject"], "repo:sascio@321979606/MyBridge@1349123452:environment:telegram-delivery")
-        self.assertEqual(policy["claim_pattern"]["workflow_sha"], SHA)
         self.assertEqual(policy["permissions"], {"contents": "write", "administration": "read"})
         import re
-        self.assertIsNotNone(re.fullmatch(policy["claim_pattern"]["workflow_ref"], WORKFLOW_REF))
-        self.assertIsNone(re.fullmatch(policy["claim_pattern"]["workflow_ref"], WORKFLOW_REF.replace("v9.9.9", "v9X9X9")))
+        claims = {"repository_id": "1349123452", "repository_owner_id": "321979606",
+                  "workflow_ref": WORKFLOW_REF, "workflow_sha": SHA, "event_name": "release"}
+        self.assertEqual(set(policy["claim_pattern"]), set(claims))
+        for name, value in claims.items():
+            pattern = policy["claim_pattern"][name]
+            with self.subTest(claim=name):
+                # Use search rather than fullmatch: the policy itself must be
+                # anchored even if a broker uses an unanchored regex matcher.
+                self.assertIsNotNone(re.search(pattern, value))
+                self.assertIsNone(re.search(pattern, "x" + value))
+                self.assertIsNone(re.search(pattern, value + "-other"))
+        self.assertIsNone(re.search(policy["claim_pattern"]["workflow_ref"],
+                                    WORKFLOW_REF.replace("v9.9.9", "v9X9X9")))
         for ref, sha, event in ((WORKFLOW_REF.replace("telegram-release-delivery", "other"), SHA, "release"),
                                 (WORKFLOW_REF, "a" * 39, "release"), (WORKFLOW_REF, SHA, "push")):
             with self.subTest(ref=ref, sha=sha, event=event), self.assertRaises(ledger.LedgerError):
@@ -188,6 +198,8 @@ class StateGuardTests(unittest.TestCase):
             ("visible bypass actor", lambda p: p.details[20].update(bypass_actors=[{"actor_id": 1}])),
             ("extra trust policy", lambda p: p.policy_files.append(".github/chainguard/other.sts.yaml")),
             ("wrong workflow", lambda p: p.policy["claim_pattern"].update(workflow_ref=".*")),
+            ("unanchored workflow", lambda p: p.policy["claim_pattern"].update(
+                workflow_ref=p.policy["claim_pattern"]["workflow_ref"].removeprefix("^").removesuffix("$"))),
             ("wrong SHA", lambda p: p.policy["claim_pattern"].update(workflow_sha=".*")),
             ("wrong event", lambda p: p.policy["claim_pattern"].update(event_name=".*")),
             ("extra app permission", lambda p: p.policy["permissions"].update(administration="write")),

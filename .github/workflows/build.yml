@@ -500,4 +500,23 @@ jobs:
             'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1' 'PyYAML==6.0.2'
 
       - name: Run script tests
-        run: scripts/tests/run-tests.sh
+        run: |
+          set -o pipefail
+          log="${RUNNER_TEMP}/script-tests.log"
+          trap 'rm -f "$log"' EXIT
+          if scripts/tests/run-tests.sh 2>&1 | tee "$log"; then
+            exit 0
+          fi
+          # Logs may not be available via the Actions API. Report only failing
+          # test names, not tracebacks or credentials, and upload no artifact.
+          echo '::error title=Script tests failed::One or more script-test groups failed.'
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            case "$line" in
+              'FAIL: '*|'ERROR: '*|'  FAIL '*)
+                escaped="${line//'%'/'%25'}"
+                escaped="${escaped//$'\r'/'%0D'}"
+                printf '::error title=Script test case failed::%.600s\n' "$escaped"
+                ;;
+            esac
+          done < "$log"
+          exit 1
