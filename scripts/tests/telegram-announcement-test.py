@@ -1231,7 +1231,13 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertEqual(self.workflow['concurrency']['queue'], 'max')
         self.assertIs(self.workflow['concurrency']['cancel-in-progress'], False)
         self.assertTrue(all(verify['env'][name] == '${{ secrets.' + name + ' }}' for name in self.SECRETS))
-        install, login = self.preflight['steps'][3:]
+        blocked, install, login = self.preflight['steps'][3:]
+        self.assertEqual(blocked['if'], "vars.TELEGRAM_PUBLISHING_ENABLED == 'true'")
+        self.assertIn('full preflight is not verified', blocked['run'])
+        result = subprocess.run(['bash', '-e', '-o', 'pipefail', '-c', blocked['run']],
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('MTProto login was not checked', result.stdout)
         self.assertEqual(install['if'], "vars.TELEGRAM_PUBLISHING_ENABLED != 'true'")
         self.assertEqual(login['if'], install['if'])
         self.assertIn('telethon==1.45.0', install['run'])

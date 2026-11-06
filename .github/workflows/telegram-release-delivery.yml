@@ -134,8 +134,13 @@ jobs:
           print("MTProto login, channel history and uploads were not tested in this step.")
           PY
       # The in-memory login can leave an unconfirmed authorization if its
-      # logout fails. Only do it while publishing is disabled; do not let a
-      # diagnostic create an unfenced session during live delivery.
+      # logout fails. Do not create an unfenced diagnostic session while live
+      # publishing is enabled, and never report a partial preflight as passed.
+      - name: Refuse an incomplete live preflight
+        if: vars.TELEGRAM_PUBLISHING_ENABLED == 'true'
+        run: |
+          echo '::error::MTProto login was not checked because publishing is enabled; full preflight is not verified.'
+          exit 1
       - name: Install pinned MTProto preflight dependencies
         if: vars.TELEGRAM_PUBLISHING_ENABLED != 'true'
         run: |

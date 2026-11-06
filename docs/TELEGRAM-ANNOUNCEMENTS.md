@@ -133,9 +133,10 @@ administrator status and Post Messages rights. While the publishing variable is
 not `true`, an additional pinned Telethon step actually logs in with the bot,
 checks that the resolved peer matches **@StreamBridge_App** and the Bot API
 channel, and confirms logout of the in-memory session. No message, upload,
-history scan, ledger write, release or tag change is made. After activation that
-MTProto login step is skipped rather than creating an unfenced diagnostic session.
-If logout is unconfirmed or the runner is lost during login, investigate and
+history scan, ledger write, release or tag change is made. After activation a
+full preflight fails explicitly rather than creating an unfenced diagnostic
+session or treating the Bot API-only check as complete. If logout is unconfirmed
+or the runner is lost during login, investigate and
 revoke the authorization before activation; do not treat the probe as passed.
 
 The workflow is not registered until its file exists on the default branch. To
