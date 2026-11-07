@@ -22,8 +22,13 @@ on:
         required: false
         type: boolean
         default: false
+      initialize_state:
+        description: Initialize and verify the protected ledger without sending (live switch must be off)
+        required: false
+        type: boolean
+        default: false
       tag:
-        description: Exact published release tag (required except for no-send preflight)
+        description: Exact published release tag (not used by no-send checks or initialization)
         required: false
         type: string
       release_id:
@@ -150,11 +155,12 @@ jobs:
       # lock until logout is confirmed, even if its runner is interrupted.
 
   automatic:
-    name: Automatically initialize state and detect new releases
+    name: Initialize protected state or detect new releases
     if: >-
-      vars.TELEGRAM_PUBLISHING_ENABLED == 'true' &&
-      (github.event_name == 'schedule' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+      (github.event_name == 'workflow_dispatch' && inputs.initialize_state == true && inputs.preflight != true) ||
+      (vars.TELEGRAM_PUBLISHING_ENABLED == 'true' &&
+       (github.event_name == 'schedule' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main')))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -205,7 +211,7 @@ jobs:
   announce:
     name: Resolve and validate the release
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.preflight != true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.preflight != true && inputs.initialize_state != true) ||
       (github.event_name == 'release' && github.event.release.draft == false &&
        github.event.release.prerelease == false)
     runs-on: ubuntu-latest
@@ -331,7 +337,7 @@ jobs:
       vars.TELEGRAM_PUBLISHING_ENABLED == 'true' && needs.announce.outputs.activated == 'true' &&
       needs.announce.outputs.skip != 'true' && needs.announce.outputs.dry_run == 'false' &&
       (github.event_name == 'release' ||
-       (github.event_name == 'workflow_dispatch' && inputs.preflight != true &&
+       (github.event_name == 'workflow_dispatch' && inputs.preflight != true && inputs.initialize_state != true &&
         inputs.resume_unsent == true && inputs.tag != '' && inputs.release_id != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 120

@@ -126,6 +126,83 @@ class ContextTests(unittest.TestCase):
                         auto.require_context("main")
 
 
+    def test_explicit_no_send_initialization_requires_default_branch_and_live_switch_off(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            event = Path(tmp, "event.json")
+            repository = {"id": auto.REPOSITORY_ID, "full_name": auto.REPOSITORY, "default_branch": "main"}
+            payload = {"repository": repository, "inputs": {"initialize_state": "true", "preflight": "false",
+                       "dry_run": "false", "resume_unsent": "true", "tag": "v9.9.9", "release_id": "123"}}
+            event.write_text(json.dumps(payload))
+            env = {"GITHUB_ACTIONS": "true", "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main",
+                   "GITHUB_REPOSITORY": auto.REPOSITORY, "GITHUB_REPOSITORY_ID": str(auto.REPOSITORY_ID),
+                   "GITHUB_WORKFLOW_REF": auto.REPOSITORY + "/" + auto.WORKFLOW + "@refs/heads/main",
+                   "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "GH_TOKEN": "not-a-real-token",
+                   "GITHUB_EVENT_PATH": str(event), "TELEGRAM_PUBLISHING_ENABLED": ""}
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(auto.require_context("main"), (123, 1))
+                for key, value in (("GITHUB_REF", "refs/heads/other"), ("TELEGRAM_PUBLISHING_ENABLED", "true"),
+                                   ("GITHUB_REPOSITORY_ID", "1"), ("GITHUB_WORKFLOW_REF", "untrusted/workflow")):
+                    with self.subTest(key=key, value=value), mock.patch.dict(os.environ, {key: value}):
+                        with self.assertRaises(auto.AutomaticDeliveryError):
+                            auto.require_context("main")
+                for change in ({"initialize_state": False}, {"initialize_state": "false"}, {"initialize_state": 1},
+                               {"preflight": True}, {"preflight": "true"}, {"preflight": 0}):
+                    changed = copy.deepcopy(payload)
+                    changed["inputs"].update(change)
+                    event.write_text(json.dumps(changed))
+                    with self.subTest(change=change), self.assertRaises(auto.AutomaticDeliveryError):
+                        auto.require_context("main")
+                for missing in ("repository", "inputs"):
+                    changed = copy.deepcopy(payload)
+                    del changed[missing]
+                    event.write_text(json.dumps(changed))
+                    with self.subTest(missing=missing), self.assertRaises(auto.AutomaticDeliveryError):
+                        auto.require_context("main")
+
+
+class InitializationCliTests(unittest.TestCase):
+    def test_dispatch_bootstraps_but_cannot_enter_poll_or_delivery_path(self):
+        document = ready()
+        document["identity"] = publish.identity_binding(TOKEN, 777, -1002000000001)
+        snapshot = ledger.Snapshot("c" * 40, document, ledger.canonical(document))
+        store = fixtures.MemoryStore(document)
+        secrets = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_CHAT_ID": CHAT,
+                   "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": API_HASH}
+        output = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = Path(tmp, "summary.md")
+            env = {"SOURCE_BRANCH": "main", "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_SHA": "b" * 40,
+                   "GITHUB_STEP_SUMMARY": str(summary)}
+            with mock.patch.dict(os.environ, env, clear=True), \
+                 mock.patch.object(auto, "require_context", return_value=(123, 1)), \
+                 mock.patch.object(ledger, "GitLedger", return_value=store), \
+                 mock.patch.object(publish, "require_secret", side_effect=secrets.__getitem__), \
+                 mock.patch.object(state, "require_disabled_legacy"), \
+                 mock.patch.object(cutover, "remote_head", return_value="b" * 40), \
+                 mock.patch.object(publish, "tooling_commit", return_value="b" * 40), \
+                 mock.patch.object(auto, "bootstrap", return_value=snapshot) as bootstrap, \
+                 mock.patch.object(auto, "poll") as poll, \
+                 mock.patch.object(publish, "publish") as sender, contextlib.redirect_stdout(output):
+                self.assertEqual(auto.main(), 0)
+                bootstrap.assert_called_once()
+                poll.assert_not_called()
+                sender.assert_not_called()
+            report = summary.read_text()
+        self.assertIn("Live publishing remains off", output.getvalue())
+        self.assertIn("actual delivery was not tested", report)
+        self.assertIn(snapshot.parent, report)
+        self.assertNotIn(TOKEN, output.getvalue() + report)
+
+    def test_readiness_report_rejects_unready_or_locked_state(self):
+        locked = ready()
+        locked["identity"] = "b" * 64
+        locked["session"] = {"owner": "prior-run"}
+        for document in (pending(), ready(), locked):
+            snapshot = ledger.Snapshot("c" * 40, document, ledger.canonical(document))
+            with self.assertRaises(auto.AutomaticDeliveryError):
+                auto.report_initialization(snapshot)
+
+
 class LedgerModeCliTests(unittest.TestCase):
     def test_unready_ledger_blocks_event_before_tag_resolution_or_publish(self):
         release = fixtures.sample_release()

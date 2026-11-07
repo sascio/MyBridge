@@ -42,13 +42,18 @@ def require_context(default_branch: str) -> tuple[int, int]:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     workflow = os.environ.get("GITHUB_WORKFLOW_REF", "").split("@", 1)[0]
     run_id, attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "")
-    if (os.environ.get("GITHUB_ACTIONS") != "true" or event_name not in {"push", "schedule"}
+    if (os.environ.get("GITHUB_ACTIONS") != "true" or event_name not in {"push", "schedule", "workflow_dispatch"}
             or repo != REPOSITORY or os.environ.get("GITHUB_REPOSITORY_ID") != str(REPOSITORY_ID)
             or workflow != f"{REPOSITORY}/{WORKFLOW}"
             or os.environ.get("GITHUB_REF") != f"refs/heads/{default_branch}"
-            or os.environ.get("TELEGRAM_PUBLISHING_ENABLED") != "true" or not os.environ.get("GH_TOKEN")
+            or not os.environ.get("GH_TOKEN")
             or not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(r"[1-9][0-9]*", attempt)):
+        raise AutomaticDeliveryError("Automatic state operations require the reviewed default-branch workflow.")
+    enabled = os.environ.get("TELEGRAM_PUBLISHING_ENABLED") == "true"
+    if event_name != "workflow_dispatch" and not enabled:
         raise AutomaticDeliveryError("Automatic delivery requires the enabled default-branch workflow.")
+    if event_name == "workflow_dispatch" and enabled:
+        raise AutomaticDeliveryError("No-send initialization requires the live publishing switch to remain off.")
     try:
         with open(os.environ.get("GITHUB_EVENT_PATH", ""), encoding="utf-8") as handle:
             event = json.load(handle, object_pairs_hook=ledger._no_duplicates)
@@ -61,6 +66,14 @@ def require_context(default_branch: str) -> tuple[int, int]:
                                        or repository.get("id") != REPOSITORY_ID
                                        or repository.get("default_branch") != default_branch):
             raise ValueError("repository mismatch")
+        if event_name == "workflow_dispatch":
+            inputs = event.get("inputs")
+            requested = inputs.get("initialize_state") if isinstance(inputs, dict) else None
+            preflight = inputs.get("preflight") if isinstance(inputs, dict) else None
+            if (repository is None or not isinstance(inputs, dict)
+                    or not (requested is True or requested == "true")
+                    or not (preflight is None or preflight is False or preflight == "false")):
+                raise ValueError("no-send initialization was not explicitly requested")
         if event_name == "push" and (repository is None or event.get("ref") != f"refs/heads/{default_branch}"
                                      or event.get("deleted") is not False):
             raise ValueError("push mismatch")
@@ -309,6 +322,29 @@ def poll(store: ledger.GitLedger, *, repository: str, repository_id: int, token:
     return len(candidates)
 
 
+def report_initialization(snapshot: ledger.Snapshot) -> None:
+    """Expose redacted evidence of readiness without claiming a delivery test."""
+    document = snapshot.document
+    summary = ledger.summarize(document)
+    if (document["activation"].get("ready") is not True or document["identity"] is None
+            or summary["session_locked"] or summary["active_verifications"] or document["releases"]):
+        raise AutomaticDeliveryError("No-send initialization did not finish in a ready, idle state.")
+    fence = document["activation"]["published_after"]
+    print(f"::notice title=Telegram ledger initialized::Protected schema-4 state {snapshot.parent}; "
+          f"future-only fence {fence}. Live publishing remains off. No message or file was sent.")
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write("### Telegram no-send ledger initialization\n\n"
+                         f"- Protected state commit: `{snapshot.parent}`\n"
+                         f"- Future-only publication fence: `{fence}`\n"
+                         "- Exact-parent writes, concurrent conflict recovery and interruption/ambiguity guards verified.\n"
+                         "- Bot/channel rights and locked MTProto bot login/logout verified.\n"
+                         "- No active session, verification or delivery plan remains.\n"
+                         "- Live publishing switch remains **off**.\n"
+                         "- **No Telegram message or file was sent; actual delivery was not tested.**\n")
+
+
 def main() -> int:
     try:
         branch = os.environ.get("SOURCE_BRANCH", "")
@@ -331,9 +367,11 @@ def main() -> int:
             state.require_disabled_legacy(REPOSITORY)
             if cutover.remote_head(store, branch) != main_head:
                 raise AutomaticDeliveryError("The default branch changed; this run is no longer trusted.")
-        bootstrap(store, default_branch=branch, main_head=main_head, token=token, chat=chat,
-                  api_id=int(api_id_text), api_hash=api_hash, run_id=run_id, policy_check=policy)
-        # A push initializes state but never sends. Scheduled polls recover real
+        snapshot = bootstrap(store, default_branch=branch, main_head=main_head, token=token, chat=chat,
+                             api_id=int(api_id_text), api_hash=api_hash, run_id=run_id, policy_check=policy)
+        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+            report_initialization(snapshot)
+        # A push or initialization dispatch never sends. Scheduled polls recover real
         # new publications, including those whose workflow event was suppressed.
         if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
             poll(store, repository=REPOSITORY, repository_id=REPOSITORY_ID, token=token, chat=chat,

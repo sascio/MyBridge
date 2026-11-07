@@ -1227,6 +1227,7 @@ class PreflightWorkflowTests(unittest.TestCase):
         self.assertEqual(triggers['schedule'], [{'cron': '*/5 * * * *'}])
         self.assertNotIn('pull_request', triggers)
         self.assertIs(triggers['workflow_dispatch']['inputs']['preflight']['default'], False)
+        self.assertIs(triggers['workflow_dispatch']['inputs']['initialize_state']['default'], False)
         self.assertIs(triggers['workflow_dispatch']['inputs']['dry_run']['default'], True)
         self.assertIs(triggers['workflow_dispatch']['inputs']['resume_unsent']['default'], False)
         self.assertEqual(self.preflight['permissions'], {'contents': 'read'})
@@ -1254,23 +1255,25 @@ class PreflightWorkflowTests(unittest.TestCase):
 
     def test_all_dispatch_combinations_require_explicit_publish_and_preflight_wins(self) -> None:
         publish_job = self.workflow['jobs']['publish']
-        for preflight, dry, upload, recover, tag, rid, enabled, activated in itertools.product(
-                (False, True), (False, True), (False, True), (False, True), ('', 'v9.9.9'), ('', '987654321'), ('', 'true'), ('false', 'true')):
+        for initialize, preflight, dry, upload, recover, tag, rid, enabled, activated in itertools.product(
+                (False, True), (False, True), (False, True), (False, True), (False, True), ('', 'v9.9.9'), ('', '987654321'), ('', 'true'), ('false', 'true')):
             context = {'github.event_name': 'workflow_dispatch', 'inputs.preflight': preflight,
+                       'inputs.initialize_state': initialize,
                        'inputs.dry_run': dry, 'inputs.upload_assets': upload, 'inputs.resume_unsent': recover,
                        'inputs.tag': tag, 'inputs.release_id': rid, 'vars.TELEGRAM_PUBLISHING_ENABLED': enabled,
                        'github.event.release.draft': None, 'github.event.release.prerelease': None,
                        'needs.announce.outputs.skip': 'false', 'needs.announce.outputs.activated': activated,
                        'needs.announce.outputs.dry_run': 'true' if dry else 'false'}
-            with self.subTest(preflight=preflight, dry=dry, upload=upload, recover=recover, tag=tag,
+            with self.subTest(initialize=initialize, preflight=preflight, dry=dry, upload=upload, recover=recover, tag=tag,
                               enabled=enabled, activated=activated):
                 self.assertEqual(evaluate_actions_if(self.preflight['if'], context), preflight)
-                self.assertEqual(evaluate_actions_if(self.announce_job['if'], context), not preflight)
+                self.assertEqual(evaluate_actions_if(self.announce_job['if'], context), not preflight and not initialize)
                 self.assertEqual(evaluate_actions_if(publish_job['if'], context),
-                                 enabled == 'true' and activated == 'true' and not preflight and not dry and recover and bool(tag) and bool(rid))
+                                 enabled == 'true' and activated == 'true' and not initialize and not preflight and not dry and recover and bool(tag) and bool(rid))
         for draft, prerelease, enabled, activated in itertools.product(
                 (False, True), (False, True), ('', 'true'), ('false', 'true')):
             context = {'github.event_name': 'release', 'inputs.preflight': None, 'inputs.resume_unsent': None,
+                       'inputs.initialize_state': None,
                        'inputs.tag': None, 'inputs.release_id': None, 'vars.TELEGRAM_PUBLISHING_ENABLED': enabled,
                        'github.event.release.draft': draft, 'github.event.release.prerelease': prerelease,
                        'needs.announce.outputs.skip': 'true' if draft or prerelease else 'false',
@@ -1278,6 +1281,20 @@ class PreflightWorkflowTests(unittest.TestCase):
             self.assertEqual(evaluate_actions_if(self.announce_job['if'], context), not (draft or prerelease))
             self.assertEqual(evaluate_actions_if(publish_job['if'], context),
                              enabled == 'true' and activated == 'true' and not (draft or prerelease))
+
+    def test_no_send_initialization_uses_the_channel_queue_but_not_the_live_gate(self) -> None:
+        automatic = self.workflow['jobs']['automatic']
+        for event, initialize, preflight, enabled, ref in itertools.product(
+                ('workflow_dispatch', 'schedule', 'push', 'release'), (False, True), (False, True),
+                ('', 'false', 'true'), ('refs/heads/main', 'refs/heads/other')):
+            context = {'github.event_name': event, 'github.ref': ref,
+                       'inputs.initialize_state': initialize, 'inputs.preflight': preflight,
+                       'vars.TELEGRAM_PUBLISHING_ENABLED': enabled}
+            expected = ((event == 'workflow_dispatch' and initialize and not preflight)
+                        or (enabled == 'true' and (event == 'schedule' or (event == 'push' and ref == 'refs/heads/main'))))
+            with self.subTest(**context):
+                self.assertEqual(evaluate_actions_if(automatic['if'], context), expected)
+        self.assertIn("'telegram-streambridge-channel'", self.workflow['concurrency']['group'])
 
     def test_actual_activation_step_is_default_off_even_if_implementation_is_missing(self) -> None:
         step = next(s for s in self.announce_job['steps'] if s.get('id') == 'activation')['run']
