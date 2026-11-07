@@ -13,6 +13,10 @@ on:
       - '.github/telegram-publishing.json'
       - '.github/telegram-state.json'
       - 'scripts/telegram_*.py'
+  # Five-minute fallback for published releases whose `release` event GitHub
+  # suppresses (for example when the repository token published it). This is
+  # the only event that calls the polling path; GitHub schedules are
+  # best-effort and may be delayed or paused for inactive repositories.
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
