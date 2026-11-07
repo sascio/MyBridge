@@ -94,6 +94,9 @@ actual fun PlatformPlayerSurface(
             private var lastAppliedVolume: Float? = null
             private var lastLoggedAudioTracks: String? = null
 
+            override fun networkSpeedBytesPerSecond(): Long? =
+                bridge.networkSpeedBytesPerSecond().takeIf { it >= 0L }
+
             override val keepsPlaybackInBackground: Boolean
                 get() = bridge.getKeepsPlaybackInBackground()
 
@@ -372,7 +375,8 @@ actual fun PlatformPlayerSurface(
                     fontSize = style.toMpvSubtitleFontSize(),
                     subPos = style.toMpvSubtitlePosition(),
                     stripSdh = style.stripSdh,
-                    styledOverlay = style.usesStyledOverlay,
+                    styledOverlay = style.requiresComposeStyledOverlay,
+                    outlineBlur = style.mpvNativeOutlineBlurLevel,
                 )
             }
 

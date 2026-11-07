@@ -87,12 +87,14 @@ interface NuvioPlayerBridge {
         subPos: Int,
         stripSdh: Boolean,
         styledOverlay: Boolean,
+        outlineBlur: Int,
     )
     fun getIsLoading(): Boolean
     fun getIsPlaying(): Boolean
     fun getIsEnded(): Boolean
     fun getDurationMs(): Long
     fun getPositionMs(): Long
+    fun networkSpeedBytesPerSecond(): Long
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
     fun getVideoWidth(): Int

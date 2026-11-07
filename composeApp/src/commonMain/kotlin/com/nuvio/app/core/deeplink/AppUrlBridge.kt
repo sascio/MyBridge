@@ -79,7 +79,7 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
         }
     }
     val host = parsedUrl.host.lowercase()
-    val pathSegments = parsedUrl.pathSegments.map(String::trim).filter(String::isNotBlank)
+    val pathSegments = parsedUrl.segments.map(String::trim).filter(String::isNotBlank)
     if (scheme == "https") {
         return when {
             // Legacy invites shared while StreamBridge still advertised Nuvio's
