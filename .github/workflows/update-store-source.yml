@@ -214,8 +214,16 @@ jobs:
             "Automated sideload-source update for the published release \`${RELEASE_TAG}\`." \
             "The IPA was downloaded from the release, its size and SHA-256 digest were verified against the release metadata, and every advertised download URL was checked before this entry was written." \
             "\`${SOURCE_BRANCH}\` requires pull requests, so the workflow could not push the commit directly; merge this pull request to serve the new entry from \`raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_BRANCH}/store.json\`.")"
-          pr_url="$(gh pr create --repo "${GITHUB_REPOSITORY}" \
-            --head "${pr_branch}" --base "${SOURCE_BRANCH}" \
-            --title "chore(store): publish ${RELEASE_VERSION}" \
-            --body "${pr_body}")"
-          echo "::notice::store.json for ${RELEASE_VERSION} is waiting in ${pr_url}; merge it to publish the sideload source."
+          if pr_url="$(gh pr create --repo "${GITHUB_REPOSITORY}" \
+              --head "${pr_branch}" --base "${SOURCE_BRANCH}" \
+              --title "chore(store): publish ${RELEASE_VERSION}" \
+              --body "${pr_body}")"; then
+            echo "::notice::store.json for ${RELEASE_VERSION} is waiting in ${pr_url}; merge it to publish the sideload source."
+            exit 0
+          fi
+          # GITHUB_TOKEN may not open pull requests unless the repository allows
+          # "GitHub Actions to create and approve pull requests" (this is what
+          # happened for v0.1.16). The verified commit is already on the branch,
+          # so a maintainer only has to open and merge the pull request.
+          echo "::error::The verified store.json commit is on ${pr_branch}, but this token could not open the pull request. Open it with: gh pr create --repo ${GITHUB_REPOSITORY} --head ${pr_branch} --base ${SOURCE_BRANCH} --title 'chore(store): publish ${RELEASE_VERSION}' (or allow GitHub Actions to create pull requests in the repository settings), then merge it."
+          exit 1
