@@ -36,8 +36,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -77,6 +77,8 @@ import coil3.request.ImageRequest
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.ui.dynamicScrimAlpha
+import com.nuvio.app.core.ui.focusedAlignment
+import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.heroStretchZoom
@@ -497,6 +499,7 @@ internal fun HomeHeroSection(
                             val item = items[layer.itemIndex]
                             val artworkUrl = heroArtworkUrl(item, effectiveArtworkSource)
                             val isCurrentLayer = layer.page == currentPage
+                            val backdropFocus = rememberBackdropFocusState(artworkUrl)
                             AsyncImage(
                                 model = artworkUrl,
                                 contentDescription = item.name,
@@ -521,8 +524,11 @@ internal fun HomeHeroSection(
                                         scaleY = artworkBaseScale *
                                             if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
                                     },
-                                alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                alignment = backdropFocus.focusedAlignment(
+                                    if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                ),
                                 contentScale = ContentScale.Crop,
+                                onSuccess = { state -> backdropFocus.onImageLoaded(state.result.image) },
                             )
                         }
 
@@ -732,7 +738,7 @@ internal fun HomeHeroSection(
                                 .padding(8.dp),
                         ) {
                             Icon(
-                                imageVector = if (heroTrailerMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                                imageVector = if (heroTrailerMuted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp,
                                 contentDescription = null,
                                 tint = Color.White,
                                 modifier = Modifier.size(muteIconSize),

@@ -4,8 +4,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFile
-import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.CommandLineArgumentProvider
@@ -21,8 +20,7 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
-    @get:Optional
-    @get:InputFile
+    @get:InputFiles
     abstract val localPropertiesFile: RegularFileProperty
 
     @get:Input
@@ -555,10 +553,10 @@ fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
 
 val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generateRuntimeConfigs") {
     outputDir.set(generatedRuntimeConfigDir)
-    val localPropsFile = rootProject.file("local.properties")
-    if (localPropsFile.isFile) {
-        localPropertiesFile.set(localPropsFile)
-    }
+    // Always wired: the property is an @InputFiles input, so an absent
+    // local.properties is tolerated (empty tracking configs), while its presence
+    // makes the generated configs re-run when it changes.
+    localPropertiesFile.set(rootProject.layout.projectDirectory.file("local.properties"))
     appVersionName.set(releaseAppVersionName)
     appVersionCode.set(releaseAppVersionCode)
     nuvioUpstreamRelease.set(nuvioUpstreamReleaseValue)
@@ -628,6 +626,14 @@ tasks.withType<KotlinCompilationTask<*>>().configureEach {
     // integrity is verified before any code that can load a .cs3 is compiled.
     if (androidDistribution == "full") {
         dependsOn(verifyCloudStreamRuntime)
+    }
+}
+
+composeCompiler {
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose-stability.conf"))
+    if (providers.gradleProperty("nuvio.composeCompilerReports").map(String::toBoolean).getOrElse(false)) {
+        reportsDestination.set(layout.buildDirectory.dir("compose_compiler"))
+        metricsDestination.set(layout.buildDirectory.dir("compose_compiler"))
     }
 }
 
@@ -732,8 +738,18 @@ kotlin {
         }
     }
     
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
+
     sourceSets {
-        val commonMain by getting {
+        all {
+            languageSettings.optIn("coil3.annotation.ExperimentalCoilApi")
+        }
+        matching { it.name.startsWith("ios") }.configureEach {
+            languageSettings.optIn("kotlinx.cinterop.BetaInteropApi")
+        }
+        val commonMain = getByName("commonMain") {
             kotlin.srcDir(generatedRuntimeConfigDir)
         }
         androidMain {
@@ -813,7 +829,7 @@ kotlin {
                 }
             }
         }
-        val androidHostTest by getting {
+        val androidHostTest = getByName("androidHostTest") {
             dependencies {
                 implementation("org.robolectric:robolectric:4.16")
                 implementation("androidx.compose.ui:ui-test-junit4:${libs.versions.composeMultiplatform.get()}")
@@ -843,7 +859,7 @@ kotlin {
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)
             implementation(libs.compose.materialRipple)
-            implementation(compose.materialIconsExtended)
+            implementation("org.jetbrains.compose.material:material-icons-extended:1.7.3")
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
@@ -877,7 +893,7 @@ kotlin {
 // so the boot step and its dependency are skipped there.
 val isMacHost = System.getProperty("os.name").lowercase().contains("mac")
 
-val bootIosTestSimulator by tasks.registering(Exec::class) {
+val bootIosTestSimulator = tasks.register<Exec>("bootIosTestSimulator") {
     onlyIf { isMacHost }
     val device = tasks.named<KotlinNativeSimulatorTest>("iosSimulatorArm64Test").flatMap { it.device }
     commandLine("xcrun", "simctl", "boot")

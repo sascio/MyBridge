@@ -112,7 +112,7 @@ run "draft releases and assets are handled by ID rather than tag-based gh releas
            ! grep -qE "^[[:space:]]*gh release (view|upload|edit)([[:space:]]|$)" .github/workflows/release-draft.yml'
 
 run "the approved tag/version/code and invite fixes are explicitly verified" \
-  bash -c 'scripts/verify-release-target.sh --tag v0.1.15 --commit "$(git rev-parse HEAD)"'
+  bash -c 'scripts/verify-release-target.sh --tag v0.1.16 --commit "$(git rev-parse HEAD)"'
 
 section "store.json"
 
@@ -145,7 +145,7 @@ PY
 
 section "Version wiring"
 
-run "README, version properties, Xcode, workflow input and release notes agree on 0.1.15 / 115" \
+run "README, version properties, Xcode, workflow input and release notes agree on 0.1.16 / 116" \
   python3 - <<'PY'
 props = dict(
     line.split("=", 1)
@@ -153,7 +153,7 @@ props = dict(
     if line and not line.startswith("#")
 )
 name, code = props["STREAMBRIDGE_VERSION_NAME"].strip(), props["STREAMBRIDGE_VERSION_CODE"].strip()
-assert (name, code) == ("0.1.15", "115"), (name, code)
+assert (name, code) == ("0.1.16", "116"), (name, code)
 readme = open("README.md", encoding="utf-8").read()
 assert f"version <strong>{name}</strong> ({code})" in readme, "README version banner is stale"
 assert f"## Highlights in {name}" in readme, "README highlights section is stale"
@@ -164,12 +164,13 @@ assert f"CURRENT_PROJECT_VERSION={code}" in xcconfig
 workflow = open(".github/workflows/release-draft.yml", encoding="utf-8").read()
 assert f'default: "v{name}"' in workflow, "release workflow default tag is stale"
 assert f'tags:\n      - "v{name}"' in workflow, "release workflow tag trigger is not restricted to the approved tag"
-notes = open("docs/RELEASE-NOTES-0.1.15.md", encoding="utf-8").read()
+notes = open("docs/RELEASE-NOTES-0.1.16.md", encoding="utf-8").read()
 assert f"## StreamBridge {name}" in notes, "release notes header is stale"
 assert f"version {name} (version code {code})" in notes, "release notes version is stale"
-for path in ("streambridge.version.properties", "iosApp/Configuration/Version.xcconfig", "README.md", ".github/workflows/release-draft.yml", "docs/RELEASE-NOTES-0.1.15.md"):
+for path in ("streambridge.version.properties", "iosApp/Configuration/Version.xcconfig", "README.md", ".github/workflows/release-draft.yml", "docs/RELEASE-NOTES-0.1.16.md"):
     text = open(path, encoding="utf-8").read()
-    assert "0.1.13" not in text and "113" not in text and "0.1.14" not in text and "114" not in text, f"{path} still references an earlier version"
+    for stale in ("0.1.13", "113", "0.1.14", "114", "0.1.15", "115"):
+        assert stale not in text, f"{path} still references an earlier version ({stale})"
 PY
 
 run "no watch-party invite string mentions Nuvio branding" \

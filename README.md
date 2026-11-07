@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.15</strong> (115)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.16</strong> (116)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,39 +18,45 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.15
+## Highlights in 0.1.16
 
-- **Complete core baseline sync** — the whole 0.6.7-beta core tree is integrated at source
-  level (96 upstream commits across the whole changed file set), keeping every StreamBridge-specific
+- **Core baseline sync** — the complete applicable 0.6.9-beta core tree is integrated at
+  source level (150 upstream commits, 265 changed files), keeping every StreamBridge-specific
   implementation on top of it.
-- **Glass UI (experimental)** — a new appearance preset family (dark, balanced, vivid) with
-  edge-to-edge frosted headers on phones; headers now pin at the very top, and Search keeps
-  Discover in a fixed header band.
-- **App-wide background** — pick an image from your gallery or a URL and it is drawn once
-  behind every screen; the dynamic-background and catalog-accent settings moved into
-  Layout > Home.
-- **Player** — resize the video beside the watch-party panel; the automatic source failover
-  no longer loops after a source change; anime engine selection is fixed; the skip button
-  keeps its timer running through segment-category changes.
-- **Subtitles and audio** — addon-delivered ASS subtitles render through libass on Android
-  again; subtitle addon requests carry file extras and compute OpenSubtitles-compatible
-  hashes for local and P2P streams; reusing the last link now keeps the chosen stream info
-  and the current-stream marker.
-- **Continue watching** — mark an item as watched directly from its long-press menu.
-- **Live TV, search and library** — Live TV pins its title, search and filter header; search
-  and library draw one continuous header band with a pinned cloud toolbar.
-- **iOS** — playback now declares the long-form-video audio session so it is no longer
-  treated as music, MPVKit was updated for the host audio session, Now Playing publishes
-  only on real playback changes, and the profile-insight photo picker opens after the native
-  sheet closes.
-- **Profile insights** — a frosted hero and glass-ready cards over the app background.
-- **Translations** — Arabic, Bulgarian, Greek, Spanish, French, Italian, Polish,
-  Brazilian Portuguese, Turkish and Vietnamese locales completed and harmonized.
-- **Toolchain** — Gradle 9.8.2, the Android Gradle Plugin 9.4.0 line and compile SDK 37.1.
-- **StreamBridge specifics** — the About Us entry regained its original icon and subtitle
-  (restored verbatim from the original root-page row), and About Us gained a "Join our
-  Discord" invitation row (https://discord.gg/T9apykrjW) next to the Telegram community
-  channel.
+- **Player audio** — audio delay (remembered per output device), amplification above
+  100 % and surround downmix with a centre-mix level, all from the player's audio menu on
+  Android.
+- **Player** — closed torrent streams resume at the stalled frame; the engine failover is
+  pinned to the current source; libmpv load failures are shown in the player; playback keeps
+  running through phone calls; surfaces detach on the playback thread; landscape lock on
+  tablets; edge swipes are left to the system back gesture; VC-1 video decodes again; an
+  optional title logo in the controls; the loading screen shows the download speed; options
+  to hide control glass backgrounds and the skip buttons.
+- **Subtitles** — outline blur (native on iOS); automatic sync for ASS/SSA add-on subtitles
+  drawn by libass with an SRT/VTT fallback; the bundled libass renderer was updated.
+- **Skip intro** — better Anime-Skip coverage and entry selection, with AniSkip preferred.
+- **Details and ratings** — star ratings for titles and episodes synced to Simkl or MDBList
+  with a rating-source picker; cinematic backdrop behind the floating header; see-through
+  buttons and chips; details open faster; cropped Home backdrops are framed around their
+  focal region.
+- **Home, library and search** — smoother scrolling (shared card styles, poster prefetch,
+  compose stability configuration, baseline-profile module); the cloud library and Discover
+  search boxes sit behind a search action; long header titles no longer push actions off
+  screen.
+- **Live TV** — Guide, Sports (ESPN scoreboard) and On Demand (Xtream Codes) sections, a
+  collapsible search, recents / favourites / category chips with counts and a grid/list
+  toggle; categories appear in search results.
+- **Tracking** — Private Viewing moved to Tracking; WeTrakr watched badge for completed shows;
+  signed Simkl related-title requests; plugin settings pages open again.
+- **iOS** — text subtitles in Picture in Picture and the mini player, video output presets
+  applied on open, no skip-ahead after Control Centre, the app background stays while parked
+  in PiP, and Tamil is registered as an app language.
+- **Translations** — Tamil is new on Android and iOS; Bengali, Vietnamese and Bahasa
+  Indonesia were brought up to date; French audio strings and pt-BR fixes.
+- **StreamBridge specifics** — identity, package ID, updater, About Us, Licenses &
+  Attributions, CloudStream runtime, Telegram automation and the sideload source are
+  unchanged; the new locales carry StreamBridge branding and the StreamBridge watch-party
+  install fallback.
 
 
 ## Features
@@ -126,7 +132,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.15-iOS-unsigned.ipa`
+- `StreamBridge-0.1.16-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
