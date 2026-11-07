@@ -1,0 +1,403 @@
+name: Telegram release announcement
+
+# Official published releases only. No tag, release, asset, pin or build is
+# created or changed. Bootstrap and scheduled detection use protected ledger
+# readiness and exclude observed historical releases and tags from replay.
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/telegram-release-delivery.yml'
+      - '.github/telegram-publishing.json'
+      - '.github/telegram-state.json'
+      - 'scripts/telegram_*.py'
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      preflight:
+        description: No-send bot/channel readiness check (ignores other inputs)
+        required: false
+        type: boolean
+        default: false
+      tag:
+        description: Exact published release tag (required except for no-send preflight)
+        required: false
+        type: string
+      release_id:
+        description: Exact immutable GitHub release ID (required for live recovery)
+        required: false
+        type: string
+      dry_run:
+        description: Render and validate without sending
+        required: false
+        type: boolean
+        default: true
+      upload_assets:
+        description: Also deliver APK/IPA files as individual documents
+        required: false
+        type: boolean
+        default: true
+      resume_unsent:
+        description: Resume only never-sent operations in an existing plan after operator review
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One channel-wide queue covers all release/delivery dispatches. Read-only
+# preflights use independent groups so they cannot delay or replace a release.
+# queue:max prevents GitHub's default one-pending-job replacement. The durable
+# session lock and exact-parent ledger updates remain necessary safety barriers.
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight == true && format('telegram-preflight-{0}', github.run_id) || 'telegram-streambridge-channel' }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Read-only Telegram preflight
+    if: github.event_name == 'workflow_dispatch' && inputs.preflight == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the announcement tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Verify Telegram readiness (read-only)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          report_result() {
+            status=$?
+            if [[ "${status}" == 0 ]]; then
+              echo "::notice title=Telegram preflight passed::Bot API access and Post Messages rights verified; MTProto credential syntax checked, but MTProto login and uploads were not tested."
+              printf '### Telegram preflight\n\n**Passed:** Bot API checks and MTProto credential syntax only. No MTProto login, post, upload or ledger write occurred.\n' >>"${GITHUB_STEP_SUMMARY}"
+            else
+              echo "::error title=Telegram preflight failed::Readiness was not verified (exit ${status})."
+              printf '### Telegram preflight\n\n**Failed:** see the errors above. Nothing was published or uploaded.\n' >>"${GITHUB_STEP_SUMMARY}"
+            fi
+          }
+          trap report_result EXIT
+          missing=0
+          for name in TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_API_ID TELEGRAM_API_HASH; do
+            value="${!name-}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::The ${name} secret is not configured. Add it in Settings > Secrets and variables > Actions."
+              missing=1
+            elif [[ "${value}" =~ [[:space:]] ]]; then
+              echo "::error::The ${name} secret must be a single line with no whitespace."
+              missing=1
+            fi
+          done
+          if [[ "${missing}" != 0 ]]; then exit 3; fi
+
+          python3 - <<'PY'
+          import re, sys
+          sys.path.insert(0, "scripts")
+          import telegram_announce as announce
+          import os
+
+          token = announce.require_env("TELEGRAM_BOT_TOKEN")
+          chat = announce.require_env("TELEGRAM_CHAT_ID")
+          client = announce.TelegramClient(token, chat)
+          identity = client.call("getMe")
+          bot = identity.result or {}
+          bot_id = bot.get("id")
+          if not identity.ok or bot.get("is_bot") is not True or type(bot_id) is not int or bot_id <= 0:
+              announce.error("Bot authentication failed: getMe did not return a valid bot.")
+              raise SystemExit(announce.EXIT_ERROR)
+          channel = client.get_chat()
+          if not channel.ok or (channel.result or {}).get("type") != "channel":
+              announce.error("Channel access failed: getChat did not return a channel.")
+              raise SystemExit(announce.EXIT_ERROR)
+          membership = client.call("getChatMember", {"chat_id": chat, "user_id": bot_id})
+          member = membership.result or {}
+          if not membership.ok:
+              announce.error("Could not verify bot membership with getChatMember.")
+              raise SystemExit(announce.EXIT_ERROR)
+          if member.get("status") != "administrator":
+              announce.error("The bot is not an administrator of the channel.")
+              raise SystemExit(announce.EXIT_ERROR)
+          if member.get("can_post_messages") is not True:
+              announce.error("The bot administrator lacks the required Post Messages permission.")
+              raise SystemExit(announce.EXIT_ERROR)
+          api_id, api_hash = os.environ["TELEGRAM_API_ID"], os.environ["TELEGRAM_API_HASH"]
+          if not api_id.isdigit() or int(api_id) <= 0 or not re.fullmatch(r"[0-9a-fA-F]{32}", api_hash):
+              announce.error("MTProto credentials are unusable by syntax; authentication was not attempted.")
+              raise SystemExit(announce.EXIT_CONFIG)
+          print("Bot API authentication, channel access, administrator status and Post Messages verified.")
+          print("MTProto login, channel history and uploads were not tested in this step.")
+          PY
+      # Only automatic bootstrap may log in: it holds a persistent session
+      # lock until logout is confirmed, even if its runner is interrupted.
+
+  automatic:
+    name: Automatically initialize state and detect new releases
+    if: >-
+      vars.TELEGRAM_PUBLISHING_ENABLED == 'true' &&
+      (github.event_name == 'schedule' ||
+       (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Check out the exact default-branch workflow commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Validate reviewed same-repository state configuration
+        id: state
+        run: python3 scripts/telegram_state.py --check-config
+      - name: Check out the pre-existing protected state branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ steps.state.outputs.repository }}
+          ref: ${{ steps.state.outputs.branch }}
+          token: ${{ github.token }}
+          path: .telegram-state
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Install pinned MTProto dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet \
+            'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
+      - name: Bootstrap safely or poll real published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          # schedule payloads need not include github.event.repository.
+          SOURCE_BRANCH: main
+          STATE_DIR: ${{ github.workspace }}/.telegram-state
+          TMPDIR: ${{ runner.temp }}
+          PYTHONUNBUFFERED: "1"
+        run: python3 scripts/telegram_auto.py
+
+  announce:
+    name: Resolve and validate the release
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.preflight != true) ||
+      (github.event_name == 'release' && github.event.release.draft == false &&
+       github.event.release.prerelease == false)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      dry_run: ${{ steps.release.outputs.dry_run }}
+      skip: ${{ steps.release.outputs.skip }}
+      activated: ${{ steps.activation.outputs.enabled }}
+    steps:
+      - name: Check out the announcement tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Check the reviewed publishing activation
+        id: activation
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          sys.path.insert(0, "scripts")
+          try:
+              import telegram_ledger
+              enabled = telegram_ledger.strict_publishing_status()
+          except Exception:
+              print("::error::The publishing configuration could not be verified; no delivery is allowed.")
+              raise SystemExit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write("enabled=" + ("true" if enabled else "false") + "\n")
+          if not enabled:
+              print("::notice::The reviewed publishing configuration is disabled or invalid.")
+          PY
+      - name: Resolve the release to announce
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RELEASE_ID: ${{ github.event.release.id }}
+          EVENT_RELEASE_DRAFT: ${{ github.event.release.draft }}
+          EVENT_RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_RELEASE_ID: ${{ inputs.release_id }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          RESUME_INPUT: ${{ inputs.resume_unsent }}
+          PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # Even dry runs must not interpret an empty tag or 'latest'. The
+            # dedicated preflight job never reaches this release resolver.
+            python3 scripts/telegram_identity.py --check-tag="${INPUT_TAG}"
+            if [[ -n "${INPUT_RELEASE_ID}" && ! "${INPUT_RELEASE_ID}" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::The manual release ID must be a positive integer."
+              exit 1
+            fi
+            if [[ "${DRY_RUN_INPUT}" == "false" &&
+                  ( "${RESUME_INPUT}" != "true" || ! "${INPUT_RELEASE_ID}" =~ ^[1-9][0-9]*$ ) ]]; then
+              echo "::error::Live manual dispatch requires resume_unsent=true and the exact release ID."
+              exit 1
+            fi
+          fi
+          if [[ "${PUBLISHING_ENABLED}" != "true" ]]; then
+            echo "::notice::Telegram publishing is not activated; no live delivery will run."
+            printf '### Telegram delivery\n\nPublishing is not activated; no live delivery will run.\n' >>"${GITHUB_STEP_SUMMARY}"
+          fi
+          mkdir -p "${RUNNER_TEMP}/telegram"
+          release_json="${RUNNER_TEMP}/telegram/release.json"
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${DRY_RUN_INPUT}" != "false" ]]; then
+            echo "dry_run=true" >>"${GITHUB_OUTPUT}"
+          else
+            echo "dry_run=false" >>"${GITHUB_OUTPUT}"
+          fi
+          if [[ "${EVENT_NAME}" == "release" ]]; then
+            if [[ "${EVENT_RELEASE_DRAFT}" != "false" || "${EVENT_RELEASE_PRERELEASE}" != "false" ]]; then
+              echo "skip=true" >>"${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${EVENT_RELEASE_ID}" >"${release_json}"
+          elif [[ "${EVENT_NAME}" == "workflow_dispatch" ]]; then
+            encoded_tag="$(python3 -c 'import os; from urllib.parse import quote; print(quote(os.environ["INPUT_TAG"], safe=""))')"
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${encoded_tag}" >"${release_json}"
+          else
+            echo "::error::Unsupported release event."
+            exit 1
+          fi
+          python3 - "${release_json}" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              data = json.load(handle)
+          if os.environ["EVENT_NAME"] == "workflow_dispatch":
+              if data.get("tag_name") != os.environ["INPUT_TAG"]:
+                  raise SystemExit("The resolved release does not match the exact requested tag.")
+              requested_id = os.environ["INPUT_RELEASE_ID"]
+              if requested_id and (type(data.get("id")) is not int or str(data["id"]) != requested_id):
+                  raise SystemExit("The resolved release does not match the exact requested release ID.")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              if data.get("draft") or data.get("prerelease"):
+                  out.write("skip=true\n")
+              else:
+                  release_id = data.get("id")
+                  if type(release_id) is not int or release_id <= 0:
+                      raise SystemExit("Release ID is missing or invalid.")
+                  out.write(f"release_id={release_id}\nskip=false\n")
+          PY
+      - name: Validate the announcement without sending it
+        if: steps.release.outputs.skip != 'true'
+        env:
+          RELEASE_JSON: ${{ runner.temp }}/telegram/release.json
+        run: |
+          set -euo pipefail
+          python3 scripts/telegram_announce.py --release-json "${RELEASE_JSON}" --dry-run
+
+  publish:
+    name: Deliver with durable bot-only MTProto state
+    needs: announce
+    if: >-
+      vars.TELEGRAM_PUBLISHING_ENABLED == 'true' && needs.announce.outputs.activated == 'true' &&
+      needs.announce.outputs.skip != 'true' && needs.announce.outputs.dry_run == 'false' &&
+      (github.event_name == 'release' ||
+       (github.event_name == 'workflow_dispatch' && inputs.preflight != true &&
+        inputs.resume_unsent == true && inputs.tag != '' && inputs.release_id != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # GITHUB_TOKEN is scoped to this repository, not exclusively to this
+    # workflow. Other repository writers remain within the trust boundary.
+    permissions:
+      contents: write
+      actions: read # Verify the legacy workflow remains disabled.
+    steps:
+      - name: Check out the announcement tooling
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+      - name: Validate reviewed same-repository state configuration
+        id: state
+        run: python3 scripts/telegram_state.py --check-config
+      - name: Check out the dedicated state branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: ${{ steps.state.outputs.repository }}
+          ref: ${{ steps.state.outputs.branch }}
+          token: ${{ github.token }}
+          path: .telegram-state
+          persist-credentials: true
+      - name: Install pinned MTProto dependencies
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet \
+            'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
+      - name: Fetch the current published release by ID
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.announce.outputs.release_id }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_ID}" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" >"${RUNNER_TEMP}/telegram-release.json"
+      - name: Publish individual messages and documents
+        env:
+          # The short-lived token can write repository contents, including the
+          # state branch; it is not an exclusive workflow identity.
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
+          SOURCE_BRANCH: ${{ github.event.repository.default_branch }}
+          STATE_DIR: ${{ github.workspace }}/.telegram-state
+          EVENT_NAME: ${{ github.event_name }}
+          UPLOAD_INPUT: ${{ inputs.upload_assets }}
+          RESUME_INPUT: ${{ inputs.resume_unsent }}
+          TMPDIR: ${{ runner.temp }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          args=(--release-json "${RUNNER_TEMP}/telegram-release.json" --branch "${SOURCE_BRANCH}" --state-dir "${STATE_DIR}")
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${UPLOAD_INPUT}" == "false" ]]; then
+            args+=(--no-upload-assets)
+          fi
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${RESUME_INPUT}" == "true" ]]; then
+            args+=(--resume-unsent)
+          fi
+          python3 scripts/telegram_publish.py "${args[@]}"

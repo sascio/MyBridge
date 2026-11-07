@@ -14,6 +14,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPOSITORY_ROOT}"
 
+# The entire Python suite is offline: loopback fixtures are allowed, external
+# DNS/TCP is blocked, and Git may only use local file remotes in these tests.
+export PYTHONPATH="${SCRIPT_DIR}/offline${PYTHONPATH:+:${PYTHONPATH}}"
+export GIT_ALLOW_PROTOCOL=file
+
 failures=0
 
 section() { printf '\n== %s\n' "$1"; }
@@ -50,6 +55,38 @@ python3 -c "import telethon" 2>/dev/null \
 # workflow's own guardrails. Runs entirely offline against a mock Bot API, so no
 # announcement can ever reach the public channel from CI.
 if ! "${SCRIPT_DIR}/telegram-announcement-test.py"; then
+  failures=$((failures + 1))
+fi
+# Durable write-ahead, exact-parent Git commits, bot-only raw MTProto and
+# multipart/recovery regressions; all Telegram/GitHub RPCs are offline fakes.
+if ! python3 "${SCRIPT_DIR}/telegram-idempotent-test.py"; then
+  failures=$((failures + 1))
+fi
+# Same-repository state rules, legacy migration compatibility, and local Git checks.
+if ! python3 "${SCRIPT_DIR}/telegram-state-test.py"; then
+  failures=$((failures + 1))
+fi
+# Bot login/logout preflight uses only fakes here; it cannot send or upload.
+if ! python3 "${SCRIPT_DIR}/telegram-mtproto-preflight-test.py"; then
+  failures=$((failures + 1))
+fi
+# State-only verification exercises local Git races and recovery, never GitHub/Telegram.
+if ! python3 "${SCRIPT_DIR}/telegram-state-verification-test.py"; then
+  failures=$((failures + 1))
+fi
+# Historical cutover and orphan initialization run against fake API data/local Git only.
+if ! python3 "${SCRIPT_DIR}/telegram-cutover-test.py"; then
+  failures=$((failures + 1))
+fi
+# Automatic bootstrap, session locking and polling use only local Git and fakes.
+if ! python3 "${SCRIPT_DIR}/telegram-auto-test.py"; then
+  failures=$((failures + 1))
+fi
+# Exact tag resolution and confirmed-response reconciliation use fake GitHub data only.
+if ! python3 "${SCRIPT_DIR}/telegram-identity-test.py"; then
+  failures=$((failures + 1))
+fi
+if ! python3 "${SCRIPT_DIR}/telegram-reconcile-test.py"; then
   failures=$((failures + 1))
 fi
 

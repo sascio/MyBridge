@@ -50,6 +50,16 @@ scripts/*
 !scripts/telegram_release_notes.py
 !scripts/telegram_announce.py
 !scripts/telegram_assets.py
+!scripts/telegram_ledger.py
+!scripts/telegram_identity.py
+!scripts/telegram_state.py
+!scripts/telegram_state_verify.py
+!scripts/telegram_cutover.py
+!scripts/telegram_reconcile.py
+!scripts/telegram_mtproto.py
+!scripts/telegram_mtproto_preflight.py
+!scripts/telegram_publish.py
+!scripts/telegram_auto.py
 !scripts/verify-release-target.sh
 !scripts/update-store-source.py
 !scripts/optimize-app-assets.py
@@ -62,6 +72,9 @@ iosApp/Configuration/DeviceSigning.local.json
 MPVKit/
 
 legacy/streambridge-app/build/
+
+# Private, read-only Telegram audit snapshots may contain draft metadata.
+telegram-audit-private/
 
 # Python bytecode from the CI helper scripts
 __pycache__/

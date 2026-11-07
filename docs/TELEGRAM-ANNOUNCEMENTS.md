@@ -1,230 +1,256 @@
-# Telegram release announcements
+# StreamBridge Telegram release announcements
 
-`.github/workflows/telegram-release-announcement.yml` publishes a StreamBridge
-release announcement to the Telegram channel **[@StreamBridge_App](https://t.me/StreamBridge_App)**
-whenever a GitHub Release is published, then delivers the production APKs and the
-unsigned IPA to the same channel as documents. It never creates, edits, publishes
-or deletes a release, and it does not touch the Android or iOS build jobs.
+The workflow announces official published GitHub releases to **@StreamBridge_App**
+using StreamBridge, **Your Media, Your Way**, **Made with ❤️ by Saif**,
+`#SB<release id>` markers, and **⬇️ Download StreamBridge** buttons. Release
+pages come first, followed by selected APKs and the unsigned IPA as individual
+documents. Drafts and pre-releases are not announced. No release, tag, asset,
+app version, pin or build is created or changed by Telegram delivery.
 
-## What triggers it
+## Activation and automatic bootstrap
 
-| Event | Behaviour |
-|---|---|
-| `release`, type `published` | The announcement is rendered from that release and posted. |
-| Draft creation, tag push, branch push | Never triggers the workflow. |
-| `release` with `prerelease: true` | The job is skipped; nothing is posted. |
-| Manual dispatch, default | Dry run: the exact messages are rendered and validated in the log, nothing is sent. |
-| Manual dispatch, `dry_run` unchecked | Sends for the resolved release (`tag` input, or the latest published release). |
+The replacement `.github/workflows/telegram-release-delivery.yml` must exist on
+the **default branch**. Leave legacy workflow ID `407947021` manually disabled:
+historical refs may still contain its unsafe definition. The live publisher
+checks the legacy workflow state, repository identity, `main` protection and
+state-branch protection before state changes and Telegram requests.
 
-Every future release is covered automatically. No version number is hardcoded:
-the release name, tag, version code, notes, assets, sizes and URLs all come from
-the GitHub API object of the release that fired the event.
+The repository Actions variable `TELEGRAM_PUBLISHING_ENABLED` must be exactly
+`true` for automatic bootstrap or delivery. Any other value is off. The tracked
+`.github/telegram-publishing.json` opts into **ledger-controlled** activation;
+it does not enable delivery by itself. `.github/telegram-state.json` explicitly
+selects the reviewed same-repository branch and acknowledges shared writers.
+Missing, duplicate or malformed configuration fails closed. A valid, protected
+schema-4 ledger, completed state verification, bound bot identity, no active
+session/verification, and the automatic publication fence are also required. There
+is no historical-cutoff approval, owner-created ledger file or special build
+workflow needed to initialize.
 
-## How the message is built
+Once the replacement is merged and the switch is enabled, the first eligible
+main-branch push or scheduled run automatically:
 
-`scripts/telegram_release_notes.py` converts the release notes into Telegram HTML
-(`parse_mode: HTML`). Nothing is invented, and nothing is silently truncated.
+1. Checks the pre-existing `telegram-delivery-state` ref is exactly the pinned
+   pre-merge base `04ae2eb70c5cfc19ae7bbc4eef74d09a87e862d5` and an ancestor of
+   the current protected default branch. An unexpected or advanced ref is never
+   reset, overwritten, force-pushed or deleted.
+2. Snapshots currently accessible releases, tags and recent release/tag activity
+   as **exclusions**, including the already-announced `v0.1.15` message 5.
+   Draft identities and non-public identifiers are HMAC-protected; neither
+   credentials nor private draft metadata are written. Repeated snapshots must
+   agree. The legacy `.github/telegram-releases.json` is preserved, and the
+   state tip becomes a non-force child containing only
+   `telegram-delivery-state.json`.
+3. Checks real state-only reads, exact-parent writes, a concurrent update and
+   conflict recovery, interruption markers, and the ambiguity guard. The
+   verification records are archived without deleting any delivery history.
+4. Checks Bot API identity/channel/Post Messages rights and logs the bot into
+   MTProto **under a durable session lock**, without a message, upload or history
+   read. The lock is cleared only after logout is confirmed. An interrupted or
+   ambiguous logout leaves the lock in place and stops automatic retries.
+5. Records a publication fence **before** the final two exclusion scans, which
+   must agree and complete within 15 minutes. It only adds observed history;
+   releases and tags observed during the scans are excluded even if newly
+   created. Once all checks succeed, one protected ledger update records the
+   fence and `ready`. No release published on or before the fence can be
+   announced. Initialization itself never sends; eligible later publications
+   can be delivered by their release event or a scheduled poll. Historical
+   releases are **not backfilled**.
 
-1. **Header.** `🚀 STREAMBRIDGE <version> IS HERE!`, the motto *Your Media, Your
-   Way*, the publication date and (for the current release) `🏷 Latest release`.
-2. **Sections**, in a fixed order, each rendered only when the release notes
-   support it: What's New, Appearance & Glass UI, Player & Playback, Subtitles &
-   Audio, Continue Watching, Live TV, iOS Improvements, Translations, Core
-   Updates, StreamBridge Improvements, Downloads, Installation Notes.
-   Headings are routed by keyword (for example `## iOS installation` goes to
-   Installation Notes, not iOS Improvements; `## Android` and `## APK` headings
-   are installation notes, not features).
-3. **Downloads**, generated from the release's own assets: every APK with its ABI
-   and real size, the IPA, and the checksum file. If an asset is missing — or its
-   upload has not finished (`state` not `uploaded`) — the section says so instead
-   of linking something that does not exist.
-4. **Footer.** `Made with ❤️ by Saif` and the release tag `#StreamBridge #SB<release id>`.
+Capturing the fence before the final scans avoids an artificial gap where a tag
+could be created before a future cutoff but after the snapshot. Releases and
+tags created during bootstrap can be conservatively excluded, so do not publish
+while bootstrap is running. GitHub's scheduling is best effort: a five-minute
+cron does not promise five-minute latency, and GitHub may pause scheduled
+workflows after prolonged repository inactivity. Monitor failed or disabled
+runs. A failure or incomplete verification leaves delivery off or locked,
+rather than guessing that a write, login, logout, message or upload succeeded.
 
-A hand-written "Download sizes" table is dropped from the notes (its numbers are
-replaced by the real asset sizes), release-title headings and the
-`StreamBridge version X (code Y)` metadata line are skipped, and Markdown is
-converted rather than dumped: `**bold**`, `*italic*`, `` `code` ``, `[label](url)`
-and hard-wrapped bullets all render correctly. All HTML is escaped, so any HTML
-in the notes becomes inert text.
+The GitHub Events API is bounded, can be delayed and does **not** provide a
+complete audit of deleted refs. In particular, tag-creation activity is not
+reliably present for this repository. A tag absent from the accessible snapshot
+is not mathematical proof that its name was never used; a scan and activation
+are not atomic. Trusted release writers must never reuse a deleted or historical
+tag name, and must not mutate releases or tags during bootstrap. If provenance
+is uncertain, leave delivery disabled and investigate rather than replaying.
+The automatic exclusions protect observed history, but cannot reconstruct a
+deleted, never-observed tag or invisible Telegram channel history.
 
-**Branding.** Upstream product names are scrubbed from the notes text
-(`Nuvio`/`NuvioMedia`/`NuvioMobile`/`Nuvio-Enhanced` → StreamBridge wording,
-`Upstream` → `Core`) and repository-internal paths (`docs/…`, `scripts/…`,
-`composeApp/…`) are replaced with readable phrases or labelled links. The
-workflow summary reports how many tokens were scrubbed instead of hiding it.
+## Published-release detection
 
-## Download buttons
+The `release: published` event is the normal path when GitHub emits a workflow
+run. Events caused by the repository `GITHUB_TOKEN` do not normally trigger a
+second workflow. The scheduled fallback instead lists **actual GitHub releases**,
+selects currently published non-draft, non-prerelease releases after the ledger
+fence, and fetches each exact ID again. It never substitutes `latest` and does
+not rely on tag-creation events. It checks the same historical exclusions,
+exact tag/commit identity, bot/channel binding, payload hashes and durable
+write-ahead state as the event path. Both use the same channel-wide concurrency
+queue and state ledger, so a duplicate event or poll cannot resend a confirmed
+operation. GitHub's release `created_at` is the release commit date, not the
+creation date of the draft; it is recorded but not used as a historical cutoff.
+Manually dispatched live delivery can only resume an existing, reviewed unsent
+plan by exact release ID and tag; it cannot create a historical or arbitrary new
+plan.
 
-An inline keyboard is attached to the first page and repeated (release page only)
-on every later page:
+`release-draft.yml` only creates drafts; a maintainer or other authorized
+publisher must actually publish. The fallback does not mutate it. Future tags
+must contain trusted workflow definitions: GitHub can select release workflow
+definitions from the tag ref. Keep the old workflow disabled even after the
+replacement has a distinct registered workflow ID.
 
-| Button | URL |
-|---|---|
-| `⬇️ Download StreamBridge` | The release's `html_url` — the exact published release page |
-| `🤖 Android ARM64` | The `browser_download_url` of `…arm64-v8a…apk` |
-| `🤖 Android ARMv7` | The `browser_download_url` of `…armeabi-v7a…apk` |
-| `🤖 Android x86` | The `browser_download_url` of `…x86-release.apk` |
-| `🤖 Android x86_64` | The `browser_download_url` of `…x86_64…apk` |
-| `🍎 iOS IPA` | The `browser_download_url` of the published IPA |
-| `🔐 Checksums` | The `browser_download_url` of `checksums.sha256` |
+## Credentials and trust boundary
 
-Asset buttons appear only for assets that exist and are `uploaded`. No URL is
-ever assembled from a pattern, and the HTML validator rejects any link that is
-not `https://`.
+Use the existing secrets `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
+`TELEGRAM_API_ID`, and `TELEGRAM_API_HASH`. The bot needs channel administrator
+**Post Messages** rights, not pin rights. API ID/hash authenticate the same
+bot with MTProto; no personal account, phone, one-time code or persistent
+session file is used. Telethon and its dependencies are pinned. A changed bot
+token or channel identity fails the protected-inventory and identity checks.
 
-## Delivering the APK and IPA files
+No-send preflight jobs use only read-only Bot API calls and syntax-check the
+MTProto credentials; they do not open a bot session. The branch readiness check
+also reads GitHub state protections, the pinned ref and legacy workflow status;
+it cannot prove write permission without a write. Actual state writes and bot
+login/logout are verified only by the protected automatic bootstrap. Neither
+preflight performs a public message, upload, channel-history read, release
+mutation or test release.
 
-The production binaries are larger than the Bot API's 50 MB ceiling (four APKs at
-52-56 MiB, the unsigned IPA at ~70 MiB), so `sendDocument` against
-`api.telegram.org` cannot deliver them. They are uploaded over **MTProto** by the
-same bot that posts the announcement.
+Live jobs use same-repository `GITHUB_TOKEN` `contents: write` for state and
+`actions: read` to verify the legacy workflow and interrupted-run metadata.
+This token is not exclusive to the Telegram workflow: trusted repository writers
+and other eligible workflows can also write. Keep the dedicated state ref
+protected against force pushes and deletion without a bypass, pull-request
+requirement or blocking status check; keep `main` PR protection intact. Rules
+are checked at runtime, but limited API credentials may not reveal every bypass
+actor. No policy check proves isolation from a malicious trusted writer.
 
-| Route | Per-file ceiling | What it needs |
-|---|---|---|
-| Public Bot API (`sendDocument`) | 50 MB — too small for every StreamBridge binary | bot token |
-| **MTProto, bot identity (used here)** | **2000 MB** | bot token + `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` |
-| Self-hosted local Bot API server | 2000 MB | a second long-running service |
+## Durable delivery protocol
 
-MTProto was chosen because it needs no extra service, no user account, no phone
-number and no login code: Telethon authenticates with `auth.importBotAuthorization`
-using the existing bot token, and the session is an in-memory `StringSession` that
-is never written to disk.
+The ledger freezes the exact release id, tag, tag commit, publication timestamp,
+rendered pages, asset names and checksums before delivery. A per-operation
+MTProto `random_id` is persisted before sending; messages and assets are
+individual operations. The publisher writes `sending` before each public call,
+then records the confirmed Telegram message ID. A lost or ambiguous response is
+`delivery_unknown`, not a reason to retry. Any unresolved operation blocks all
+later automatic deliveries until independently reconciled. A confirmed result
+cannot be changed or sent again. The same protocol handles large files through
+pinned bot-only MTProto multipart upload.
 
-### What the workflow does per asset
+## Recovery and monitoring
 
-1. **Plan** — only assets the release reports as `state: uploaded` are queued. The
-   four Android ABIs are matched by their published names, and the IPA is
-   detected by extension and filename pattern, never by a hardcoded version.
-2. **Download** — streamed to `$RUNNER_TEMP/telegram-assets` (never the checkout),
-   written to a `.part` file, and renamed only after it verifies.
-3. **Verify** — the byte count must equal the size GitHub reports, and if the
-   release publishes `checksums.sha256` (or the asset carries a `digest`), the
-   SHA-256 must match too. A short or corrupt download is discarded and retried;
-   it is never uploaded.
-4. **Upload** — `upload_file` in 512 KiB parts, then `send_file` as a document with
-   the original filename and an HTML caption carrying the version, the ABI or
-   platform, the size and the verified GitHub link.
-5. **Record** — the confirmed message id is written to the ledger for that asset.
+Read and validate the remote state without altering it:
 
-A failure on one asset never stops the others. Every failure is reported with the
-asset's verified GitHub link, `continue-on-error` keeps the job green, and a
-re-run uploads only the files that are still missing.
-
-### Credentials for large-file delivery
-
-`TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are required, from
-[my.telegram.org](https://my.telegram.org) → *API development tools*. They
-identify the application, not an account; no phone number or login code is ever
-requested, and no user session is created. Without them the announcement is still
-posted, the files are reported as not delivered, and the run stays green.
-
-## Long release notes
-
-Telegram accepts 4096 characters per message, counted in UTF-16 code units
-*after* tags are parsed. Pages target 3800 visible characters, are packed from
-complete, tag-balanced lines, and break at word boundaries. Every page is
-re-validated on its own (balanced tags, allowed tags only, escaped `&`, https
-links) and the run fails if a page could not be sent. Ordering is preserved with
-`(part N/M)` headers, and content is never dropped: a section that does not fit
-continues on the next page under a repeated heading. More than ten pages is
-refused rather than truncated, with an instruction to shorten the notes.
-
-## Duplicate protection
-
-Idempotency is keyed on the **release id**, not on the workflow event:
-
-* every page carries `#SB<release id>` in its footer;
-* before sending, the workflow reads the channel's pinned message (`getChat`)
-  and stops if it carries the same tag — a rerun, a retried job or a duplicated
-  `release` event is reported as "already announced" and nothing is sent;
-* after Telegram confirms **every** page (`ok: true` plus a `message_id`), the
-  first message is pinned and `.github/telegram-releases.json` records the
-  release id and message ids. The ledger is committed, so the guard still works
-  if the pin later moves to another message;
-* each uploaded binary is recorded in the same ledger with its own message id, so
-  a re-run skips files Telegram already confirmed and retries only the rest. An
-  asset is recorded only after its upload returned a message id.
-
-`concurrency` (grouped by release id, never cancelling) only stops two runs from
-racing; it is not the protection. Nothing is marked as posted before Telegram
-confirms delivery, and a partial failure reports the message ids that arrived.
-
-## Failure handling
-
-* HTTP timeouts on every request; retries with backoff for transport failures,
-  HTTP 5xx and Telegram 429 (honouring `retry_after`). `400/401/403/404` are
-  treated as permanent and are not retried.
-* Telegram's JSON envelope is validated, not just the HTTP status; a `200` with
-  `ok: false`, or a missing `message_id`, is a failure.
-* Missing secrets fail the step with a message naming the secret and pointing at
-  *Settings → Secrets and variables → Actions*, plus a note that the GitHub
-  release is unaffected.
-* A pin failure only warns: the announcement is already delivered.
-* The bot token is read from the environment, sent only in the HTTPS request
-  body, masked with `::add-mask::`, and redacted from every log line the script
-  prints. It is never passed as an argument, echoed, or written to an artifact.
-  The workflow uploads no artifacts at all.
-
-## Setup
-
-1. `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are repository secrets.
-   `TELEGRAM_CHAT_ID` is `@StreamBridge_App`.
-2. `TELEGRAM_API_ID` and `TELEGRAM_API_HASH` are repository secrets, from
-   [my.telegram.org](https://my.telegram.org) → *API development tools*. They are
-   needed only for the APK/IPA uploads; without them the announcement still posts.
-2. **Merge this workflow into the default branch (`main`).** GitHub only creates
-   a `release: published` trigger for workflows that exist on the default branch.
-   On any other branch the file is inert: no run starts, and the workflow does
-   not appear in the Actions list until the merge lands. `workflow_dispatch` also
-   only offers workflows from the default branch in the UI.
-4. The bot must be an **administrator** of the channel with *Post Messages*.
-   *Pin Messages* enables the pinned duplicate guard (and the pin itself); without
-   it the announcement still posts and the step reports a warning.
-5. That is all. The first release published after the merge is announced
-   automatically. Releases published before the merge are not backfilled; use a
-   manual dispatch with `dry_run` unchecked if one should be announced.
-
-## Testing
-
-```bash
-scripts/tests/telegram-announcement-test.py     # offline; no credentials needed
-scripts/tests/run-tests.sh                      # the repository's whole suite
+```sh
+# STATE_CHECKOUT is a separately checked-out and verified same-repository state ref.
+git -C "$STATE_CHECKOUT" fetch --no-tags origin telegram-delivery-state
+git -C "$STATE_CHECKOUT" show FETCH_HEAD:telegram-delivery-state.json > /tmp/streambridge-ledger-snapshot.json
+python3 scripts/telegram_ledger.py --inspect /tmp/streambridge-ledger-snapshot.json
 ```
 
-The tests replace Telegram with scripted doubles, so no test can reach the
-channel. They cover event filtering (draft, prerelease, duplicate), note parsing,
-HTML escaping, section routing, long-note splitting, asset detection and missing
-assets, button URLs, missing secrets, token redaction, 429/5xx/400/network
-failures, partial delivery, unconfirmed delivery, the pinned-message and ledger
-duplicate guards, idempotent reruns, and the workflow's own guardrails.
+The schema-4 summary counts `confirmed_sent`, `confirmed_unsent_by_protocol`
+and `unknown`; it does not print tags, IDs or fingerprints. `pending`,
+`uploading` and pre-send `failed` are unsent *by this protocol*; external/manual
+publishers are not covered. `sending` and `delivery_unknown` may have produced a
+message: **never resend them**, including through `resume_unsent`. Confirmed
+entries are never resent. Preserve all operation IDs, hashes and history.
 
-Binary delivery is covered in two layers. The download side runs against a
-loopback HTTP server and proves that a truncated body, a wrong digest, a missing
-URL, a zero size and an over-ceiling file are all refused before anything is
-uploaded. The upload side keeps **Telethon's own** `upload_file` and `send_file`
--- the 512 KiB chunk loop, the `upload.saveBigFilePart` requests, the filename
-attributes, the response parsing -- and stubs only the network call, so a 12 MiB
-file is reassembled byte-for-byte, a mid-upload drop is retried, FloodWait is
-honoured, a permanent rejection is not retried, and an unconfirmed send is
-reported as a failure. A separate test proves the login uses
-`auth.importBotAuthorization` and never asks for a phone number or a code.
+If the original runner died, first independently prove it cannot resume **and**
+its bot authorization was revoked. Only an authorized maintainer may then clear
+that exact stale session lock by a reviewed non-force state commit. Bot support
+for listing/revoking all sessions is limited: if revocation cannot be proved,
+leave the lock in place and stop. If state is inaccessible, corrupt, rolled back,
+or release payloads/credentials changed, stop and investigate without relaxing
+protection or modifying the frozen plan.
 
-To see exactly what a release would post without sending anything, dispatch the
-workflow with `dry_run` checked, or locally:
+When a final ledger write failed **after a confirmed response**, a maintainer
+may reconcile without sending only if the durable lock is already clear and
+publishing is disabled. Independently review the completed original replacement
+workflow job, its trusted tooling SHA and its single exact
+`TELEGRAM_CONFIRMED_RESPONSE` line. Verify release/tag, job/run/attempt,
+operation and random ID, positive Telegram message ID and the actual confirmation
+time. Then dispatch **Build Stream Bridge** on trusted reviewed code with
+`telegram_cutover_mode=reconcile`, `upload_artifacts=false`, and
+`telegram_reconciliation` set to the exact non-secret JSON:
 
-```bash
-gh api repos/sascio/MyBridge/releases/latest > /tmp/release.json
-python3 scripts/telegram_announce.py --release-json /tmp/release.json --dry-run
+```json
+{"release_id":123,"tag":"vX.Y.Z","operation":"page:1","message_id":456,"job_id":789,"acknowledge":"VERIFIED_TRUSTED_RUN_AND_RESPONSE"}
 ```
 
-## Publishing a release, end to end
+Replace those example IDs/tag with the independently verified exact values;
+never use `latest` or an empty tag. The job checks GitHub's job/run/repository/
+workflow metadata and matches exactly one confirmed-response log marker against
+the stored attempt and tooling SHA before a non-force state transition to
+`sent`. It makes no Telegram request. The acknowledgement is not a substitute
+for reviewing the code and evidence. Missing, expired, ambiguous, mismatched or
+untrusted logs are **not** proof; the operation stays blocked. There is no
+unconditional way to prove an unknown delivery absent or safely resend it.
 
-1. `.github/workflows/release-draft.yml` builds the Android APKs and the iOS IPA
-   and creates a **draft** release. Nothing is announced.
-2. A maintainer publishes the draft (for example with `gh release edit <tag> --draft=false`).
-3. `release: published` fires both this workflow and the sideload-source workflow.
-   This one posts the announcement, pins it and records it in the ledger.
-   `update-store-source.yml` refreshes `store.json` independently.
+## Research and trade-offs
 
-If the announcement fails, the release stays published and can be re-run safely
-at any time: it will not post twice.
+* Telegram's [sendMessage](https://core.telegram.org/method/messages.sendMessage)
+  and [sendMedia](https://core.telegram.org/method/messages.sendMedia) raw calls
+  accept `random_id`; Telethon's references list both as usable by bots. Its
+  high-level `send_file` chooses IDs internally, so retrying that call cannot
+  preserve this ledger's IDs. Telegram's [file protocol](https://core.telegram.org/api/files)
+  documents 512 KiB part limits, the big-file method above 10 MB and temporary
+  part lifetimes. [sendMultiMedia](https://core.telegram.org/method/messages.sendMultiMedia)
+  uses per-item IDs and separate media preparation, but group atomicity and
+  partial recovery were not established; it is not used.
+* [xz-dev/TelegramFileUploader](https://github.com/xz-dev/TelegramFileUploader)
+  is MIT and was active on 2026-10-27. It uses a bot and Telethon multipart
+  uploads but its grouped high-level `send_file` does not provide our durable
+  per-operation ID/ledger guarantees.
+* [mnicolas94/telegram-file-uploader](https://github.com/mnicolas94/telegram-file-uploader)
+  is MIT, last pushed 2025-05-01, and uses bot-authenticated Pyrogram
+  `send_document`; session handling and ambiguous reruns need separate care.
+  [nikhilbadyal/ghaction-telegram-uploader](https://github.com/nikhilbadyal/ghaction-telegram-uploader)
+  was active on 2026-11-01 and also uses Pyrogram, but GitHub reports GPL-3.0
+  while its README says MIT; no code was copied from it. Pyrogram's upstream
+  repository is archived. [ircfspace/githubMirror](https://github.com/ircfspace/githubMirror)
+  was active on 2026-11-05 but reports no license; it uses high-level sends and
+  its JSON state resets on read errors, so it is not a safe ledger replacement.
+* [Telethon](https://github.com/LonamiWebs/Telethon) is MIT and already used by
+  the project. Its GitHub repository was archived on 2026-02-21 because the
+  project moved to [Codeberg](https://codeberg.org/Lonami/Telethon), not because
+  an archive alone proves development stopped. [PyPI](https://pypi.org/project/Telethon/)
+  listed 1.45.0 as the latest release on 2026-11-05; that version is pinned and
+  exercised by the offline tests. Monitor its maintenance and security updates.
+  An upgrade can change parsed entities or button types and thereby block a
+  pending frozen plan; review and test upgrades without changing IDs or identity.
+
+## Offline verification
+
+Run `scripts/tests/run-tests.sh` after installing the pinned Telethon and PyYAML
+versions listed in `.github/workflows/build.yml`. The test runner blocks external
+DNS/TCP and permits only local Git remotes; loopback HTTP fixtures remain
+available. Tests cover formatting, official release filters, preflight input
+combinations and no-write behavior, strict ledger parsing, Git non-fast-forward
+races, ambiguous push results, crash/session locks, duplicate events, partial
+uploads, changed payloads, blocked lost-response replay, exact confirmed-log reconciliation, secret
+redaction, individual raw requests and real Telethon 512 KiB big-file chunking
+against fake RPCs. They include two simultaneous publisher workers using
+separate local Git clones and a simulated accepted-send process killed with
+`SIGKILL`; no remote network or Telegram send is used. Fake server semantics
+and local Git tests do **not** prove live Telegram behavior, server compatibility
+or GitHub branch permissions.
+
+For a current-head GitHub run without publishing files, dispatch **Build Stream
+Bridge** on the exact PR branch with `upload_artifacts: false`, or opt a
+`pull_request` run into the same mode by including the literal HTML comment
+`<!-- ci:no-upload -->` in the PR body. A push can opt in by including
+`[ci no-upload]` in its commit message. These are verification-only controls,
+not `[skip ci]`: all tests still run. Without the markers, normal push/PR runs
+retain their prior artifact/issue behavior; a manual dispatch can explicitly opt
+in to uploads. This mode runs the Android unit tests, debug and **debug-signed,
+non-production** release assemblies, lint, distribution checks, tracking-config
+checks and script tests, while skipping CI artifact uploads, Gradle cache use and
+CI-failure issue creation/closure. Dependency graph submission and build-scan
+publication are disabled. GitHub still records logs and summaries and downloads
+dependencies; the Android job retains `issues: write` even when its issue steps
+are skipped. Never put credentials in outputs.
+
+GitHub does **not** evaluate `workflow_dispatch` job checks as required checks
+for a PR, even when the exact head passes. Use a PR-triggered run for an eligible
+PR check and have an administrator configure the desired required checks; an
+empty rollup/list is not a CI gate. These verification runs are not production
+release workflows or the Telegram workflow.
