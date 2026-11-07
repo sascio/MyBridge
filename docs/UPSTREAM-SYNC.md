@@ -6,10 +6,24 @@
 |---|---|
 | Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
 | Branch | `cmp-rewrite` |
-| Commit | `014fa2e2f8e2f4914e09d117ffe29d1eefcc6275` |
-| Release | 0.6.3-beta (`bump version`, 2026-10-21) |
-| Enhanced overlay | `b9504e1a3bfd212cb32a54138b149ea1995b65c7` (tag `0.6.3-beta`; official 0.6.3 is an ancestor) |
-| Previous pin | 0.6.2-beta (`1cfae0fe`) + Enhanced `5d978096` |
+| Commit | `42e37ace0820a86c8b924b41b4bba4e570f12a6d` |
+| Release | 0.6.9-beta (`bump version`, 2026-11-06) |
+| Enhanced overlay | `01879330a3e8db844d49f31bda14ad35b458d287` (tag `0.6.9-beta`; official 0.6.9-beta is an ancestor, merge-base `42e37ace`) |
+| Previous pin | 0.6.7-beta (`3e156936`) + Enhanced `376f8619` |
+
+## 0.6.9-beta / Enhanced 0.6.9-beta integration (0.1.16)
+
+Pins: NuvioMobile `42e37ace` (tag `0.6.9-beta`, 2026-11-06) and
+NuvioMobile-Enhanced `01879330` (tag `0.6.9-beta`, 2026-11-07; the official tag
+is an ancestor). 150 upstream commits, 265 changed files.
+
+Method: the documented source-level three-way integration with the previous
+Enhanced pin `376f8619` as base — 130 files replaced verbatim (StreamBridge was
+byte-identical to the base), 101 added, 3 deleted, 29 merged with
+`git merge-file` (19 clean, 10 resolved by hand), 2 StreamBridge-owned files
+(`store.json`, `iosApp/Configuration/Version.xcconfig`) not imported. No upstream
+git history was merged; the branch stays linear. Full classification and every
+conflict resolution: [SYNC-MANIFEST-0.6.9-beta.md](SYNC-MANIFEST-0.6.9-beta.md).
 
 ## Important: upstream rewrote history (historical note)
 
