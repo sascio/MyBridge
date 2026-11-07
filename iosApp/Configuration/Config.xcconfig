@@ -1,6 +1,0 @@
-#include? "Version.xcconfig"
-
-TEAM_ID=
-
-PRODUCT_NAME=StreamBridge
-PRODUCT_BUNDLE_IDENTIFIER=com.streambridge.app$(TEAM_ID)
