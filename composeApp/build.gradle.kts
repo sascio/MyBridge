@@ -553,10 +553,10 @@ fun runtimeConfigBoolean(key: String, default: Boolean): Boolean =
 
 val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generateRuntimeConfigs") {
     outputDir.set(generatedRuntimeConfigDir)
-    val localPropsFile = rootProject.file("local.properties")
-    if (localPropsFile.isFile) {
-        localPropertiesFile.set(localPropsFile)
-    }
+    // Always wired: the property is an @InputFiles input, so an absent
+    // local.properties is tolerated (empty tracking configs), while its presence
+    // makes the generated configs re-run when it changes.
+    localPropertiesFile.set(rootProject.layout.projectDirectory.file("local.properties"))
     appVersionName.set(releaseAppVersionName)
     appVersionCode.set(releaseAppVersionCode)
     nuvioUpstreamRelease.set(nuvioUpstreamReleaseValue)
