@@ -16,7 +16,9 @@ checks the legacy workflow state, repository identity, `main` protection and
 state-branch protection before state changes and Telegram requests.
 
 The repository Actions variable `TELEGRAM_PUBLISHING_ENABLED` must be exactly
-`true` for automatic bootstrap or delivery. Any other value is off. The tracked
+`true` for automatic bootstrap or delivery. Any other value is off. An explicit
+no-send `initialize_state` dispatch can prepare the ledger while this switch
+remains off; it cannot poll or deliver releases. The tracked
 `.github/telegram-publishing.json` opts into **ledger-controlled** activation;
 it does not enable delivery by itself. `.github/telegram-state.json` explicitly
 selects the reviewed same-repository branch and acknowledges shared writers.
@@ -55,6 +57,26 @@ main-branch push or scheduled run automatically:
    announced. Initialization itself never sends; eligible later publications
    can be delivered by their release event or a scheduled poll. Historical
    releases are **not backfilled**.
+
+To finish production preparation before enabling live delivery:
+
+```sh
+gh workflow run telegram-release-delivery.yml --ref main -f preflight=true
+gh workflow run telegram-release-delivery.yml --ref main -f initialize_state=true
+```
+
+Wait for each run to succeed and inspect the protected ledger's ready/idle state.
+The second dispatch uses the same protected bootstrap and channel-wide queue,
+requires the live switch to be off, and **never calls the polling or delivery
+path**, regardless of release/recovery inputs. Its summary records the exact
+state commit and future-only fence. Only after readiness succeeds, set the
+repository Actions variable `TELEGRAM_PUBLISHING_ENABLED` to exactly `true`.
+Reading or changing this variable requires the GitHub connection's Variables
+permission; Actions dispatch permission alone is not enough. An HTTP 403 is a
+connection-permission blocker, not a reason to remove the live gate or relax
+branch protection. Reconnect GitHub in Arena with the required permission or
+have the repository owner set the variable in Settings → Secrets and variables
+→ Actions → Variables. Keep releases unpublished during initialization.
 
 Capturing the fence before the final scans avoids an artificial gap where a tag
 could be created before a future cutoff but after the snapshot. Releases and
