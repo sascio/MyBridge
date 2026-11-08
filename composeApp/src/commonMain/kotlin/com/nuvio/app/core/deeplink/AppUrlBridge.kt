@@ -22,6 +22,8 @@ internal sealed interface AppDeepLink {
         val manifestUrl: String,
     ) : AppDeepLink
 
+    data object Home : AppDeepLink
+
     data object Downloads : AppDeepLink
 
     data class Party(
@@ -82,6 +84,9 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
     val pathSegments = parsedUrl.segments.map(String::trim).filter(String::isNotBlank)
     if (scheme == "https") {
         return when {
+            host == "streambridgeapp.pages.dev" && parsedUrl.encodedPath == "/" && parsedUrl.port == 443 ->
+                AppDeepLink.Home
+
             // Legacy invites shared while StreamBridge still advertised Nuvio's
             // website. Kept so older messages keep working; StreamBridge no longer
             // generates links on this host.

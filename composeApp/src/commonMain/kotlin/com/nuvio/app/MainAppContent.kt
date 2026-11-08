@@ -893,6 +893,12 @@ internal fun MainAppContent(
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
+                    AppDeepLink.Home -> {
+                        while (navController.currentRoute !is TabsRoute && navController.popBackStack()) Unit
+                        activateTab(AppScreenTab.Home)
+                        AppDeepLinkRepository.markConsumed(deepLink)
+                    }
+
                     AppDeepLink.Downloads -> {
                         InAppLogger.info("App/DeepLink", "downloads")
                         activateTab(AppScreenTab.Library)

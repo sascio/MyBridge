@@ -1,33 +1,66 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StreamBridge</title>
-<meta name="description" content="StreamBridge is a media client for Android and iOS. This site hosts the watch-party invite redirect.">
+<meta name="description" content="Download StreamBridge for Android and iOS. Your Media, Your Way.">
+<meta name="theme-color" content="#080f1b">
+<title>StreamBridge — Your Media, Your Way</title>
 <style>
-  :root { color-scheme: dark; }
-  body {
-    margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    padding: 24px; background: #0d1117; color: #e6edf3;
-    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-  }
-  main { max-width: 460px; }
-  h1 { font-size: 22px; margin: 0 0 12px; }
-  p { color: #8b949e; }
-  a { color: #1E88E5; }
-  ul { padding-left: 20px; color: #8b949e; }
+:root{color-scheme:dark;--bg:#080f1b;--muted:#a9bbd0;--blue:#72c7ff;--line:#263a50}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:#edf6ff;background:radial-gradient(ellipse at 80% 0%,#123759 0,transparent 40%),var(--bg);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--blue)}a:focus-visible{outline:3px solid #fff;outline-offset:4px}header,main,footer{max-width:1100px;margin:auto;padding-left:24px;padding-right:24px}header{display:flex;justify-content:space-between;align-items:center;padding-top:26px;padding-bottom:26px}.brand{font-weight:800;letter-spacing:-.04em;color:white;text-decoration:none;font-size:1.2rem}.brand span{color:var(--blue)}header>a:last-child{font-size:.9rem}main{padding-top:50px;padding-bottom:72px}.eyebrow{font-weight:700;color:var(--blue);letter-spacing:.14em;font-size:.74rem;text-transform:uppercase}h1{font-size:clamp(3rem,9vw,5.5rem);line-height:1.03;letter-spacing:-.065em;margin:18px 0 20px;max-width:750px}h1 span{color:var(--blue)}.intro{color:var(--muted);font-size:1.1rem;max-width:570px;margin-bottom:30px}.button{display:inline-block;padding:13px 20px;border-radius:10px;background:#91d6ff;color:#07121e;text-decoration:none;font-weight:750}.button:hover{background:#c5eaff}.release{margin-top:70px;display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}.release h2{margin:6px 0;font-size:2rem;letter-spacing:-.04em}.release p,.muted{color:var(--muted);margin:0}.grid{display:grid;grid-template-columns:1fr;gap:16px;margin-top:22px}.card{border:1px solid var(--line);border-radius:18px;background:rgba(15,29,45,.88);padding:26px}.tag{font-size:.73rem;letter-spacing:.12em;color:var(--blue);font-weight:800;text-transform:uppercase}.card h3{font-size:1.45rem;margin:8px 0}.card p{color:var(--muted);margin:0 0 18px}.downloads{display:grid;grid-template-columns:1fr 1fr;gap:10px}.downloads a,.secondary{display:block;padding:12px;border:1px solid #36536b;border-radius:10px;text-decoration:none;color:#eaf7ff;font-weight:650}.downloads a:hover,.secondary:hover{background:#18344c}.downloads small{display:block;font-weight:400;color:var(--muted)}.steps{padding-left:20px;color:var(--muted)}.steps li{padding-left:4px;margin-bottom:8px}footer{border-top:1px solid var(--line);padding-top:24px;padding-bottom:36px;color:var(--muted);font-size:.88rem;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}@media(min-width:760px){main{padding-top:86px}.grid{grid-template-columns:1fr 1fr}.card{padding:32px}}
 </style>
 </head>
 <body>
+<header><a class="brand" href="./" aria-label="StreamBridge home"><span>●</span> StreamBridge</a><a href="https://github.com/sascio/MyBridge">GitHub ↗</a></header>
 <main>
-  <h1>StreamBridge</h1>
-  <p>This site only hosts the watch-party invite redirect used by the StreamBridge app. The
-  application itself is distributed from GitHub.</p>
-  <ul>
-    <li><a href="https://github.com/sascio/MyBridge">StreamBridge source and documentation</a></li>
-    <li><a href="https://github.com/sascio/MyBridge/releases/latest">Download the latest release</a></li>
-  </ul>
+  <section aria-labelledby="hero-title">
+    <div class="eyebrow">A media client for Android &amp; iOS</div>
+    <h1 id="hero-title">Your Media,<br><span>Your Way</span></h1>
+    <p class="intro">Bring your media experience together with StreamBridge. Pick your platform and get started.</p>
+    <a class="button" href="#downloads">Get StreamBridge ↓</a>
+  </section>
+  <section id="downloads" aria-labelledby="downloads-title">
+    <div class="release"><div><div class="eyebrow">Ready when you are</div><h2 id="downloads-title">Download StreamBridge</h2><p id="release-status" role="status">Get the latest release on GitHub.</p></div><a href="https://github.com/sascio/MyBridge/releases/latest">View latest release ↗</a></div>
+    <div class="grid">
+      <article class="card"><div class="tag">Android</div><h3>Find your APK</h3><p>Choose the architecture that matches your device. Most modern Android phones use ARM64.</p>
+        <div class="downloads">
+          <a data-asset="androidApp-full-arm64-v8a-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">ARM64-v8a <small>Most modern phones ↗</small></a>
+          <a data-asset="androidApp-full-armeabi-v7a-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">ARMv7 <small>Older ARM devices ↗</small></a>
+          <a data-asset="androidApp-full-x86-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">x86 <small>32-bit Intel devices ↗</small></a>
+          <a data-asset="androidApp-full-x86_64-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">x86_64 <small>64-bit Intel devices ↗</small></a>
+        </div><p style="margin:18px 0 0;font-size:.88rem">Not sure? Check your device architecture before installing. Your device may ask you to allow installation from your browser.</p>
+      </article>
+      <article class="card"><div class="tag">iOS</div><h3>Install the unsigned IPA</h3><p>The IPA is unsigned and is not an App Store download. Use AltStore or SideStore to sign and install it with your own Apple ID.</p>
+        <ol class="steps"><li>Set up <a href="https://altstore.io/">AltStore</a> or <a href="https://sidestore.io/">SideStore</a> on your device.</li><li>Download the unsigned IPA from the latest GitHub release.</li><li>Open it in your sideloading app and follow its signing and installation instructions.</li></ol>
+        <a class="secondary" id="ipa" href="https://github.com/sascio/MyBridge/releases/latest">Get the unsigned IPA ↗</a>
+        <p style="margin:18px 0 0;font-size:.88rem">For updates, add the <a href="https://raw.githubusercontent.com/sascio/MyBridge/main/store.json">StreamBridge source</a> to AltStore or SideStore.</p>
+      </article>
+    </div>
+    <p class="muted" style="margin-top:20px;font-size:.88rem">Downloads come from the official GitHub release. If release details cannot be loaded, the buttons open the latest release page instead.</p>
+  </section>
 </main>
+<footer><span>StreamBridge · Your Media, Your Way</span><span>Made with ♥ by Saif · <a href="https://github.com/sascio/MyBridge">Source &amp; licenses</a></span></footer>
+<script>
+(function () {
+  'use strict';
+  // Only use URLs returned by GitHub for uploaded assets in its latest stable release.
+  fetch('https://api.github.com/repos/sascio/MyBridge/releases/latest', {headers: {'Accept': 'application/vnd.github+json'}})
+    .then(function (response) { if (!response.ok) throw new Error('release unavailable'); return response.json(); })
+    .then(function (release) {
+      if (release.draft || release.prerelease || !Array.isArray(release.assets) || typeof release.tag_name !== 'string') return;
+      document.getElementById('release-status').textContent = 'Latest release: ' + release.tag_name;
+      function safeAsset(asset) {
+        if (!asset || asset.state !== 'uploaded' || typeof asset.browser_download_url !== 'string') return false;
+        try { var url = new URL(asset.browser_download_url); return url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.indexOf('/sascio/MyBridge/releases/download/') === 0; } catch (_) { return false; }
+      }
+      document.querySelectorAll('[data-asset]').forEach(function (link) {
+        var asset = release.assets.find(function (item) { return item.name === link.dataset.asset && safeAsset(item); });
+        if (asset) link.href = asset.browser_download_url;
+      });
+      var ipa = release.assets.find(function (item) { return /^StreamBridge-.+-iOS-unsigned\.ipa$/i.test(item.name) && safeAsset(item); });
+      if (ipa) document.getElementById('ipa').href = ipa.browser_download_url;
+    }).catch(function () { /* The release-page links remain usable without API access. */ });
+}());
+</script>
 </body>
 </html>
