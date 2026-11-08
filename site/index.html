@@ -1,66 +1,61 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Download StreamBridge for Android and iOS. Your Media, Your Way.">
-<meta name="theme-color" content="#080f1b">
-<title>StreamBridge — Your Media, Your Way</title>
-<style>
-:root{color-scheme:dark;--bg:#080f1b;--muted:#a9bbd0;--blue:#72c7ff;--line:#263a50}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:#edf6ff;background:radial-gradient(ellipse at 80% 0%,#123759 0,transparent 40%),var(--bg);font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--blue)}a:focus-visible{outline:3px solid #fff;outline-offset:4px}header,main,footer{max-width:1100px;margin:auto;padding-left:24px;padding-right:24px}header{display:flex;justify-content:space-between;align-items:center;padding-top:26px;padding-bottom:26px}.brand{font-weight:800;letter-spacing:-.04em;color:white;text-decoration:none;font-size:1.2rem}.brand span{color:var(--blue)}header>a:last-child{font-size:.9rem}main{padding-top:50px;padding-bottom:72px}.eyebrow{font-weight:700;color:var(--blue);letter-spacing:.14em;font-size:.74rem;text-transform:uppercase}h1{font-size:clamp(3rem,9vw,5.5rem);line-height:1.03;letter-spacing:-.065em;margin:18px 0 20px;max-width:750px}h1 span{color:var(--blue)}.intro{color:var(--muted);font-size:1.1rem;max-width:570px;margin-bottom:30px}.button{display:inline-block;padding:13px 20px;border-radius:10px;background:#91d6ff;color:#07121e;text-decoration:none;font-weight:750}.button:hover{background:#c5eaff}.release{margin-top:70px;display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}.release h2{margin:6px 0;font-size:2rem;letter-spacing:-.04em}.release p,.muted{color:var(--muted);margin:0}.grid{display:grid;grid-template-columns:1fr;gap:16px;margin-top:22px}.card{border:1px solid var(--line);border-radius:18px;background:rgba(15,29,45,.88);padding:26px}.tag{font-size:.73rem;letter-spacing:.12em;color:var(--blue);font-weight:800;text-transform:uppercase}.card h3{font-size:1.45rem;margin:8px 0}.card p{color:var(--muted);margin:0 0 18px}.downloads{display:grid;grid-template-columns:1fr 1fr;gap:10px}.downloads a,.secondary{display:block;padding:12px;border:1px solid #36536b;border-radius:10px;text-decoration:none;color:#eaf7ff;font-weight:650}.downloads a:hover,.secondary:hover{background:#18344c}.downloads small{display:block;font-weight:400;color:var(--muted)}.steps{padding-left:20px;color:var(--muted)}.steps li{padding-left:4px;margin-bottom:8px}footer{border-top:1px solid var(--line);padding-top:24px;padding-bottom:36px;color:var(--muted);font-size:.88rem;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}@media(min-width:760px){main{padding-top:86px}.grid{grid-template-columns:1fr 1fr}.card{padding:32px}}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090a0e">
+  <meta name="description" content="StreamBridge is an open-source media client for your own sources. Your Media, Your Way.">
+  <title>StreamBridge — Your Media, Your Way</title>
+  <link rel="icon" href="assets/streambridge-mark.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="site.js" defer></script>
 </head>
 <body>
-<header><a class="brand" href="./" aria-label="StreamBridge home"><span>●</span> StreamBridge</a><a href="https://github.com/sascio/MyBridge">GitHub ↗</a></header>
-<main>
-  <section aria-labelledby="hero-title">
-    <div class="eyebrow">A media client for Android &amp; iOS</div>
-    <h1 id="hero-title">Your Media,<br><span>Your Way</span></h1>
-    <p class="intro">Bring your media experience together with StreamBridge. Pick your platform and get started.</p>
-    <a class="button" href="#downloads">Get StreamBridge ↓</a>
-  </section>
-  <section id="downloads" aria-labelledby="downloads-title">
-    <div class="release"><div><div class="eyebrow">Ready when you are</div><h2 id="downloads-title">Download StreamBridge</h2><p id="release-status" role="status">Get the latest release on GitHub.</p></div><a href="https://github.com/sascio/MyBridge/releases/latest">View latest release ↗</a></div>
-    <div class="grid">
-      <article class="card"><div class="tag">Android</div><h3>Find your APK</h3><p>Choose the architecture that matches your device. Most modern Android phones use ARM64.</p>
-        <div class="downloads">
-          <a data-asset="androidApp-full-arm64-v8a-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">ARM64-v8a <small>Most modern phones ↗</small></a>
-          <a data-asset="androidApp-full-armeabi-v7a-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">ARMv7 <small>Older ARM devices ↗</small></a>
-          <a data-asset="androidApp-full-x86-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">x86 <small>32-bit Intel devices ↗</small></a>
-          <a data-asset="androidApp-full-x86_64-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">x86_64 <small>64-bit Intel devices ↗</small></a>
-        </div><p style="margin:18px 0 0;font-size:.88rem">Not sure? Check your device architecture before installing. Your device may ask you to allow installation from your browser.</p>
-      </article>
-      <article class="card"><div class="tag">iOS</div><h3>Install the unsigned IPA</h3><p>The IPA is unsigned and is not an App Store download. Use AltStore or SideStore to sign and install it with your own Apple ID.</p>
-        <ol class="steps"><li>Set up <a href="https://altstore.io/">AltStore</a> or <a href="https://sidestore.io/">SideStore</a> on your device.</li><li>Download the unsigned IPA from the latest GitHub release.</li><li>Open it in your sideloading app and follow its signing and installation instructions.</li></ol>
-        <a class="secondary" id="ipa" href="https://github.com/sascio/MyBridge/releases/latest">Get the unsigned IPA ↗</a>
-        <p style="margin:18px 0 0;font-size:.88rem">For updates, add the <a href="https://raw.githubusercontent.com/sascio/MyBridge/main/store.json">StreamBridge source</a> to AltStore or SideStore.</p>
-      </article>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="header">
+  <nav class="nav" aria-label="Main navigation">
+    <a class="brand" href="#top"><img src="assets/streambridge-mark.png" alt="" width="29" height="29"><span>streambridge</span></a>
+    <a class="nav-current" href="#top" aria-current="page">Home</a>
+    <a class="nav-link" href="#features">Features</a>
+    <a class="nav-link" href="#faq">FAQ</a>
+    <a class="nav-github" href="https://github.com/sascio/MyBridge" aria-label="View source on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.86c-2.78.61-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.46-1.11-1.46-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.89 1.52 2.33 1.08 2.9.82.09-.64.35-1.08.63-1.33-2.22-.25-4.56-1.11-4.56-4.94 0-1.1.39-1.99 1.03-2.69-.1-.25-.45-1.26.1-2.64 0 0 .84-.27 2.75 1.03A9.57 9.57 0 0 1 12 6.84a9.5 9.5 0 0 1 2.5.34c1.9-1.3 2.74-1.03 2.74-1.03.55 1.38.2 2.39.1 2.64.64.7 1.03 1.6 1.03 2.69 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg></a>
+    <a class="nav-download" href="#get">Get the app</a>
+  </nav>
+</header>
+<main id="main">
+  <section class="hero wrap" id="top">
+    <h1>Built for every screen<br class="desktop"> you watch on.</h1>
+    <p class="hero-copy">A free, open-source media client for your phone and tablet. Bring your own sources, and StreamBridge brings your library, subtitles, and watch progress together.</p>
+    <div class="actions"><a class="button primary" href="#get"><span aria-hidden="true">↓</span> Get StreamBridge</a><a class="button secondary" href="https://github.com/sascio/MyBridge"><span aria-hidden="true">◉</span> Read the source</a></div>
+    <p class="hero-note">Free and open source under GNU GPLv3. StreamBridge does not host, store or provide media.</p>
+    <div class="hero-visual" role="img" aria-label="Illustrative StreamBridge media library on a large screen and phone">
+      <div class="display"><div class="display-inner"><div class="display-head"><span>Featured</span><small>from your catalog</small></div><div class="posters"><div><i></i><span>Discover</span></div><div><i></i><span>Continue watching</span></div><div><i></i><span>Your library</span></div><div><i></i><span>New to you</span></div><div><i></i><span>Explore</span></div></div><div class="screen-line">Your library, all in one place</div></div></div>
+      <div class="phone"><div class="phone-screen"><div class="phone-top">9:41 <span>● ●</span></div><div class="phone-wordmark"><img src="assets/streambridge-mark.png" alt=""> streambridge</div><div class="phone-main"><small>YOUR MEDIA, YOUR WAY</small><strong>Your next<br>great watch.</strong><span>Browse your library</span></div><div class="phone-bottom">Home &nbsp;&nbsp;&nbsp; Discover &nbsp;&nbsp;&nbsp; Library</div></div></div>
     </div>
-    <p class="muted" style="margin-top:20px;font-size:.88rem">Downloads come from the official GitHub release. If release details cannot be loaded, the buttons open the latest release page instead.</p>
+    <p class="visual-caption">Illustrative interface with original fictional artwork.</p>
   </section>
+  <div class="platform-strip" aria-label="Platforms"><div class="platform-strip-inner"><span>◉ &nbsp;Android</span><span>● &nbsp;iOS</span><span>▣ &nbsp;Android TV</span><span>⊞ &nbsp;Windows</span><span>● &nbsp;macOS</span><span>◈ &nbsp;Linux</span><span>▭ &nbsp;Smart TV</span></div></div>
+  <section class="section wrap" id="get">
+    <div class="section-heading"><span class="kicker">GET STREAMBRIDGE</span><h2>Pick your screen.</h2><p>Choose your platform and find the right download. Available releases are linked below; other platforms are not yet confirmed.</p></div>
+    <div class="tabs" role="tablist" aria-label="Choose a platform"><button role="tab" id="tab-phone" aria-selected="true" aria-controls="panel-phone" tabindex="0">Phone</button><button role="tab" id="tab-tv" aria-selected="false" aria-controls="panel-tv" tabindex="-1">TV</button><button role="tab" id="tab-desktop" aria-selected="false" aria-controls="panel-desktop" tabindex="-1">Desktop</button><button role="tab" id="tab-smart" aria-selected="false" aria-controls="panel-smart" tabindex="-1">Smart TV</button></div>
+    <div class="platform-panel" id="panel-phone" role="tabpanel" aria-labelledby="tab-phone"><div><div class="panel-icons" aria-hidden="true">◉ &nbsp;●</div><h3>StreamBridge for Android and iPhone</h3><p>Browse, search and play on Android and iOS. Bring your own sources and connect the tracking services you use.</p><p class="release-status" id="release-status" role="status">Latest release on GitHub</p><div class="download-grid"><a class="button primary" data-asset="androidApp-full-arm64-v8a-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">Android ARM64 ↗</a><a class="button secondary" data-asset="androidApp-full-armeabi-v7a-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">Android ARMv7 ↗</a><a class="button secondary" data-asset="androidApp-full-x86-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">Android x86 ↗</a><a class="button secondary" data-asset="androidApp-full-x86_64-release.apk" href="https://github.com/sascio/MyBridge/releases/latest">Android x86_64 ↗</a><a class="button secondary" id="ipa" href="https://github.com/sascio/MyBridge/releases/latest">iOS unsigned IPA ↗</a></div><p class="download-note">Most newer Android phones use ARM64. The iOS IPA must be signed and installed using <a href="https://altstore.io/">AltStore</a> or <a href="https://sidestore.io/">SideStore</a> with your own Apple ID. <a href="https://raw.githubusercontent.com/sascio/MyBridge/main/store.json">Add the sideload source</a> for updates.</p></div><div class="platform-art" aria-hidden="true"><div class="platform-orb">◉ <span>+</span> ●</div></div></div>
+    <div class="platform-panel" id="panel-tv" role="tabpanel" aria-labelledby="tab-tv" hidden><div><div class="panel-icons">▣</div><h3>StreamBridge for Android TV</h3><p>Android TV support and a dedicated TV download are not yet confirmed. Check the releases page for available builds.</p><a class="button secondary" href="https://github.com/sascio/MyBridge/releases/latest">View releases ↗</a></div></div>
+    <div class="platform-panel" id="panel-desktop" role="tabpanel" aria-labelledby="tab-desktop" hidden><div><div class="panel-icons">⊞ &nbsp;● &nbsp;◈</div><h3>StreamBridge for desktop</h3><p>Windows, macOS and Linux support has not yet been confirmed. No desktop downloads are currently advertised.</p><a class="button secondary" href="https://github.com/sascio/MyBridge/releases/latest">View releases ↗</a></div></div>
+    <div class="platform-panel" id="panel-smart" role="tabpanel" aria-labelledby="tab-smart" hidden><div><div class="panel-icons">▭</div><h3>StreamBridge for Smart TV</h3><p>Smart TV support and downloads are not yet confirmed.</p><a class="button secondary" href="https://github.com/sascio/MyBridge/releases/latest">View releases ↗</a></div></div>
+    <noscript><p class="download-note">Android and iOS downloads are above. Android TV, Windows, macOS, Linux and Smart TV support are not yet confirmed.</p></noscript>
+  </section>
+  <section class="section wrap" id="features"><div class="section-heading"><span class="kicker">THE EXPERIENCE</span><h2>What it is like to use.</h2><p>StreamBridge does not come with a catalogue. Connect your own sources and bring the details, subtitles and progress together in one place.</p></div>
+    <div class="feature-grid"><article class="feature feature-wide"><div class="feature-text"><span class="kicker">PROFILES</span><h3>Everyone gets their own StreamBridge.</h3><p>Choose who is watching. Separate profiles keep your library and progress personal.</p></div><div class="profiles-art" aria-label="Illustration of profile selection"><span>Who's watching?</span><div><i>◕</i><i>✦</i><i>◉</i><i>＋</i></div><small>Choose a profile</small></div></article>
+    <article class="feature feature-small"><div class="feature-text"><span class="kicker">YOUR PLAYER</span><h3>Powered by ExoPlayer and mpv.</h3><p>Choose from playback options, with subtitle styling and controls built for your screen.</p><div class="engine-pills"><span>▶ &nbsp; Media3 ExoPlayer</span><span>▶ &nbsp; mpv</span></div></div></article>
+    <article class="feature feature-wide playback"><div class="feature-text"><span class="kicker">PLAYBACK</span><h3>Playback that gets out of the way.</h3><p>Make the player yours, from subtitle styling and audio controls to supported skip markers.</p><ul><li>Intro and recap skip markers where available</li><li>Subtitle options in the player</li><li>Optional watch progress tracking</li></ul></div><div class="playback-art"><span class="play-icon">▶</span><span class="skip">Skip intro &nbsp; ›</span><div class="progress"><i></i></div></div></article>
+    <article class="feature feature-small library"><div class="feature-text"><span class="kicker">YOUR LIBRARY</span><h3>One library, ready when you are.</h3><p>Keep track of what matters with your library, lists and optional connected tracking services.</p></div><div class="library-art"><span>Library</span><div><i></i><i></i><i></i></div><small>Continue watching</small></div></article></div>
+  </section>
+  <section class="section wrap integrations"><div class="section-heading"><span class="kicker">BETTER TOGETHER</span><h2>It plugs into what you already use.</h2><p>Connect your own addons and the services you use for tracking, ratings, artwork and skip markers. Availability varies by build and configuration.</p></div><div class="service-list"><a href="https://introdb.app/">IntroDB ↗</a><a href="https://trakt.tv/">Trakt ↗</a><a href="https://simkl.com/">Simkl ↗</a><a href="https://mdblist.com/">MDBList ↗</a><a href="https://www.themoviedb.org/">TMDB ↗</a><a href="https://anilist.co/">AniList ↗</a><a href="https://wetrakr.com/">WeTrakr ↗</a></div></section>
+  <section class="section wrap open"><div class="open-card"><div><span class="kicker">OPEN SOURCE</span><h2>Made in the open.</h2><p>StreamBridge is public on GitHub under GNU GPLv3. Read it, build it yourself, or contribute.</p><a class="button primary" href="https://github.com/sascio/MyBridge">Open on GitHub ↗</a></div><div class="open-mark" aria-hidden="true">✳</div></div></section>
+  <section class="section wrap faq" id="faq"><div class="section-heading"><span class="kicker">GOOD TO KNOW</span><h2>Frequently asked questions.</h2><p>A few things to know before you get started.</p></div><div class="faq-list"><details><summary>What is StreamBridge?<span>＋</span></summary><p>StreamBridge is an open-source media client for browsing and playing content from sources you configure. It does not provide content.</p></details><details><summary>Where can I download it?<span>＋</span></summary><p>Android APKs and an unsigned iOS IPA are available from the <a href="https://github.com/sascio/MyBridge/releases/latest">latest GitHub release</a>. Other platform support is not yet confirmed.</p></details><details><summary>How do I install on iOS?<span>＋</span></summary><p>Install the unsigned IPA using AltStore or SideStore, which signs it with your own Apple ID. You can add the StreamBridge sideload source for updates.</p></details><details><summary>Does StreamBridge include movies or shows?<span>＋</span></summary><p>No. The app ships without content or bundled providers. Connect your own sources and use only media you are authorized to access.</p></details><details><summary>Can I connect my tracking services?<span>＋</span></summary><p>Supported integrations include Trakt, Simkl, MDBList, AniList and WeTrakr. Availability can depend on build credentials and provider configuration.</p></details></div></section>
+  <section class="section wrap closing"><h2>Put it on the screen<br>you are sitting in front of.</h2><p>Your Media, Your Way.</p><div class="actions"><a class="button primary" href="#get">↓ &nbsp; Get StreamBridge</a><a class="button secondary" href="#faq">Read the FAQ</a></div></section>
+  <section class="disclaimer wrap"><h2>What StreamBridge is not.</h2><p>StreamBridge is a client-side media player. It plays media from sources you connect and is intended for content you own or are otherwise authorized to access. It does not host, store or distribute media and is not affiliated with third-party sources or content providers.</p><p>The artwork and interface illustration on this page are fictional. This product uses the TMDB API but is not endorsed or certified by TMDB.</p></section>
 </main>
-<footer><span>StreamBridge · Your Media, Your Way</span><span>Made with ♥ by Saif · <a href="https://github.com/sascio/MyBridge">Source &amp; licenses</a></span></footer>
-<script>
-(function () {
-  'use strict';
-  // Only use URLs returned by GitHub for uploaded assets in its latest stable release.
-  fetch('https://api.github.com/repos/sascio/MyBridge/releases/latest', {headers: {'Accept': 'application/vnd.github+json'}})
-    .then(function (response) { if (!response.ok) throw new Error('release unavailable'); return response.json(); })
-    .then(function (release) {
-      if (release.draft || release.prerelease || !Array.isArray(release.assets) || typeof release.tag_name !== 'string') return;
-      document.getElementById('release-status').textContent = 'Latest release: ' + release.tag_name;
-      function safeAsset(asset) {
-        if (!asset || asset.state !== 'uploaded' || typeof asset.browser_download_url !== 'string') return false;
-        try { var url = new URL(asset.browser_download_url); return url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.indexOf('/sascio/MyBridge/releases/download/') === 0; } catch (_) { return false; }
-      }
-      document.querySelectorAll('[data-asset]').forEach(function (link) {
-        var asset = release.assets.find(function (item) { return item.name === link.dataset.asset && safeAsset(item); });
-        if (asset) link.href = asset.browser_download_url;
-      });
-      var ipa = release.assets.find(function (item) { return /^StreamBridge-.+-iOS-unsigned\.ipa$/i.test(item.name) && safeAsset(item); });
-      if (ipa) document.getElementById('ipa').href = ipa.browser_download_url;
-    }).catch(function () { /* The release-page links remain usable without API access. */ });
-}());
-</script>
+<footer class="footer wrap"><div><a class="brand" href="#top"><img src="assets/streambridge-mark.png" alt="" width="28" height="28"><span>streambridge</span></a><p>Your Media, Your Way</p></div><div class="footer-links"><a href="#get">Download</a><a href="#features">Features</a><a href="#faq">FAQ</a><a href="https://github.com/sascio/MyBridge">GitHub</a><a href="https://github.com/sascio/MyBridge/blob/main/COPYING">License</a></div><p class="credit">Made with ❤️ by Saif</p></footer>
 </body>
 </html>
