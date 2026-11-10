@@ -65,10 +65,10 @@
     video.addEventListener('seeking', cancelCursor);
     cursor.addEventListener('animationend', function () {
       cancelCursor();
-      if (!motion.matches && !video.paused && !skipButton.hidden) skipButton.click();
+      if (!motion.matches && !video.paused && !skipButton.hidden && video.currentTime >= introStart && video.currentTime < introEnd) skipButton.click();
     });
     skipButton.addEventListener('click', function () {
-      if (!intervalReady) return;
+      if (!intervalReady || video.currentTime < introStart || video.currentTime >= introEnd) { updateSkip(); return; }
       attempted = true;
       cancelCursor();
       video.currentTime = introEnd;
