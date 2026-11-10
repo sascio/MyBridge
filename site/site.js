@@ -232,12 +232,35 @@
       .then(function (response) { if (!response.ok) throw new Error('Release feed unavailable'); return response.json(); })
       .then(function (items) { if (!Array.isArray(items)) throw new Error('Invalid release feed'); var combined = all.concat(items); return items.length === 100 ? loadReleases(page + 1, combined) : combined; });
   }
+  function renderOpenReleases(releases) {
+    var list = document.getElementById('open-releases');
+    var recent = releases.filter(function (release) { return !release.draft && release.published_at && !isNaN(Date.parse(release.published_at)); }).sort(function (a, b) { return Date.parse(b.published_at) - Date.parse(a.published_at); }).slice(0, 3);
+    list.replaceChildren();
+    if (!recent.length) { list.textContent = 'No published releases were returned by GitHub.'; return; }
+    recent.forEach(function (release) {
+      var card = document.createElement('a'); card.className = 'open-release';
+      try { var url = new URL(release.html_url); card.href = url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.indexOf('/sascio/MyBridge/releases/') === 0 ? url.href : 'https://github.com/sascio/MyBridge/releases'; } catch (_) { card.href = 'https://github.com/sascio/MyBridge/releases'; }
+      var label = document.createElement('small'); label.textContent = release.prerelease ? 'Prerelease' : 'StreamBridge';
+      var title = document.createElement('strong'); title.textContent = release.name || release.tag_name;
+      var meta = document.createElement('span'); meta.textContent = release.tag_name + ' · ' + new Date(release.published_at).toLocaleDateString('en', {year:'numeric', month:'short', day:'numeric', timeZone:'UTC'});
+      card.append(label, title, meta); list.appendChild(card);
+    });
+  }
+  fetch('https://api.github.com/repos/sascio/MyBridge/contributors?per_page=100', {headers: {'Accept': 'application/vnd.github+json'}}).then(function (response) { if (!response.ok) throw new Error('Contributors unavailable'); return response.json(); }).then(function (contributors) {
+    if (!Array.isArray(contributors)) return;
+    var list = document.getElementById('open-contributors');
+    var humans = contributors.filter(function (person) { return person.type === 'User' && typeof person.login === 'string' && /^https:\/\/github\.com\/[a-z0-9-]+$/i.test(person.html_url) && /^https:\/\/avatars\.githubusercontent\.com\//.test(person.avatar_url); });
+    if (!humans.length) return;
+    list.replaceChildren(); humans.forEach(function (person) { var link = document.createElement('a'); link.href = person.html_url; link.setAttribute('aria-label', person.login + ' on GitHub'); var img = document.createElement('img'); img.src = person.avatar_url; img.alt = ''; img.width = 42; img.height = 42; img.loading = 'lazy'; img.addEventListener('error', function () { img.remove(); link.textContent = person.login; link.classList.add('contributor-fallback'); }); link.appendChild(img); list.appendChild(link); });
+  }).catch(function () {});
   loadReleases(1, []).then(function (releases) {
+    renderOpenReleases(releases);
     renderReleases(releases);
     if (location.hash === '#faq') document.getElementById('faq').scrollIntoView({behavior: 'instant'});
     updateNav();
   }).catch(function () {
     newsList.textContent = 'Release information could not be loaded. Visit GitHub for the complete version history.';
+    document.getElementById('open-releases').textContent = 'Release information unavailable. See every release on GitHub.';
     if (location.hash === '#faq') document.getElementById('faq').scrollIntoView({behavior: 'instant'});
     updateNav();
   });
