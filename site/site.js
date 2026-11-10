@@ -24,6 +24,65 @@
     });
   });
 
+  // An intro interval must be supplied explicitly in the markup; never infer one.
+  var showcase = document.querySelector('.video-showcase');
+  if (showcase) {
+    var video = showcase.querySelector('video');
+    var skipButton = showcase.querySelector('.skip-intro');
+    var cursor = showcase.querySelector('.demo-cursor');
+    var motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var startValue = showcase.dataset.introStart;
+    var endValue = showcase.dataset.introEnd;
+    var introStart = startValue === '' ? NaN : Number(startValue);
+    var introEnd = endValue === '' ? NaN : Number(endValue);
+    var intervalReady = false;
+    var attempted = false;
+    var lastTime = 0;
+    function cancelCursor() { cursor.classList.remove('is-running'); }
+    function updateSkip() {
+      var current = video.currentTime;
+      if (current < lastTime - .5) attempted = false;
+      lastTime = current;
+      var inIntro = intervalReady && current >= introStart && current < introEnd;
+      skipButton.hidden = !inIntro;
+      if (!inIntro || video.paused || motion.matches) { cancelCursor(); return; }
+      if (!attempted) {
+        attempted = true;
+        var remaining = (introEnd - current) / Math.max(video.playbackRate, .1);
+        if (remaining > .2) {
+          cursor.style.setProperty('--cursor-duration', Math.min(1.3, remaining - .1) + 's');
+          cursor.classList.add('is-running');
+        }
+      }
+    }
+    video.addEventListener('loadedmetadata', function () {
+      intervalReady = Number.isFinite(introStart) && Number.isFinite(introEnd) && introStart >= 0 && introEnd > introStart && introEnd < video.duration;
+      updateSkip();
+    });
+    video.addEventListener('timeupdate', updateSkip);
+    video.addEventListener('play', updateSkip);
+    video.addEventListener('pause', cancelCursor);
+    video.addEventListener('seeking', cancelCursor);
+    cursor.addEventListener('animationend', function () {
+      cancelCursor();
+      if (!motion.matches && !video.paused && !skipButton.hidden) skipButton.click();
+    });
+    skipButton.addEventListener('click', function () {
+      if (!intervalReady) return;
+      attempted = true;
+      cancelCursor();
+      video.currentTime = introEnd;
+      skipButton.hidden = true;
+    });
+    function applyMotionPreference() {
+      if (motion.matches) { video.autoplay = false; video.pause(); cancelCursor(); }
+      else { video.muted = true; video.autoplay = true; video.play().catch(function () {}); }
+      updateSkip();
+    }
+    if (motion.addEventListener) motion.addEventListener('change', applyMotionPreference);
+    applyMotionPreference();
+  }
+
   // Keep release-page fallback links if the API is unavailable or an asset is missing.
   fetch('https://api.github.com/repos/sascio/MyBridge/releases/latest', {headers: {'Accept': 'application/vnd.github+json'}})
     .then(function (response) { if (!response.ok) throw new Error('Release unavailable'); return response.json(); })
