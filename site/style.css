@@ -115,3 +115,6 @@ html[data-theme="dark"] .experience{background:#0d0f12;color:#f2f2f5}html[data-t
 .library-showcase{display:flex;flex-direction:column;align-items:center}.library-showcase .experience-image{width:min(55%,290px);border:5px solid #999388;border-radius:32px}
 .engine-illustration .engine-logo{width:76px;height:76px;object-fit:contain;display:block}
 @media(max-width:700px){.profile-showcase .experience-image{border-width:5px;border-radius:13px}.library-showcase .experience-image{width:min(60%,260px);border-width:4px;border-radius:25px}.engine-illustration .engine-logo{width:70px;height:70px}}
+/* The uploaded clip is 640 × 360; reserve its frame before metadata loads. */
+.experience-video{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:contain;background:#101216;border:0;border-radius:11px;box-shadow:0 0 0 7px #34373d,0 20px 55px #0004}
+@media(max-width:700px){.experience-video{border-radius:8px;box-shadow:0 0 0 5px #34373d,0 20px 55px #0004}}
