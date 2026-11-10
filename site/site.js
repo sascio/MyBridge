@@ -83,25 +83,52 @@
       closeMenu(); menuButton.focus();
     }
   });
-  nav.querySelector('.brand').addEventListener('click', closeMenu);
-  menu.addEventListener('click', function (event) {
-    if (event.target.closest('a')) closeMenu();
-  });
-  function updateNav() {
-    var current = '#top';
-    ['#get', '#news', '#faq'].forEach(function (hash) {
-      var target = document.querySelector(hash);
-      if (target && target.getBoundingClientRect().top <= 130) current = hash;
-    });
+  var navigationTarget = null;
+  var navigationTimer;
+  function setActive(hash) {
     navItems.forEach(function (item) {
-      var active = item.getAttribute('href') === current;
+      var active = item.getAttribute('href') === hash;
       item.classList.toggle('nav-current', active);
       if (active) item.setAttribute('aria-current', 'location');
       else item.removeAttribute('aria-current');
     });
   }
+  // Keep the chosen destination active while a smooth scroll passes other sections.
+  function beginNavigation(hash) {
+    if (!navItems.some(function (item) { return item.getAttribute('href') === hash; })) return;
+    navigationTarget = hash;
+    setActive(hash);
+    clearTimeout(navigationTimer);
+    navigationTimer = setTimeout(function () { navigationTarget = null; updateNav(); }, 3000);
+  }
+  nav.querySelector('.brand').addEventListener('click', function () { closeMenu(); beginNavigation('#top'); });
+  menu.addEventListener('click', function (event) {
+    var link = event.target.closest('a');
+    if (!link) return;
+    closeMenu();
+    if (link.hash) beginNavigation(link.hash);
+  });
+  function updateNav() {
+    if (navigationTarget) return;
+    var current = '#top';
+    ['#get', '#news', '#faq'].forEach(function (hash) {
+      var target = document.querySelector(hash);
+      if (target && target.getBoundingClientRect().top <= 130) current = hash;
+    });
+    setActive(current);
+  }
   window.addEventListener('scroll', updateNav, {passive: true});
-  window.addEventListener('hashchange', updateNav);
+  window.addEventListener('scrollend', function () {
+    if (!navigationTarget) return;
+    var target = document.querySelector(navigationTarget);
+    if (target && Math.abs(target.getBoundingClientRect().top) <= 140) {
+      navigationTarget = null; clearTimeout(navigationTimer); updateNav();
+    }
+  });
+  window.addEventListener('hashchange', function () { beginNavigation(location.hash || '#top'); });
+  ['wheel', 'touchstart'].forEach(function (eventName) {
+    window.addEventListener(eventName, function () { navigationTarget = null; clearTimeout(navigationTimer); }, {passive: true});
+  });
   updateNav();
 
   // GitHub's release API is paginated; request every page, never synthesize a release.
