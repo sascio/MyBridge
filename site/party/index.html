@@ -73,6 +73,9 @@
   }
   .note { margin-top: 18px; font-size: 14px; color: var(--muted); }
   .hidden { display: none !important; }
+  .legal-footer { display:flex; flex-wrap:wrap; justify-content:center; gap:16px; margin-top:26px; padding-top:18px; border-top:1px solid var(--border); font-size:12px; }
+  .legal-footer a { color:var(--muted); }
+  .legal-footer a:hover { color:var(--text); }
   ol.steps { text-align: left; color: var(--text); font-size: 14px; padding-left: 20px; }
   ol.steps li { margin-bottom: 8px; }
   code { background: #0b2a45; padding: 1px 6px; border-radius: 6px; }
@@ -106,6 +109,7 @@
     <p>This invite link does not contain a valid party code.</p>
     <a class="button" href="https://github.com/sascio/MyBridge/releases/latest">Get StreamBridge</a>
   </div>
+  <footer class="legal-footer" aria-label="Legal"><a href="/terms">Terms of Service</a><a href="/privacy">Privacy Policy</a></footer>
 </main>
 
 <script>

@@ -256,7 +256,7 @@
     if (!humans.length) return;
     list.replaceChildren(); humans.forEach(function (person) { var link = document.createElement('a'); link.href = person.html_url; link.setAttribute('aria-label', person.login + ' on GitHub'); var img = document.createElement('img'); img.src = person.avatar_url; img.alt = ''; img.width = 42; img.height = 42; img.loading = 'lazy'; img.addEventListener('error', function () { img.remove(); link.textContent = person.login; link.classList.add('contributor-fallback'); }); link.appendChild(img); list.appendChild(link); });
   }).catch(function () {});
-  loadReleases(1, []).then(function (releases) {
+  if (newsList || document.getElementById('open-releases')) loadReleases(1, []).then(function (releases) {
     if (document.getElementById('open-releases')) renderOpenReleases(releases);
     if (newsList) renderReleases(releases);
     if (location.hash === '#faq' && document.getElementById('faq')) document.getElementById('faq').scrollIntoView({behavior: 'instant'});
