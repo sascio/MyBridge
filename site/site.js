@@ -84,7 +84,7 @@
   }
 
   // Keep release-page fallback links if the API is unavailable or an asset is missing.
-  fetch('https://api.github.com/repos/sascio/MyBridge/releases/latest', {headers: {'Accept': 'application/vnd.github+json'}})
+  if (document.getElementById('release-status')) fetch('https://api.github.com/repos/sascio/MyBridge/releases/latest', {headers: {'Accept': 'application/vnd.github+json'}})
     .then(function (response) { if (!response.ok) throw new Error('Release unavailable'); return response.json(); })
     .then(function (release) {
       if (release.draft || release.prerelease || !Array.isArray(release.assets) || typeof release.tag_name !== 'string') return;
@@ -122,7 +122,8 @@
   var nav = document.querySelector('.nav');
   var menuButton = document.querySelector('.menu-toggle');
   var menu = document.getElementById('nav-menu');
-  var navItems = Array.from(menu.querySelectorAll('a[href^="#"]'));
+  var isNewsPage = document.documentElement.dataset.page === 'news';
+  var navItems = Array.from(menu.querySelectorAll('a:not(.nav-github)'));
   function closeMenu() {
     menuButton.setAttribute('aria-expanded', 'false');
     menuButton.setAttribute('aria-label', 'Open navigation');
@@ -168,9 +169,10 @@
     if (link.hash) beginNavigation(link.hash);
   });
   function updateNav() {
+    if (isNewsPage) { setActive('/news'); return; }
     if (navigationTarget) return;
     var current = '#top';
-    ['#get', '#news', '#faq'].forEach(function (hash) {
+    ['#get', '#faq'].forEach(function (hash) {
       var target = document.querySelector(hash);
       if (target && target.getBoundingClientRect().top <= 130) current = hash;
     });
@@ -194,6 +196,7 @@
   var newsList = document.getElementById('news-list');
   function renderReleases(releases) {
     newsList.replaceChildren();
+    releases = releases.filter(function (release) { return !release.draft; }).sort(function (a, b) { return Date.parse(b.published_at) - Date.parse(a.published_at); });
     if (!releases.length) {
       newsList.textContent = 'No published releases were returned by GitHub.';
       return;
@@ -246,7 +249,7 @@
       card.append(label, title, meta); list.appendChild(card);
     });
   }
-  fetch('https://api.github.com/repos/sascio/MyBridge/contributors?per_page=100', {headers: {'Accept': 'application/vnd.github+json'}}).then(function (response) { if (!response.ok) throw new Error('Contributors unavailable'); return response.json(); }).then(function (contributors) {
+  if (document.getElementById('open-contributors')) fetch('https://api.github.com/repos/sascio/MyBridge/contributors?per_page=100', {headers: {'Accept': 'application/vnd.github+json'}}).then(function (response) { if (!response.ok) throw new Error('Contributors unavailable'); return response.json(); }).then(function (contributors) {
     if (!Array.isArray(contributors)) return;
     var list = document.getElementById('open-contributors');
     var humans = contributors.filter(function (person) { return person.type === 'User' && typeof person.login === 'string' && /^https:\/\/github\.com\/[a-z0-9-]+$/i.test(person.html_url) && /^https:\/\/avatars\.githubusercontent\.com\//.test(person.avatar_url); });
@@ -254,14 +257,14 @@
     list.replaceChildren(); humans.forEach(function (person) { var link = document.createElement('a'); link.href = person.html_url; link.setAttribute('aria-label', person.login + ' on GitHub'); var img = document.createElement('img'); img.src = person.avatar_url; img.alt = ''; img.width = 42; img.height = 42; img.loading = 'lazy'; img.addEventListener('error', function () { img.remove(); link.textContent = person.login; link.classList.add('contributor-fallback'); }); link.appendChild(img); list.appendChild(link); });
   }).catch(function () {});
   loadReleases(1, []).then(function (releases) {
-    renderOpenReleases(releases);
-    renderReleases(releases);
-    if (location.hash === '#faq') document.getElementById('faq').scrollIntoView({behavior: 'instant'});
+    if (document.getElementById('open-releases')) renderOpenReleases(releases);
+    if (newsList) renderReleases(releases);
+    if (location.hash === '#faq' && document.getElementById('faq')) document.getElementById('faq').scrollIntoView({behavior: 'instant'});
     updateNav();
   }).catch(function () {
-    newsList.textContent = 'Release information could not be loaded. Visit GitHub for the complete version history.';
-    document.getElementById('open-releases').textContent = 'Release information unavailable. See every release on GitHub.';
-    if (location.hash === '#faq') document.getElementById('faq').scrollIntoView({behavior: 'instant'});
+    if (newsList) newsList.textContent = 'Release information could not be loaded. Visit GitHub for the complete version history.';
+    if (document.getElementById('open-releases')) document.getElementById('open-releases').textContent = 'Release information unavailable. See every release on GitHub.';
+    if (location.hash === '#faq' && document.getElementById('faq')) document.getElementById('faq').scrollIntoView({behavior: 'instant'});
     updateNav();
   });
 }());

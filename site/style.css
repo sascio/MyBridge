@@ -147,3 +147,14 @@ html[data-theme="dark"] .open-copy p{color:#a6a7af}html[data-theme="dark"] .open
 @media(max-width:800px){.open{grid-template-columns:1fr;gap:50px;padding:75px 0 85px}.open-copy h2{font-size:clamp(36px,8vw,46px)}.open-copy p{max-width:480px}.closing{padding:90px 0 100px}.closing h2{font-size:clamp(34px,8vw,46px)}}
 @media(max-width:480px){.open-releases{grid-template-columns:1fr}.open-release+.open-release{border-left:0;border-top:1px solid #dedee3}.open-release{padding:17px 20px;gap:6px}.open-contributors img{width:38px;height:38px}.closing h2 br{display:none}.closing .actions{gap:9px}}
 html[data-theme="dark"] .open-release strong{color:#f2f2f5}.contributor-fallback{display:inline-flex;align-items:center;min-height:42px;padding:0 12px;border:1px solid #9998;border-radius:999px;text-decoration:none}
+/* Shared navigation and final-CTA download glyph. */
+.closing .button.primary{gap:5px}.closing .button.primary svg{width:12px;height:12px}
+/* The release feed lives on its own page. */
+html[data-page="news"] .news-section{margin-top:0;min-height:70vh;background:radial-gradient(ellipse at 50% 0%,#22242c,#101115 60%,#0a0b0e);}
+html[data-page="news"] .news{padding-top:160px}
+html[data-page="news"] .news h1{font-size:clamp(44px,5vw,64px);letter-spacing:-.05em;line-height:1.08;margin:0 0 18px}
+html[data-page="news"] .news-item{border:1px solid #303239;border-radius:18px;background:#17191e;padding:28px;margin-bottom:14px}
+html[data-page="news"] .news-item:first-child{padding-top:28px}
+html[data-page="news"] .news-fallback{margin-top:30px}
+.news-noscript{padding:25px 0}
+@media(max-width:700px){html[data-page="news"] .news{padding-top:125px}html[data-page="news"] .news h1{font-size:clamp(38px,9vw,50px)}html[data-page="news"] .news-item{padding:22px 18px}html[data-page="news"] .news-item:first-child{padding-top:22px}}
