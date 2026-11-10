@@ -59,13 +59,39 @@
     applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
   });
 
-  // The external GitHub link opens separately; section links remain on this page.
-  var navItems = Array.from(document.querySelectorAll('.nav-item[href^="#"]'));
+  // One shared navigation for all breakpoints, with a disclosure on small screens.
+  var nav = document.querySelector('.nav');
+  var menuButton = document.querySelector('.menu-toggle');
+  var menu = document.getElementById('nav-menu');
+  var navItems = Array.from(menu.querySelectorAll('a[href^="#"]'));
+  function closeMenu() {
+    menuButton.setAttribute('aria-expanded', 'false');
+    menuButton.setAttribute('aria-label', 'Open navigation');
+    menu.classList.remove('is-open');
+  }
+  menuButton.addEventListener('click', function () {
+    var open = menuButton.getAttribute('aria-expanded') !== 'true';
+    menuButton.setAttribute('aria-expanded', String(open));
+    menuButton.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    menu.classList.toggle('is-open', open);
+  });
+  document.addEventListener('click', function (event) {
+    if (!nav.contains(event.target)) closeMenu();
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && menuButton.getAttribute('aria-expanded') === 'true') {
+      closeMenu(); menuButton.focus();
+    }
+  });
+  nav.querySelector('.brand').addEventListener('click', closeMenu);
+  menu.addEventListener('click', function (event) {
+    if (event.target.closest('a')) closeMenu();
+  });
   function updateNav() {
     var current = '#top';
-    ['#news', '#faq'].forEach(function (hash) {
+    ['#get', '#news', '#faq'].forEach(function (hash) {
       var target = document.querySelector(hash);
-      if (target && target.getBoundingClientRect().top <= 120) current = hash;
+      if (target && target.getBoundingClientRect().top <= 130) current = hash;
     });
     navItems.forEach(function (item) {
       var active = item.getAttribute('href') === current;
@@ -75,6 +101,7 @@
     });
   }
   window.addEventListener('scroll', updateNav, {passive: true});
+  window.addEventListener('hashchange', updateNav);
   updateNav();
 
   // GitHub's release API is paginated; request every page, never synthesize a release.
@@ -87,18 +114,31 @@
     }
     releases.forEach(function (release) {
       if (release.draft) return;
-      var card = document.createElement('article'); card.className = 'news-card';
-      var label = document.createElement('span'); label.className = 'news-label'; label.textContent = release.prerelease ? 'STREAMBRIDGE · PRERELEASE' : 'STREAMBRIDGE · RELEASE';
+      var card = document.createElement('article'); card.className = 'news-item';
+      var details = document.createElement('div'); details.className = 'news-item-content';
+      var label = document.createElement('span'); label.className = 'news-label'; label.textContent = release.prerelease ? 'StreamBridge · Prerelease' : 'StreamBridge';
       var title = document.createElement('h3'); title.textContent = release.name || release.tag_name;
       var meta = document.createElement('p'); meta.className = 'news-meta';
       var date = new Date(release.published_at);
-      meta.textContent = release.tag_name + ' · ' + (isNaN(date.getTime()) ? 'Date unavailable' : date.toLocaleDateString('en', {year:'numeric', month:'short', day:'numeric', timeZone:'UTC'}));
+      meta.textContent = release.tag_name + ' · ' + (release.published_at && !isNaN(date.getTime()) ? date.toLocaleDateString('en', {year:'numeric', month:'short', day:'numeric', timeZone:'UTC'}) : 'Date unavailable');
       var body = document.createElement('p'); body.className = 'news-summary';
-      var summary = (release.body || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[#*_`>]/g, '').replace(/\s+/g, ' ').trim();
-      body.textContent = summary ? summary.slice(0, 260) + (summary.length > 260 ? '…' : '') : 'No release notes provided.';
-      var link = document.createElement('a'); link.textContent = 'Open on GitHub ↗';
+      var summary = (release.body || '').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/[#*_`>]/g, '').replace(/\s+/g, ' ').trim() || 'No release notes provided.';
+      var shortText = summary.slice(0, 260) + (summary.length > 260 ? '…' : '');
+      body.textContent = shortText;
+      var actions = document.createElement('div'); actions.className = 'news-actions';
+      if (summary.length > 260) {
+        var expand = document.createElement('button'); expand.type = 'button'; expand.textContent = 'Show more'; expand.setAttribute('aria-expanded', 'false');
+        expand.addEventListener('click', function () {
+          var expanded = expand.getAttribute('aria-expanded') !== 'true';
+          expand.setAttribute('aria-expanded', String(expanded));
+          expand.textContent = expanded ? 'Show less' : 'Show more';
+          body.textContent = expanded ? summary : shortText;
+        });
+        actions.appendChild(expand);
+      }
+      var link = document.createElement('a'); link.textContent = 'Open on GitHub';
       try { var url = new URL(release.html_url); link.href = url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.indexOf('/sascio/MyBridge/releases/') === 0 ? url.href : 'https://github.com/sascio/MyBridge/releases'; } catch (_) { link.href = 'https://github.com/sascio/MyBridge/releases'; }
-      card.append(label, title, meta, body, link); newsList.appendChild(card);
+      details.append(label, title, meta, body); actions.appendChild(link); card.append(details, actions); newsList.appendChild(card);
     });
   }
   function loadReleases(page, all) {
@@ -106,7 +146,13 @@
       .then(function (response) { if (!response.ok) throw new Error('Release feed unavailable'); return response.json(); })
       .then(function (items) { if (!Array.isArray(items)) throw new Error('Invalid release feed'); var combined = all.concat(items); return items.length === 100 ? loadReleases(page + 1, combined) : combined; });
   }
-  loadReleases(1, []).then(renderReleases).catch(function () {
+  loadReleases(1, []).then(function (releases) {
+    renderReleases(releases);
+    if (location.hash === '#faq') document.getElementById('faq').scrollIntoView({behavior: 'instant'});
+    updateNav();
+  }).catch(function () {
     newsList.textContent = 'Release information could not be loaded. Visit GitHub for the complete version history.';
+    if (location.hash === '#faq') document.getElementById('faq').scrollIntoView({behavior: 'instant'});
+    updateNav();
   });
 }());
