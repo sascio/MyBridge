@@ -37,8 +37,7 @@
     padding: 28px 24px;
     text-align: center;
   }
-  svg.mark { width: 56px; height: 56px; }
-  svg.mark text { font: 700 30px/1 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  img.mark { width: 56px; height: 56px; object-fit: contain; }
   h1 { font-size: 21px; margin: 16px 0 4px; }
   p { margin: 0 0 16px; color: var(--muted); }
   .code {
@@ -80,13 +79,19 @@
   ol.steps li { margin-bottom: 8px; }
   code { background: #0b2a45; padding: 1px 6px; border-radius: 6px; }
 </style>
+<link rel="canonical" href="https://streambridgeapp.pages.dev/party/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="StreamBridge">
+<meta property="og:title" content="StreamBridge watch party">
+<meta property="og:description" content="Join a StreamBridge watch party.">
+<meta property="og:url" content="https://streambridgeapp.pages.dev/party/">
+<meta property="og:image" content="https://streambridgeapp.pages.dev/assets/streambridge-mark.png">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="/assets/streambridge-mark.png">
 </head>
 <body>
 <main>
-  <svg class="mark" viewBox="0 0 64 64" role="img" aria-label="StreamBridge">
-    <rect x="2" y="2" width="60" height="60" rx="16" fill="#1E88E5"/>
-    <text x="32" y="42" text-anchor="middle" fill="#fff">SB</text>
-  </svg>
+  <img class="mark" src="/assets/streambridge-mark.png" alt="StreamBridge" width="56" height="56">
   <h1 id="title">StreamBridge watch party</h1>
   <p id="subtitle">Opening StreamBridge&hellip;</p>
 
@@ -109,7 +114,7 @@
     <p>This invite link does not contain a valid party code.</p>
     <a class="button" href="https://github.com/sascio/MyBridge/releases/latest">Get StreamBridge</a>
   </div>
-  <footer class="legal-footer" aria-label="Legal"><a href="/contact">Contact</a><a href="/terms">Terms of Service</a><a href="/privacy">Privacy Policy</a></footer>
+  <footer class="legal-footer" aria-label="Legal"><a href="/">Home</a><a href="/contact">Contact</a><a href="/terms">Terms of Service</a><a href="/privacy">Privacy Policy</a><span>Made with ❤️ by Saif</span></footer>
 </main>
 
 <script>
@@ -192,8 +197,7 @@
   // before leaving the page, which is why the button stays available.
   setTimeout(openApp, 250);
 
-  // If the page is still in the foreground a moment later the app is almost
-  // certainly not installed, so show the fallback instead of a dead end.
+  // Remaining on the page does not prove whether the app is installed.
   setTimeout(function () {
     if (!stillHere || document.hidden) return;
     subtitle.textContent = "Party code " + formatted(code);
@@ -205,10 +209,14 @@
       copyButton.textContent = "Copied";
       setTimeout(function () { copyButton.textContent = "Copy party code"; }, 1500);
     };
+    var failed = function () {
+      copyButton.textContent = "Copy unavailable — select the code above";
+      setTimeout(function () { copyButton.textContent = "Copy party code"; }, 3000);
+    };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(formatted(code)).then(done, done);
+      navigator.clipboard.writeText(formatted(code)).then(done, failed);
     } else {
-      done();
+      failed();
     }
   });
 })();

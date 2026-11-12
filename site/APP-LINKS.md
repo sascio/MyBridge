@@ -11,8 +11,10 @@ After review and deployment, verify that
 `https://streambridgeapp.pages.dev/.well-known/assetlinks.json` returns HTTP 200,
 JSON and no redirects, then verify domain association and root-link routing on a
 real Android device with the production APK. This is not proven by the files in
-this repository. Cloudflare Pages serves `site/`; `_headers` requests JSON for
-this path. The source also declares a six-character party path filter; the static site fallback handles those links when no verified app opens them.
+this repository. Cloudflare Pages serves `site/`; when adding the association,
+ensure it is served as JSON without a redirect. The source also declares a
+six-character party path filter; the static site fallback handles those links
+when no verified app opens them.
 
 The iOS IPA is unsigned and its build clears signing entitlements. Universal
 Links require a controlled host with an AASA file, the correct signed App ID

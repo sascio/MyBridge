@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://streambridgeapp.pages.dev/sitemap.xml
