@@ -88,6 +88,20 @@
 
                 <data android:scheme="stremio" />
             </intent-filter>
+            <!-- The site root opens Home; download and ordinary website paths stay on the web. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="streambridgeapp.pages.dev" android:path="/" />
+            </intent-filter>
+            <!-- Six-character paths; the shared parser validates the party-code alphabet. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="streambridgeapp.pages.dev" android:pathPattern="/party/......" />
+            </intent-filter>
             <!-- Legacy invites only. v0.1.13 and earlier shared
                  https://nuvio.tv/party/<code>; that domain belongs to NuvioMedia,
                  so StreamBridge parses it but never claims App Links verification

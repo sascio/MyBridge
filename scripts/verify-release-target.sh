@@ -88,8 +88,8 @@ if grep -Eq 'Nuvio(Mobile|Media)' store.json \
   fail "store.json names the upstream product outside compatibility/host references."
 fi
 
-# The invitation must use StreamBridge branding and a StreamBridge-owned app
-# scheme, while preserving an install fallback and the optional HTTPS redirect.
+# Invitations must use the StreamBridge-owned HTTPS host and preserve the
+# app-scheme handoff, legacy compatibility, and install fallback.
 party_repo="composeApp/src/commonMain/kotlin/com/nuvio/app/features/party/PartyRepository.kt"
 party_strings="composeApp/src/commonMain/composeResources/values/strings_party.xml"
 android_manifest="androidApp/src/main/AndroidManifest.xml"
@@ -98,17 +98,17 @@ ios_info="iosApp/iosApp/Info.plist"
 [[ -s "${party_strings}" ]] || fail "Watch-party invitation strings are missing."
 [[ -s "site/party/index.html" && -s "site/404.html" ]] || fail "The HTTPS invite redirect pages are missing."
 
-grep -Fq 'fun partyInviteLink(code: String): String = "$STREAMBRIDGE_URL_SCHEME://party/${normalizePartyCode(code)}"' "${party_repo}" \
-  || fail "Watch-party invites are not generated as normalized StreamBridge deep links."
+grep -Fq 'fun partyInviteLink(code: String): String = "$STREAMBRIDGE_INVITE_REDIRECT_BASE_URL${normalizePartyCode(code)}"' "${party_repo}" \
+  || fail "Watch-party invites are not generated as normalized first-party HTTPS links."
 grep -Fq 'Join my StreamBridge watch party' "${party_strings}" \
   || fail "Default invitation copy is not StreamBridge branded."
 grep -Fq 'const val STREAMBRIDGE_INSTALL_URL = "https://github.com/sascio/MyBridge/releases/latest"' "${party_repo}" \
   || fail "Watch-party invite is missing the install fallback."
-grep -Fq 'const val STREAMBRIDGE_INVITE_REDIRECT_BASE_URL = "https://sascio.github.io/MyBridge/party/"' "${party_repo}" \
-  || fail "The repository-hosted HTTPS invite redirect URL is missing."
+grep -Fq 'const val STREAMBRIDGE_INVITE_REDIRECT_BASE_URL = "https://streambridgeapp.pages.dev/party/"' "${party_repo}" \
+  || fail "The first-party HTTPS invite URL is missing."
 grep -Fq 'var SCHEME = "streambridge://party/"' site/party/index.html \
   || fail "The HTTPS redirect page does not hand off to the StreamBridge scheme."
-grep -Fq 'window.location.replace("/MyBridge/party/?code="' site/404.html \
+grep -Fq 'window.location.replace(base + "party/?code=" + encodeURIComponent(code.toUpperCase()))' site/404.html \
   || fail "Path-style HTTPS invite links are not redirected to the canonical page."
 grep -Fq 'android:scheme="streambridge"' "${android_manifest}" \
   || fail "Android does not register the StreamBridge invite scheme."

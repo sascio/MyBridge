@@ -22,6 +22,8 @@ internal sealed interface AppDeepLink {
         val manifestUrl: String,
     ) : AppDeepLink
 
+    data object Home : AppDeepLink
+
     data object Downloads : AppDeepLink
 
     data class Party(
@@ -82,6 +84,12 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
     val pathSegments = parsedUrl.segments.map(String::trim).filter(String::isNotBlank)
     if (scheme == "https") {
         return when {
+            host == "streambridgeapp.pages.dev" && parsedUrl.encodedPath == "/" && parsedUrl.port == 443 ->
+                AppDeepLink.Home
+
+            host == "streambridgeapp.pages.dev" && parsedUrl.port == 443 ->
+                streamBridgePartyDeepLink(parsedUrl)
+
             // Legacy invites shared while StreamBridge still advertised Nuvio's
             // website. Kept so older messages keep working; StreamBridge no longer
             // generates links on this host.
@@ -129,6 +137,13 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
             }
         }
     }
+}
+
+// Only a single six-character canonical party path is claimed on our Pages host.
+private fun streamBridgePartyDeepLink(url: Url): AppDeepLink.Party? {
+    val match = Regex("^/party/([A-HJ-NP-Z2-9]{6})/?$", RegexOption.IGNORE_CASE)
+        .matchEntire(url.encodedPath) ?: return null
+    return partyDeepLink(match.groupValues[1])
 }
 
 private const val LEGACY_PARTY_HOST = "nuvio.tv"

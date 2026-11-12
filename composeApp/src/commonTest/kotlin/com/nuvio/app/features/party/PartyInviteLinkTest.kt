@@ -20,9 +20,9 @@ class PartyInviteLinkTest {
     fun inviteLinkIsStreamBridgeOwned() {
         val link = partyInviteLink("FXRXFV")
 
-        assertEquals("streambridge://party/FXRXFV", link)
+        assertEquals("https://streambridgeapp.pages.dev/party/FXRXFV", link)
         assertFalse(link.contains("nuvio", ignoreCase = true), "The invite link still mentions Nuvio: $link")
-        assertTrue(link.startsWith(STREAMBRIDGE_URL_SCHEME), "The invite link is not on the StreamBridge scheme: $link")
+        assertTrue(link.startsWith(STREAMBRIDGE_INVITE_REDIRECT_BASE_URL), "The invite link is not on the StreamBridge host: $link")
     }
 
     @Test
@@ -30,7 +30,7 @@ class PartyInviteLinkTest {
         // The code is uppercased and stripped to the party alphabet, never mangled:
         // "FXR XFV" is how the code is displayed, "FXRXFV" is how it is shared.
         listOf("FXRXFV", "fxrxfv", "FXR XFV", " fxr-xfv ", "FxRxFv").forEach { input ->
-            assertEquals("streambridge://party/FXRXFV", partyInviteLink(input), "party code input: \"$input\"")
+            assertEquals("https://streambridgeapp.pages.dev/party/FXRXFV", partyInviteLink(input), "party code input: \"$input\"")
         }
     }
 
@@ -60,7 +60,7 @@ class PartyInviteLinkTest {
         // The shapes the StreamBridge invite page hands over (docs/WATCH-PARTY-LINKS.md).
         assertEquals(
             AppDeepLink.Party("K7M2QX"),
-            parseAppDeepLink("${STREAMBRIDGE_INVITE_REDIRECT_BASE_URL}?code=K7M2QX"),
+            parseAppDeepLink("${STREAMBRIDGE_INVITE_REDIRECT_BASE_URL}K7M2QX"),
         )
         assertEquals(
             AppDeepLink.Party("K7M2QX"),

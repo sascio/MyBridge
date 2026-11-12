@@ -7,6 +7,19 @@ import kotlin.test.assertNull
 class AppUrlBridgeTest {
 
     @Test
+    fun `only the exact HTTPS site root opens home`() {
+        assertEquals(AppDeepLink.Home, parseAppDeepLink("https://streambridgeapp.pages.dev/"))
+        assertEquals(AppDeepLink.Home, parseAppDeepLink("https://streambridgeapp.pages.dev/?ref=share"))
+        assertNull(parseAppDeepLink("http://streambridgeapp.pages.dev/"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev:8443/"))
+        assertEquals(AppDeepLink.Party("ABCDEF"), parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABCDEF"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABCDEF/extra"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABC0EF"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/?code=ABCDEF"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev.evil.example/"))
+    }
+
+    @Test
     fun `parses party invites from the app and the website`() {
         assertEquals(AppDeepLink.Party("K7M2QX"), parseAppDeepLink("nuvio://party/k7m-2qx"))
         assertEquals(AppDeepLink.Party("K7M2QX"), parseAppDeepLink("https://nuvio.tv/party/K7M2QX"))
