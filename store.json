@@ -16,8 +16,18 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.16/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.17/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
+        {
+          "version": "0.1.17",
+          "buildVersion": "117",
+          "date": "2026-11-12T17:54:29Z",
+          "localizedDescription": "# StreamBridge 0.1.17\n\n## StreamBridge 0.1.17\n\nStreamBridge version 0.1.17 (version code 117). Android package\n`com.streambridge.app`; iOS bundle `com.streambridge.app`.\n\n## 🌐 Introducing the Official StreamBridge Website\n\nThe official StreamBridge website is now live: [streambridgeapp.pages.dev](https://streambridgeapp.pages.dev).\nIt gives the project a dedicated home to present StreamBridge and its identity, with direct access to\nproject information and official resources. The site makes the project easier to discover and its\ninformation easier to reach, with a clearer, more welcoming presentation.\n\n## Complete core synchronization\n\nThis release synchronizes the complete applicable 0.6.11-beta upstream source range from\nStreamBridge's recorded 0.6.9-beta baseline. The file-level inventory and merge decisions are\nrecorded in [`SYNC-MANIFEST-0.6.11-beta.md`](SYNC-MANIFEST-0.6.11-beta.md).\n\n## Playback and subtitles\n\n- **Anime4K video enhancement** — optional 2× upscaling and line sharpening for the Android\n  ExoPlayer and mpv playback paths, with player controls and device-local settings.\n- **Subtitle shadow outline blur** — soften subtitle outlines while retaining sharp glyphs;\n  rendering and preferences are supported on Android and iOS.\n- Forced-subtitle selection and automatic subtitle synchronization are enabled by default.\n  AutoSync can be enabled without choosing a preferred subtitle language.\n- Restored subtitle tracks search further for a fit before falling back; MPV playback errors\n  now include actionable engine details.\n- Android playback startup, buffer limits, caption-setting reads, and network TLS setup failure\n  handling were hardened. Existing user sessions are retained when a refresh attempt fails.\n\n## Discovery and tracking\n\n- MDBList episode matching handles differences between addon episode numbering and TMDB\n  numbering, and reuses progress/watched lists until a mapping changes.\n- The existing profile-aware playback, library, provider, addon/plugin, watch-party and\n  tracking flows remain integrated; the sync does not replace StreamBridge's Trakt or\n  CloudStream-specific implementations.\n\n## Performance and reliability\n\n- iOS playback reduces memory pressure during long sessions and 4K HDR/Dolby Vision playback;\n  MPV surface teardown and parked Picture-in-Picture close handling are safer.\n- Backdrop focus calculations and image framing account for image coverage, foreground\n  separation, and dense texture. Hero image failures reset reveal state rather than leaving a\n  partially revealed backdrop.\n- Player service launch and subtitle restore fallbacks were corrected.\n\n## Translations\n\nJapanese, Hebrew, Bulgarian, Greek, French and Vietnamese text updates are included. StreamBridge\nbranding and the three-part watch-party install invitation are retained in localized strings.\n\n## StreamBridge release identity\n\nThe app name, motto, footer attribution, Android application ID, iOS bundle ID, updater/repository\nURLs, production signing configuration, unsigned iOS workflow, AltStore/SideStore source format,\nDiscord and Telegram identity, and the production website are retained. The release contains no\nuser-interface rebrand to the upstream project.\n\n## Distribution\n\nThe production release is expected to contain four production-signed Android APK ABI variants,\none **unsigned** iOS IPA for AltStore/SideStore, and `checksums.sha256`. Branch-CI debug APKs are\nnot release artifacts. The release workflow verifies the existing production signing configuration\nand refuses to substitute a debug APK or signed iOS IPA.\n\nThe in-app updater uses the numeric version code; 117 is newer than 116. The sideload source is\nupdated from the published release workflow after a real unsigned IPA is attached and verified.\n",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.17/StreamBridge-0.1.17-iOS-unsigned.ipa",
+          "size": 75136376,
+          "sha256": "99fe883ec1bf3e58873f0b820d8da68c89f7eb22d154dd9ccfefd3ca0d1b491c",
+          "minOSVersion": "16.1"
+        },
         {
           "version": "0.1.16",
           "buildVersion": "116",
@@ -109,5 +119,5 @@
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.16/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.17/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
