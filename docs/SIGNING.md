@@ -24,30 +24,11 @@ always sets this.
 
 ## GitHub Secrets (production only)
 
-Create an upload keystore **on a trusted machine**. Do not invent a
-test keystore in git. Do not commit `*.jks` / `*.keystore`.
-
-```bash
-keytool -genkeypair -v \
-  -keystore streambridge-upload.jks \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -alias streambridge \
-  -storepass '<store-password>' \
-  -keypass '<key-password>' \
-  -dname 'CN=StreamBridge, O=Stream Bridge, C=IN'
-```
-
-Record the **public** cert SHA-256 (this is not a secret):
-
-```bash
-keytool -list -v -keystore streambridge-upload.jks -alias streambridge
-```
-
-Base64 the store file (do not log the output in CI transcripts you share):
-
-```bash
-base64 -w 0 streambridge-upload.jks
-```
+Use the existing production keystore and release secrets. Do not generate or
+replace a key as part of website or App Links setup. Never commit the keystore,
+passwords or private keys. On a trusted machine, a release maintainer can compare
+the public certificate from the existing keystore with the certificate extracted
+from the actual published APK; never share the keystore or passwords.
 
 Repo secrets:
 
@@ -84,10 +65,9 @@ Production cert SHA-256: 5DA621D8E6F5C4FFB7396DE3FBF686F3BF61BCEC71CCCFFBA9BBBBD
 7. Attach **all** per-ABI APKs from `full/release/` (arm64-v8a,
    armeabi-v7a, x86, x86_64). Do not ship a universal fat APK. The
    updater matches `arm64-v8a` (etc.) in the asset name.
-8. iOS: the draft also carries `streambridge-<version>-full-release.ipa` when
-   the `STREAMBRIDGE_IOS_*` secrets are set. Without them the workflow reports
-   the missing signing requirement and attaches no IPA — an unsigned build is
-   not a releasable iOS artifact. See [RELEASE-IOS.md](RELEASE-IOS.md).
+8. iOS: the workflow attaches an **unsigned** `StreamBridge-<version>-iOS-unsigned.ipa`.
+   It is intended for re-signing and installation with AltStore or SideStore,
+   not direct installation as a signed App Store app. See [RELEASE-IOS.md](RELEASE-IOS.md).
 
 ## Updater
 

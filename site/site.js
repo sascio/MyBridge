@@ -99,10 +99,15 @@
       document.querySelectorAll('[data-asset]').forEach(function (link) {
         var asset = release.assets.find(function (item) { return item.name === link.dataset.asset && safeAsset(item); });
         if (asset) link.href = asset.browser_download_url;
+        link.querySelector('small').textContent = asset ? 'Available' : 'Not in latest release';
       });
       var ipa = release.assets.find(function (item) { return /^StreamBridge-.+-iOS-unsigned\.ipa$/i.test(item.name) && safeAsset(item); });
-      if (ipa) document.getElementById('ipa').href = ipa.browser_download_url;
-    }).catch(function () {});
+      var ipaLink = document.getElementById('ipa');
+      if (ipa) ipaLink.href = ipa.browser_download_url;
+      ipaLink.querySelector('small').textContent = ipa ? 'Available' : 'Not in latest release';
+    }).catch(function () {
+      document.getElementById('release-status').textContent = 'Release status unavailable — check GitHub';
+    });
   // Persist an explicit preference without making storage a requirement.
   var themeButton = document.querySelector('.theme-toggle');
   function applyTheme(theme) {
