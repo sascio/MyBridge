@@ -95,7 +95,7 @@ class PartyInviteBrandingTest {
         assertFalse(repository.contains("nuvio://party"), "PartyRepository still builds nuvio:// party invites")
 
         listOf("FXRXFV", "K7M2QX").forEach { code ->
-            assertEquals("$STREAMBRIDGE_URL_SCHEME://party/$code", partyInviteLink(code))
+            assertEquals("https://streambridgeapp.pages.dev/party/$code", partyInviteLink(code))
             assertTrue(
                 parseAppDeepLink(partyInviteLink(code)) != null,
                 "The generated invite link is not one this app can open: ${partyInviteLink(code)}",

@@ -12,7 +12,10 @@ class AppUrlBridgeTest {
         assertEquals(AppDeepLink.Home, parseAppDeepLink("https://streambridgeapp.pages.dev/?ref=share"))
         assertNull(parseAppDeepLink("http://streambridgeapp.pages.dev/"))
         assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev:8443/"))
-        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABCDEF"))
+        assertEquals(AppDeepLink.Party("ABCDEF"), parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABCDEF"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABCDEF/extra"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/ABC0EF"))
+        assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev/party/?code=ABCDEF"))
         assertNull(parseAppDeepLink("https://streambridgeapp.pages.dev.evil.example/"))
     }
 

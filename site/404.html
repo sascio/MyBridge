@@ -4,26 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>StreamBridge</title>
-<link rel="canonical" href="https://sascio.github.io/MyBridge/">
+<link rel="canonical" href="https://streambridgeapp.pages.dev/">
 <script>
 (function () {
   "use strict";
   // Static hosting cannot rewrite /party/<code> to the invite page, so this
   // not-found page forwards path-style invite links to the canonical form and
   // sends every other unknown path to the site root.
-  var parts = window.location.pathname.split("/").filter(Boolean);
   var base = window.location.hostname === "sascio.github.io" ? "/MyBridge/" : "/";
-  var partyIndex = parts.lastIndexOf("party");
-  if (partyIndex !== -1 && parts.length > partyIndex + 1) {
-    var code = parts[partyIndex + 1].toUpperCase();
-    window.location.replace(base + "party/?code=" + encodeURIComponent(code));
-    return;
+  var path = window.location.pathname;
+  var prefix = base === "/MyBridge/" ? "/MyBridge/party/" : "/party/";
+  if (path.indexOf(prefix) === 0) {
+    var code = path.slice(prefix.length).replace(/\/$/, "");
+    if (/^[A-HJ-NP-Z2-9]{6}$/i.test(code)) {
+      window.location.replace(base + "party/?code=" + encodeURIComponent(code.toUpperCase()));
+      return;
+    }
   }
   window.location.replace(base);
 })();
 </script>
 </head>
 <body>
-<p>Redirecting&hellip; <a href="https://sascio.github.io/MyBridge/">StreamBridge</a></p>
+<p>Redirecting&hellip; <a href="https://streambridgeapp.pages.dev/">StreamBridge</a></p>
 </body>
 </html>
