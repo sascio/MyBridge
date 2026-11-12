@@ -3,14 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StreamBridge</title>
+<title>Page not found | StreamBridge</title>
+<link rel="icon" href="/assets/streambridge-mark.png">
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: #090a0e; color: #f5f5f7; font: 16px/1.6 system-ui, sans-serif; }
+  main { max-width: 32rem; text-align: center; }
+  a { color: #aebcff; }
+  a:focus-visible { outline: 3px solid #aebcff; outline-offset: 4px; }
+</style>
 <meta name="robots" content="noindex">
 <script>
 (function () {
   "use strict";
   // Static hosting cannot rewrite /party/<code> to the invite page, so this
-  // not-found page forwards path-style invite links to the canonical form and
-  // sends every other unknown path to the site root.
+  // not-found page forwards valid path-style invite links to the invite page.
+  // Leave other unknown paths on this page instead of silently redirecting.
   var base = window.location.hostname === "sascio.github.io" ? "/MyBridge/" : "/";
   var path = window.location.pathname;
   var prefix = base === "/MyBridge/" ? "/MyBridge/party/" : "/party/";
@@ -21,11 +28,10 @@
       return;
     }
   }
-  window.location.replace(base);
 })();
 </script>
 </head>
 <body>
-<p>Redirecting&hellip; <a href="https://streambridgeapp.pages.dev/">StreamBridge</a></p>
+<main><h1>Page not found</h1><p>The requested page is unavailable. If you followed a party invite, check its link and try again.</p><p><a href="https://streambridgeapp.pages.dev/">Return to StreamBridge</a></p></main>
 </body>
 </html>

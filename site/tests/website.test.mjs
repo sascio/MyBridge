@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import assert from 'node:assert/strict';
+import { runInNewContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,3 +23,20 @@ const sitemap = readFileSync(resolve(root, 'sitemap.xml'), 'utf8');
 for (const path of ['/', '/news/', '/terms/', '/privacy/']) assert.ok(sitemap.includes(`<loc>${origin}${path}</loc>`));
 assert.ok(!sitemap.includes('/party/'));
 console.log('Website identity, metadata, local assets and sitemap checks passed.');
+
+// Cloudflare serves this document for unknown static paths. Exercise its
+// redirect script separately so that invalid paths remain a real 404.
+const notFound = readFileSync(resolve(root, '404.html'), 'utf8');
+const script = notFound.match(/<script>([\s\S]*?)<\/script>/)[1];
+function redirect(hostname, pathname) {
+  let destination = null;
+  runInNewContext(script, {window: {location: {hostname, pathname, replace: value => { destination = value; }}}});
+  return destination;
+}
+assert.equal(redirect('streambridgeapp.pages.dev', '/party/fxrxft'), '/party/?code=FXRXFT');
+assert.equal(redirect('sascio.github.io', '/MyBridge/party/FXRXFV'), '/MyBridge/party/?code=FXRXFV');
+for (const path of ['/missing', '/party/invalid', '/party/FXRXF0', '/party/FXRXFV/extra']) {
+  assert.equal(redirect('streambridgeapp.pages.dev', path), null, path);
+}
+assert.match(notFound, /Page not found/);
+console.log('Valid party redirects and unknown-path 404 behavior passed.');
