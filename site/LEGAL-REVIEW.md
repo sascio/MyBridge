@@ -33,3 +33,26 @@ Audit pointers: website `site.js` (theme preference and GitHub requests), `site/
 ## Contact form — owner review required
 
 The proposed contact form sends name, email, category and message to a same-origin Cloudflare Pages Function, which forwards them to a Google Apps Script web app for email to the owner's private inbox. Google infrastructure processes delivery; a configured Turnstile widget processes security-check data including IP and browser interaction data. These are implemented flows, not proof the system has been deployed or that a message has reached the inbox. Confirm the actual Google account and mailbox owner, who can access messages and script properties, provider arrangements and locations, whether Turnstile is enabled, legal bases and any notices or consent required, and response/grievance procedures. Establish retention and deletion for mailbox, logs and backups; none is verified. Obtain qualified legal review before adoption.
+
+## Official policy alignment and source audit
+
+The official Nuvio home page links to `https://www.nuvio.tv/terms`, and that
+page links to `https://www.nuvio.tv/privacy-policy`. These were reviewed as
+structural references, not as proof of StreamBridge's operator or practices.
+The StreamBridge drafts cover acceptance, media and ownership, independent
+providers and addons, lawful use, rights reports, GPL and attribution, accounts,
+availability, disclaimers, liability, privacy and contact. The privacy draft
+covers information, diagnostics, local and external processing, providers,
+retention, security, rights, children and review. Nuvio-specific operator,
+contact, retention, community-licensing and incident-response commitments are
+not transplanted without evidence that they apply to StreamBridge.
+
+The owner states that StreamBridge does not collect users' personal data; this
+cannot be established as a blanket statement from source. A configured contact
+form can forward submitted personal information to the owner's inbox. Account
+and sync, hosting, user-selected providers and potentially Sentry process data;
+control of the actual production services and release DSN requires independent
+confirmation. A focused source search found Media3 `AnalyticsListener` uses
+for playback behavior, not by itself evidence of a remote analytics service;
+absence of matching SDK names is not proof that infrastructure collects none.
+No application features, consent settings or data flows were disabled.
