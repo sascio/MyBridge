@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.16</strong> (116)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.17</strong> (117)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,46 +18,27 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.16
+## Highlights in 0.1.17
 
-- **Core baseline sync** — the complete applicable 0.6.9-beta core tree is integrated at
-  source level (150 upstream commits, 265 changed files), keeping every StreamBridge-specific
-  implementation on top of it.
-- **Player audio** — audio delay (remembered per output device), amplification above
-  100 % and surround downmix with a centre-mix level, all from the player's audio menu on
-  Android.
-- **Player** — closed torrent streams resume at the stalled frame; the engine failover is
-  pinned to the current source; libmpv load failures are shown in the player; playback keeps
-  running through phone calls; surfaces detach on the playback thread; landscape lock on
-  tablets; edge swipes are left to the system back gesture; VC-1 video decodes again; an
-  optional title logo in the controls; the loading screen shows the download speed; options
-  to hide control glass backgrounds and the skip buttons.
-- **Subtitles** — outline blur (native on iOS); automatic sync for ASS/SSA add-on subtitles
-  drawn by libass with an SRT/VTT fallback; the bundled libass renderer was updated.
-- **Skip intro** — better Anime-Skip coverage and entry selection, with AniSkip preferred.
-- **Details and ratings** — star ratings for titles and episodes synced to Simkl or MDBList
-  with a rating-source picker; cinematic backdrop behind the floating header; see-through
-  buttons and chips; details open faster; cropped Home backdrops are framed around their
-  focal region.
-- **Home, library and search** — smoother scrolling (shared card styles, poster prefetch,
-  compose stability configuration, baseline-profile module); the cloud library and Discover
-  search boxes sit behind a search action; long header titles no longer push actions off
-  screen.
-- **Live TV** — Guide, Sports (ESPN scoreboard) and On Demand (Xtream Codes) sections, a
-  collapsible search, recents / favourites / category chips with counts and a grid/list
-  toggle; categories appear in search results.
-- **Tracking** — Private Viewing moved to Tracking; WeTrakr watched badge for completed shows;
-  signed Simkl related-title requests; plugin settings pages open again.
-- **iOS** — text subtitles in Picture in Picture and the mini player, video output presets
-  applied on open, no skip-ahead after Control Centre, the app background stays while parked
-  in PiP, and Tamil is registered as an app language.
-- **Translations** — Tamil is new on Android and iOS; Bengali, Vietnamese and Bahasa
-  Indonesia were brought up to date; French audio strings and pt-BR fixes.
-- **StreamBridge specifics** — identity, package ID, updater, About Us, Licenses &
-  Attributions, CloudStream runtime, Telegram automation and the sideload source are
-  unchanged; the new locales carry StreamBridge branding and the StreamBridge watch-party
-  install fallback.
-
+- **Core synchronization** — the complete applicable upstream 0.6.11-beta change range is
+  integrated from the pinned 0.6.9-beta baseline, with per-file merge decisions recorded in
+  [`docs/SYNC-MANIFEST-0.6.11-beta.md`](docs/SYNC-MANIFEST-0.6.11-beta.md).
+- **Anime4K** — optional 2× video upscaling and line sharpening for Android ExoPlayer and mpv.
+- **Subtitles** — shadow-outline blur on Android and iOS; forced subtitles and AutoSync are
+  enabled by default; AutoSync no longer requires a preferred language and restored tracks
+  search further before falling back.
+- **Playback reliability** — clearer MPV error details, safer Android playback-service startup,
+  improved buffer/caption/network-failure handling, and retained sessions when refresh fails.
+- **MDBList** — anime episode numbering is remapped between addon and TMDB IDs; progress and
+  watched-list requests are reused until a remapping changes.
+- **iOS stability** — reduced memory pressure in long sessions and 4K HDR/Dolby Vision playback,
+  and safer MPV teardown and parked Picture-in-Picture closure.
+- **Backdrop framing** — more robust image-coverage and foreground-aware smart focus, with safer
+  reveal behavior when artwork fails to load.
+- **Translations** — Japanese, Hebrew, Bulgarian, Greek, French and Vietnamese updates, with
+  StreamBridge watch-party invite and brand adaptations retained.
+- **StreamBridge identity** — package/bundle IDs, artwork, updater, production signing,
+  unsigned iOS distribution, store source and community branding remain StreamBridge-owned.
 
 ## Features
 
@@ -132,7 +113,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.16-iOS-unsigned.ipa`
+- `StreamBridge-0.1.17-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:

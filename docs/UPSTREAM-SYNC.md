@@ -4,12 +4,39 @@
 
 | Field | Value |
 |---|---|
-| Upstream repo | https://github.com/NuvioMedia/NuvioMobile |
-| Branch | `cmp-rewrite` |
-| Commit | `42e37ace0820a86c8b924b41b4bba4e570f12a6d` |
-| Release | 0.6.9-beta (`bump version`, 2026-11-06) |
-| Enhanced overlay | `01879330a3e8db844d49f31bda14ad35b458d287` (tag `0.6.9-beta`; official 0.6.9-beta is an ancestor, merge-base `42e37ace`) |
-| Previous pin | 0.6.7-beta (`3e156936`) + Enhanced `376f8619` |
+| Official core repo | https://github.com/NuvioMedia/NuvioMobile |
+| Official branch | `cmp-rewrite` |
+| Official 0.6.11-beta commit | `89f7d97b66910ecf8a75fd71a24e262320f0c6be` (verified tag) |
+| Enhanced repo requested for this sync | https://github.com/yesnt10/NuvioMobile-Enhanced |
+| Enhanced branch | `enhanced` |
+| Enhanced 0.6.11-beta commit | `254ae152fe94a2541c5a32b897a814594363d97f` |
+| Previous StreamBridge baseline | Enhanced 0.6.9-beta `01879330a3e8db844d49f31bda14ad35b458d287` |
+| StreamBridge release | 0.1.17 / version code 117 |
+
+## 0.6.11-beta / Enhanced 0.6.11-beta integration (0.1.17)
+
+The source-level synchronization compared the 0.6.9-beta baseline `01879330` with target
+`254ae152`. The range is 69 commits and 160 Git change records; expanded across five source moves, 165 old/new paths (54 added, 105 modified, 6 removed;
+8,207 insertions and 1,263 deletions in the upstream tree diff). The official 0.6.11-beta tag
+`89f7d97b` is an ancestor of the Enhanced target.
+
+Classification: 54 new paths (49 additions plus five Android-to-common source moves); 90
+modified files that were byte-identical to the baseline were taken verbatim; 10 modified files
+were clean three-way merges; 3 overlapping files were merged by hand (Home hero, Japanese and
+Hebrew resources); 6 old Android paths were removed when upstream moved or replaced those
+implementations with shared/platform sources; `store.json` and
+`iosApp/Configuration/Version.xcconfig` remained StreamBridge-owned. The Xcode version file was
+bumped to StreamBridge 0.1.17 / 117; the sideload source remains at the last published release
+until the published-release workflow verifies the new unsigned IPA. No upstream Git history was
+merged. Every changed path and its source commit / disposition is in
+[SYNC-MANIFEST-0.6.11-beta.md](SYNC-MANIFEST-0.6.11-beta.md).
+
+The Enhanced tag `0.6.11-beta` resolves to `254ae152fe94a2541c5a32b897a814594363d97f` in the
+former upstream repository `luqmanfadlli/NuvioMobile-Enhanced`. The current requested
+`yesnt10/NuvioMobile-Enhanced` repository does not advertise that tag under `refs/tags`, but its
+commit endpoint resolves the same target commit; the source tag points directly to that commit.
+This distinction is recorded to avoid treating a branch tip or a similarly named release as the
+sync target.
 
 ## 0.6.9-beta / Enhanced 0.6.9-beta integration (0.1.16)
 

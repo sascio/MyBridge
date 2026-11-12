@@ -1,6 +1,6 @@
 name: Draft production GitHub Release
 
-# Manual only, or from the approved v0.1.16 tag push. Never publishes (draft only).
+# Manual only, or from the approved v0.1.17 tag push. Never publishes (draft only).
 #
 # Android: fails closed unless the production upload-keystore GitHub Secrets are
 # set. Debug-signed APKs are never attached. See docs/SIGNING.md.
@@ -14,10 +14,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Approved release tag (v0.1.16, version code 116)
+        description: Approved release tag (v0.1.17, version code 117)
         required: true
         type: string
-        default: "v0.1.16"
+        default: "v0.1.17"
       include_ios:
         description: Also build the iOS release IPA
         required: false
@@ -30,7 +30,7 @@ on:
         default: false
   push:
     tags:
-      - "v0.1.16"
+      - "v0.1.17"
 
 permissions:
   contents: write
@@ -638,7 +638,7 @@ jobs:
               --draft \
               --target "${GITHUB_SHA}" \
               --title "StreamBridge ${TAG}" \
-              --notes-file docs/RELEASE-NOTES-0.1.16.md
+              --notes-file docs/RELEASE-NOTES-0.1.17.md
             lookup_status=0
             scripts/release-api.sh lookup \
               --repo "${GITHUB_REPOSITORY}" \
@@ -659,10 +659,10 @@ jobs:
             echo "::error::Existing release metadata does not match the verified draft target; preserving it without changes."
             exit 1
           fi
-          expected_notes="$(cat docs/RELEASE-NOTES-0.1.16.md)"
+          expected_notes="$(cat docs/RELEASE-NOTES-0.1.17.md)"
           actual_notes="$(jq -r '.body // ""' "${release_json}")"
           if [[ "${actual_notes}" != "${expected_notes}" ]]; then
-            echo "::error::Existing draft notes differ from the approved 0.1.16 notes; preserving them without changes."
+            echo "::error::Existing draft notes differ from the approved 0.1.17 notes; preserving them without changes."
             exit 1
           fi
 

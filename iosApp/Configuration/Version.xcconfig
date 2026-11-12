@@ -1,11 +1,11 @@
 // StreamBridge application version.
 //
 // The canonical StreamBridge version lives in ../streambridge.version.properties
-// (STREAMBRIDGE_VERSION_NAME=0.1.16, STREAMBRIDGE_VERSION_CODE=116); this file
+// (STREAMBRIDGE_VERSION_NAME=0.1.17, STREAMBRIDGE_VERSION_CODE=117); this file
 // mirrors it for Xcode and is the fallback source read by androidApp/build.gradle.kts
 // and composeApp/build.gradle.kts.
 //
-// The synced core baseline is the 0.6.9-beta tree. StreamBridge never ships the
+// The synced core baseline is the 0.6.11-beta tree. StreamBridge never ships the
 // core's version as its own.
-CURRENT_PROJECT_VERSION=116
-MARKETING_VERSION=0.1.16
+CURRENT_PROJECT_VERSION=117
+MARKETING_VERSION=0.1.17
