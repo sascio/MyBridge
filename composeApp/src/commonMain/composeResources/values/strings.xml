@@ -1513,6 +1513,11 @@
     <string name="settings_playback_libmpv_hardware_decoding_description">Use mpv hardware decoding when available.</string>
     <string name="settings_playback_libmpv_yuv420p">libmpv YUV420P Compatibility</string>
     <string name="settings_playback_libmpv_yuv420p_description">Force YUV420P output for devices with renderer or color issues.</string>
+    <string name="settings_playback_section_anime_enhancement">ANIME ENHANCEMENT</string>
+    <string name="settings_playback_anime_upscale">Anime 2x Upscaler</string>
+    <string name="settings_playback_anime_upscale_description">Upscale anime with Anime4K to at least 1440p, or to the screen resolution when that is higher. Only used for anime. ExoPlayer skips it while tunneled playback is on.</string>
+    <string name="settings_playback_anime_line_sharpen">Anime Line Sharpener</string>
+    <string name="settings_playback_anime_line_sharpen_description">Restore and sharpen anime line art with Anime4K. Only used for anime. ExoPlayer skips it while tunneled playback is on.</string>
     <string name="settings_playback_section_next_episode">NEXT EPISODE</string>
     <string name="settings_playback_section_player">PLAYER</string>
     <string name="settings_playback_section_skip_segments">SKIP SEGMENTS</string>
@@ -2162,6 +2167,7 @@
     <string name="auth_account_deletion_failed">Account deletion failed</string>
     <string name="auth_sign_in_failed">Sign-in failed</string>
     <string name="auth_sign_out_failed">Sign-out failed</string>
+    <string name="auth_notice_signed_out">You have been signed out of StreamBridge. Please sign in again.</string>
     <string name="auth_sign_up_failed">Sign-up failed</string>
     <string name="catalog_load_failed">Unable to load catalog items.</string>
     <string name="continue_watching_up_next">Next Up</string>
@@ -2476,6 +2482,12 @@
     <string name="cloud_library_provider_unavailable">Cloud library is not available for %1$s.</string>
     <!-- Player iOS video settings modal -->
     <string name="player_video_settings_title">Video</string>
+    <string name="player_anime4k_title">Anime4K</string>
+    <string name="player_anime4k_badge_upscale">%1$dp → %2$dp</string>
+    <string name="player_anime4k_badge_sharpen">Sharpen</string>
+    <string name="player_anime4k_status_active">Active: %1$s</string>
+    <string name="player_anime4k_status_inactive">Enabled, but not active for this video</string>
+    <string name="player_anime4k_status_off">Off</string>
     <string name="player_video_settings_reset_tuning">Reset tuning</string>
     <string name="player_video_settings_output_preset">Output preset</string>
     <string name="player_video_settings_hdr_peak_detection">HDR peak detection</string>
@@ -2871,7 +2883,7 @@
     <string name="settings_nav_bar_position_bottom">Bottom</string>
     <string name="settings_nav_bar_position_top">Top</string>
     <string name="settings_appearance_liquid_glass_effects">Liquid glass effects</string>
-    <string name="settings_appearance_liquid_glass_effects_description">Glass on the navigation bar, sheets, player controls and cinematic screens. Turn off for solid surfaces.</string>
+    <string name="settings_appearance_liquid_glass_effects_description">Live glass on the navigation bar, sheets, player controls and cinematic screens. Off by default with Glass UI, which then uses lighter static glass; otherwise off gives solid surfaces.</string>
     <string name="settings_nav_bar_glass">Liquid glass</string>
     
     <string name="settings_nav_bar_glass_material_liquid">Liquid</string>

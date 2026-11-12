@@ -17,7 +17,7 @@ import telegram_identity as identity
 
 class IdentityTests(unittest.TestCase):
     def test_only_exact_safe_tags_are_accepted(self):
-        for tag in ("v0.1.16", "release/v1", "0.1.04", "v1+build"):
+        for tag in ("v0.1.16", "v0.1.17", "release/v1", "0.1.04", "v1+build"):
             self.assertEqual(identity.validate_tag(tag), tag)
         for tag in ("", "latest", "LATEST", " latest", "v1 ", "refs/tags/v1", "v1..v2", "a//b",
                     "a/", "a/.b", "v1.lock", "v1\nnext", "v1~1", "v1^{commit}", "--bad", None, 1):
