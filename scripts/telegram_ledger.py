@@ -491,7 +491,9 @@ def validate(doc: object) -> None:
             elif status == "sent" and item["reconciliation"] is not None:
                 evidence = item["reconciliation"]
                 if (not isinstance(evidence, dict) or set(evidence) != {"status", "source", "job_id"}
-                        or evidence["status"] != "confirmed_response" or evidence["source"] != "github_actions_log"
+                        or evidence["status"] != "confirmed_response"
+                        or not isinstance(evidence["source"], str)
+                        or evidence["source"] not in {"github_actions_log", "telegram_mtproto_known_id"}
                         or type(evidence["job_id"]) is not int or evidence["job_id"] <= 0):
                     raise LedgerError("Confirmed reconciliation evidence is invalid.")
             elif item["reconciliation"] is not None:

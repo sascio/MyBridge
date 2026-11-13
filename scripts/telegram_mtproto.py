@@ -155,6 +155,38 @@ class BotTransport:
         return functions.messages.SendMediaRequest(peer=self.peer, media=media, message=text,
                                                     entities=entities, random_id=random_id)
 
+    def _verify_text_message(self, message: object, request: object) -> None:
+        """Require exact text, channel peer, formatting entities and buttons."""
+        from telethon import utils
+        from telethon.tl import types
+
+        if utils.get_peer_id(message.peer_id) != self._chat_id or (message.message or "") != request.message:
+            raise UnconfirmedResponse("Telegram's returned message does not match the frozen peer/text.")
+        expected_entities = [x.to_dict() for x in (request.entities or [])]
+        actual_entities = [x.to_dict() for x in (getattr(message, "entities", None) or [])]
+        if expected_entities != actual_entities:
+            raise UnconfirmedResponse("Telegram's returned message entities differ from the frozen payload.")
+        expected_markup = getattr(request, "reply_markup", None)
+        actual_markup = getattr(message, "reply_markup", None)
+        if (expected_markup.to_dict() if expected_markup else None) != (actual_markup.to_dict() if actual_markup else None):
+            raise UnconfirmedResponse("Telegram's returned buttons differ from the frozen payload.")
+
+    def read_known_message(self, message_id: int, request: object) -> object:
+        """Read exactly one known channel message ID; never scan channel history."""
+        from telethon.tl import functions, types
+        if (self._client is None or self.peer is None or type(message_id) is not int or message_id <= 0
+                or not isinstance(request, functions.messages.SendMessageRequest)):
+            raise TransportError("Known-message verification requires a bound peer, positive ID and text request.")
+        self.connection_stage = "known-message-lookup"
+        channel = types.InputChannel(channel_id=self.peer.channel_id, access_hash=self.peer.access_hash)
+        fetched = self._await(self._client, self._client(functions.channels.GetMessagesRequest(
+            channel=channel, id=[types.InputMessageID(id=message_id)])))
+        matching = [m for m in getattr(fetched, "messages", []) if getattr(m, "id", None) == message_id]
+        if len(matching) != 1:
+            raise UnconfirmedResponse("Telegram's known message could not be uniquely read.")
+        self._verify_text_message(matching[0], request)
+        return matching[0]
+
     def send(self, request: object, *, filename: str | None = None, size: int | None = None) -> int:
         """Send one raw request once; return only a payload-matched message ID."""
         from telethon import utils
@@ -184,17 +216,8 @@ class BotTransport:
         if len(matching) != 1:
             raise UnconfirmedResponse("Telegram's returned message could not be checked.")
         message = matching[0]
-        if utils.get_peer_id(message.peer_id) != self._chat_id or (message.message or "") != request.message:
-            raise UnconfirmedResponse("Telegram's returned message does not match the frozen peer/text.")
         # Formatting and buttons matter: do not confirm a different rendered post.
-        expected_entities = [x.to_dict() for x in (request.entities or [])]
-        actual_entities = [x.to_dict() for x in (getattr(message, "entities", None) or [])]
-        if expected_entities != actual_entities:
-            raise UnconfirmedResponse("Telegram's returned message entities differ from the frozen payload.")
-        expected_markup = getattr(request, "reply_markup", None)
-        actual_markup = getattr(message, "reply_markup", None)
-        if (expected_markup.to_dict() if expected_markup else None) != (actual_markup.to_dict() if actual_markup else None):
-            raise UnconfirmedResponse("Telegram's returned buttons differ from the frozen payload.")
+        self._verify_text_message(message, request)
         if isinstance(request, functions.messages.SendMediaRequest):
             document = getattr(getattr(message, "media", None), "document", None)
             names = [a.file_name for a in getattr(document, "attributes", [])

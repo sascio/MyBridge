@@ -1558,8 +1558,18 @@ class RawTransportTests(unittest.TestCase):
                 super().__init__()
                 server.raw_calls = []
                 server.responses = {}
+                server.read_calls = []
                 server.lose_response = False
             async def call(server, request):
+                if isinstance(request, functions.channels.GetMessagesRequest):
+                    ids = [entry.id for entry in request.id]
+                    server.read_calls.append(ids)
+                    messages = []
+                    for response in server.responses.values():
+                        messages.extend(update.message for update in response.updates
+                                        if isinstance(update, types.UpdateNewChannelMessage)
+                                        and update.message.id in ids)
+                    return SimpleNamespace(messages=messages)
                 if isinstance(request, (functions.messages.SendMessageRequest, functions.messages.SendMediaRequest)):
                     server.raw_calls.append(request)
                     if request.random_id in server.responses:
@@ -1671,6 +1681,24 @@ class RawTransportTests(unittest.TestCase):
         result.updates[1].message.peer_id = types.PeerChannel(123)
         with self.assertRaises(mtproto.UnconfirmedResponse):
             self.transport.send(req)
+
+    def test_known_id_lookup_is_read_only_and_matches_frozen_text_entities_and_buttons(self):
+        req = self.transport.text_request(
+            '<b>StreamBridge</b> launch', [('Release', 'https://github.com/sascio/MyBridge/releases/tag/v0.1.16')], -334,
+        )
+        message_id = self.transport.send(req)
+        call_count = len(self.server.raw_calls)
+        message = self.transport.read_known_message(message_id, req)
+        self.assertEqual(message.id, message_id)
+        self.assertEqual(self.server.read_calls, [[message_id]])
+        self.assertEqual(len(self.server.raw_calls), call_count)
+        changed = self.transport.text_request('<b>different</b>', [], -334)
+        with self.assertRaises(mtproto.UnconfirmedResponse):
+            self.transport.read_known_message(message_id, changed)
+        with self.assertRaises(mtproto.UnconfirmedResponse):
+            self.transport.read_known_message(message_id + 1, req)
+        self.assertEqual(self.server.read_calls[-1], [message_id + 1])
+        self.assertEqual(len(self.server.raw_calls), call_count)
 
     def test_authentication_uses_only_bot_authorization_not_phone_login(self):
         from fake_telegram_rpc import AuthStub
