@@ -7,6 +7,7 @@ on:
     # keep the full app build on every pull request and app-source push.
     paths-ignore:
       - '.github/workflows/build.yml'
+      - '.github/workflows/telegram-release-delivery.yml'
       - '.github/workflows/telegram-script-tests.yml'
       - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
       - 'scripts/telegram_*.py'
@@ -16,6 +17,7 @@ on:
     # workflow; retain the full app build on any PR that also changes app files.
     paths-ignore:
       - '.github/workflows/build.yml'
+      - '.github/workflows/telegram-release-delivery.yml'
       - '.github/workflows/telegram-script-tests.yml'
       - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
       - 'scripts/telegram_*.py'
