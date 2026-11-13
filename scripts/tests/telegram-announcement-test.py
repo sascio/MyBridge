@@ -794,7 +794,7 @@ class WorkflowTests(unittest.TestCase):
         }
         build_on = build.get("on", build.get(True))
         self.assertEqual(set(build_on["push"]["paths-ignore"]), expected)
-        self.assertIsNone(build_on.get("pull_request"))
+        self.assertEqual(set(build_on["pull_request"]["paths-ignore"]), expected)
         focused_path = SCRIPTS.parent / ".github/workflows/telegram-script-tests.yml"
         focused = yaml.safe_load(focused_path.read_text(encoding="utf-8"))
         self.assertEqual(set(focused.get("on", focused.get(True))), {

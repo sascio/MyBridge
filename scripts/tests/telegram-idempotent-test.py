@@ -254,6 +254,33 @@ class DurableDeliveryTests(unittest.TestCase):
             self.run_publish(resume_unsent=True, allow_new_release=False)
         self.assertEqual(len(self.server.calls), 1)
 
+    def test_unresolved_release_does_not_block_independent_release_or_its_own_retry_guard(self):
+        self.server.lost_first = True
+        unresolved_release = sample_release(release_id=123, tag="v9.9.9")
+        with self.assertRaisesRegex(publish.PublishError, "unresolved"):
+            self.run_publish(unresolved_release)
+        first_item = copy.deepcopy(self.store.doc["releases"][0]["items"][0])
+        self.assertEqual(first_item["state"], "delivery_unknown")
+        self.assertEqual(self.server.calls, [first_item["random_id"]])
+
+        independent = sample_release(release_id=124, tag="v10.0.0")
+        self.run_publish(independent)
+        self.assertEqual(len(self.store.doc["releases"]), 2)
+        still_unknown = self.store.doc["releases"][0]["items"][0]
+        self.assertEqual(still_unknown, first_item)
+        independent_item = self.store.doc["releases"][1]["items"][0]
+        self.assertEqual(independent_item["state"], "sent")
+        self.assertNotEqual(independent_item["random_id"], first_item["random_id"])
+        self.assertEqual(self.server.calls, [first_item["random_id"], independent_item["random_id"]])
+
+        # Duplicate delivery of v10.0.0 is idempotent, and v9.9.9 still cannot
+        # be retried just because its neighboring release has been delivered.
+        self.run_publish(independent)
+        with self.assertRaisesRegex(publish.PublishError, "no resend"):
+            self.run_publish(unresolved_release, resume_unsent=True, allow_new_release=False)
+        self.assertEqual(self.server.calls, [first_item["random_id"], independent_item["random_id"]])
+        self.assertEqual(self.store.doc["releases"][0]["items"][0], first_item)
+
     def test_failed_write_ahead_commit_never_calls_telegram(self):
         self.store.fault = lambda d: "before" if any(
             i["state"] == "sending" for e in d["releases"] for i in e["items"]) else None

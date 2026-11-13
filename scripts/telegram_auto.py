@@ -278,8 +278,6 @@ def poll(store: ledger.GitLedger, *, repository: str, repository_id: int, token:
     ledger.require_reviewed_history(document["inventory"])
     if document["session"] is not None or any(r["status"] == "active" for r in document["verification"]):
         raise AutomaticDeliveryError("A previous operation or verification is unresolved.")
-    for entry in document["releases"]:
-        publish.require_no_unresolved_items(entry["items"])
     releases = api(f"repos/{repository}/releases?per_page=100", paginate=True)
     if not isinstance(releases, list):
         raise AutomaticDeliveryError("The release list is unavailable.")
@@ -300,12 +298,25 @@ def poll(store: ledger.GitLedger, *, repository: str, repository_id: int, token:
         existing = publish.stored_release(document, item["id"])
         if existing is not None and existing["status"] == "sent":
             continue
+        if existing is not None and (publish.has_unresolved_items(existing["items"])
+                                     or existing["status"] == "failed"):
+            # Never retry this release automatically, but do not let its
+            # unresolved/failed item starve independent published releases.
+            print(f"::warning::Skipping release_id={item['id']} tag={tag}: its ledger plan needs recovery; other releases remain eligible.")
+            continue
         candidates.append((published, item["id"], tag))
     for published, release_id, tag in sorted(candidates):
         current = store.read().document
         if current["activation"]["published_after"] != cutoff_text or current["activation"].get("ready") is not True:
             raise AutomaticDeliveryError("The activation fence changed during polling.")
         if ledger.historically_seen(current["inventory"], token, release_id, tag):
+            continue
+        current_entry = publish.stored_release(current, release_id)
+        if current_entry is not None and current_entry["status"] == "sent":
+            continue
+        if current_entry is not None and (publish.has_unresolved_items(current_entry["items"])
+                                          or current_entry["status"] == "failed"):
+            print(f"::warning::Skipping release_id={release_id} tag={tag}: its ledger plan needs recovery; other releases remain eligible.")
             continue
         payload = api(f"repos/{repository}/releases/{release_id}")
         if (not isinstance(payload, dict) or type(payload.get("id")) is not int or payload["id"] != release_id

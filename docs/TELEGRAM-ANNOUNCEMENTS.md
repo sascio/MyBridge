@@ -153,10 +153,15 @@ rendered pages, asset names and checksums before delivery. A per-operation
 MTProto `random_id` is persisted before sending; messages and assets are
 individual operations. The publisher writes `sending` before each public call,
 then records the confirmed Telegram message ID. A lost or ambiguous response is
-`delivery_unknown`, not a reason to retry. Any unresolved operation blocks all
-later automatic deliveries until independently reconciled. A confirmed result
-cannot be changed or sent again. The same protocol handles large files through
-pinned bot-only MTProto multipart upload.
+`delivery_unknown`, not a reason to retry. An unresolved operation blocks any
+further operation for that same release until independently reconciled; it does
+not starve a separately identified release. The channel-wide concurrency queue,
+durable session lock, active-verification gate and protected inventory checks
+remain global. New release plans retain unique random IDs across the complete
+ledger, and the scheduled poll skips (without retrying) a release whose plan is
+unresolved or needs manual recovery while it continues with independent
+eligible releases. A confirmed result cannot be changed or sent again. The same
+protocol handles large files through pinned bot-only MTProto multipart upload.
 
 ## Recovery and monitoring
 
