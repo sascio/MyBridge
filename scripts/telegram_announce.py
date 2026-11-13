@@ -32,6 +32,9 @@ MAX_RETRIES = 4
 REQUEST_TIMEOUT = 20
 MAX_TELEGRAM_MESSAGES = 10
 PAGE_INTERVAL = 1.25
+WEBSITE_LAUNCH_TAG = "v0.1.17"
+WEBSITE_LAUNCH_URL = "https://streambridgeapp.pages.dev"
+WEBSITE_LAUNCH_VERSION = (0, 1, 17)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -337,9 +340,25 @@ class AnnouncementRun:
     warnings: list[str] = field(default_factory=list)
 
 
+def _is_post_website_launch_release(release: notes.Release) -> bool:
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", release.tag_name)
+    return bool(match and tuple(int(part) for part in match.groups()) > WEBSITE_LAUNCH_VERSION)
+
+
 def build_pages(release: notes.Release) -> tuple[notes.Announcement, list[str]]:
     """Build the announcement and re-validate it with the marker included."""
     announcement = notes.build_announcement(release, tag=channel_tag(release.id))
+    if (release.tag_name == WEBSITE_LAUNCH_TAG and WEBSITE_LAUNCH_URL in release.body
+            and announcement.pages):
+        first_page = announcement.pages[0]
+        header = notes.page_header(release, 1, len(announcement.pages))
+        callout = (f"🌐 <b>OUR OFFICIAL WEBSITE IS LIVE!</b>\n"
+                   f"Celebrate with us and explore the new StreamBridge home: "
+                   f'<a href="{WEBSITE_LAUNCH_URL}">Visit streambridgeapp.pages.dev</a>')
+        prefix = header + "\n\n"
+        if not first_page.text.startswith(prefix):
+            raise AnnouncementError("the first-page launch banner could not be safely positioned")
+        first_page.text = prefix + callout + "\n\n" + first_page.text[len(prefix):]
     if announcement.html_problems:
         problems = "; ".join(announcement.html_problems[:10])
         raise AnnouncementError(f"generated announcement is not valid Telegram HTML: {problems}")
@@ -347,6 +366,13 @@ def build_pages(release: notes.Release) -> tuple[notes.Announcement, list[str]]:
     pages: list[str] = []
     for number, page in enumerate(announcement.pages, start=1):
         text = page_text_with_marker(page, release.id)
+        if _is_post_website_launch_release(release):
+            attribution = f"<i>{notes.FOOTER}</i>"
+            position = text.rfind(attribution)
+            if position < 0:
+                raise AnnouncementError("the permanent website link could not be safely positioned")
+            website_link = f'🌐 <a href="{WEBSITE_LAUNCH_URL}">Official StreamBridge website</a>\n'
+            text = text[:position] + website_link + text[position:]
         problems = notes.validate_html(text)
         if notes.telegram_length(text) > notes.TELEGRAM_TEXT_LIMIT:
             problems.append(

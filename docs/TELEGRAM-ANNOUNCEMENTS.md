@@ -186,7 +186,8 @@ protection or modifying the frozen plan.
 
 When a final ledger write failed **after a confirmed response**, a maintainer
 may reconcile without sending only if the durable lock is already clear and
-publishing is disabled. Independently review the completed original replacement
+the repository variable `TELEGRAM_PUBLISHING_ENABLED` is explicitly `false`.
+Missing or malformed values do not satisfy this fail-closed gate. Independently review the completed original replacement
 workflow job, its trusted tooling SHA and its single exact
 `TELEGRAM_CONFIRMED_RESPONSE` line. Verify release/tag, job/run/attempt,
 operation and random ID, positive Telegram message ID and the actual confirmation
@@ -199,13 +200,26 @@ time. Then dispatch **Build Stream Bridge** on trusted reviewed code with
 ```
 
 Replace those example IDs/tag with the independently verified exact values;
-never use `latest` or an empty tag. The job checks GitHub's job/run/repository/
-workflow metadata and matches exactly one confirmed-response log marker against
-the stored attempt and tooling SHA before a non-force state transition to
-`sent`. It makes no Telegram request. The acknowledgement is not a substitute
-for reviewing the code and evidence. Missing, expired, ambiguous, mismatched or
-untrusted logs are **not** proof; the operation stays blocked. There is no
-unconditional way to prove an unknown delivery absent or safely resend it.
+never use `latest` or an empty tag. The default evidence source checks GitHub's
+job/run/repository/workflow metadata and matches exactly one confirmed-response
+log marker against the stored attempt and tooling SHA before a non-force state
+transition to `sent`. If trusted runner logs are unavailable, the owner may
+explicitly request the read-only known-ID path by adding
+`"evidence":"telegram_mtproto_known_id"` to the JSON. That path accepts only a
+frozen text-page operation: it re-renders the immutable published release,
+requires an exact match to the ledger payload hash, verifies the bot/channel
+identity against the protected ledger, and asks MTProto for only the supplied
+message ID. It compares the returned channel, text, formatting entities and
+inline buttons with the frozen payload; it never scans history or sends. The
+workflow holds the durable session lock during bot authentication and releases
+it only after Telegram logout is confirmed. A failed lookup, mismatch, or
+unconfirmed logout leaves the operation unresolved (and may retain the lock).
+Both paths require the variable to be exactly `false` and an independently
+reviewed request; the acknowledgement is not a substitute for reviewing the
+code and evidence.
+Missing, expired, ambiguous, mismatched or untrusted evidence is **not** proof;
+the operation stays blocked. There is no unconditional way to prove an unknown
+delivery absent or safely resend it.
 
 ## Research and trade-offs
 

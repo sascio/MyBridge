@@ -326,6 +326,60 @@ class RenderingTests(unittest.TestCase):
         self.assertIn("❤️ <i>Your Media, Your Way.</i>", text)
         self.assertIn("<i>Made with ❤️ by Saif</i>", text)
 
+    def test_v0117_website_launch_is_prominent_and_release_buttons_stay_exact(self) -> None:
+        version = "v0.1.17"
+        website = "https://streambridgeapp.pages.dev"
+        release_url = "https://github.com/sascio/MyBridge/releases/tag/v0.1.17"
+        names = [
+            "androidApp-full-arm64-v8a-release.apk",
+            "androidApp-full-armeabi-v7a-release.apk",
+            "androidApp-full-x86-release.apk",
+            "androidApp-full-x86_64-release.apk",
+            "StreamBridge-0.1.17-iOS-unsigned.ipa",
+            "checksums.sha256",
+        ]
+        release_assets = []
+        for name in names:
+            asset = _asset(name, 1024)
+            asset["browser_download_url"] = f"https://github.com/sascio/MyBridge/releases/download/{version}/{name}"
+            release_assets.append(asset)
+        body = (
+            "## StreamBridge Improvements\n\n"
+            f"The official StreamBridge website is now live: [{website}]({website}).\n\n"
+            "## Subtitles and audio\n\n- Improved subtitle sync.\n"
+        )
+        release = notes.Release.from_api(release_payload(
+            id=443150850, tag_name=version, name="StreamBridge 0.1.17", html_url=release_url,
+            published_at="2026-11-12T17:54:29Z", body=body, assets=release_assets,
+        ))
+        announcement, pages = announce.build_pages(release)
+        self.assertIn("🌐 <b>OUR OFFICIAL WEBSITE IS LIVE!</b>", pages[0])
+        self.assertIn(f'<a href="{website}">Visit streambridgeapp.pages.dev</a>', pages[0])
+        self.assertLess(pages[0].index("OUR OFFICIAL WEBSITE IS LIVE"), pages[0].index("💬 Subtitles"))
+        self.assertTrue(all(notes.telegram_length(page) <= notes.TELEGRAM_TEXT_LIMIT for page in pages))
+        self.assertEqual(announcement.html_problems, [])
+        button_urls = {url for page in announcement.pages for _label, url in page.buttons}
+        self.assertIn(release_url, button_urls)
+        self.assertTrue({asset["browser_download_url"] for asset in release_assets}.issubset(button_urls))
+
+        future_release = notes.Release.from_api(release_payload(
+            id=443150851, tag_name="v0.1.18", name="StreamBridge 0.1.18",
+            body=f"## StreamBridge Improvements\n\nThe official website is {website}.\n",
+        ))
+        _future_announcement, future_pages = announce.build_pages(future_release)
+        future_text = "\n".join(future_pages)
+        self.assertIn(f'<a href="{website}">Official StreamBridge website</a>', future_text)
+        self.assertNotIn("OUR OFFICIAL WEBSITE IS LIVE!", future_text)
+
+        prior_release = notes.Release.from_api(release_payload(
+            id=437405633, tag_name="v0.1.16", name="StreamBridge 0.1.16",
+            body=f"## StreamBridge Improvements\n\nThe official website is {website}.\n",
+        ))
+        _prior_announcement, prior_pages = announce.build_pages(prior_release)
+        prior_text = "\n".join(prior_pages)
+        self.assertNotIn("Official StreamBridge website</a>", prior_text)
+        self.assertNotIn("OUR OFFICIAL WEBSITE IS LIVE!", prior_text)
+
     def test_every_section_from_the_notes_is_rendered_in_order(self) -> None:
         announcement = notes.build_announcement(self.release)
         self.assertEqual(
@@ -715,6 +769,43 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(self.WORKFLOW.is_file())
         self.assertIn("release:", self.text)
         self.assertRegex(self.text, r"release:\s*\n\s*types:\s*\[\s*published\s*\]")
+
+    def test_reconciliation_requires_explicitly_disabled_publishing(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        build_file = SCRIPTS.parent / ".github/workflows/build.yml"
+        build = yaml.safe_load(build_file.read_text(encoding="utf-8"))
+        job = build["jobs"]["telegram-reconciliation"]
+        step = next(x for x in job["steps"] if x.get("name") == "Require publishing to be disabled for reconciliation")
+        self.assertIn('"${TELEGRAM_PUBLISHING_ENABLED}" != "false"', step["run"])
+        reconcile_step = next(x for x in job["steps"] if x.get("name") == "Reconcile an independently confirmed response")
+        self.assertEqual(reconcile_step["env"]["TELEGRAM_PUBLISHING_ENABLED"], "${{ vars.TELEGRAM_PUBLISHING_ENABLED }}")
+        source = (SCRIPTS / "telegram_reconcile.py").read_text(encoding="utf-8")
+        self.assertIn('if value != "false":', source)
+
+    def test_telegram_only_pushes_use_focused_tests_without_weakening_pr_checks(self) -> None:
+        if yaml is None:
+            self.skipTest("PyYAML is not installed")
+        build_file = SCRIPTS.parent / ".github/workflows/build.yml"
+        build = yaml.safe_load(build_file.read_text(encoding="utf-8"))
+        expected = {
+            ".github/workflows/build.yml", ".github/workflows/telegram-script-tests.yml",
+            "docs/TELEGRAM-ANNOUNCEMENTS.md", "scripts/telegram_*.py", "scripts/tests/telegram-*.py",
+        }
+        build_on = build.get("on", build.get(True))
+        self.assertEqual(set(build_on["push"]["paths-ignore"]), expected)
+        self.assertIsNone(build_on.get("pull_request"))
+        focused_path = SCRIPTS.parent / ".github/workflows/telegram-script-tests.yml"
+        focused = yaml.safe_load(focused_path.read_text(encoding="utf-8"))
+        self.assertEqual(set(focused.get("on", focused.get(True))), {
+            "push", "pull_request",
+        })
+        self.assertTrue(focused["jobs"]["scripts"]["steps"])
+        self.assertEqual(focused["permissions"], {"contents": "read"})
+        self.assertEqual(focused["jobs"]["scripts"]["steps"][-1]["run"], "scripts/tests/run-tests.sh")
+        self.assertIn("telethon==1.45.0", focused_path.read_text(encoding="utf-8"))
+        for forbidden in ("setup-java", "setup-android", "gradle", "upload-artifact", "release-draft"):
+            self.assertNotIn(forbidden, focused_path.read_text(encoding="utf-8"))
 
     def test_legacy_workflow_is_a_distinct_retired_identity_without_sends(self) -> None:
         if yaml is None:

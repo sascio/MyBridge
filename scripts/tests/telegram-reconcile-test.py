@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
+import os
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 import sys
 import unittest
 
@@ -11,6 +15,7 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS / "tests"))
 from offline import sitecustomize as offline_guard  # noqa: F401,E402
 sys.path.insert(0, str(SCRIPTS))
+import telegram_announce as announce
 import telegram_ledger as ledger
 import telegram_publish as publish
 import telegram_reconcile as reconcile
@@ -84,6 +89,100 @@ class ReconciliationTests(unittest.TestCase):
         saved = self.perform()
         self.assertEqual(saved.document["releases"][0]["items"][0]["state"], "sent")
 
+    def test_known_telegram_id_can_be_reconciled_only_after_exact_read_only_proof(self):
+        request = dict(self.request, evidence="telegram_mtproto_known_id")
+        seen = []
+        stamp = "2026-01-03T00:00:02Z"
+        saved = reconcile.reconcile(
+            self.store, request, repository="sascio/MyBridge", api=self.api,
+            get_log=lambda *_: self.fail("direct verification must not rely on inaccessible job logs"),
+            policy_check=lambda: None,
+            telegram_lookup=lambda req, item, document: seen.append((req, item, document)) or stamp,
+        )
+        item = saved.document["releases"][0]["items"][0]
+        self.assertEqual((item["state"], item["message_id"], item["delivered_at"]), ("sent", 77, stamp))
+        self.assertEqual(item["reconciliation"], {
+            "status": "confirmed_response", "source": "telegram_mtproto_known_id", "job_id": 600,
+        })
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(saved.document["session"], None)
+
+    def test_known_telegram_evidence_requires_matching_attempt_time_and_page(self):
+        request = dict(self.request, evidence="telegram_mtproto_known_id")
+        for stamp in ("2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z"):
+            with self.subTest(stamp=stamp), self.assertRaises(reconcile.ReconciliationError):
+                reconcile.reconcile(
+                    self.store, request, repository="sascio/MyBridge", api=self.api,
+                    get_log=lambda *_: b"", policy_check=lambda: None,
+                    telegram_lookup=lambda *_: stamp,
+                )
+            self.assertEqual(self.store.read().document, self.doc)
+
+    def test_known_telegram_verifier_rebuilds_exact_payload_and_holds_lock_until_logout(self):
+        release = notes.Release.from_api({
+            "id": 123, "tag_name": "v9.9.9", "name": "test", "body": "test",
+            "html_url": "https://example.invalid/release", "draft": False, "prerelease": False,
+            "created_at": "2026-01-01T00:00:00Z", "published_at": "2026-01-02T00:00:00Z", "assets": [],
+        })
+        announcement, pages = announce.build_pages(release)
+        operation = publish.operation_plan(release, announcement, pages, [], {})[0]
+        entry = self.store.document["releases"][0]
+        entry["items"][0]["payload"] = operation["payload"]
+        entry["plan"] = ledger.digest([
+            {key: item[key] for key in ("key", "kind", "payload")} for item in entry["items"]
+        ])
+        snapshot = self.store.read().document
+        baseline = snapshot["releases"][0]["items"][0]
+        request = dict(self.request, evidence="telegram_mtproto_known_id")
+        calls = []
+
+        class FakeTransport(publish.mtproto.BotTransport):
+            def __init__(self, *_args):
+                self.closed = False
+            def connect(self):
+                calls.append("connect")
+            def text_request(self, html, buttons, random_id):
+                calls.append((html, buttons, random_id))
+                return SimpleNamespace(message="frozen rendered text")
+            def read_known_message(self, message_id, text_request):
+                self.assert_lock()
+                calls.append(("lookup", message_id, text_request.message))
+                return SimpleNamespace(date=dt.datetime(2026, 1, 3, 0, 0, 2, tzinfo=dt.timezone.utc))
+            def assert_lock(self):
+                if self_test.store.read().document["session"] is None:
+                    raise AssertionError("the durable session lock must cover the Telegram lookup")
+            def close(self):
+                self.closed = True
+                calls.append("logout")
+                return True
+
+        self_test = self
+        release_json = {
+            "id": release.id, "tag_name": release.tag_name, "name": release.name, "body": release.body,
+            "html_url": release.html_url, "draft": False, "prerelease": False,
+            "created_at": release.created_at, "published_at": release.published_at, "assets": [],
+        }
+        policy_calls = []
+        with (
+            mock.patch.object(reconcile.state, "_api", return_value=release_json),
+            mock.patch.object(publish, "bot_details", return_value=(8000000001, -1002000000001, "@StreamBridge_App")),
+            mock.patch.object(publish, "identity_binding", return_value="d" * 64),
+            mock.patch.object(publish.mtproto, "BotTransport", FakeTransport),
+            mock.patch.dict(os.environ, {
+                "TELEGRAM_BOT_TOKEN": "test-token", "TELEGRAM_CHAT_ID": "@StreamBridge_App",
+                "TELEGRAM_API_ID": "12345", "TELEGRAM_API_HASH": "0123456789abcdef0123456789abcdef",
+            }, clear=False),
+        ):
+            stamp = reconcile.verify_known_telegram_message(
+                self.store, request, baseline, snapshot, repository="sascio/MyBridge",
+                policy_check=lambda: policy_calls.append(True),
+            )
+        self.assertEqual(stamp, "2026-01-03T00:00:02Z")
+        self.assertEqual(calls[0], "connect")
+        self.assertEqual(calls[-1], "logout")
+        self.assertEqual(self.store.read().document["session"], None)
+        self.assertGreaterEqual(len(policy_calls), 3)
+
     def test_scheduled_and_release_job_identities_cannot_be_interchanged(self):
         for name, event in ((reconcile.POLL_JOB_NAME, "release"), (reconcile.POLL_JOB_NAME, "push"),
                             (reconcile.JOB_NAME, "schedule")):
@@ -121,9 +220,16 @@ class ReconciliationTests(unittest.TestCase):
             self.perform()
         self.assertEqual(self.store.document["releases"][0]["items"][0]["state"], "sending")
 
+    def test_publishing_gate_requires_explicit_false(self):
+        for value in (None, "", "true", "False", "0"):
+            with self.subTest(value=value), self.assertRaises(reconcile.ReconciliationError):
+                reconcile.require_publishing_disabled(value)
+        reconcile.require_publishing_disabled("false")
+
     def test_exact_id_tag_operation_and_review_ack_are_required(self):
         for field, value in (("release_id", 0), ("message_id", True), ("job_id", 0), ("tag", "latest"),
-                             ("tag", ""), ("operation", "page:0"), ("acknowledge", "yes")):
+                             ("tag", ""), ("operation", "page:0"), ("acknowledge", "yes"),
+                             ("evidence", "caller_supplied_marker"), ("evidence", [])):
             request = dict(self.request, **{field: value})
             with self.subTest(field=field), self.assertRaises(reconcile.ReconciliationError):
                 self.perform(request=request)

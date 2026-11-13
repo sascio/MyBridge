@@ -3,6 +3,14 @@ name: Build Stream Bridge
 on:
   push:
     branches: [main, arena/**]
+    # Telegram-only tooling changes use the focused JDK-free test workflow;
+    # keep the full app build on every pull request and app-source push.
+    paths-ignore:
+      - '.github/workflows/build.yml'
+      - '.github/workflows/telegram-script-tests.yml'
+      - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
+      - 'scripts/telegram_*.py'
+      - 'scripts/tests/telegram-*.py'
   pull_request:
   workflow_dispatch:
     inputs:
@@ -26,13 +34,13 @@ on:
         required: false
         type: string
       telegram_cutover_mode:
-        description: Optional confirmed-response reconciliation (never sends)
+        description: Optional confirmed-response reconciliation or read-only known-ID Telegram check (never sends)
         required: false
         type: choice
         options: [none, reconcile]
         default: none
       telegram_reconciliation:
-        description: Exact reviewed JSON request for a confirmed-response reconciliation only
+        description: Exact reviewed JSON request; evidence can be trusted logs or a read-only Telegram lookup of the known ID
         required: false
         type: string
 
@@ -709,8 +717,8 @@ jobs:
         env:
           TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
         run: |
-          if [[ "${TELEGRAM_PUBLISHING_ENABLED}" == "true" ]]; then
-            echo '::error::Disable publishing before reconciling a confirmed response.'
+          if [[ "${TELEGRAM_PUBLISHING_ENABLED}" != "false" ]]; then
+            echo '::error::Set TELEGRAM_PUBLISHING_ENABLED exactly to false before reconciliation.'
             exit 1
           fi
       - name: Check out the state branch for reconciliation
@@ -722,10 +730,17 @@ jobs:
           token: ${{ github.token }}
           path: .telegram-state
           persist-credentials: true
+      - name: Install the pinned read-only Telegram verifier
+        if: inputs.telegram_cutover_mode == 'reconcile'
+        run: python3 -m pip install --disable-pip-version-check --quiet 'telethon==1.45.0' 'pyaes==1.6.1' 'rsa==4.9.1' 'pyasn1==0.6.1'
       - name: Reconcile an independently confirmed response
         if: inputs.telegram_cutover_mode == 'reconcile'
         env:
           GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           TELEGRAM_PUBLISHING_ENABLED: ${{ vars.TELEGRAM_PUBLISHING_ENABLED }}
           RECONCILIATION_REQUESTED: "true"
           RECONCILIATION: ${{ inputs.telegram_reconciliation }}
