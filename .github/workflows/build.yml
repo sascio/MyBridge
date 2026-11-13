@@ -12,6 +12,14 @@ on:
       - 'scripts/telegram_*.py'
       - 'scripts/tests/telegram-*.py'
   pull_request:
+    # Telegram-only recovery changes are validated by the focused offline
+    # workflow; retain the full app build on any PR that also changes app files.
+    paths-ignore:
+      - '.github/workflows/build.yml'
+      - '.github/workflows/telegram-script-tests.yml'
+      - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
+      - 'scripts/telegram_*.py'
+      - 'scripts/tests/telegram-*.py'
   workflow_dispatch:
     inputs:
       upload_artifacts:

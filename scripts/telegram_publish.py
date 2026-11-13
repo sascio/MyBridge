@@ -214,10 +214,15 @@ def stored_release(document: dict[str, Any], release_id: int) -> dict[str, Any] 
     return next((entry for entry in document["releases"] if entry["id"] == release_id), None)
 
 
+def has_unresolved_items(items: list[dict[str, Any]]) -> bool:
+    """Whether this release contains a write-ahead or ambiguous Telegram send."""
+    return any(item["state"] in {"sending", "delivery_unknown"} for item in items)
+
+
 def require_no_unresolved_items(items: list[dict[str, Any]]) -> None:
-    """Never re-send a write-ahead or ambiguous operation, including on recovery."""
-    if any(item["state"] in {"sending", "delivery_unknown"} for item in items):
-        raise PublishError("An earlier send is unresolved; no resend is allowed until independently reconciled.")
+    """Never re-send an unresolved operation within the release being delivered."""
+    if has_unresolved_items(items):
+        raise PublishError("An earlier send in this release is unresolved; no resend is allowed until independently reconciled.")
 
 
 def make_release(release: notes.Release, operations: list[dict[str, Any]], used: set[int],
@@ -363,9 +368,10 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             raise PublishError("The release predates the audited activation cutoff or activation is not yet effective.")
         if document["session"] is not None:
             raise PublishError("A previous bot session is not confirmed revoked; audited operator recovery is required.")
-        # An ambiguous send in any release blocks all further public messages.
-        for prior in document["releases"]:
-            require_no_unresolved_items(prior["items"])
+        # Keep session and active-verification barriers global, but isolate
+        # delivery ambiguity to its own release. The check below still refuses
+        # every unresolved operation in this exact release; new plans allocate
+        # random IDs unique across the complete ledger.
         if any(record["status"] == "active" for record in document["verification"]):
             raise PublishError("State-only verification is unfinished; no delivery is allowed.")
         entry = stored_release(document, release.id)

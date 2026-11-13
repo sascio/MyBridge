@@ -579,17 +579,31 @@ class PollTests(unittest.TestCase):
         self.assertEqual(len(self.server.calls), 1)
         self.assertFalse(any("/events" in call for call in self.calls))
 
-    def test_lost_telegram_response_stops_polling_and_is_never_retried(self):
-        new = payload(987654, "v1.0.0", NOW - dt.timedelta(minutes=2))
-        other = payload(987655, "v1.0.1", NOW - dt.timedelta(minutes=1))
+    def test_lost_response_is_skipped_without_blocking_an_independent_release(self):
+        unresolved = payload(987654, "v1.0.0", NOW - dt.timedelta(minutes=2))
+        independent = payload(987655, "v1.0.1", NOW - dt.timedelta(minutes=1))
         self.server.lost_first = True
         with self.assertRaises(publish.PublishError):
-            self.poll([new, other], [new, other])
+            self.poll([unresolved, independent], [unresolved, independent])
         self.assertEqual(len(self.server.calls), 1)
-        self.assertEqual(self.store.doc["releases"][0]["status"], "delivery_unknown")
-        with self.assertRaises(publish.PublishError):
-            self.poll([new, other], [new, other])
-        self.assertEqual(len(self.server.calls), 1)
+        first_id = self.server.calls[0]
+        first_entry = self.store.doc["releases"][0]
+        self.assertEqual(first_entry["id"], unresolved["id"])
+        self.assertEqual(first_entry["status"], "delivery_unknown")
+        self.assertEqual(first_entry["items"][0]["state"], "delivery_unknown")
+
+        # The fallback skips the old uncertain plan without retrying it, then
+        # publishes the next independent release with its own frozen random_id.
+        self.assertEqual(self.poll([unresolved, independent], [unresolved, independent]), 1)
+        self.assertEqual(len(self.server.calls), 2)
+        self.assertEqual(self.server.calls[0], first_id)
+        second_entry = self.store.doc["releases"][1]
+        self.assertEqual(second_entry["id"], independent["id"])
+        self.assertEqual(second_entry["status"], "sent")
+        self.assertNotEqual(first_id, second_entry["items"][0]["random_id"])
+        self.assertEqual(self.store.doc["releases"][0], first_entry)
+        self.assertEqual(self.poll([unresolved, independent], [unresolved, independent]), 0)
+        self.assertEqual(len(self.server.calls), 2)
 
     def test_not_ready_future_fence_and_bad_identities_never_fetch_or_send(self):
         for doc in (pending(), ready()):
