@@ -37,7 +37,7 @@ class AutomaticDeliveryError(RuntimeError):
     pass
 
 
-def require_context(default_branch: str) -> tuple[int, int]:
+def require_context(default_branch: str) -> tuple[int, int, bool]:
     event_name = os.environ.get("GITHUB_EVENT_NAME", "")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     workflow = os.environ.get("GITHUB_WORKFLOW_REF", "").split("@", 1)[0]
@@ -52,8 +52,7 @@ def require_context(default_branch: str) -> tuple[int, int]:
     enabled = os.environ.get("TELEGRAM_PUBLISHING_ENABLED") == "true"
     if event_name != "workflow_dispatch" and not enabled:
         raise AutomaticDeliveryError("Automatic delivery requires the enabled default-branch workflow.")
-    if event_name == "workflow_dispatch" and enabled:
-        raise AutomaticDeliveryError("No-send initialization requires the live publishing switch to remain off.")
+    poll_requested = False
     try:
         with open(os.environ.get("GITHUB_EVENT_PATH", ""), encoding="utf-8") as handle:
             event = json.load(handle, object_pairs_hook=ledger._no_duplicates)
@@ -68,18 +67,32 @@ def require_context(default_branch: str) -> tuple[int, int]:
             raise ValueError("repository mismatch")
         if event_name == "workflow_dispatch":
             inputs = event.get("inputs")
-            requested = inputs.get("initialize_state") if isinstance(inputs, dict) else None
-            preflight = inputs.get("preflight") if isinstance(inputs, dict) else None
-            if (repository is None or not isinstance(inputs, dict)
-                    or not (requested is True or requested == "true")
-                    or not (preflight is None or preflight is False or preflight == "false")):
-                raise ValueError("no-send initialization was not explicitly requested")
+            if repository is None or not isinstance(inputs, dict):
+                raise ValueError("dispatch identity mismatch")
+            requested = inputs.get("initialize_state")
+            poll = inputs.get("poll_now")
+            preflight = inputs.get("preflight")
+            is_initialize = requested is True or requested == "true"
+            poll_requested = poll is True or poll == "true"
+            if not (preflight is None or preflight is False or preflight == "false"):
+                raise ValueError("preflight cannot enter the automatic path")
+            if is_initialize and poll_requested:
+                raise ValueError("initialization and live polling are mutually exclusive")
+            if poll_requested:
+                if (not enabled or not (requested is None or requested is False or requested == "false")
+                        or inputs.get("tag", "") not in (None, "")
+                        or inputs.get("release_id", "") not in (None, "")
+                        or inputs.get("resume_unsent", False) not in (False, "false")
+                        or inputs.get("dry_run", True) not in (True, "true")):
+                    raise ValueError("live poll dispatch inputs are not an exact safe request")
+            elif not is_initialize or enabled:
+                raise ValueError("no-send initialization or an explicit live poll is required")
         if event_name == "push" and (repository is None or event.get("ref") != f"refs/heads/{default_branch}"
                                      or event.get("deleted") is not False):
             raise ValueError("push mismatch")
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise AutomaticDeliveryError("The automatic workflow event is inconsistent.") from exc
-    return int(run_id), int(attempt)
+    return int(run_id), int(attempt), poll_requested
 
 
 def _recover_verification_markers(store: ledger.GitLedger, repository: str, *,
@@ -359,7 +372,7 @@ def report_initialization(snapshot: ledger.Snapshot) -> None:
 def main() -> int:
     try:
         branch = os.environ.get("SOURCE_BRANCH", "")
-        run_id, run_attempt = require_context(branch)
+        run_id, run_attempt, poll_requested = require_context(branch)
         if not ledger.publishing_ledger_mode() or not ledger.strict_publishing_status():
             raise AutomaticDeliveryError("The explicit ledger-controlled publishing gate is not enabled.")
         config = state.load_config(REPOSITORY)
@@ -380,11 +393,11 @@ def main() -> int:
                 raise AutomaticDeliveryError("The default branch changed; this run is no longer trusted.")
         snapshot = bootstrap(store, default_branch=branch, main_head=main_head, token=token, chat=chat,
                              api_id=int(api_id_text), api_hash=api_hash, run_id=run_id, policy_check=policy)
-        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" and not poll_requested:
             report_initialization(snapshot)
-        # A push or initialization dispatch never sends. Scheduled polls recover real
-        # new publications, including those whose workflow event was suppressed.
-        if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+        # The explicit poll_now dispatch and scheduled fallback share the same
+        # protected, future-release-only path; initialization never sends.
+        if os.environ.get("GITHUB_EVENT_NAME") == "schedule" or poll_requested:
             poll(store, repository=REPOSITORY, repository_id=REPOSITORY_ID, token=token, chat=chat,
                  api_id=int(api_id_text), api_hash=api_hash, run_id=run_id, run_attempt=run_attempt,
                  tooling_sha=tooling_sha, policy_check=policy)

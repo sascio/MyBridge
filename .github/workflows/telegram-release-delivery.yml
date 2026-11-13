@@ -31,6 +31,11 @@ on:
         required: false
         type: boolean
         default: false
+      poll_now:
+        description: Run the protected future-release poll now (live delivery requires publishing enabled)
+        required: false
+        type: boolean
+        default: false
       tag:
         description: Exact published release tag (not used by no-send checks or initialization)
         required: false
@@ -161,9 +166,11 @@ jobs:
   automatic:
     name: Initialize protected state or detect new releases
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.initialize_state == true && inputs.preflight != true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.initialize_state == true && inputs.preflight != true && inputs.poll_now != true) ||
       (vars.TELEGRAM_PUBLISHING_ENABLED == 'true' &&
-       (github.event_name == 'schedule' ||
+       ((github.event_name == 'workflow_dispatch' && inputs.poll_now == true &&
+         inputs.preflight != true && inputs.initialize_state != true) ||
+        github.event_name == 'schedule' ||
         (github.event_name == 'push' && github.ref == 'refs/heads/main')))
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -215,7 +222,7 @@ jobs:
   announce:
     name: Resolve and validate the release
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.preflight != true && inputs.initialize_state != true) ||
+      (github.event_name == 'workflow_dispatch' && inputs.preflight != true && inputs.initialize_state != true && inputs.poll_now != true) ||
       (github.event_name == 'release' && github.event.release.draft == false &&
        github.event.release.prerelease == false)
     runs-on: ubuntu-latest
@@ -342,7 +349,7 @@ jobs:
       needs.announce.outputs.skip != 'true' && needs.announce.outputs.dry_run == 'false' &&
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && inputs.preflight != true && inputs.initialize_state != true &&
-        inputs.resume_unsent == true && inputs.tag != '' && inputs.release_id != ''))
+        inputs.poll_now != true && inputs.resume_unsent == true && inputs.tag != '' && inputs.release_id != ''))
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # GITHUB_TOKEN is scoped to this repository, not exclusively to this
