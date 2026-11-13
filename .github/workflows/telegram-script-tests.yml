@@ -8,6 +8,7 @@ on:
     branches: [main, arena/**]
     paths:
       - '.github/workflows/build.yml'
+      - '.github/workflows/telegram-release-delivery.yml'
       - '.github/workflows/telegram-script-tests.yml'
       - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
       - 'scripts/telegram_*.py'
@@ -15,6 +16,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/build.yml'
+      - '.github/workflows/telegram-release-delivery.yml'
       - '.github/workflows/telegram-script-tests.yml'
       - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
       - 'scripts/telegram_*.py'

@@ -55,7 +55,8 @@ main-branch push or scheduled run automatically:
    created. Once all checks succeed, one protected ledger update records the
    fence and `ready`. No release published on or before the fence can be
    announced. Initialization itself never sends; eligible later publications
-   can be delivered by their release event or a scheduled poll. Historical
+   can be delivered by their release event, scheduled fallback or explicit
+   `poll_now` dispatch. Historical
    releases are **not backfilled**.
 
 To finish production preparation before enabling live delivery:
@@ -77,6 +78,15 @@ connection-permission blocker, not a reason to remove the live gate or relax
 branch protection. Reconnect GitHub in Arena with the required permission or
 have the repository owner set the variable in Settings → Secrets and variables
 → Actions → Variables. Keep releases unpublished during initialization.
+
+After readiness is verified and the owner has enabled the switch, an authorized
+operator may run the exact same future-release poll immediately with
+`gh workflow run telegram-release-delivery.yml --ref main -f poll_now=true`.
+This explicit live dispatch is serialized with scheduled polling and only uses
+the protected automatic poll path; it cannot target an arbitrary tag or bypass
+the publication fence, release inventory, unresolved-operation isolation,
+session lock or idempotency ledger. It is not a dry run. Initialization and
+read-only preflight remain separate no-send modes.
 
 Capturing the fence before the final scans avoids an artificial gap where a tag
 could be created before a future cutoff but after the snapshot. Releases and
@@ -110,9 +120,10 @@ write-ahead state as the event path. Both use the same channel-wide concurrency
 queue and state ledger, so a duplicate event or poll cannot resend a confirmed
 operation. GitHub's release `created_at` is the release commit date, not the
 creation date of the draft; it is recorded but not used as a historical cutoff.
-Manually dispatched live delivery can only resume an existing, reviewed unsent
+A manually targeted live delivery can only resume an existing, reviewed unsent
 plan by exact release ID and tag; it cannot create a historical or arbitrary new
-plan.
+plan. The separate `poll_now` mode runs the exact protected automatic selection
+logic and can create plans only for actual published releases after the fence.
 
 `release-draft.yml` only creates drafts; a maintainer or other authorized
 publisher must actually publish. The fallback does not mutate it. Future tags
