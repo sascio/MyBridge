@@ -121,6 +121,41 @@ jobs:
           else
             echo "::warning::Could not retrieve original build-log artifact; see fetch error in the diagnostic artifact."
           fi
+          previous_test_artifact=14123389150
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${previous_test_artifact}/zip" \
+            > "${output_dir}/previous-simulator-diagnostics.zip" 2> "${output_dir}/previous-diagnostics-fetch.err"; then
+            mkdir -p "${output_dir}/previous-simulator-diagnostics"
+            if unzip -q "${output_dir}/previous-simulator-diagnostics.zip" -d "${output_dir}/previous-simulator-diagnostics"; then
+              python3 - "${output_dir}/previous-simulator-diagnostics" "${GITHUB_STEP_SUMMARY}" <<'PY'
+          import pathlib, re, sys
+          root, summary = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          logs = list(root.rglob("ios-simulator-arm64-test.log"))
+          with summary.open("a") as out:
+              out.write("\n## Previous targeted simulator-test log inspection\n\n")
+              if not logs:
+                  out.write("The downloaded diagnostics artifact did not contain the Gradle console log.\n")
+              for log in logs:
+                  lines = log.read_text(errors="replace").splitlines()
+                  marker = re.compile(r"(?i)(FAILURE:|what went wrong|execution failed|e: file:|error:|exception|caused by:|no tests found|test failed|could not|failed to|unavailable)")
+                  indices = [i for i, line in enumerate(lines) if marker.search(line)]
+                  selected = set()
+                  for i in indices[-30:]:
+                      selected.update(range(max(0, i - 4), min(len(lines), i + 9)))
+                  if not selected:
+                      selected.update(range(max(0, len(lines) - 80), len(lines)))
+                  excerpt = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
+                  out.write(f"- `{log.name}`: {len(lines)} lines; {len(indices)} failure/error markers.\n\n```text\n")
+                  out.write(excerpt[-12000:])
+                  out.write("\n```\n")
+                  encoded = excerpt[-9000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                  print(f"::notice title=Previous simulator Gradle output::{encoded}")
+          PY
+            else
+              echo "::warning::Previous simulator diagnostics artifact was retrieved but not extractable."
+            fi
+          else
+            echo "::warning::Could not retrieve previous simulator diagnostics artifact; fetch error is in the new diagnostics artifact."
+          fi
           echo "Original failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${source_run}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Set up Gradle
@@ -193,8 +228,10 @@ jobs:
         run: |
           set -uo pipefail
           test_log="${RUNNER_TEMP}/ios-simulator-arm64-test.log"
+          set +e
           ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace 2>&1 | tee "${test_log}"
           status="${PIPESTATUS[0]}"
+          set -e
           if [ "${status}" -ne 0 ]; then
             python3 - "${test_log}" "${GITHUB_STEP_SUMMARY}" <<'PY'
           import pathlib, sys
