@@ -9,7 +9,7 @@
     <string name="party_code_label">Sessiecode</string>
     <string name="party_copy_invite">Uitnodiging kopiëren</string>
     <string name="party_invite_copied">Uitnodiging gekopieerd</string>
-    <string name="party_invite_message">Kijk met me mee in StreamBridge met code %1$s\n%2$s</string>
+    <string name="party_invite_message">Kijk samen met mij in StreamBridge met code %1$s\n%2$s\n\nNieuw bij StreamBridge? %3$s</string>
     <string name="party_seats">%1$d van %2$d plekken bezet</string>
     <string name="party_host">Organisator</string>
     <string name="party_you">Jij</string>
