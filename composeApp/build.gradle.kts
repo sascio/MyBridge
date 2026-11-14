@@ -7,7 +7,6 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
-import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
@@ -893,17 +892,23 @@ kotlin {
 // so the boot step and its dependency are skipped there.
 val isMacHost = System.getProperty("os.name").lowercase().contains("mac")
 
-val bootIosTestSimulator = tasks.register<Exec>("bootIosTestSimulator") {
-    onlyIf { isMacHost }
-    val device = tasks.named<KotlinNativeSimulatorTest>("iosSimulatorArm64Test").flatMap { it.device }
-    commandLine("xcrun", "simctl", "boot")
-    argumentProviders.add(CommandLineArgumentProvider { listOf(device.get()) })
-    isIgnoreExitValue = true
-}
-
 tasks.withType<KotlinNativeSimulatorTest>().configureEach {
     standalone.set(false)
-    if (isMacHost) dependsOn(bootIosTestSimulator)
+}
+
+if (isMacHost) {
+    // Resolve the simulator identifier during configuration and store only the
+    // resulting string on Exec. Closures retained by Exec's onlyIf and argument
+    // provider captured the Kotlin build-script instance, which breaks the
+    // configuration cache when the simulator test task runs.
+    val simulatorDevice = tasks.named<KotlinNativeSimulatorTest>("iosSimulatorArm64Test").get().device.get()
+    val bootIosTestSimulator = tasks.register<Exec>("bootIosTestSimulator") {
+        commandLine("xcrun", "simctl", "boot", simulatorDevice)
+        isIgnoreExitValue = true
+    }
+    tasks.withType<KotlinNativeSimulatorTest>().configureEach {
+        dependsOn(bootIosTestSimulator)
+    }
 }
 
 configurations.matching { it.name == "iosMainImplementation" }.configureEach {
