@@ -790,8 +790,8 @@ class WorkflowTests(unittest.TestCase):
         build = yaml.safe_load(build_file.read_text(encoding="utf-8"))
         expected = {
             ".github/workflows/build.yml", ".github/workflows/telegram-release-delivery.yml",
-            ".github/workflows/telegram-script-tests.yml", "docs/TELEGRAM-ANNOUNCEMENTS.md",
-            "scripts/telegram_*.py", "scripts/tests/telegram-*.py",
+            ".github/workflows/telegram-script-tests.yml", ".github/workflows/ios-simulator-tests.yml",
+            "docs/TELEGRAM-ANNOUNCEMENTS.md", "scripts/telegram_*.py", "scripts/tests/telegram-*.py",
         }
         build_on = build.get("on", build.get(True))
         self.assertEqual(set(build_on["push"]["paths-ignore"]), expected)
