@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Tiêu đề trên đĩa</string>
+    <string name="player_disc_titles_count">Tiêu đề trên đĩa (%1$d)</string>
+    <string name="player_disc_title_feature">Phim chính · %1$s</string>
+    <string name="player_disc_title_extra">Nội dung bổ sung · %1$s</string>
+    <string name="player_disc_title_clip">%1$d đoạn phim</string>
+    <string name="player_disc_title_clips">%1$d đoạn phim</string>
+    <string name="player_disc_title_audio">Âm thanh %1$s</string>
+    <string name="player_disc_title_subtitles">Phụ đề %1$s</string>
+    <string name="player_disc_title_failed">Không thể phát tiêu đề này</string>
+</resources>

@@ -330,6 +330,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # Run after packaging/upload so a simulator-test failure does not discard
+      # the independent unsigned-IPA build artifact. Reuses the prepared native
+      # dependencies, Xcode/JDK/Gradle setup, and iOS memory profile above.
+      - name: Run iOS simulator Kotlin tests
+        env:
+          NUVIO_IOS_DISTRIBUTION: full
+        run: ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace
+
       - name: Upload the iOS build log
         if: failure()
         uses: actions/upload-artifact@v7

@@ -1141,7 +1141,6 @@
     <string name="settings_playback_secondary_subtitle_language">ثانوی پسندیدہ زبان</string>
     <string name="settings_playback_section_decoder">Decoder</string>
     <string name="settings_playback_engine">پلے بیک انجن</string>
-    <string name="settings_playback_engine_auto_description">پہلے ExoPlayer استعمال کریں، اور playback ناکام ہونے پر libmpv استعمال کریں۔</string>
     <string name="settings_playback_engine_exoplayer_description">ExoPlayer اور Android Media3 decoders استعمال کریں۔</string>
     <string name="settings_playback_engine_libmpv_description">Android playback کے لیے libmpv استعمال کریں۔</string>
     <string name="settings_playback_libmpv_video_output">libmpv Renderer</string>
@@ -2365,4 +2364,15 @@
     <string name="movie_status_rumored">افواہ</string>
     <string name="movie_status_in_production">زیرِ تیاری</string>
     <string name="movie_status_post_production">بعد از تیاری</string>
+    <string name="about_us_website_title">StreamBridge ویب سائٹ</string>
+    <string name="about_us_website_description">StreamBridge کی آفیشل ویب سائٹ دیکھیں</string>
+    <string name="settings_playback_chapter_title">باب کا عنوان دکھائیں</string>
+    <string name="settings_playback_chapter_title_description">موجودہ باب کا نام پیش رفت کی پٹی کے اوپر دکھائیں۔</string>
+    <string name="player_error_source_invalid_content">ماخذ کی خرابی: اسٹریم ماخذ نے غلط یا ناقابلِ پلے مواد واپس کیا۔ ممکن ہے لنک کی میعاد ختم ہو گئی ہو یا سرور نے ویڈیو کے بجائے خرابی کا صفحہ واپس کیا ہو۔\n\nکوئی دوسرا ماخذ آزمائیں۔ [%1$s]</string>
+    <string name="player_error_stream_blocked">اسٹریم ماخذ بلاک یا محدود ہے۔ کوئی دوسرا ماخذ آزمائیں۔</string>
+    <string name="player_error_stream_expired">اسٹریم لنک کی میعاد ختم ہو گئی ہے۔ کوئی دوسرا ماخذ آزمائیں۔</string>
+    <string name="player_error_stream_rate_limited">اسٹریم ماخذ کو بہت زیادہ درخواستیں بھیجی گئی ہیں۔ کچھ دیر انتظار کریں اور دوبارہ کوشش کریں۔</string>
+    <string name="player_error_stream_removed">اسٹریم لنک کی میعاد ختم ہو گئی ہے یا اسے ہٹا دیا گیا ہے۔ کوئی دوسرا ماخذ آزمائیں۔</string>
+    <string name="player_error_stream_unavailable">اسٹریم سرور فی الحال دستیاب نہیں ہے۔ کوئی دوسرا ماخذ آزمائیں۔</string>
+    <string name="player_error_unsupported_format">یہ اسٹریم ایسا فارمیٹ استعمال کرتی ہے جسے آپ کا آلہ شاید سپورٹ نہ کرے۔ کوئی دوسرا ماخذ آزمائیں۔ [%1$s]</string>
 </resources>

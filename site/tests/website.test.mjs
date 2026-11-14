@@ -22,7 +22,18 @@ for (const [file, path] of [['index.html', '/'], ['news/index.html', '/news/'], 
 const sitemap = readFileSync(resolve(root, 'sitemap.xml'), 'utf8');
 for (const path of ['/', '/news/', '/terms/', '/privacy/']) assert.ok(sitemap.includes(`<loc>${origin}${path}</loc>`));
 assert.ok(!sitemap.includes('/party/'));
-console.log('Website identity, metadata, local assets and sitemap checks passed.');
+const homePage = readFileSync(resolve(root, 'index.html'), 'utf8');
+const iconSprite = readFileSync(resolve(root, 'assets/icons.svg'), 'utf8');
+for (const [name, url, icon, label] of [
+  ['Telegram', 'https://t.me/StreamBridge_App', 'telegram', 'Join StreamBridge on Telegram'],
+  ['Discord', 'https://discord.gg/T9apykrjW', 'discord', 'Join the StreamBridge Discord'],
+]) {
+  assert.ok(homePage.includes(`href="${url}"`), `${name} URL`);
+  assert.ok(homePage.includes(`aria-label="${label}"`), `${name} accessible name`);
+  assert.ok(homePage.includes(`<use href="/assets/icons.svg#${icon}"></use>`), `${name} icon reference`);
+  assert.ok(iconSprite.includes(`<symbol id="${icon}"`), `${name} icon symbol`);
+}
+console.log('Website identity, metadata, local assets, community links and sitemap checks passed.');
 
 // Cloudflare serves this document for unknown static paths. Exercise its
 // redirect script separately so that invalid paths remain a real 404.

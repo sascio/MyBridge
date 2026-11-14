@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">ডিস্কের শিরোনাম</string>
+    <string name="player_disc_titles_count">ডিস্কের শিরোনাম (%1$d)</string>
+    <string name="player_disc_title_feature">মূল চলচ্চিত্র · %1$s</string>
+    <string name="player_disc_title_extra">অতিরিক্ত · %1$s</string>
+    <string name="player_disc_title_clip">%1$dটি ক্লিপ</string>
+    <string name="player_disc_title_clips">%1$dটি ক্লিপ</string>
+    <string name="player_disc_title_audio">অডিও %1$s</string>
+    <string name="player_disc_title_subtitles">সাবটাইটেল %1$s</string>
+    <string name="player_disc_title_failed">এই শিরোনামটি চালানো যায়নি</string>
+</resources>

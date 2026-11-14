@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Názvy na disku</string>
+    <string name="player_disc_titles_count">Názvy na disku (%1$d)</string>
+    <string name="player_disc_title_feature">Hlavní film · %1$s</string>
+    <string name="player_disc_title_extra">Bonus · %1$s</string>
+    <string name="player_disc_title_clip">%1$d klip</string>
+    <string name="player_disc_title_clips">%1$d klipy</string>
+    <string name="player_disc_title_audio">Zvuk %1$s</string>
+    <string name="player_disc_title_subtitles">Titulky %1$s</string>
+    <string name="player_disc_title_failed">Tento titul nelze přehrát</string>
+</resources>

@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">ڈسک کے عنوانات</string>
+    <string name="player_disc_titles_count">ڈسک کے عنوانات (%1$d)</string>
+    <string name="player_disc_title_feature">مرکزی فلم · %1$s</string>
+    <string name="player_disc_title_extra">اضافی مواد · %1$s</string>
+    <string name="player_disc_title_clip">%1$d کلپ</string>
+    <string name="player_disc_title_clips">%1$d کلپس</string>
+    <string name="player_disc_title_audio">آڈیو %1$s</string>
+    <string name="player_disc_title_subtitles">سب ٹائٹلز %1$s</string>
+    <string name="player_disc_title_failed">یہ عنوان چلایا نہیں جا سکا</string>
+</resources>

@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">عناوين القرص</string>
+    <string name="player_disc_titles_count">عناوين القرص (%1$d)</string>
+    <string name="player_disc_title_feature">الفيلم الرئيسي · %1$s</string>
+    <string name="player_disc_title_extra">إضافي · %1$s</string>
+    <string name="player_disc_title_clip">مقطع (%1$d)</string>
+    <string name="player_disc_title_clips">مقاطع (%1$d)</string>
+    <string name="player_disc_title_audio">الصوت %1$s</string>
+    <string name="player_disc_title_subtitles">الترجمات %1$s</string>
+    <string name="player_disc_title_failed">تعذّر تشغيل هذا العنوان</string>
+</resources>

@@ -70,7 +70,9 @@ class SimklPkceTest {
         // Omitting scope yields a read-only token, which breaks scrobbling and
         // watched-status writes, so it has to be on the authorize URL.
         assertTrue("scope=media%3Aread+media%3Awrite" in url || "scope=media%3Aread%20media%3Awrite" in url)
+        assertEquals(1, Regex("[?&]scope=").findAll(url).count(), "scope must not be duplicated")
         assertTrue("response_type=code" in url)
+        assertTrue("state=state" in url)
     }
 
     @Test
@@ -89,6 +91,27 @@ class SimklPkceTest {
             "grant_type=refresh_token&client_id=client-id&refresh_token=a%2Bb%2Fc%3Dd",
             form,
         )
+    }
+
+    @Test
+    fun `authorization code exchange encodes all required AUTH V2 fields`() {
+        val form = buildSimklTokenForm(
+            linkedMapOf(
+                "grant_type" to SIMKL_GRANT_AUTHORIZATION_CODE,
+                "client_id" to "client-id",
+                "code" to "code+/=value",
+                "redirect_uri" to "streambridge://auth/simkl",
+                "code_verifier" to "verifier+/=value",
+            ),
+        )
+
+        assertEquals(
+            "grant_type=authorization_code&client_id=client-id&code=code%2B%2F%3Dvalue" +
+                "&redirect_uri=streambridge%3A%2F%2Fauth%2Fsimkl" +
+                "&code_verifier=verifier%2B%2F%3Dvalue",
+            form,
+        )
+        assertFalse("refresh_token=" in form)
     }
 
     @Test

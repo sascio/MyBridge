@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.17</strong> (117)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.18</strong> (118)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,27 +18,29 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## Highlights in 0.1.17
+## Highlights in 0.1.18
 
-- **Core synchronization** — the complete applicable upstream 0.6.11-beta change range is
-  integrated from the pinned 0.6.9-beta baseline, with per-file merge decisions recorded in
-  [`docs/SYNC-MANIFEST-0.6.11-beta.md`](docs/SYNC-MANIFEST-0.6.11-beta.md).
-- **Anime4K** — optional 2× video upscaling and line sharpening for Android ExoPlayer and mpv.
-- **Subtitles** — shadow-outline blur on Android and iOS; forced subtitles and AutoSync are
-  enabled by default; AutoSync no longer requires a preferred language and restored tracks
-  search further before falling back.
-- **Playback reliability** — clearer MPV error details, safer Android playback-service startup,
-  improved buffer/caption/network-failure handling, and retained sessions when refresh fails.
-- **MDBList** — anime episode numbering is remapped between addon and TMDB IDs; progress and
-  watched-list requests are reused until a remapping changes.
-- **iOS stability** — reduced memory pressure in long sessions and 4K HDR/Dolby Vision playback,
-  and safer MPV teardown and parked Picture-in-Picture closure.
-- **Backdrop framing** — more robust image-coverage and foreground-aware smart focus, with safer
-  reveal behavior when artwork fails to load.
-- **Translations** — Japanese, Hebrew, Bulgarian, Greek, French and Vietnamese updates, with
-  StreamBridge watch-party invite and brand adaptations retained.
-- **StreamBridge identity** — package/bundle IDs, artwork, updater, production signing,
-  unsigned iOS distribution, store source and community branding remain StreamBridge-owned.
+- **Core synchronization** — integrated the applicable Enhanced `0.6.11-beta` → `0.6.12-beta`
+  source range; per-path dispositions and StreamBridge-specific resolutions are recorded in
+  [`docs/SYNC-MANIFEST-0.6.12-beta.md`](docs/SYNC-MANIFEST-0.6.12-beta.md).
+- **Subtitles** — preferences can be isolated per device and included in settings export/import;
+  profile removal clears the associated subtitle settings. Existing subtitle appearance and
+  playback behavior are retained.
+- **Player** — chapter navigation and chapter-title controls cover both engines and iOS; Android
+  ExoPlayer adds Blu-ray ISO/BDMV/M2TS playback. HLS SPS/PPS initialization, DASH MIME routing,
+  Live TV buffering/black-screen handling, and MPV position/error reporting are improved.
+- **Live TV and streams** — the HLS quality chooser is available again for Live TV, and saved
+  tokenized links can be reused and refreshed when they expire.
+- **Simkl** — AUTH V2 PKCE/device authorization, protected refresh-token handling, and refresh
+  behavior are integrated without replacing StreamBridge's profile-aware settings and sync flow.
+- **Collections and Discord** — folders respect catalog type, and IMDb links in Discord Rich
+  Presence are corrected.
+- **Translations and tuning** — Dutch, French, Vietnamese and other upstream text updates are
+  included; the Anime4K line sharpener is stronger. StreamBridge branding and community strings
+  remain localized as StreamBridge.
+- **StreamBridge identity** — About Us links to the official website; the website footer provides
+  accessible Telegram and Discord links. App IDs, updater/distribution metadata, production
+  signing, unsigned iOS distribution, GPL-3.0, motto, and footer credit remain StreamBridge-owned.
 
 ## Features
 
@@ -113,7 +115,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.17-iOS-unsigned.ipa`
+- `StreamBridge-0.1.18-iOS-unsigned.ipa`
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:

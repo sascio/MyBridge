@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Lemezen található címek</string>
+    <string name="player_disc_titles_count">Lemezen található címek (%1$d)</string>
+    <string name="player_disc_title_feature">Főfilm · %1$s</string>
+    <string name="player_disc_title_extra">Extra · %1$s</string>
+    <string name="player_disc_title_clip">%1$d klip</string>
+    <string name="player_disc_title_clips">%1$d klip</string>
+    <string name="player_disc_title_audio">Hang %1$s</string>
+    <string name="player_disc_title_subtitles">Feliratok %1$s</string>
+    <string name="player_disc_title_failed">Ez a cím nem játszható le</string>
+</resources>

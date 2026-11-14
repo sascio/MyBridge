@@ -5,6 +5,7 @@ import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,6 +76,7 @@ data class PlayerSettingsUiState(
     val androidAnimeUpscaleEnabled: Boolean = false,
     val androidAnimeLineSharpenEnabled: Boolean = false,
     val androidExoChaptersEnabled: Boolean = false,
+    val chapterTitleEnabled: Boolean = true,
     val rememberAudioDelayPerDevice: Boolean = true,
     val persistAudioAmplification: Boolean = false,
     val audioAmplificationDb: Int = 0,
@@ -190,6 +192,7 @@ object PlayerSettingsRepository {
     private var androidAnimeUpscaleEnabled = false
     private var androidAnimeLineSharpenEnabled = false
     private var androidExoChaptersEnabled = false
+    private var chapterTitleEnabled = true
     private var rememberAudioDelayPerDevice = true
     private var persistAudioAmplification = false
     private var audioAmplificationDb = 0
@@ -310,6 +313,7 @@ object PlayerSettingsRepository {
         androidAnimeUpscaleEnabled = false
         androidAnimeLineSharpenEnabled = false
         androidExoChaptersEnabled = false
+        chapterTitleEnabled = true
         rememberAudioDelayPerDevice = true
         persistAudioAmplification = false
         audioAmplificationDb = 0
@@ -421,7 +425,7 @@ object PlayerSettingsRepository {
                 ?: SubtitleLanguageOption.NONE
         secondaryPreferredSubtitleLanguage =
             normalizeLanguageCode(PlayerSettingsStorage.loadSecondaryPreferredSubtitleLanguage())
-        subtitleStyle = SubtitleStyleState(
+        val legacySubtitleStyle = SubtitleStyleState(
             textColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleTextColor())
                 ?: SubtitleStyleState.DEFAULT.textColor,
             backgroundColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleBackgroundColor())
@@ -446,6 +450,10 @@ object PlayerSettingsRepository {
                 ?: SubtitleStyleState.DEFAULT.showOnlyPreferredLanguages,
             appearance = decodeSubtitleAppearance(PlayerSettingsStorage.loadSubtitleAppearance()),
         )
+        subtitleStyle = SubtitleDevicePreferencesRepository.loadOrMigrate(
+            profileId = ProfileRepository.activeProfileId,
+            legacyStyle = legacySubtitleStyle,
+        )
         streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled() ?: false
         streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours() ?: 24
         androidPlaybackEngine = PlayerSettingsStorage.loadAndroidPlaybackEngine()
@@ -460,6 +468,7 @@ object PlayerSettingsRepository {
         androidAnimeUpscaleEnabled = PlayerSettingsStorage.loadAndroidAnimeUpscaleEnabled() ?: false
         androidAnimeLineSharpenEnabled = PlayerSettingsStorage.loadAndroidAnimeLineSharpenEnabled() ?: false
         androidExoChaptersEnabled = PlayerSettingsStorage.loadAndroidExoChaptersEnabled() ?: false
+        chapterTitleEnabled = PlayerSettingsStorage.loadChapterTitleEnabled() ?: true
         rememberAudioDelayPerDevice = PlayerSettingsStorage.loadRememberAudioDelayPerDevice() ?: true
         persistAudioAmplification = PlayerSettingsStorage.loadPersistAudioAmplification() ?: false
         audioAmplificationDb = (PlayerSettingsStorage.loadAudioAmplificationDb() ?: 0)
@@ -836,18 +845,7 @@ object PlayerSettingsRepository {
         if (subtitleStyle == normalized) return
         subtitleStyle = normalized
         publish()
-        PlayerSettingsStorage.saveSubtitleTextColor(normalized.textColor.toStorageHexString())
-        PlayerSettingsStorage.saveSubtitleBackgroundColor(normalized.backgroundColor.toStorageHexString())
-        PlayerSettingsStorage.saveSubtitleAppearance(normalized.appearance.encode())
-        PlayerSettingsStorage.saveSubtitleOutlineColor(normalized.outlineColor.toStorageHexString())
-        PlayerSettingsStorage.saveSubtitleOutlineEnabled(normalized.outlineEnabled)
-        PlayerSettingsStorage.saveSubtitleOutlineWidth(normalized.outlineWidth)
-        PlayerSettingsStorage.saveSubtitleBold(normalized.bold)
-        PlayerSettingsStorage.saveSubtitleFontSizeSp(normalized.fontSizeSp)
-        PlayerSettingsStorage.saveSubtitleBottomOffset(normalized.bottomOffset)
-        PlayerSettingsStorage.saveSubtitleStripSdh(normalized.stripSdh)
-        PlayerSettingsStorage.saveSubtitleUseForcedSubtitles(normalized.useForcedSubtitles)
-        PlayerSettingsStorage.saveSubtitleShowOnlyPreferredLanguages(normalized.showOnlyPreferredLanguages)
+        SubtitleDevicePreferencesRepository.save(ProfileRepository.activeProfileId, normalized)
     }
 
     fun setStreamReuseLastLinkEnabled(enabled: Boolean) {
@@ -928,6 +926,14 @@ object PlayerSettingsRepository {
         androidExoChaptersEnabled = enabled
         publish()
         PlayerSettingsStorage.saveAndroidExoChaptersEnabled(enabled)
+    }
+
+    fun setChapterTitleEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (chapterTitleEnabled == enabled) return
+        chapterTitleEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveChapterTitleEnabled(enabled)
     }
 
     fun setRememberAudioDelayPerDevice(enabled: Boolean) {
@@ -1560,6 +1566,7 @@ object PlayerSettingsRepository {
             androidAnimeUpscaleEnabled = androidAnimeUpscaleEnabled,
             androidAnimeLineSharpenEnabled = androidAnimeLineSharpenEnabled,
             androidExoChaptersEnabled = androidExoChaptersEnabled,
+            chapterTitleEnabled = chapterTitleEnabled,
             rememberAudioDelayPerDevice = rememberAudioDelayPerDevice,
             persistAudioAmplification = persistAudioAmplification,
             audioAmplificationDb = audioAmplificationDb,

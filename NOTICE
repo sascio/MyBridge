@@ -30,9 +30,9 @@ imported from:
 
   https://github.com/NuvioMedia/NuvioMobile
   branch: cmp-rewrite
-  current integrated commit: 89f7d97b66910ecf8a75fd71a24e262320f0c6be
-  tag: 0.6.11-beta
-  previous pins: 42e37ace (0.6.9-beta), 3e156936 (0.6.7-beta),
+  current integrated commit: 4135f96cd29f235b7c412f78dcfc13164c4b1e80
+  tag: 0.6.12-beta
+  previous pins: 89f7d97b (0.6.11-beta), 42e37ace (0.6.9-beta), 3e156936 (0.6.7-beta),
                  1cfae0fe (0.6.2-beta), 79b750f3 (0.6.1-beta),
                  5c6028f2 (0.5.5-beta),
                  bb3c1e4c (0.5.2-beta), b88fef2e (0.5.1),
@@ -52,20 +52,18 @@ Unique fork features (Live TV, OMDB episode ratings, hero trailer extras,
 volume boost, HLS quality chooser, library calendar, profile insights,
 download location / Wi-Fi-only, etc.) were overlaid from:
 
-  https://github.com/yesnt10/NuvioMobile-Enhanced
+  https://github.com/luqmanfadlli/NuvioMobile-Enhanced
   branch: enhanced
-  current integrated commit: 254ae152fe94a2541c5a32b897a814594363d97f
-  tag: 0.6.11-beta (tag ref verified in the former upstream repository
-       luqmanfadlli/NuvioMobile-Enhanced; the requested yesnt10 repository
-       exposes the identical commit but does not advertise this tag ref)
-  previous pins: 01879330 (0.6.9-beta), 376f8619 (0.6.7-beta),
+  current integrated commit: ac86e820e76362284c9d7524bb523976df32e195
+  tag: 0.6.12-beta (tag ref verified in this repository)
+  previous pins: 254ae152 (0.6.11-beta), 01879330 (0.6.9-beta), 376f8619 (0.6.7-beta),
                  5d978096 (0.6.2-beta), 504014d3 (0.6.1-beta),
                  8b3bd867 (0.5.5-beta),
                  3da8d06f (0.5.2-beta), 9d311c18 (0.5.1-beta),
                  ce4492ec (0.4.23-beta)
   license: GNU General Public License v3.0
 
-The official NuvioMobile 0.6.11-beta commit is an ancestor of the Enhanced target.
+The official NuvioMobile 0.6.12-beta commit is an ancestor of the Enhanced target.
 The Enhanced overlay adds its feature set on top. StreamBridge identity, empty default
 addons, and updater source `sascio/MyBridge` are preserved.
 

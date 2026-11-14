@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Titluri de pe disc</string>
+    <string name="player_disc_titles_count">Titluri de pe disc (%1$d)</string>
+    <string name="player_disc_title_feature">Film principal · %1$s</string>
+    <string name="player_disc_title_extra">Material suplimentar · %1$s</string>
+    <string name="player_disc_title_clip">%1$d clip</string>
+    <string name="player_disc_title_clips">%1$d clipuri</string>
+    <string name="player_disc_title_audio">Audio %1$s</string>
+    <string name="player_disc_title_subtitles">Subtitrări %1$s</string>
+    <string name="player_disc_title_failed">Acest titlu nu a putut fi redat</string>
+</resources>

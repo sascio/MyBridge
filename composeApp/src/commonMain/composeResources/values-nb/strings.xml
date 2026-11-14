@@ -1760,7 +1760,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="settings_playback_enable_libass">Bruk libass for ASS/SSA-undertekster</string>
     <string name="settings_playback_enable_libass_description">Eksperimentelt: avansert ASS/SSA-rendering (stiler, plassering, animasjoner)</string>
     <string name="settings_playback_engine">Avspillingsmotor</string>
-    <string name="settings_playback_engine_auto_description">Bruk ExoPlayer først og fall tilbake til libmpv hvis avspilling mislykkes.</string>
+    <string name="settings_playback_engine_auto_description">ExoPlayer for filmer og serier · MPV for anime</string>
     <string name="settings_playback_engine_exoplayer_description">Bruk ExoPlayer og Android Media3-dekodere.</string>
     <string name="settings_playback_engine_libmpv_description">Bruk libmpv for Android-avspilling.</string>
     <string name="settings_playback_external_player">Ekstern avspiller</string>
@@ -2319,4 +2319,15 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="movie_status_rumored">Ryktet</string>
     <string name="movie_status_in_production">I produksjon</string>
     <string name="movie_status_post_production">Postproduksjon</string>
+    <string name="about_us_website_title">StreamBridge-nettsted</string>
+    <string name="about_us_website_description">Besøk det offisielle StreamBridge-nettstedet</string>
+    <string name="settings_playback_chapter_title">Vis kapitteltittel</string>
+    <string name="settings_playback_chapter_title_description">Vis navnet på gjeldende kapittel over fremdriftslinjen.</string>
+    <string name="player_error_source_invalid_content">Kildefeil: Strømmekilden returnerte ugyldig eller ikke-avspillbart innhold. Lenken kan ha utløpt, eller serveren returnerte en feilside i stedet for video.\n\nPrøv en annen kilde. [%1$s]</string>
+    <string name="player_error_stream_blocked">Strømmekilden er blokkert eller begrenset. Prøv en annen kilde.</string>
+    <string name="player_error_stream_expired">Strømmelenken har utløpt. Prøv en annen kilde.</string>
+    <string name="player_error_stream_rate_limited">For mange forespørsler til strømmekilden. Vent litt og prøv igjen.</string>
+    <string name="player_error_stream_removed">Strømmelenken har utløpt eller blitt fjernet. Prøv en annen kilde.</string>
+    <string name="player_error_stream_unavailable">Strømmeserveren er for øyeblikket utilgjengelig. Prøv en annen kilde.</string>
+    <string name="player_error_unsupported_format">Denne strømmen bruker et format som enheten din kanskje ikke støtter. Prøv en annen kilde. [%1$s]</string>
 </resources>

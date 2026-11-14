@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">כותרי התקליטור</string>
+    <string name="player_disc_titles_count">כותרי התקליטור (%1$d)</string>
+    <string name="player_disc_title_feature">הסרט הראשי · %1$s</string>
+    <string name="player_disc_title_extra">תוספת · %1$s</string>
+    <string name="player_disc_title_clip">%1$d קליפ</string>
+    <string name="player_disc_title_clips">%1$d קליפים</string>
+    <string name="player_disc_title_audio">שמע %1$s</string>
+    <string name="player_disc_title_subtitles">כתוביות %1$s</string>
+    <string name="player_disc_title_failed">לא ניתן להפעיל את הכותר הזה</string>
+</resources>

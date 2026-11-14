@@ -946,7 +946,7 @@
     <string name="settings_playback_secondary_subtitle_language">Limba secundară preferată</string>
     <string name="settings_playback_section_decoder">DECODOR</string>
     <string name="settings_playback_engine">Motor de redare</string>
-    <string name="settings_playback_engine_auto_description">Folosește ExoPlayer mai întâi și revine la libmpv dacă redarea eșuează.</string>
+    <string name="settings_playback_engine_auto_description">ExoPlayer pentru Filme și Seriale · MPV pentru Anime</string>
     <string name="settings_playback_engine_exoplayer_description">Folosește ExoPlayer și decodoarele Android Media3.</string>
     <string name="settings_playback_engine_libmpv_description">Folosește libmpv pentru redarea pe Android.</string>
     <string name="settings_playback_libmpv_video_output">Randator libmpv</string>
@@ -1940,4 +1940,15 @@
     <string name="movie_status_rumored">Zvon</string>
     <string name="movie_status_in_production">În producție</string>
     <string name="movie_status_post_production">În postproducție</string>
+    <string name="about_us_website_title">Site-ul StreamBridge</string>
+    <string name="about_us_website_description">Vizitează site-ul oficial StreamBridge</string>
+    <string name="settings_playback_chapter_title">Afișează titlul capitolului</string>
+    <string name="settings_playback_chapter_title_description">Afișează numele capitolului curent deasupra barei de progres.</string>
+    <string name="player_error_source_invalid_content">Eroare la sursă: sursa fluxului a returnat conținut nevalid sau imposibil de redat. Este posibil ca linkul să fi expirat sau serverul să fi returnat o pagină de eroare în locul videoclipului.\n\nÎncearcă o altă sursă. [%1$s]</string>
+    <string name="player_error_stream_blocked">Sursa fluxului este blocată sau restricționată. Încearcă o altă sursă.</string>
+    <string name="player_error_stream_expired">Linkul fluxului a expirat. Încearcă o altă sursă.</string>
+    <string name="player_error_stream_rate_limited">Prea multe solicitări către sursa fluxului. Așteaptă puțin și încearcă din nou.</string>
+    <string name="player_error_stream_removed">Linkul fluxului a expirat sau a fost eliminat. Încearcă o altă sursă.</string>
+    <string name="player_error_stream_unavailable">Serverul fluxului este momentan indisponibil. Încearcă o altă sursă.</string>
+    <string name="player_error_unsupported_format">Acest flux folosește un format pe care dispozitivul tău s-ar putea să nu îl accepte. Încearcă o altă sursă. [%1$s]</string>
 </resources>

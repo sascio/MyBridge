@@ -5,13 +5,33 @@
 | Field | Value |
 |---|---|
 | Official core repo | https://github.com/NuvioMedia/NuvioMobile |
-| Official branch | `cmp-rewrite` |
-| Official 0.6.11-beta commit | `89f7d97b66910ecf8a75fd71a24e262320f0c6be` (verified tag) |
-| Enhanced repo requested for this sync | https://github.com/yesnt10/NuvioMobile-Enhanced |
-| Enhanced branch | `enhanced` |
-| Enhanced 0.6.11-beta commit | `254ae152fe94a2541c5a32b897a814594363d97f` |
-| Previous StreamBridge baseline | Enhanced 0.6.9-beta `01879330a3e8db844d49f31bda14ad35b458d287` |
-| StreamBridge release | 0.1.17 / version code 117 |
+| Official tag / commit | `0.6.12-beta` / `4135f96cd29f235b7c412f78dcfc13164c4b1e80` |
+| Enhanced repo | https://github.com/luqmanfadlli/NuvioMobile-Enhanced |
+| Enhanced tag / commit | `0.6.12-beta` / `ac86e820e76362284c9d7524bb523976df32e195` |
+| Previous Enhanced baseline | `0.6.11-beta` / `254ae152fe94a2541c5a32b897a814594363d97f` |
+| StreamBridge release prepared | 0.1.18 / version code 118 |
+
+## 0.6.12-beta / Enhanced 0.6.12-beta integration (0.1.18)
+
+The exact Enhanced tag was fetched and verified before integration. The official core tag
+`4135f96c` is an ancestor of Enhanced target `ac86e820`. The baseline-to-target range is 46
+commits and 133 changed paths (46 added, 87 modified, no removals; +8,226/−358 lines in the
+upstream tree diff).
+
+Integration was source-level, path by path; no upstream Git history was merged. Of the 133 paths,
+46 were added from the target, 43 modified files matched the prior baseline and were taken
+verbatim, 34 modified files were clean three-way merges, one file already matched the target,
+seven overlapping paths were manually resolved, and two StreamBridge-owned files were excluded
+from upstream replacement. The manual resolutions preserve StreamBridge localization/identity and
+its existing Simkl safeguards while integrating AUTH V2 device authorization, token refresh and
+revocation. The exact path-level dispositions and source commit summaries are in
+[SYNC-MANIFEST-0.6.12-beta.md](SYNC-MANIFEST-0.6.12-beta.md).
+
+`store.json` remains pinned to the last published IPA and is not edited for a prepared version;
+the published-release workflow updates it only after verifying a real unsigned IPA and digest.
+`iosApp/Configuration/Version.xcconfig` remains StreamBridge-owned and is set separately to
+0.1.18 / 118. StreamBridge's website, About Us community links, app identity, signing setup,
+updater metadata and Telegram automation remain outside the upstream overlay.
 
 ## 0.6.11-beta / Enhanced 0.6.11-beta integration (0.1.17)
 

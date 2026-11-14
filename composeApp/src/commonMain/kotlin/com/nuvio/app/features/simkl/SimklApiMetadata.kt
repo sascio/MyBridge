@@ -5,22 +5,17 @@ import io.ktor.http.encodeURLParameter
 
 internal const val SIMKL_API_BASE_URL = "https://api.simkl.com"
 
-// Simkl AUTH V2. The consent page lives on simkl.com while every other V2 endpoint
-// lives on api.simkl.com. The V1 authorize URL (/oauth/authorize) rejects V2 clients
-// with {"error":"unauthorized_client"}, which is what a V2-registered client_id hit.
+// Simkl AUTH V2 (OAuth 2.0 + PKCE). The authorize page lives on the browser host; every other
+// /oauth2/* endpoint is served from the API host. See https://api.simkl.org/api-reference/auth-v2
 internal const val SIMKL_AUTHORIZE_URL = "https://simkl.com/oauth2/authorize"
+internal const val SIMKL_OAUTH2_TOKEN_PATH = "/oauth2/token"
+internal const val SIMKL_OAUTH2_DEVICE_PATH = "/oauth2/device"
+internal const val SIMKL_OAUTH2_REVOKE_PATH = "/oauth2/revoke"
+internal const val SIMKL_OAUTH2_SCOPE = "media:read media:write"
 
-// POSTed to api.simkl.com as application/x-www-form-urlencoded. V1's /oauth/token
-// took a JSON body and is rejected for V2 clients.
-internal const val SIMKL_TOKEN_PATH = "/oauth2/token"
-
-// Omitting scope yields a read-only token, which would break scrobbling and
-// watched-status writes. A misspelled scope is silently downgraded to read-only
-// rather than rejected, so keep this exactly as Simkl documents it.
-internal const val SIMKL_AUTH_SCOPE = "media:read media:write"
-
-// Returned in the callback as `iss`. V2 sends it so a client talking to several
-// authorization servers can tell whose response it is.
+// Compatibility names retained for StreamBridge's PKCE callback and encoded token-form helpers.
+internal const val SIMKL_TOKEN_PATH = SIMKL_OAUTH2_TOKEN_PATH
+internal const val SIMKL_AUTH_SCOPE = SIMKL_OAUTH2_SCOPE
 internal const val SIMKL_ISSUER = "https://simkl.com"
 
 internal val simklAppVersion: String
@@ -61,7 +56,7 @@ internal fun simklRequestHeaders(
     accessToken?.trim()?.takeIf(String::isNotBlank)?.let { token ->
         put("Authorization", "Bearer $token")
     }
-    // The AUTH V2 token endpoint requires form encoding; every other POST keeps JSON.
+    // AUTH V2 token grants use RFC 6749 form encoding; other POST endpoints keep JSON.
     if (formEncoded) {
         put("Content-Type", "application/x-www-form-urlencoded")
     } else if (contentTypeJson) {

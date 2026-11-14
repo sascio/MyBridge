@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +39,8 @@ import nuvio.composeapp.generated.resources.about_us_telegram_description
 import nuvio.composeapp.generated.resources.about_us_telegram_title
 import nuvio.composeapp.generated.resources.about_us_what_body
 import nuvio.composeapp.generated.resources.about_us_what_title
+import nuvio.composeapp.generated.resources.about_us_website_description
+import nuvio.composeapp.generated.resources.about_us_website_title
 import nuvio.composeapp.generated.resources.discord_logo
 import nuvio.composeapp.generated.resources.telegram_logo
 import org.jetbrains.compose.resources.painterResource
@@ -48,6 +51,9 @@ internal const val STREAMBRIDGE_TELEGRAM_URL = "https://t.me/StreamBridge_App"
 
 /** StreamBridge Discord invitation. Opened in the external browser, never in-app. */
 internal const val STREAMBRIDGE_DISCORD_URL = "https://discord.gg/T9apykrjW"
+
+/** Official StreamBridge website. Opened in the external browser, never in-app. */
+internal const val STREAMBRIDGE_WEBSITE_URL = "https://streambridgeapp.pages.dev"
 
 @Composable
 fun AboutUsSettingsScreen(
@@ -111,6 +117,7 @@ private fun AboutUsBody(isTablet: Boolean) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 4.dp),
             )
+            WebsiteRow()
             TelegramRow()
             DiscordRow()
         }
@@ -136,6 +143,55 @@ private fun AboutUsCard(title: String, body: String) {
                 text = body,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WebsiteRow() {
+    val uriHandler = LocalUriHandler.current
+    NuvioSurfaceCard {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = stringResource(Res.string.about_us_website_description),
+                ) {
+                    runCatching { uriHandler.openUri(STREAMBRIDGE_WEBSITE_URL) }
+                }
+                .padding(PaddingValues(16.dp)),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Public,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.about_us_website_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = stringResource(Res.string.about_us_website_description),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
