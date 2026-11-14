@@ -73,7 +73,7 @@ class CloudStreamRuntimeFailureTest {
     }
 
     @Test
-    fun `an ABI version mismatch is reported as a member, not a missing class`() {
+    fun `an ABI version mismatch is reported as a member rather than a missing class`() {
         val diagnosis = CloudStreamRuntimeFailure.describe(
             throwableTypeName = "NoSuchMethodError",
             rawMessage = "No virtual method loadLinks(...) in class Lcom/lagradost/cloudstream3/MainAPI;",

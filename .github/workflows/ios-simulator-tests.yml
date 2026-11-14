@@ -1,8 +1,8 @@
 name: iOS simulator Kotlin tests
 
-# Target the simulator test task without rebuilding or uploading an IPA.
-# Failure details are mirrored to the job summary and annotations so they remain
-# inspectable even when Actions raw-log downloads are unavailable to a client.
+# Run the simulator Kotlin tests without rebuilding or uploading an IPA.
+# On failure, put the Gradle diagnostics in the job summary and annotations so
+# the cause stays visible even if raw Actions logs are temporarily unavailable.
 on:
   push:
     branches: [main, arena/**]
@@ -22,7 +22,6 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
@@ -52,111 +51,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-
-      # The original run's logs and build-log artifact are captured from the
-      # runner (which can access GitHub's Actions result storage) for diagnosis.
-      # Retrieval is best-effort; the focused test below remains authoritative.
-      - name: Retrieve original failed-run logs and build-log artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -uo pipefail
-          source_run=43611314892
-          source_job=132496868813
-          source_artifact=14121784220
-          output_dir="${RUNNER_TEMP}/original-ios-failure"
-          mkdir -p "${output_dir}"
-          if gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${source_job}/logs" \
-            > "${output_dir}/original-job.log" 2> "${output_dir}/job-log-fetch.err"; then
-            echo "Original job log retrieved."
-            python3 - "${output_dir}/original-job.log" "${GITHUB_STEP_SUMMARY}" <<'PY'
-          import pathlib, sys
-          source = pathlib.Path(sys.argv[1]).read_text(errors="replace").splitlines()
-          summary = pathlib.Path(sys.argv[2])
-          needles = ("Run iOS simulator Kotlin tests", "iosSimulatorArm64Test", "FAILURE:", "What went wrong")
-          matches = [i for i, line in enumerate(source) if any(n in line for n in needles)]
-          if matches:
-              lo = max(0, matches[0] - 8)
-              hi = min(len(source), matches[-1] + 100)
-              excerpt = "\n".join(source[lo:hi])
-              with summary.open("a") as out:
-                  out.write("\n## Original run simulator-test log excerpt\n\n```text\n")
-                  out.write(excerpt[-18000:])
-                  out.write("\n```\n")
-              encoded = excerpt[-8000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              print(f"::notice title=Original simulator failure log::{encoded}")
-          else:
-              with summary.open("a") as out:
-                  out.write("\nOriginal raw job log was retrieved, but expected simulator-test markers were not found; see the diagnostic artifact.\n")
-          PY
-          else
-            echo "::warning::Could not retrieve original job logs; see fetch error in the diagnostic artifact."
-          fi
-          if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${source_artifact}/zip" \
-            > "${output_dir}/original-build-log-artifact.zip" 2> "${output_dir}/artifact-fetch.err"; then
-            mkdir -p "${output_dir}/build-log-artifact"
-            if unzip -q "${output_dir}/original-build-log-artifact.zip" -d "${output_dir}/build-log-artifact"; then
-              echo "Original StreamBridge-iOS-build-log artifact retrieved and extracted."
-              python3 - "${output_dir}/build-log-artifact" "${GITHUB_STEP_SUMMARY}" <<'PY'
-          import pathlib, re, sys
-          root, summary = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-          logs = sorted(root.rglob("*.log"))
-          with summary.open("a") as out:
-              out.write("\n## Original IPA build-log artifact inspection\n\n")
-              if not logs:
-                  out.write("The downloaded artifact contained no `.log` file.\n")
-              for log in logs:
-                  lines = log.read_text(errors="replace").splitlines()
-                  matches = [line for line in lines if re.search(r"(?i)(failure:|what went wrong|\berror\b|exception)", line)]
-                  excerpt = "\n".join(matches[-60:] if matches else lines[-30:])
-                  out.write(f"- `{log.name}`: {log.stat().st_size} bytes; {len(matches)} error/failure marker lines.\n\n```text\n")
-                  out.write(excerpt[-8000:])
-                  out.write("\n```\n")
-                  encoded = excerpt[-5000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-                  print(f"::notice title=Original IPA build log excerpt::{encoded}")
-          PY
-            else
-              echo "::warning::Original build-log artifact was retrieved but could not be extracted."
-            fi
-          else
-            echo "::warning::Could not retrieve original build-log artifact; see fetch error in the diagnostic artifact."
-          fi
-          previous_test_artifact=14123389150
-          if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${previous_test_artifact}/zip" \
-            > "${output_dir}/previous-simulator-diagnostics.zip" 2> "${output_dir}/previous-diagnostics-fetch.err"; then
-            mkdir -p "${output_dir}/previous-simulator-diagnostics"
-            if unzip -q "${output_dir}/previous-simulator-diagnostics.zip" -d "${output_dir}/previous-simulator-diagnostics"; then
-              python3 - "${output_dir}/previous-simulator-diagnostics" "${GITHUB_STEP_SUMMARY}" <<'PY'
-          import pathlib, re, sys
-          root, summary = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-          logs = list(root.rglob("ios-simulator-arm64-test.log"))
-          with summary.open("a") as out:
-              out.write("\n## Previous targeted simulator-test log inspection\n\n")
-              if not logs:
-                  out.write("The downloaded diagnostics artifact did not contain the Gradle console log.\n")
-              for log in logs:
-                  lines = log.read_text(errors="replace").splitlines()
-                  marker = re.compile(r"(?i)(FAILURE:|what went wrong|execution failed|e: file:|error:|exception|caused by:|no tests found|test failed|could not|failed to|unavailable)")
-                  indices = [i for i, line in enumerate(lines) if marker.search(line)]
-                  selected = set()
-                  for i in indices[-30:]:
-                      selected.update(range(max(0, i - 4), min(len(lines), i + 9)))
-                  if not selected:
-                      selected.update(range(max(0, len(lines) - 80), len(lines)))
-                  excerpt = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
-                  out.write(f"- `{log.name}`: {len(lines)} lines; {len(indices)} failure/error markers.\n\n```text\n")
-                  out.write(excerpt[-12000:])
-                  out.write("\n```\n")
-                  encoded = excerpt[-9000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-                  print(f"::notice title=Previous simulator Gradle output::{encoded}")
-          PY
-            else
-              echo "::warning::Previous simulator diagnostics artifact was retrieved but not extractable."
-            fi
-          else
-            echo "::warning::Could not retrieve previous simulator diagnostics artifact; fetch error is in the new diagnostics artifact."
-          fi
-          echo "Original failed run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${source_run}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
@@ -200,8 +94,8 @@ jobs:
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 
-      # Match the iOS memory profile applied by build-ios-ipa.sh in the release
-      # workflow, without invoking the IPA build or its signing/package steps.
+      # Match the iOS memory profile applied by build-ios-ipa.sh, without
+      # invoking its IPA build or any signing/package steps.
       - name: Configure iOS Gradle memory profile
         run: |
           set -euo pipefail
@@ -222,7 +116,6 @@ jobs:
           ./gradlew --stop >/dev/null 2>&1 || true
 
       - name: Run iOS simulator Kotlin tests
-        id: simulator-tests
         env:
           NUVIO_IOS_DISTRIBUTION: full
         run: |
@@ -234,15 +127,24 @@ jobs:
           set -e
           if [ "${status}" -ne 0 ]; then
             python3 - "${test_log}" "${GITHUB_STEP_SUMMARY}" <<'PY'
-          import pathlib, sys
+          import pathlib, re, sys
           text = pathlib.Path(sys.argv[1]).read_text(errors="replace")
-          excerpt = "\n".join(text.splitlines()[-120:])
+          lines = text.splitlines()
+          marker = re.compile(r"(?i)(FAILURE:|what went wrong|execution failed|e: file:|error:|exception|caused by:|no tests found|test failed|could not|failed to|unavailable)")
+          indices = [i for i, line in enumerate(lines) if marker.search(line)]
+          selected = set()
+          for i in indices[-20:]:
+              selected.update(range(max(0, i - 4), min(len(lines), i + 9)))
+          if not selected:
+              selected.update(range(max(0, len(lines) - 100), len(lines)))
+          excerpt = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
+          excerpt = excerpt[-12000:]
           with pathlib.Path(sys.argv[2]).open("a") as out:
-              out.write("\n## Failed iOS simulator test output (last 120 lines)\n\n```text\n")
-              out.write(excerpt[-18000:])
+              out.write("\n## Failed iOS simulator test diagnostics\n\n```text\n")
+              out.write(excerpt)
               out.write("\n```\n")
-          encoded = excerpt[-10000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print(f"::error title=Gradle simulator test output::{encoded}")
+          encoded = excerpt[-9000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Gradle simulator test diagnostics::{encoded}")
           PY
           fi
           exit "${status}"
@@ -254,7 +156,6 @@ jobs:
           name: iOS-simulator-test-diagnostics-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/ios-simulator-arm64-test.log
-            ${{ runner.temp }}/original-ios-failure/**
             composeApp/build/test-results/iosSimulatorArm64Test/**
             composeApp/build/reports/tests/iosSimulatorArm64Test/**
           if-no-files-found: ignore

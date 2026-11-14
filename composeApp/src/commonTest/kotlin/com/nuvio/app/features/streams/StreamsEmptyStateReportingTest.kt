@@ -38,7 +38,7 @@ class StreamsEmptyStateReportingTest {
     )
 
     @Test
-    fun `a provider that failed is reported as a failure, not as no streams`() {
+    fun `a provider failure is reported as a failure instead of no streams`() {
         val groups = listOf(
             group("cloudstream:HiAnime", error = "Provider has no S1E3: AnimeLoadResponse offers 12 entries"),
         )
