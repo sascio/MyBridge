@@ -22,6 +22,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -51,6 +52,56 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      # Re-parse the previous failed run's uploaded Gradle log and test reports
+      # on a GitHub runner, since the local sandbox cannot reach Actions storage.
+      - name: Inspect previous simulator-test diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_id=14125278095
+          diagnostic_dir="${RUNNER_TEMP}/previous-ios-simulator-diagnostics"
+          mkdir -p "${diagnostic_dir}/unzipped"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${diagnostic_dir}/artifact.zip"
+          unzip -q "${diagnostic_dir}/artifact.zip" -d "${diagnostic_dir}/unzipped"
+          python3 - "${diagnostic_dir}/unzipped" "${GITHUB_STEP_SUMMARY}" <<'PY'
+          import pathlib, re, sys, xml.etree.ElementTree as ET
+          root, summary = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+          sections = []
+          logs = list(root.rglob("ios-simulator-arm64-test.log"))
+          marker = re.compile(r"(?i)(^e: file:|^FAILURE:|^what went wrong|> task .*failed|execution failed for task|there were failing tests|test run failed|assertionerror|caused by:|exception in thread)")
+          for log in logs:
+              lines = log.read_text(errors="replace").splitlines()
+              indices = [i for i, line in enumerate(lines) if marker.search(line)]
+              selected = set(range(max(0, len(lines) - 100), len(lines)))
+              for i in indices:
+                  selected.update(range(max(0, i - 5), min(len(lines), i + 12)))
+              excerpt = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
+              sections.append(f"## {log.name}: {len(lines)} lines\n{excerpt[-14000:]}")
+          xml_files = list(root.rglob("*.xml"))
+          test_failures = []
+          for xml_file in xml_files:
+              try:
+                  tree = ET.parse(xml_file)
+              except ET.ParseError:
+                  continue
+              for case in tree.iter("testcase"):
+                  for failure in list(case.findall("failure")) + list(case.findall("error")):
+                      test_failures.append(
+                          f"{case.get('classname')}.{case.get('name')}: "
+                          f"{failure.get('type', '')} {failure.get('message', '')}\n{failure.text or ''}"
+                      )
+          sections.append(f"## Test result XML files: {len(xml_files)}; failing cases: {len(test_failures)}")
+          sections.extend(test_failures)
+          report = "\n\n".join(sections) or "No simulator log or XML report was found in the artifact."
+          with summary.open("a") as out:
+              out.write("\n## Previous failed iOS simulator run diagnostics\n\n```text\n")
+              out.write(report[-20000:])
+              out.write("\n```\n")
+          encoded = report[-14000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::notice title=Previous iOS simulator failure details::{encoded}")
+          PY
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
