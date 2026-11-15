@@ -79,7 +79,10 @@ jobs:
   ios:
     name: iOS IPA (${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }})
     runs-on: macos-26
-    timeout-minutes: 180
+    # The production IPA build and simulator tests run sequentially in this job.
+    # On a cold macOS runner the IPA build alone can exceed two hours, so leave
+    # enough time for the simulator suite and artifact cleanup afterward.
+    timeout-minutes: 240
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
