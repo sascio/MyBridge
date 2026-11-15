@@ -12,7 +12,11 @@ mkdir -p "${out}"
 [[ -n "${GH_TOKEN:-}" ]] || { echo "GH_TOKEN is required." >&2; exit 2; }
 
 release_json="${out}/release.json"
-gh api "repos/${repo}/releases/${release_id}" >"${release_json}"
+echo "Reading existing release ${release_id}."
+if ! gh api "repos/${repo}/releases/${release_id}" >"${release_json}"; then
+  echo "::error title=Release audit::The workflow token could not read release ${release_id}." >&2
+  exit 1
+fi
 jq -e --arg tag "${tag}" --arg sha "${target_commit}" \
   '.id == 446011741 and .tag_name == $tag and .draft == true and .prerelease == false and .target_commitish == $sha' \
   "${release_json}" >/dev/null || {
@@ -20,19 +24,14 @@ jq -e --arg tag "${tag}" --arg sha "${target_commit}" \
   exit 1
 }
 
-# Resolve the annotated tag without following a symbolic/local tag alias.
-ref_json="${out}/tag-ref.json"
-gh api "repos/${repo}/git/ref/tags/${tag}" >"${ref_json}"
-tag_type="$(jq -r '.object.type' "${ref_json}")"
-tag_sha="$(jq -r '.object.sha' "${ref_json}")"
-if [[ "${tag_type}" == "tag" ]]; then
-  target="$(gh api "repos/${repo}/git/tags/${tag_sha}" --jq '.object.sha')"
-elif [[ "${tag_type}" == "commit" ]]; then
-  target="${tag_sha}"
-else
-  echo "Tag resolved to unexpected object type ${tag_type}." >&2
-  exit 1
+# Resolve the annotated tag directly from the authenticated Git remote. The
+# peeled ref is the commit behind an annotated tag; no tag is moved or created.
+tag_refs="$(git ls-remote origin "refs/tags/${tag}" "refs/tags/${tag}^{}")"
+target="$(awk -v peeled="refs/tags/${tag}^{}" '$2 == peeled {print $1}' <<<"${tag_refs}")"
+if [[ -z "${target}" ]]; then
+  target="$(awk -v direct="refs/tags/${tag}" '$2 == direct {print $1}' <<<"${tag_refs}")"
 fi
+[[ -n "${target}" ]] || { echo "Could not resolve ${tag} from origin." >&2; exit 1; }
 [[ "${target}" == "${target_commit}" ]] || {
   echo "${tag} points to ${target}, expected ${target_commit}." >&2
   exit 1

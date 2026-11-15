@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Set up Android SDK tools (no application build)
         uses: android-actions/setup-android@v4
