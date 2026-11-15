@@ -1,0 +1,43 @@
+name: Audit v0.1.18 production release assets
+
+on:
+  push:
+    branches:
+      - "arena/45a5ba0e-mybridge"
+    paths:
+      - ".github/workflows/release-asset-audit.yml"
+      - "scripts/audit-release-assets.sh"
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Existing v0.1.18 draft release ID
+        required: false
+        type: string
+        default: "446011741"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Download and verify existing production assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_ID: ${{ inputs.release_id || '446011741' }}
+    steps:
+      - name: Check out release verification tooling
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Android SDK tools (no application build)
+        uses: android-actions/setup-android@v4
+
+      - name: Install APK inspection tools
+        run: sdkmanager --install "build-tools;35.0.0"
+
+      - name: Download and audit the draft's actual release assets
+        run: scripts/audit-release-assets.sh
