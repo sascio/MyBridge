@@ -366,9 +366,15 @@ class RenderingTests(unittest.TestCase):
             id=443150851, tag_name="v0.1.18", name="StreamBridge 0.1.18",
             body=f"## StreamBridge Improvements\n\nThe official website is {website}.\n",
         ))
-        _future_announcement, future_pages = announce.build_pages(future_release)
+        future_announcement, future_pages = announce.build_pages(future_release)
         future_text = "\n".join(future_pages)
+        website_cta = f'<a href="{website}">🌐 Visit StreamBridge</a>'
+        self.assertIn(website_cta, future_pages[0])
+        self.assertLess(future_pages[0].index(website_cta), future_pages[0].index("💙 StreamBridge Improvements"))
+        self.assertEqual(future_announcement.pages[0].buttons[0], ("🌐 Visit StreamBridge", website))
+        self.assertEqual(future_announcement.keyboard[0], ("🌐 Visit StreamBridge", website))
         self.assertIn(f'<a href="{website}">Official StreamBridge website</a>', future_text)
+        self.assertLess(future_text.index("Official StreamBridge website"), future_text.index(notes.FOOTER))
         self.assertNotIn("OUR OFFICIAL WEBSITE IS LIVE!", future_text)
 
         prior_release = notes.Release.from_api(release_payload(
@@ -790,8 +796,8 @@ class WorkflowTests(unittest.TestCase):
         build = yaml.safe_load(build_file.read_text(encoding="utf-8"))
         expected = {
             ".github/workflows/build.yml", ".github/workflows/telegram-release-delivery.yml",
-            ".github/workflows/telegram-script-tests.yml", "docs/TELEGRAM-ANNOUNCEMENTS.md",
-            "scripts/telegram_*.py", "scripts/tests/telegram-*.py",
+            ".github/workflows/telegram-script-tests.yml", ".github/workflows/ios-simulator-tests.yml",
+            "docs/TELEGRAM-ANNOUNCEMENTS.md", "scripts/telegram_*.py", "scripts/tests/telegram-*.py",
         }
         build_on = build.get("on", build.get(True))
         self.assertEqual(set(build_on["push"]["paths-ignore"]), expected)

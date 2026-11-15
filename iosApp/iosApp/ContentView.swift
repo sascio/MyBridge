@@ -58,6 +58,8 @@ final class RootComposeViewController: UIViewController {
     private let verticalBar: VerticalBar?
     private var leadingConstraint: NSLayoutConstraint?
     private var trailingConstraint: NSLayoutConstraint?
+    private var isHalfOpen = false
+    private var foldBoundsSize = CGSize.zero
 
     init(
         contentController: UIViewController,
@@ -105,14 +107,18 @@ final class RootComposeViewController: UIViewController {
         ])
         self.leadingConstraint = leadingConstraint
         self.trailingConstraint = trailingConstraint
-        // Fold awareness (UIHingeInteraction, UIView.reservedRegions(kind:),
-        // UITraitCollection.systemTraitsAffectingVerticalBarEdge) and the vertical
-        // bar trait it drives only exist in the iOS 27 SDK. The CI image tops out
-        // at Xcode 26.6 / iOS 26.5, where those symbols are not declared at all, so
-        // referencing them behind #available still fails to compile. The Compose
-        // surface therefore uses the plain safe-area layout until a runner with
-        // that SDK is available; updateVerticalBar() still runs on every safe-area
-        // change, and the Kotlin Hinge/VerticalBar bridges simply stay empty.
+        if #available(iOS 27.1, *) {
+            registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) {
+                (controller: RootComposeViewController, _: UITraitCollection) in
+                controller.updateVerticalBar()
+            }
+            if hinge != nil {
+                view.addInteraction(UIHingeInteraction { [weak self] _, update in
+                    self?.isHalfOpen = update.hinge?.status == .partiallyOpen
+                    self?.updateFold()
+                })
+            }
+        }
         contentController.didMove(toParent: self)
 
         immersiveSystemUIObserver = NotificationCenter.default.addObserver(
@@ -138,14 +144,20 @@ final class RootComposeViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         enforceContainingTabBarVisibility()
+        guard view.bounds.size != foldBoundsSize else { return }
+        foldBoundsSize = view.bounds.size
         updateFold()
     }
 
-    /// Clears the fold bridge: reading the hinge position needs
-    /// `UIView.reservedRegions(kind: .division)` from the iOS 27 SDK (see the fold
-    /// note in viewDidLoad), so there is nothing to report on this toolchain.
     private func updateFold() {
-        hinge?.clear()
+        guard let hinge else { return }
+        guard #available(iOS 27.1, *), isHalfOpen,
+              let fold = view.reservedRegions(kind: .division).first(where: { $0.frame.width > $0.frame.height })
+        else {
+            hinge.clear()
+            return
+        }
+        hinge.update(top: Double(fold.frame.minY), bottom: Double(fold.frame.maxY))
     }
 
     private func updateVerticalBar() {
@@ -158,10 +170,18 @@ final class RootComposeViewController: UIViewController {
         }
     }
 
-    /// `UITraitCollection.verticalBarEdge` is an iOS 27 SDK API and is not declared
-    /// on this toolchain, so the Compose surface keeps the full safe area.
     private var verticalBarInsets: NSDirectionalEdgeInsets {
-        .zero
+        guard #available(iOS 27.1, *) else { return .zero }
+        let insets = view.safeAreaInsets
+        let isRightToLeft = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        switch traitCollection.verticalBarEdge {
+        case .leading:
+            return NSDirectionalEdgeInsets(top: 0, leading: isRightToLeft ? insets.right : insets.left, bottom: 0, trailing: 0)
+        case .trailing:
+            return NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: isRightToLeft ? insets.left : insets.right)
+        default:
+            return .zero
+        }
     }
 
     override var childForHomeIndicatorAutoHidden: UIViewController? {
@@ -1400,7 +1420,7 @@ private struct NativeToolbarReadabilityFade: View {
                 )
             )
             .frame(height: 120)
-            .ignoresSafeArea(edges: .top)
+            .ignoresSafeArea(edges: [.top, .leading, .trailing])
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
@@ -1481,13 +1501,13 @@ private struct DetailDestinationView: View {
 }
 
 private extension View {
-    /// Upstream disables the iOS 27 vertical bar with
-    /// `toolbarVerticalBehavior(.disabled)`, which is not declared in the iOS 26.5
-    /// SDK this project builds against. The modifier stays as a no-op so the call
-    /// site keeps its intent and comes back with a newer toolchain.
     @ViewBuilder
     func verticalBarDisabled(_ disabled: Bool) -> some View {
-        self
+        if #available(iOS 27.1, *), disabled {
+            toolbarVerticalBehavior(.disabled)
+        } else {
+            self
+        }
     }
 }
 

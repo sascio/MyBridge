@@ -10,8 +10,8 @@ synchronised from official NuvioMobile **0.5.5-beta** and NuvioMobile-Enhanced
 | App name | StreamBridge |
 | App bundle identifier | `com.streambridge.app` |
 | Widget bundle identifier | `com.streambridge.app.DownloadsWidgetExtension` |
-| Marketing version | `0.1.13` (`iosApp/Configuration/Version.xcconfig`) |
-| Build number | `110` |
+| Marketing version | `0.1.18` (`iosApp/Configuration/Version.xcconfig`) |
+| Build number | `118` |
 | Xcode project | `iosApp/iosApp.xcodeproj`, scheme `iosApp` |
 | Product | `StreamBridge.app` |
 | Distribution | `full` (`NUVIO_IOS_DISTRIBUTION=full`, plugins/CloudStream-capable core) |
@@ -29,7 +29,7 @@ or does not carry a `com.streambridge.app*` bundle identifier.
 ./scripts/build-ios-ipa.sh              # the unsigned IPA that is published
 ```
 
-Output: `build/ios-ipa/streambridge-0.1.13-full-release.ipa`.
+Output: `build/ios-ipa/streambridge-0.1.18-full-release.ipa`.
 
 Environment:
 
@@ -39,25 +39,32 @@ Environment:
 | `IOS_IPA_OUTPUT_DIR` | Output directory (default `build/ios-ipa`) |
 | `IOS_DERIVED_DATA_PATH` | DerivedData directory |
 | `NUVIO_ENGINE_ROOT` | Where `NuvioEngine.xcframework` is expected (default `../nuvio-engine`) |
-| `NUVIO_MPVKIT_REPO` | MPVKit source (default `NuvioMedia/MPVKit`) |
-| `NUVIO_MPVKIT_COMMIT` | MPVKit revision (default `d5cf091c`, the revision NuvioMobile-Enhanced 0.5.5-beta records for its submodule) |
-| `NUVIO_MPVKIT_REF` | Fetch a branch instead of the pinned revision |
+| Official MPVKit source | `https://github.com/NuvioMedia/MPVKit` at `da4b7da256a5d67dee74f576762ceb9067fc7a71` (Official Nuvio 0.6.12-beta gitlink) |
+| Enhanced MPVKit overlay | `https://github.com/luqmanfadlli/MPVKit` revision `359a885342d4eeda757f8e1d2c24fb01fe6d39c2`; the reviewed three-file delta is applied from [`scripts/patches/mpvkit-enhanced-0.6.13.patch`](../scripts/patches/mpvkit-enhanced-0.6.13.patch), SHA-256 `cc058085ecfaf65459b71c1d0b3e197cf4f3424a43680a12ebb33f178e0c1c36` |
 | `NUVIO_GRADLE_JVMARGS` | Gradle daemon heap for the iOS build (default `-Xmx12288M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=2048m`) |
 | `NUVIO_KOTLIN_DAEMON_JVMARGS` | Kotlin compile daemon heap (default `-Xmx8192M`) |
 | `NUVIO_KOTLIN_NATIVE_JVMARGS` | Kotlin/Native compiler heap (default `-Xmx12288M`) |
 
 `scripts/prepare-ios-dependencies.sh` downloads the pinned **Nuvio Engine
-0.1.2** Apple XCFramework (checksum verified) and, when the working tree does not
-provide it, fetches the MPVKit local Swift package that
-`iosApp/iosApp.xcodeproj` references as `../MPVKit`. MPVKit is checked out at
-`d5cf091c` — the same revision NuvioMobile-Enhanced 0.5.5-beta pins for its own
-submodule — so the iOS build always uses the player revision the release was
-synced from rather than a moving branch tip. StreamBridge does not vendor the
-MPVKit submodule; fetches are ignored by git.
+0.1.6** Apple XCFramework (checksum verified) and prepares the MPVKit local Swift
+package referenced by `iosApp/iosApp.xcodeproj` as `../MPVKit`. MPVKit starts at
+the exact Official Nuvio 0.6.12-beta gitlink, `da4b7da256a5d67dee74f576762ceb9067fc7a71`
+(repository `https://github.com/NuvioMedia/MPVKit`). It then applies the reviewed
+delta from Enhanced MPVKit `359a885342d4eeda757f8e1d2c24fb01fe6d39c2`
+(repository `https://github.com/luqmanfadlli/MPVKit`): changed binary URLs/checksums
+for the `nuvio.7` Libmpv/FFmpeg artifacts, two audio filters, and the extended PiP
+patch that serializes Dolby Vision RPU metadata. The Official revision already
+contains the PiP bridge and the subsequent VideoToolbox-recovery and host-audio
+session patches; those are retained unchanged. A setup marker records both pins,
+and the script refuses an unrelated or stale checkout rather than silently using
+it. `MPVKit/` remains a local ignored build dependency, not a vendored application
+submodule. The Swift package's checksums make SwiftPM validate every downloaded
+binary; successful CI dependency resolution is still required before declaring
+the archive downloaded and build-verified.
 
 `NuvioEngine` is kept only in the path and file names of the upstream engine
 artifact. The iOS application itself is named, signed and versioned as
-StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.13), and
+StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.18), and
 `scripts/build-ios-ipa.sh` fails if the packaged app reports anything else.
 
 ## Memory
@@ -78,6 +85,14 @@ the three variables in the table above. Android builds never read this profile:
 they use the project's `gradle.properties` unchanged.
 
 ## GitHub Actions
+
+The iOS IPA, simulator-test, and production-draft workflows use the `xcode-27` GitHub runner with
+Xcode 27.1. The version-keyed Kotlin/Native cache is isolated from builds made with older Xcode
+SDKs. Xcode 27.1 is required to compile the fold and vertical-bar integrations in
+`ContentView.swift`; those calls are guarded by iOS 27.1 availability, and the deployment target
+remains iOS 16.1. IPA and simulator jobs run independently; the simulator job restores the native
+cache read-only so concurrent cache writers cannot race. The previous Xcode 26.6 IPA step measured
+118.9 minutes; the new pipeline's duration has not yet been measured.
 
 | Workflow | Purpose |
 | --- | --- |
@@ -184,7 +199,7 @@ The unsigned IPA is the artifact users install. AltStore/SideStore does the
 re-signing on the device; the manual equivalent is:
 
 ```bash
-unzip -q build/ios-ipa/streambridge-0.1.13-full-release.ipa -d resigned
+unzip -q build/ios-ipa/streambridge-0.1.18-full-release.ipa -d resigned
 codesign --force --deep --sign "Apple Development" \
   --entitlements StreamBridge.entitlements \
   --keychain "$KEYCHAIN" "resigned/Payload/StreamBridge.app"
@@ -195,7 +210,7 @@ Re-signing with a free Apple ID works but lasts 7 days; AltStore/SideStore
 refresh it before expiry. Alternatively run the signed path above:
 
 ```bash
-unzip -q build/ios-ipa/streambridge-0.1.13-full-release.ipa -d resigned
+unzip -q build/ios-ipa/streambridge-0.1.18-full-release.ipa -d resigned
 codesign --force --deep --sign "Apple Distribution" \
   --entitlements StreamBridge.entitlements \
   --keychain "$KEYCHAIN" "resigned/Payload/StreamBridge.app"

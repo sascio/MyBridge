@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Titoli del disco</string>
+    <string name="player_disc_titles_count">Titoli del disco (%1$d)</string>
+    <string name="player_disc_title_feature">Film principale · %1$s</string>
+    <string name="player_disc_title_extra">Contenuto extra · %1$s</string>
+    <string name="player_disc_title_clip">%1$d clip</string>
+    <string name="player_disc_title_clips">%1$d clip</string>
+    <string name="player_disc_title_audio">Audio %1$s</string>
+    <string name="player_disc_title_subtitles">Sottotitoli %1$s</string>
+    <string name="player_disc_title_failed">Impossibile riprodurre questo titolo</string>
+</resources>

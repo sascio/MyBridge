@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">வட்டில் உள்ள தலைப்புகள்</string>
+    <string name="player_disc_titles_count">வட்டில் உள்ள தலைப்புகள் (%1$d)</string>
+    <string name="player_disc_title_feature">முக்கிய திரைப்படம் · %1$s</string>
+    <string name="player_disc_title_extra">கூடுதல் · %1$s</string>
+    <string name="player_disc_title_clip">%1$d கிளிப்</string>
+    <string name="player_disc_title_clips">%1$d கிளிப்புகள்</string>
+    <string name="player_disc_title_audio">ஒலி %1$s</string>
+    <string name="player_disc_title_subtitles">வசன வரிகள் %1$s</string>
+    <string name="player_disc_title_failed">இந்தத் தலைப்பை இயக்க முடியவில்லை</string>
+</resources>

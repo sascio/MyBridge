@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Platetitler</string>
+    <string name="player_disc_titles_count">Platetitler (%1$d)</string>
+    <string name="player_disc_title_feature">Hovedfilm · %1$s</string>
+    <string name="player_disc_title_extra">Ekstramateriale · %1$s</string>
+    <string name="player_disc_title_clip">%1$d klipp</string>
+    <string name="player_disc_title_clips">%1$d klipp</string>
+    <string name="player_disc_title_audio">Lyd %1$s</string>
+    <string name="player_disc_title_subtitles">Undertekster %1$s</string>
+    <string name="player_disc_title_failed">Denne tittelen kunne ikke spilles av</string>
+</resources>

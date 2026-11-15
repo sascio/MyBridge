@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">ディスクのタイトル</string>
+    <string name="player_disc_titles_count">ディスクのタイトル（%1$d）</string>
+    <string name="player_disc_title_feature">本編 · %1$s</string>
+    <string name="player_disc_title_extra">特典 · %1$s</string>
+    <string name="player_disc_title_clip">クリップ %1$d 個</string>
+    <string name="player_disc_title_clips">クリップ %1$d 個</string>
+    <string name="player_disc_title_audio">音声 %1$s</string>
+    <string name="player_disc_title_subtitles">字幕 %1$s</string>
+    <string name="player_disc_title_failed">このタイトルを再生できませんでした</string>
+</resources>

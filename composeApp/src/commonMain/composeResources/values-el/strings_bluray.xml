@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Τίτλοι δίσκου</string>
+    <string name="player_disc_titles_count">Τίτλοι δίσκου (%1$d)</string>
+    <string name="player_disc_title_feature">Κύρια ταινία · %1$s</string>
+    <string name="player_disc_title_extra">Πρόσθετο υλικό · %1$s</string>
+    <string name="player_disc_title_clip">%1$d κλιπ</string>
+    <string name="player_disc_title_clips">%1$d κλιπ</string>
+    <string name="player_disc_title_audio">Ήχος %1$s</string>
+    <string name="player_disc_title_subtitles">Υπότιτλοι %1$s</string>
+    <string name="player_disc_title_failed">Δεν ήταν δυνατή η αναπαραγωγή αυτού του τίτλου</string>
+</resources>

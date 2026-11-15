@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Заглавия на диска</string>
+    <string name="player_disc_titles_count">Заглавия на диска (%1$d)</string>
+    <string name="player_disc_title_feature">Основен филм · %1$s</string>
+    <string name="player_disc_title_extra">Допълнително · %1$s</string>
+    <string name="player_disc_title_clip">%1$d клип</string>
+    <string name="player_disc_title_clips">%1$d клипа</string>
+    <string name="player_disc_title_audio">Аудио %1$s</string>
+    <string name="player_disc_title_subtitles">Субтитри %1$s</string>
+    <string name="player_disc_title_failed">Това заглавие не може да бъде възпроизведено</string>
+</resources>

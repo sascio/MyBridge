@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest import mock
 import sys
 import unittest
+import yaml
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS / "tests"))
@@ -88,6 +89,24 @@ class ReconciliationTests(unittest.TestCase):
         self.run["event"] = "schedule"
         saved = self.perform()
         self.assertEqual(saved.document["releases"][0]["items"][0]["state"], "sent")
+
+    def test_manual_poll_can_be_reconciled_with_exact_read_only_telegram_proof(self):
+        self.job["name"] = reconcile.POLL_JOB_NAME
+        self.run["event"] = "workflow_dispatch"
+        request = dict(self.request, evidence="telegram_mtproto_known_id")
+        saved = reconcile.reconcile(
+            self.store, request, repository="sascio/MyBridge", api=self.api,
+            get_log=lambda *_: self.fail("known-message reconciliation must not depend on job logs"),
+            policy_check=lambda: None,
+            telegram_lookup=lambda *_: "2026-01-03T00:00:02Z",
+        )
+        self.assertEqual(saved.document["releases"][0]["items"][0]["state"], "sent")
+        self.assertEqual(saved.document["releases"][0]["items"][0]["message_id"], 77)
+
+    def test_poll_job_identity_matches_the_workflow_definition(self):
+        workflow_path = SCRIPTS.parent / ".github/workflows/telegram-release-delivery.yml"
+        workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        self.assertEqual(workflow["jobs"]["automatic"]["name"], reconcile.POLL_JOB_NAME)
 
     def test_known_telegram_id_can_be_reconciled_only_after_exact_read_only_proof(self):
         request = dict(self.request, evidence="telegram_mtproto_known_id")

@@ -369,7 +369,7 @@ private fun PlayerScreenRuntime.switchToPreparedLiveChannel(channel: LiveTvChann
     }
     stopActiveP2pStream()
     activeSourceUrl = channel.streamUrl
-    activePlaybackSourceUrl = if (channel.streamUrl.contains(".m3u8", ignoreCase = true)) null else channel.streamUrl
+    activePlaybackSourceUrl = channel.streamUrl
     activeSourceAudioUrl = null
     activeSourceHeaders = sanitizePlaybackHeaders(channel.headers)
     activeSourceResponseHeaders = emptyMap()
@@ -432,6 +432,7 @@ internal fun PlayerScreenRuntime.switchToSource(
                         season = activeSeasonNumber,
                         episode = activeEpisodeNumber,
                         forceRefresh = true,
+                        parentMetaId = parentMetaId,
                     )
                 }
             },
@@ -517,6 +518,7 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
                     season = episode.season,
                     episode = episode.episode,
                     forceRefresh = true,
+                    parentMetaId = parentMetaId,
                 )
             },
         )
@@ -681,6 +683,7 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
         videoId = vid,
         season = activeSeasonNumber,
         episode = activeEpisodeNumber,
+        parentMetaId = parentMetaId,
     )
     showSourcesPanel = true
     showEpisodesPanel = false
@@ -777,7 +780,7 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     controlsVisible = true
 }
 
-private fun PlayerScreenRuntime.saveDirectStreamForReuse(
+internal fun PlayerScreenRuntime.saveDirectStreamForReuse(
     stream: StreamItem,
     url: String,
     videoId: String,

@@ -5,6 +5,7 @@ import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.skip.NextEpisodeThresholdMode
 import com.nuvio.app.features.streams.StreamAutoPlayMode
 import com.nuvio.app.features.streams.StreamAutoPlaySource
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,12 +70,16 @@ data class PlayerSettingsUiState(
     val streamReuseLastLinkCacheHours: Int = 24,
     val androidPlaybackEngine: AndroidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer,
     val autoSwitchPlaybackEngineOnError: Boolean = true,
+    val streamAutoPlayFallbackOnFailure: Boolean = false,
+    val streamAutoPlayFallbackMaxSources: Int = DEFAULT_SOURCE_FALLBACK_MAX_SOURCES,
+    val streamAutoPlayFallbackStartupTimeoutSeconds: Int = DEFAULT_SOURCE_STARTUP_TIMEOUT_SECONDS,
     val androidLibmpvVideoOutput: AndroidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext,
     val androidLibmpvHardwareDecodingEnabled: Boolean = true,
     val androidLibmpvYuv420pEnabled: Boolean = false,
     val androidAnimeUpscaleEnabled: Boolean = false,
     val androidAnimeLineSharpenEnabled: Boolean = false,
     val androidExoChaptersEnabled: Boolean = false,
+    val chapterTitleEnabled: Boolean = true,
     val rememberAudioDelayPerDevice: Boolean = true,
     val persistAudioAmplification: Boolean = false,
     val audioAmplificationDb: Int = 0,
@@ -144,6 +149,24 @@ data class PlayerSettingsUiState(
     val iosGamma: Int = 0,
 )
 
+/** How many further sources falling back may try after the auto-selected one fails, by default and at most. */
+const val DEFAULT_SOURCE_FALLBACK_MAX_SOURCES = 3
+val SOURCE_FALLBACK_MAX_SOURCES_RANGE = 1..10
+
+/** How long a source may take to start before falling back treats it as failed, by default and the allowed range, in seconds. */
+const val DEFAULT_SOURCE_STARTUP_TIMEOUT_SECONDS = 15
+val SOURCE_STARTUP_TIMEOUT_SECONDS_RANGE = 5..45
+const val SOURCE_STARTUP_TIMEOUT_SECONDS_STEP = 5
+
+/**
+ * Falling back to the next matching source applies only while auto source selection picks the
+ * stream and the internal player plays it.
+ */
+val PlayerSettingsUiState.streamAutoPlayFallbackActive: Boolean
+    get() = streamAutoPlayFallbackOnFailure &&
+        streamAutoPlayMode != StreamAutoPlayMode.MANUAL &&
+        !externalPlayerEnabled
+
 object PlayerSettingsRepository {
     private val _uiState = MutableStateFlow(PlayerSettingsUiState())
     val uiState: StateFlow<PlayerSettingsUiState> = _uiState.asStateFlow()
@@ -184,12 +207,16 @@ object PlayerSettingsRepository {
     private var streamReuseLastLinkCacheHours = 24
     private var androidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer
     private var autoSwitchPlaybackEngineOnError = true
+    private var streamAutoPlayFallbackOnFailure = false
+    private var streamAutoPlayFallbackMaxSources = DEFAULT_SOURCE_FALLBACK_MAX_SOURCES
+    private var streamAutoPlayFallbackStartupTimeoutSeconds = DEFAULT_SOURCE_STARTUP_TIMEOUT_SECONDS
     private var androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
     private var androidLibmpvHardwareDecodingEnabled = true
     private var androidLibmpvYuv420pEnabled = false
     private var androidAnimeUpscaleEnabled = false
     private var androidAnimeLineSharpenEnabled = false
     private var androidExoChaptersEnabled = false
+    private var chapterTitleEnabled = true
     private var rememberAudioDelayPerDevice = true
     private var persistAudioAmplification = false
     private var audioAmplificationDb = 0
@@ -304,12 +331,16 @@ object PlayerSettingsRepository {
         streamReuseLastLinkCacheHours = 24
         androidPlaybackEngine = AndroidPlaybackEngine.ExoPlayer
         autoSwitchPlaybackEngineOnError = true
+        streamAutoPlayFallbackOnFailure = false
+        streamAutoPlayFallbackMaxSources = DEFAULT_SOURCE_FALLBACK_MAX_SOURCES
+        streamAutoPlayFallbackStartupTimeoutSeconds = DEFAULT_SOURCE_STARTUP_TIMEOUT_SECONDS
         androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
         androidLibmpvHardwareDecodingEnabled = true
         androidLibmpvYuv420pEnabled = false
         androidAnimeUpscaleEnabled = false
         androidAnimeLineSharpenEnabled = false
         androidExoChaptersEnabled = false
+        chapterTitleEnabled = true
         rememberAudioDelayPerDevice = true
         persistAudioAmplification = false
         audioAmplificationDb = 0
@@ -421,7 +452,7 @@ object PlayerSettingsRepository {
                 ?: SubtitleLanguageOption.NONE
         secondaryPreferredSubtitleLanguage =
             normalizeLanguageCode(PlayerSettingsStorage.loadSecondaryPreferredSubtitleLanguage())
-        subtitleStyle = SubtitleStyleState(
+        val legacySubtitleStyle = SubtitleStyleState(
             textColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleTextColor())
                 ?: SubtitleStyleState.DEFAULT.textColor,
             backgroundColor = subtitleColorFromStorage(PlayerSettingsStorage.loadSubtitleBackgroundColor())
@@ -446,12 +477,23 @@ object PlayerSettingsRepository {
                 ?: SubtitleStyleState.DEFAULT.showOnlyPreferredLanguages,
             appearance = decodeSubtitleAppearance(PlayerSettingsStorage.loadSubtitleAppearance()),
         )
+        subtitleStyle = SubtitleDevicePreferencesRepository.loadOrMigrate(
+            profileId = ProfileRepository.activeProfileId,
+            legacyStyle = legacySubtitleStyle,
+        )
         streamReuseLastLinkEnabled = PlayerSettingsStorage.loadStreamReuseLastLinkEnabled() ?: false
         streamReuseLastLinkCacheHours = PlayerSettingsStorage.loadStreamReuseLastLinkCacheHours() ?: 24
         androidPlaybackEngine = PlayerSettingsStorage.loadAndroidPlaybackEngine()
             ?.let { runCatching { AndroidPlaybackEngine.valueOf(it) }.getOrNull() }
             ?: AndroidPlaybackEngine.ExoPlayer
         autoSwitchPlaybackEngineOnError = PlayerSettingsStorage.loadAutoSwitchPlaybackEngineOnError() ?: true
+        streamAutoPlayFallbackOnFailure = PlayerSettingsStorage.loadStreamAutoPlayFallbackOnFailure() ?: false
+        streamAutoPlayFallbackMaxSources = PlayerSettingsStorage.loadStreamAutoPlayFallbackMaxSources()
+            ?.coerceIn(SOURCE_FALLBACK_MAX_SOURCES_RANGE)
+            ?: DEFAULT_SOURCE_FALLBACK_MAX_SOURCES
+        streamAutoPlayFallbackStartupTimeoutSeconds = PlayerSettingsStorage.loadStreamAutoPlayFallbackStartupTimeoutSeconds()
+            ?.coerceIn(SOURCE_STARTUP_TIMEOUT_SECONDS_RANGE)
+            ?: DEFAULT_SOURCE_STARTUP_TIMEOUT_SECONDS
         androidLibmpvVideoOutput = PlayerSettingsStorage.loadAndroidLibmpvVideoOutput()
             ?.let { runCatching { AndroidLibmpvVideoOutput.valueOf(it) }.getOrNull() }
             ?: AndroidLibmpvVideoOutput.GpuNext
@@ -460,6 +502,7 @@ object PlayerSettingsRepository {
         androidAnimeUpscaleEnabled = PlayerSettingsStorage.loadAndroidAnimeUpscaleEnabled() ?: false
         androidAnimeLineSharpenEnabled = PlayerSettingsStorage.loadAndroidAnimeLineSharpenEnabled() ?: false
         androidExoChaptersEnabled = PlayerSettingsStorage.loadAndroidExoChaptersEnabled() ?: false
+        chapterTitleEnabled = PlayerSettingsStorage.loadChapterTitleEnabled() ?: true
         rememberAudioDelayPerDevice = PlayerSettingsStorage.loadRememberAudioDelayPerDevice() ?: true
         persistAudioAmplification = PlayerSettingsStorage.loadPersistAudioAmplification() ?: false
         audioAmplificationDb = (PlayerSettingsStorage.loadAudioAmplificationDb() ?: 0)
@@ -836,18 +879,7 @@ object PlayerSettingsRepository {
         if (subtitleStyle == normalized) return
         subtitleStyle = normalized
         publish()
-        PlayerSettingsStorage.saveSubtitleTextColor(normalized.textColor.toStorageHexString())
-        PlayerSettingsStorage.saveSubtitleBackgroundColor(normalized.backgroundColor.toStorageHexString())
-        PlayerSettingsStorage.saveSubtitleAppearance(normalized.appearance.encode())
-        PlayerSettingsStorage.saveSubtitleOutlineColor(normalized.outlineColor.toStorageHexString())
-        PlayerSettingsStorage.saveSubtitleOutlineEnabled(normalized.outlineEnabled)
-        PlayerSettingsStorage.saveSubtitleOutlineWidth(normalized.outlineWidth)
-        PlayerSettingsStorage.saveSubtitleBold(normalized.bold)
-        PlayerSettingsStorage.saveSubtitleFontSizeSp(normalized.fontSizeSp)
-        PlayerSettingsStorage.saveSubtitleBottomOffset(normalized.bottomOffset)
-        PlayerSettingsStorage.saveSubtitleStripSdh(normalized.stripSdh)
-        PlayerSettingsStorage.saveSubtitleUseForcedSubtitles(normalized.useForcedSubtitles)
-        PlayerSettingsStorage.saveSubtitleShowOnlyPreferredLanguages(normalized.showOnlyPreferredLanguages)
+        SubtitleDevicePreferencesRepository.save(ProfileRepository.activeProfileId, normalized)
     }
 
     fun setStreamReuseLastLinkEnabled(enabled: Boolean) {
@@ -880,6 +912,32 @@ object PlayerSettingsRepository {
         autoSwitchPlaybackEngineOnError = enabled
         publish()
         PlayerSettingsStorage.saveAutoSwitchPlaybackEngineOnError(enabled)
+    }
+
+    fun setStreamAutoPlayFallbackOnFailure(enabled: Boolean) {
+        ensureLoaded()
+        if (streamAutoPlayFallbackOnFailure == enabled) return
+        streamAutoPlayFallbackOnFailure = enabled
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayFallbackOnFailure(enabled)
+    }
+
+    fun setStreamAutoPlayFallbackMaxSources(count: Int) {
+        ensureLoaded()
+        val normalized = count.coerceIn(SOURCE_FALLBACK_MAX_SOURCES_RANGE)
+        if (streamAutoPlayFallbackMaxSources == normalized) return
+        streamAutoPlayFallbackMaxSources = normalized
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayFallbackMaxSources(normalized)
+    }
+
+    fun setStreamAutoPlayFallbackStartupTimeoutSeconds(seconds: Int) {
+        ensureLoaded()
+        val normalized = seconds.coerceIn(SOURCE_STARTUP_TIMEOUT_SECONDS_RANGE)
+        if (streamAutoPlayFallbackStartupTimeoutSeconds == normalized) return
+        streamAutoPlayFallbackStartupTimeoutSeconds = normalized
+        publish()
+        PlayerSettingsStorage.saveStreamAutoPlayFallbackStartupTimeoutSeconds(normalized)
     }
 
     fun setAndroidLibmpvVideoOutput(output: AndroidLibmpvVideoOutput) {
@@ -928,6 +986,14 @@ object PlayerSettingsRepository {
         androidExoChaptersEnabled = enabled
         publish()
         PlayerSettingsStorage.saveAndroidExoChaptersEnabled(enabled)
+    }
+
+    fun setChapterTitleEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (chapterTitleEnabled == enabled) return
+        chapterTitleEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveChapterTitleEnabled(enabled)
     }
 
     fun setRememberAudioDelayPerDevice(enabled: Boolean) {
@@ -1554,12 +1620,16 @@ object PlayerSettingsRepository {
             streamReuseLastLinkCacheHours = streamReuseLastLinkCacheHours,
             androidPlaybackEngine = androidPlaybackEngine,
             autoSwitchPlaybackEngineOnError = autoSwitchPlaybackEngineOnError,
+            streamAutoPlayFallbackOnFailure = streamAutoPlayFallbackOnFailure,
+            streamAutoPlayFallbackMaxSources = streamAutoPlayFallbackMaxSources,
+            streamAutoPlayFallbackStartupTimeoutSeconds = streamAutoPlayFallbackStartupTimeoutSeconds,
             androidLibmpvVideoOutput = androidLibmpvVideoOutput,
             androidLibmpvHardwareDecodingEnabled = androidLibmpvHardwareDecodingEnabled,
             androidLibmpvYuv420pEnabled = androidLibmpvYuv420pEnabled,
             androidAnimeUpscaleEnabled = androidAnimeUpscaleEnabled,
             androidAnimeLineSharpenEnabled = androidAnimeLineSharpenEnabled,
             androidExoChaptersEnabled = androidExoChaptersEnabled,
+            chapterTitleEnabled = chapterTitleEnabled,
             rememberAudioDelayPerDevice = rememberAudioDelayPerDevice,
             persistAudioAmplification = persistAudioAmplification,
             audioAmplificationDb = audioAmplificationDb,

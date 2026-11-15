@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Disk başlıkları</string>
+    <string name="player_disc_titles_count">Disk başlıkları (%1$d)</string>
+    <string name="player_disc_title_feature">Ana film · %1$s</string>
+    <string name="player_disc_title_extra">Ek içerik · %1$s</string>
+    <string name="player_disc_title_clip">%1$d klip</string>
+    <string name="player_disc_title_clips">%1$d klip</string>
+    <string name="player_disc_title_audio">Ses %1$s</string>
+    <string name="player_disc_title_subtitles">Altyazılar %1$s</string>
+    <string name="player_disc_title_failed">Bu başlık oynatılamadı</string>
+</resources>

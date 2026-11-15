@@ -27,12 +27,26 @@ internal data class PluginProviderGroup(
 )
 
 internal sealed interface StreamLoadCompletion {
-    data class Addon(val group: AddonStreamGroup) : StreamLoadCompletion
+    /**
+     * An addon result may be a checking-state update before the final availability result.
+     * Only the terminal emission completes the source task.
+     */
+    data class Addon(
+        val group: AddonStreamGroup,
+        val isTerminal: Boolean = true,
+    ) : StreamLoadCompletion
+
     data class PluginScraper(
         val addonId: String,
         val streams: List<StreamItem>,
         val error: String?,
     ) : StreamLoadCompletion
+
+    val completesTask: Boolean
+        get() = when (this) {
+            is Addon -> isTerminal
+            is PluginScraper -> true
+        }
 }
 
 internal fun List<PluginScraper>.toPluginProviderGroups(

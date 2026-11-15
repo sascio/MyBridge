@@ -1,0 +1,11 @@
+<resources>
+    <string name="player_disc_titles">Naslovi na disku</string>
+    <string name="player_disc_titles_count">Naslovi na disku (%1$d)</string>
+    <string name="player_disc_title_feature">Glavni film · %1$s</string>
+    <string name="player_disc_title_extra">Dodaci · %1$s</string>
+    <string name="player_disc_title_clip">%1$d isječak</string>
+    <string name="player_disc_title_clips">%1$d isječaka</string>
+    <string name="player_disc_title_audio">Zvuk %1$s</string>
+    <string name="player_disc_title_subtitles">Titlovi %1$s</string>
+    <string name="player_disc_title_failed">Ovaj naslov nije moguće reproducirati</string>
+</resources>

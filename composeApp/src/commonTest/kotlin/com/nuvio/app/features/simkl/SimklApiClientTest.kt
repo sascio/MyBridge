@@ -87,6 +87,38 @@ class SimklApiClientTest {
     }
 
     @Test
+    fun `oauth token requests send their form body without bearer auth`() = runBlocking {
+        val engine = RecordingEngine(response(200, """{"access_token":"access"}"""))
+        val harness = TestHarness(engine)
+        val body = buildSimklTokenForm(
+            linkedMapOf(
+                "grant_type" to SIMKL_GRANT_AUTHORIZATION_CODE,
+                "client_id" to "client-id",
+                "code" to "one+two",
+                "redirect_uri" to "streambridge://auth/simkl",
+                "code_verifier" to "verifier",
+            ),
+        )
+
+        harness.client.execute(
+            SimklApiRequest(
+                method = SimklHttpMethod.POST,
+                path = SIMKL_OAUTH2_TOKEN_PATH,
+                body = body,
+                formEncoded = true,
+                requiresAuthentication = false,
+                retryPolicy = SimklRetryPolicy.NEVER,
+            ),
+        )
+
+        val request = engine.requests.single()
+        assertTrue(request.url.contains("/oauth2/token?"))
+        assertEquals(body, request.body)
+        assertEquals("application/x-www-form-urlencoded", request.headers["Content-Type"])
+        assertFalse("Authorization" in request.headers)
+    }
+
+    @Test
     fun `sync response diagnostics exclude response bodies and query values`() {
         val body = """{"movies":[{"movie":{"title":"Private title"}}]}"""
         val request = SimklApiRequest(
@@ -292,6 +324,75 @@ class SimklApiClientTest {
     }
 
     @Test
+    fun `auth v2 401 refreshes once and retries with the new token`() = runBlocking {
+        val engine = RecordingEngine(response(401), response(200))
+        val refreshedFor = mutableListOf<String>()
+        val harness = TestHarness(
+            engine,
+            refreshAccessToken = { rejected ->
+                refreshedFor += rejected
+                "fresh-token"
+            },
+        )
+
+        val result = harness.client.execute(SimklApiRequest(SimklHttpMethod.GET, "/private"))
+
+        assertEquals(200, result.status)
+        assertEquals(listOf("token"), refreshedFor)
+        assertEquals(
+            listOf("Bearer token", "Bearer fresh-token"),
+            engine.requests.map { it.headers.getValue("Authorization") },
+        )
+        assertFalse(harness.wasUnauthorized)
+    }
+
+    @Test
+    fun `auth v2 401 after a refresh requires re-authorization`() = runBlocking {
+        val engine = RecordingEngine(response(401), response(401))
+        val harness = TestHarness(engine, refreshAccessToken = { "fresh-token" })
+
+        assertFailsWith<SimklApiException> {
+            harness.client.execute(SimklApiRequest(SimklHttpMethod.GET, "/private"))
+        }
+
+        assertTrue(harness.wasUnauthorized)
+        assertEquals(2, engine.requests.size)
+    }
+
+    @Test
+    fun `auth v2 failed refresh leaves credential cleanup to the provider`() = runBlocking {
+        val engine = RecordingEngine(response(401))
+        val harness = TestHarness(engine, refreshAccessToken = { null })
+
+        assertFailsWith<SimklApiException> {
+            harness.client.execute(SimklApiRequest(SimklHttpMethod.GET, "/private"))
+        }
+
+        assertFalse(harness.wasUnauthorized)
+        assertEquals(1, engine.requests.size)
+    }
+
+    @Test
+    fun `auth v2 device poll errors follow rfc 8628`() {
+        assertEquals(SimklDevicePollOutcome.PENDING, simklDevicePollOutcome("authorization_pending"))
+        assertEquals(SimklDevicePollOutcome.SLOW_DOWN, simklDevicePollOutcome("slow_down"))
+        assertEquals(SimklDevicePollOutcome.EXPIRED, simklDevicePollOutcome("expired_token"))
+        assertEquals(SimklDevicePollOutcome.DENIED, simklDevicePollOutcome("access_denied"))
+        assertEquals(SimklDevicePollOutcome.FAILED, simklDevicePollOutcome("invalid_client"))
+        assertEquals(SimklDevicePollOutcome.FAILED, simklDevicePollOutcome(null))
+    }
+
+    @Test
+    fun `auth v2 refresh only drops the grant on definitive rejections`() {
+        assertTrue(isSimklDefinitiveTokenRejection(400, "invalid_grant"))
+        assertTrue(isSimklDefinitiveTokenRejection(401, "invalid_client"))
+        assertTrue(isSimklDefinitiveTokenRejection(401, null))
+        assertFalse(isSimklDefinitiveTokenRejection(null, "transport_failure"))
+        assertFalse(isSimklDefinitiveTokenRejection(503, null))
+        assertFalse(isSimklDefinitiveTokenRejection(429, null))
+    }
+
+    @Test
     fun `duplicate scrobble stop is a soft success`() = runBlocking {
         val engine = RecordingEngine(response(409))
         val harness = TestHarness(engine)
@@ -313,6 +414,7 @@ class SimklApiClientTest {
     private class TestHarness(
         engine: RecordingEngine,
         responseDurationMs: Long = 0L,
+        refreshAccessToken: (suspend (String) -> String?)? = null,
     ) {
         var now = 0L
         val sleeps = mutableListOf<Long>()
@@ -324,6 +426,7 @@ class SimklApiClientTest {
             },
             accessToken = { "token" },
             onUnauthorized = { wasUnauthorized = true },
+            refreshAccessToken = refreshAccessToken,
             nowEpochMs = { now },
             sleep = { delayMs ->
                 sleeps += delayMs

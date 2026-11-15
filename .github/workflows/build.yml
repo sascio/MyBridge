@@ -3,22 +3,24 @@ name: Build Stream Bridge
 on:
   push:
     branches: [main, arena/**]
-    # Telegram-only tooling changes use the focused JDK-free test workflow;
-    # keep the full app build on every pull request and app-source push.
+    # Telegram tooling and the standalone iOS simulator suite have focused
+    # workflows; keep the full app build for app-source pushes.
     paths-ignore:
       - '.github/workflows/build.yml'
       - '.github/workflows/telegram-release-delivery.yml'
       - '.github/workflows/telegram-script-tests.yml'
+      - '.github/workflows/ios-simulator-tests.yml'
       - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
       - 'scripts/telegram_*.py'
       - 'scripts/tests/telegram-*.py'
   pull_request:
-    # Telegram-only recovery changes are validated by the focused offline
-    # workflow; retain the full app build on any PR that also changes app files.
+    # Telegram recovery and standalone iOS simulator tests use focused
+    # workflows; retain the full app build when a PR changes app files.
     paths-ignore:
       - '.github/workflows/build.yml'
       - '.github/workflows/telegram-release-delivery.yml'
       - '.github/workflows/telegram-script-tests.yml'
+      - '.github/workflows/ios-simulator-tests.yml'
       - 'docs/TELEGRAM-ANNOUNCEMENTS.md'
       - 'scripts/telegram_*.py'
       - 'scripts/tests/telegram-*.py'
