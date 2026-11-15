@@ -15,8 +15,10 @@ on:
         type: string
         default: "446011741"
 
+# Draft-release downloads require the repository contents scope on the action token;
+# the audit script itself performs read-only operations.
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   audit:
