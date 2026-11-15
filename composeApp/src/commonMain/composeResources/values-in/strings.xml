@@ -667,7 +667,7 @@
     <string name="compose_tracking_list_picker_loading">Memuat daftar…</string>
     <string name="compose_tracking_list_picker_subtitle">Pilih tempat menyimpan judul ini</string>
     <string name="action_donate">Donasi</string>
-    <string name="action_support_nuvio">Dukung Nuvio</string>
+    <string name="action_support_nuvio">Dukung StreamBridge</string>
     <string name="cw_action_go_to_details">Lihat detail</string>
     <string name="cw_action_remove">Hapus</string>
     <string name="cw_action_start_from_beginning">Mulai dari awal</string>

@@ -615,7 +615,7 @@
     <string name="compose_tracking_list_picker_loading">Chargement des listes…</string>
     <string name="compose_tracking_list_picker_subtitle">Choisissez où enregistrer ce titre</string>
     <string name="action_donate">Faire un don</string>
-    <string name="action_support_nuvio">Soutenir Nuvio</string>
+    <string name="action_support_nuvio">Soutenir StreamBridge</string>
     <string name="cw_action_go_to_details">Voir les détails</string>
     <string name="cw_action_remove">Retirer</string>
     <string name="cw_action_start_from_beginning">Recommencer depuis le début</string>

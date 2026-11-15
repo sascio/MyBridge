@@ -2278,7 +2278,7 @@ Bu özelliği tamamen kendi sorumluluğunuzda kullanırsınız. P2P istediğiniz
     <string name="settings_licenses_attributions_haze_title">Haze 1.7.2</string>
     <string name="settings_licenses_attributions_haze_body">Arka plan bulanıklaştırma efektleri için kullanılır. Chris Banes tarafından oluşturulmuştur.</string>
     <string name="settings_licenses_attributions_haze_license">Apache License, Sürüm 2.0 altında lisanslanmıştır.</string>
-    <string name="action_support_nuvio">Nuvio'yu Destekle</string>
+    <string name="action_support_nuvio">StreamBridge'i Destekle</string>
     <string name="episodes_unavailable">Mevcut Değil</string>
     <string name="settings_appearance_app_language_restart_title">Yeniden başlatma gerekli</string>
     <string name="settings_appearance_app_language_restart_message">Bu dilin düzenini güncellemek için uygulamayı kapatıp yeniden açın.</string>

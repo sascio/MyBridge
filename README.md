@@ -81,7 +81,7 @@ endorse any content. Use it only with material you are legally entitled to acces
 
 **Plugins and extensions**
 - Plugin and addon management, kept as separate settings sections
-- Plugin runtime with asynchronous timers for Nuvio-compatible plugins
+- Plugin runtime with asynchronous timers for compatible plugins
 - CloudStream extension support in the sideload (full) distribution, including the
   embedded execution runtime
 

@@ -616,7 +616,7 @@
     <string name="compose_tracking_list_picker_loading">リストを読み込み中…</string>
     <string name="compose_tracking_list_picker_subtitle">このタイトルの保存先を選択</string>
     <string name="action_donate">寄付</string>
-    <string name="action_support_nuvio">Nuvioを支援</string>
+    <string name="action_support_nuvio">StreamBridgeを支援</string>
     <string name="cw_action_go_to_details">詳細を見る</string>
     <string name="cw_action_remove">削除</string>
     <string name="cw_action_start_from_beginning">最初から再生</string>

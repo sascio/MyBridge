@@ -75,6 +75,22 @@ grep -Fq "## StreamBridge ${EXPECTED_VERSION}" "docs/RELEASE-NOTES-${EXPECTED_VE
   || fail "Release notes header does not identify ${EXPECTED_VERSION}."
 grep -Fq "version ${EXPECTED_VERSION} (version code ${EXPECTED_CODE})" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
   || fail "Release notes do not state ${EXPECTED_VERSION} / code ${EXPECTED_CODE}."
+for required_text in \
+  '[🌐 Visit StreamBridge](https://streambridgeapp.pages.dev)' \
+  'https://t.me/StreamBridge_App' \
+  'https://discord.gg/T9apykrjW' \
+  'androidApp-full-arm64-v8a-release.apk' \
+  'androidApp-full-armeabi-v7a-release.apk' \
+  'androidApp-full-x86-release.apk' \
+  'androidApp-full-x86_64-release.apk' \
+  'StreamBridge-0.1.18-iOS-unsigned.ipa' \
+  'checksums.sha256'; do
+  grep -Fq "${required_text}" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
+    || fail "Release notes are missing required website, community, or download entry: ${required_text}"
+done
+if grep -qi 'Nuvio-compatible' README.md; then
+  fail "README names the upstream product in general feature copy; use StreamBridge compatibility wording."
+fi
 
 # The release description and the sideload source are StreamBridge-facing
 # texts: they must not name the upstream product at all. Licence compliance
@@ -163,7 +179,7 @@ grep -Fq 'key(layerItem.stableKey())' "${hero_section}" \
 # disclosures and licence attributions legitimately keep Nuvio references, so
 # those lines are exempted by key-name prefix before scanning; anything left is
 # a leak.
-if grep -hvE '<string name="(privacy_policy_|settings_licenses_attributions_nuvio|streambridge_credits_based_on|streambridge_credits_nuvio_media|streambridge_based_on_nuvio|server_error_official|action_support_nuvio)' \
+if grep -hvE '<string name="(privacy_policy_|settings_licenses_attributions_nuvio|streambridge_credits_based_on|streambridge_credits_nuvio_media|streambridge_based_on_nuvio|server_error_official)' \
     composeApp/src/commonMain/composeResources/values/strings.xml \
     composeApp/src/commonMain/composeResources/values/strings_party.xml \
     composeApp/src/commonMain/composeResources/values/strings_pip.xml \
@@ -174,6 +190,23 @@ if grep -hvE '<string name="(privacy_policy_|settings_licenses_attributions_nuvi
     | grep -q 'Nuvio'; then
   fail "Default-locale resources name Nuvio outside the exempt attribution/disclosure keys."
 fi
+python3 - <<'PY'
+import pathlib, re, xml.etree.ElementTree as ET
+root = pathlib.Path("composeApp/src/commonMain/composeResources")
+leaks = []
+for path in root.glob("values*/strings*.xml"):
+    try:
+        tree = ET.parse(path)
+    except ET.ParseError as exc:
+        raise SystemExit(f"Invalid localization XML: {path}: {exc}")
+    for item in tree.getroot().findall("string"):
+        if item.get("name") == "action_support_nuvio":
+            value = "".join(item.itertext())
+            if re.search(r"(?i)nuvio", value):
+                leaks.append(f"{path}: {value}")
+if leaks:
+    raise SystemExit("Non-StreamBridge support labels remain:\n" + "\n".join(leaks))
+PY
 if grep -q 'displayName = "Nuvio"' composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/TrackingProviderCards.kt \
   || grep -q 'APP_NAME = "Nuvio"' composeApp/src/commonMain/kotlin/com/nuvio/app/features/discord/DiscordRpcConfig.kt; then
   fail "A user-facing component label is back to Nuvio."

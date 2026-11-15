@@ -612,7 +612,7 @@
     <string name="compose_tracking_list_picker_loading">جارٍ تحميل القوائم…</string>
     <string name="compose_tracking_list_picker_subtitle">اختر مكان حفظ هذا العنوان</string>
     <string name="action_donate">تبرع</string>
-    <string name="action_support_nuvio">دعم Nuvio</string>
+    <string name="action_support_nuvio">دعم StreamBridge</string>
     <string name="cw_action_go_to_details">التفاصيل</string>
     <string name="cw_action_remove">إزالة</string>
     <string name="cw_action_start_from_beginning">البدء من البداية</string>

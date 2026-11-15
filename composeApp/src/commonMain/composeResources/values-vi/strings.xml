@@ -615,7 +615,7 @@
     <string name="compose_tracking_list_picker_loading">Đang tải danh sách…</string>
     <string name="compose_tracking_list_picker_subtitle">Chọn nơi để lưu nội dung này.</string>
     <string name="action_donate">Ủng hộ</string>
-    <string name="action_support_nuvio">Tài trợ Nuvio</string>
+    <string name="action_support_nuvio">Tài trợ StreamBridge</string>
     <string name="cw_action_go_to_details">Xem chi tiết</string>
     <string name="cw_action_remove">Xóa</string>
     <string name="cw_action_start_from_beginning">Xem từ đầu</string>
