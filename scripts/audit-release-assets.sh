@@ -60,15 +60,12 @@ while IFS=$'\t' read -r name asset_id state api_digest api_size; do
   [[ "${state}" == "uploaded" ]] || { echo "${name} is not uploaded (state=${state})." >&2; exit 1; }
   [[ "${api_digest}" == sha256:* ]] || { echo "GitHub has no SHA-256 digest for ${name}." >&2; exit 1; }
   path="${out}/${name}"
-  asset_url="$(jq -r --argjson id "${asset_id}" '.assets[] | select(.id == $id) | .browser_download_url' "${release_json}")"
-  [[ "${asset_url}" == https://github.com/${repo}/releases/download/* ]] || {
-    echo "Unexpected browser download URL for ${name}: ${asset_url}." >&2; exit 1;
-  }
-  curl --silent --show-error --fail-with-body --location \
-    --retry 3 --retry-all-errors --connect-timeout 30 --max-time 900 \
-    -H "Authorization: Bearer ${GH_TOKEN}" \
-    -H 'Accept: application/octet-stream' \
-    "${asset_url}" --output "${path}"
+  echo "Downloading draft asset ${name} through the authenticated Releases API."
+  if ! gh api -H 'Accept: application/octet-stream' \
+      "repos/${repo}/releases/assets/${asset_id}" >"${path}"; then
+    echo "::error title=Release asset audit::Could not download draft asset ${name} (ID ${asset_id}) through the Releases API." >&2
+    exit 1
+  fi
   [[ -s "${path}" ]] || { echo "Downloaded ${name} is empty." >&2; exit 1; }
   actual_size="$(wc -c <"${path}" | tr -d ' ')"
   actual_sha="$(sha256sum "${path}" | awk '{print $1}')"
