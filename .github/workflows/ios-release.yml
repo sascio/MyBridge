@@ -90,8 +90,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ios_dependencies:
+    name: Prepare shared iOS dependencies
+    runs-on: xcode-27
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert exact release source commit
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+
+      # Fetch the pinned Official MPVKit checkout, apply its verified Enhanced
+      # overlay, and download/checksum the Apple engine package exactly once.
+      # Both downstream jobs restore this artifact and validate it locally.
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Package shared iOS dependencies
+        run: |
+          set -euo pipefail
+          package_root="${RUNNER_TEMP}/streambridge-ios-dependencies"
+          mkdir -p "${package_root}/MPVKit" "${package_root}/nuvio-engine/platform/apple"
+          ditto "${GITHUB_WORKSPACE}/MPVKit" "${package_root}/MPVKit"
+          ditto "${GITHUB_WORKSPACE}/../nuvio-engine/platform/apple/NuvioEngine.xcframework" \
+            "${package_root}/nuvio-engine/platform/apple/NuvioEngine.xcframework"
+          tar -czf "${RUNNER_TEMP}/streambridge-ios-dependencies.tar.gz" \
+            -C "${package_root}" MPVKit nuvio-engine
+          shasum -a 256 "${RUNNER_TEMP}/streambridge-ios-dependencies.tar.gz"
+
+      - name: Upload shared iOS dependencies
+        uses: actions/upload-artifact@v7
+        with:
+          name: streambridge-ios-dependencies
+          path: ${{ runner.temp }}/streambridge-ios-dependencies.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
   ipa:
     name: iOS IPA (${{ github.event_name == 'workflow_dispatch' && inputs.configuration || 'Release' }})
+    needs: [ios_dependencies]
     runs-on: xcode-27
     # The previous Xcode 26.6 IPA step took 118.9 minutes; keep the 180-minute
     # ceiling until this runner and the current source have measured timings.
@@ -236,8 +281,24 @@ jobs:
           test -s "${profile_path}"
           echo "STREAMBRIDGE_IOS_PROFILE_PATH=${profile_path}" >> "${GITHUB_ENV}"
 
-      - name: Prepare iOS dependencies
-        run: ./scripts/prepare-ios-dependencies.sh
+      - name: Download shared iOS dependencies
+        uses: actions/download-artifact@v8
+        with:
+          name: streambridge-ios-dependencies
+          path: ${{ runner.temp }}/streambridge-ios-dependencies
+
+      - name: Restore and verify shared iOS dependencies
+        run: |
+          set -euo pipefail
+          extracted="${RUNNER_TEMP}/streambridge-ios-dependencies/extracted"
+          mkdir -p "${extracted}"
+          tar -xzf "${RUNNER_TEMP}/streambridge-ios-dependencies/streambridge-ios-dependencies.tar.gz" \
+            -C "${extracted}"
+          ditto "${extracted}/MPVKit" "${GITHUB_WORKSPACE}/MPVKit"
+          mkdir -p "${GITHUB_WORKSPACE}/../nuvio-engine/platform/apple"
+          ditto "${extracted}/nuvio-engine/platform/apple/NuvioEngine.xcframework" \
+            "${GITHUB_WORKSPACE}/../nuvio-engine/platform/apple/NuvioEngine.xcframework"
+          ./scripts/prepare-ios-dependencies.sh
 
       - name: Build StreamBridge IPA
         env:
@@ -405,12 +466,16 @@ jobs:
 
   simulator_tests:
     name: iOS simulator Kotlin tests
+    needs: [ios_dependencies]
     uses: ./.github/workflows/ios-simulator-tests.yml
     permissions:
       contents: read
     with:
       # The IPA job is the single writer for shared Gradle/Kotlin Native caches.
       cache_read_only: true
+      # The dependency preparation job downloads the pinned native inputs once;
+      # both macOS build/test jobs restore that same-run artifact.
+      use_prepared_dependencies: true
     secrets: inherit
 
   release_gate:

@@ -11,10 +11,20 @@ on:
         required: false
         default: true
         type: boolean
+      use_prepared_dependencies:
+        description: Restore the caller workflow's shared iOS dependency artifact
+        required: false
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       cache_read_only:
         description: Restore shared caches without writing from this run
+        required: false
+        default: false
+        type: boolean
+      use_prepared_dependencies:
+        description: Restore the caller workflow's shared iOS dependency artifact
         required: false
         default: false
         type: boolean
@@ -128,7 +138,29 @@ jobs:
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
           echo "Runtime properties configured."
 
-      - name: Prepare iOS dependencies
+      - name: Download shared iOS dependencies
+        if: ${{ inputs.use_prepared_dependencies }}
+        uses: actions/download-artifact@v8
+        with:
+          name: streambridge-ios-dependencies
+          path: ${{ runner.temp }}/streambridge-ios-dependencies
+
+      - name: Restore and verify shared iOS dependencies
+        if: ${{ inputs.use_prepared_dependencies }}
+        run: |
+          set -euo pipefail
+          extracted="${RUNNER_TEMP}/streambridge-ios-dependencies/extracted"
+          mkdir -p "${extracted}"
+          tar -xzf "${RUNNER_TEMP}/streambridge-ios-dependencies/streambridge-ios-dependencies.tar.gz" \
+            -C "${extracted}"
+          ditto "${extracted}/MPVKit" "${GITHUB_WORKSPACE}/MPVKit"
+          mkdir -p "${GITHUB_WORKSPACE}/../nuvio-engine/platform/apple"
+          ditto "${extracted}/nuvio-engine/platform/apple/NuvioEngine.xcframework" \
+            "${GITHUB_WORKSPACE}/../nuvio-engine/platform/apple/NuvioEngine.xcframework"
+          ./scripts/prepare-ios-dependencies.sh
+
+      - name: Prepare iOS dependencies independently
+        if: ${{ !inputs.use_prepared_dependencies }}
         run: ./scripts/prepare-ios-dependencies.sh
 
       # Match the iOS memory profile applied by build-ios-ipa.sh, without

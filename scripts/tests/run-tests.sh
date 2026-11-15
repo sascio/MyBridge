@@ -92,6 +92,27 @@ fi
 
 section "Release workflows"
 
+run "iOS IPA and simulator tests share one prepared dependency artifact" \
+  python3 - <<'PY'
+import yaml
+release = yaml.safe_load(open(".github/workflows/ios-release.yml", encoding="utf-8"))
+simulator = yaml.safe_load(open(".github/workflows/ios-simulator-tests.yml", encoding="utf-8"))
+name = "streambridge-ios-dependencies"
+prepare = release["jobs"]["ios_dependencies"]
+assert any(step.get("name") == "Prepare iOS dependencies" for step in prepare["steps"])
+assert any(step.get("name") == "Upload shared iOS dependencies" and step.get("with", {}).get("name") == name for step in prepare["steps"])
+for job_name in ("ipa", "simulator_tests"):
+    job = release["jobs"][job_name]
+    assert "ios_dependencies" in job.get("needs", [])
+    if job_name == "ipa":
+        assert any(step.get("name") == "Download shared iOS dependencies" and step.get("with", {}).get("name") == name for step in job["steps"])
+        assert not any(step.get("name") == "Prepare iOS dependencies" for step in job["steps"])
+assert release["jobs"]["simulator_tests"].get("with", {}).get("use_prepared_dependencies") is True
+sim_job = simulator["jobs"]["ios-simulator-tests"]
+assert any(step.get("name") == "Download shared iOS dependencies" for step in sim_job["steps"])
+assert any(step.get("name") == "Prepare iOS dependencies independently" and step.get("if") == "${{ !inputs.use_prepared_dependencies }}" for step in sim_job["steps"])
+PY
+
 run "the sideload workflow uses the tested lookup instead of an inline releases/tags call" \
   bash -c '! grep -qE "^\s*gh api .*releases/tags/" .github/workflows/update-store-source.yml &&
            grep -q "scripts/release-lookup.sh resolve" .github/workflows/update-store-source.yml'
