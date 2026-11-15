@@ -72,7 +72,8 @@ Enhanced `0.6.13-beta` points to `359a885342d4eeda757f8e1d2c24fb01fe6d39c2` in
 four paths: the fork-only MPVKit build-release workflow, and three app dependency files. The
 build-release workflow is library CI, not an app dependency, so it is not imported. The three
 app dependency changes are preserved as the checked-in patch
-[`scripts/patches/mpvkit-enhanced-0.6.13.patch`](../scripts/patches/mpvkit-enhanced-0.6.13.patch):
+[`scripts/patches/mpvkit-enhanced-0.6.13.patch`](../scripts/patches/mpvkit-enhanced-0.6.13.patch),
+SHA-256 `cc058085ecfaf65459b71c1d0b3e197cf4f3424a43680a12ebb33f178e0c1c36`:
 
 1. `Package.swift` switches eight Libmpv/FFmpeg binary targets to the Enhanced `nuvio.7` release
    and its SHA-256 pins.

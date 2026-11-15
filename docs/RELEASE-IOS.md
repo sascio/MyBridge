@@ -40,7 +40,7 @@ Environment:
 | `IOS_DERIVED_DATA_PATH` | DerivedData directory |
 | `NUVIO_ENGINE_ROOT` | Where `NuvioEngine.xcframework` is expected (default `../nuvio-engine`) |
 | Official MPVKit source | `https://github.com/NuvioMedia/MPVKit` at `da4b7da256a5d67dee74f576762ceb9067fc7a71` (Official Nuvio 0.6.12-beta gitlink) |
-| Enhanced MPVKit overlay | `https://github.com/luqmanfadlli/MPVKit` revision `359a885342d4eeda757f8e1d2c24fb01fe6d39c2`; the reviewed three-file delta is applied from [`scripts/patches/mpvkit-enhanced-0.6.13.patch`](../scripts/patches/mpvkit-enhanced-0.6.13.patch) |
+| Enhanced MPVKit overlay | `https://github.com/luqmanfadlli/MPVKit` revision `359a885342d4eeda757f8e1d2c24fb01fe6d39c2`; the reviewed three-file delta is applied from [`scripts/patches/mpvkit-enhanced-0.6.13.patch`](../scripts/patches/mpvkit-enhanced-0.6.13.patch), SHA-256 `cc058085ecfaf65459b71c1d0b3e197cf4f3424a43680a12ebb33f178e0c1c36` |
 | `NUVIO_GRADLE_JVMARGS` | Gradle daemon heap for the iOS build (default `-Xmx12288M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=2048m`) |
 | `NUVIO_KOTLIN_DAEMON_JVMARGS` | Kotlin compile daemon heap (default `-Xmx8192M`) |
 | `NUVIO_KOTLIN_NATIVE_JVMARGS` | Kotlin/Native compiler heap (default `-Xmx12288M`) |

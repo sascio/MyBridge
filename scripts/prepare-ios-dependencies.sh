@@ -16,12 +16,18 @@ readonly OFFICIAL_MPVKIT_REPO="https://github.com/NuvioMedia/MPVKit.git"
 readonly OFFICIAL_MPVKIT_COMMIT="da4b7da256a5d67dee74f576762ceb9067fc7a71"
 readonly ENHANCED_MPVKIT_COMMIT="359a885342d4eeda757f8e1d2c24fb01fe6d39c2"
 readonly MPVKIT_OVERLAY="${repository_root}/scripts/patches/mpvkit-enhanced-0.6.13.patch"
+readonly MPVKIT_OVERLAY_SHA256="cc058085ecfaf65459b71c1d0b3e197cf4f3424a43680a12ebb33f178e0c1c36"
 mpvkit_directory="${repository_root}/MPVKit"
 mpvkit_marker="${mpvkit_directory}/.streambridge-mpvkit-revision"
 expected_marker="$(printf 'official=%s\nenhanced-overlay=%s' "${OFFICIAL_MPVKIT_COMMIT}" "${ENHANCED_MPVKIT_COMMIT}")"
 
 if [[ ! -f "${MPVKIT_OVERLAY}" ]]; then
     echo "Pinned Enhanced MPVKit overlay is missing: ${MPVKIT_OVERLAY}" >&2
+    exit 1
+fi
+overlay_sha256="$(shasum -a 256 "${MPVKIT_OVERLAY}" | awk '{print $1}')"
+if [[ "${overlay_sha256}" != "${MPVKIT_OVERLAY_SHA256}" ]]; then
+    echo "Enhanced MPVKit overlay checksum mismatch: ${overlay_sha256}" >&2
     exit 1
 fi
 
