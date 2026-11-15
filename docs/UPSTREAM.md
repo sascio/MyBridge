@@ -5,15 +5,17 @@ NuvioMobile and its Enhanced feature overlay. The current verified pins are:
 
 | Project | Clone URL | Ref | Commit | License | In this repo |
 |---|---|---|---|---|---|
-| NuvioMobile | https://github.com/NuvioMedia/NuvioMobile | tag `0.6.12-beta` (`cmp-rewrite`) | `4135f96cd29f235b7c412f78dcfc13164c4b1e80` | GPL-3.0 | `composeApp/`, `androidApp/`, `iosApp/`, `gradle/` |
-| NuvioMobile-Enhanced | https://github.com/luqmanfadlli/NuvioMobile-Enhanced | tag `0.6.12-beta` | `ac86e820e76362284c9d7524bb523976df32e195` | GPL-3.0 | unique-feature overlay and fixes on the official core |
+| NuvioMobile | https://github.com/NuvioMedia/NuvioMobile | latest verified release tag `0.6.12-beta` (`cmp-rewrite`) | `4135f96cd29f235b7c412f78dcfc13164c4b1e80` | GPL-3.0 | Official core baseline in `composeApp/`, `androidApp/`, `iosApp/`, `gradle/` |
+| NuvioMobile-Enhanced | https://github.com/luqmanfadlli/NuvioMobile-Enhanced | tag `0.6.13-beta` | `cdab5d66183ddfb927992d2715f3c12231fa2ceb` | GPL-3.0 | additional fixes/features reconciled on top of Official-derived core |
 | NuvioTV | https://github.com/NuvioMedia/NuvioTV | `dev` | `e7a335ebb38f41fe95e69a7592520d404c1326ae` | GPL-3.0 | not copied (TV-only) |
-| nuvio-engine | https://github.com/NuvioMedia/nuvio-engine | default | `772f8c055049def5e87ae5ddb17b4ad15a71085a` | GPL-3.0-or-later | Android AAR (`composeApp/libs/lib-nuvio-engine-android-0.1.2.aar`) and the iOS Apple XCFramework fetched at build time |
-| MPVKit | https://github.com/NuvioMedia/MPVKit | `Nuvio` | fetched by `scripts/prepare-ios-dependencies.sh` (not vendored) | LGPL-3.0 | iOS playback local Swift package (`../MPVKit`) |
+| nuvio-engine | https://github.com/NuvioMedia/nuvio-engine | Apple artifact `0.1.6` (SHA-256 checked by preparation script) | release artifact pin in `scripts/prepare-ios-dependencies.sh` | GPL-3.0-or-later | Android AAR and iOS Apple XCFramework |
+| MPVKit (Official base) | https://github.com/NuvioMedia/MPVKit | Official `0.6.12-beta` gitlink | `da4b7da256a5d67dee74f576762ceb9067fc7a71` | LGPL-3.0 | fetched locally by iOS dependency preparation |
+| MPVKit (Enhanced delta) | https://github.com/luqmanfadlli/MPVKit | Enhanced `0.6.13-beta` gitlink | `359a885342d4eeda757f8e1d2c24fb01fe6d39c2` | LGPL-3.0 | three reviewed package/build/PiP changes applied over Official base |
 
-The exact Enhanced `0.6.12-beta` tag and commit were checked in
-[`luqmanfadlli/NuvioMobile-Enhanced`](https://github.com/luqmanfadlli/NuvioMobile-Enhanced).
-The official core tag `0.6.12-beta` is an ancestor of the Enhanced tag. This update integrates
+The exact Official `0.6.12-beta` and Enhanced `0.6.13-beta` tags/commits are verified in their
+respective repositories. StreamBridge reconciles Official core behavior first, then applies the
+Enhanced source delta, while preserving StreamBridge-owned customizations. The MPVKit package
+likewise uses Official's exact gitlink and a pinned, reviewed Enhanced overlay. This integrates
 source files only; it does not merge upstream Git history.
 
 Previous StreamBridge pins: NuvioMobile `89f7d97b` (0.6.11-beta), `42e37ace` (0.6.9-beta),

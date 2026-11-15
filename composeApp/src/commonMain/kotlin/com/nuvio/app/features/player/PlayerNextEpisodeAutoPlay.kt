@@ -168,6 +168,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             videoId = nextVideo.id,
             season = nextVideo.season,
             episode = nextVideo.episode,
+            parentMetaId = parentMetaId,
         )
 
         if (effectiveMode == StreamAutoPlayMode.MANUAL) {
@@ -332,6 +333,7 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
                         season = nextVideo.season,
                         episode = nextVideo.episode,
                         forceRefresh = true,
+                        parentMetaId = parentMetaId,
                     )
                     null
                 }
@@ -370,7 +372,8 @@ internal fun PlayerScreenRuntime.preloadNextEpisodeSources() {
             type = type,
             videoId = nextEp.videoId,
             season = nextEp.season,
-            episode = nextEp.episode
+            episode = nextEp.episode,
+            parentMetaId = parentMetaId,
         )
     }
 }

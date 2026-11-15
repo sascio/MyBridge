@@ -1,47 +1,51 @@
-# StreamBridge 0.1.18
-
 ## StreamBridge 0.1.18
 
-StreamBridge version 0.1.18 (version code 118). Android package
-`com.streambridge.app`; iOS bundle `com.streambridge.app`.
+StreamBridge version 0.1.18 (version code 118). Android package and iOS bundle:
+`com.streambridge.app`.
 
 ## 🌐 StreamBridge website and community
 
-The official StreamBridge home is live. Explore the project, its features, and support resources:
-
-**[🌐 Visit StreamBridge](https://streambridgeapp.pages.dev)**
-
-Join the community on [Telegram](https://t.me/StreamBridge_App) and
+Visit [🌐 Visit StreamBridge](https://streambridgeapp.pages.dev) for project information and
+support resources. Join the community on [Telegram](https://t.me/StreamBridge_App) or
 [Discord](https://discord.gg/T9apykrjW).
 
-## Playback, tracking, and stability
+## Playback and source selection
 
-This release includes selected synchronized upstream improvements. The path-by-path source attribution
-and StreamBridge-specific resolutions are recorded in the [integration manifest](SYNC-MANIFEST-0.6.12-beta.md).
+- When an automatically selected source fails during startup, playback can try the next matching
+  source. The fallback setting and attempt limit are configurable; manual source choices remain
+  under the user's control.
+- The loading screen shows clearer playback startup stages. Keyboard controls include basic player
+  navigation and volume adjustment.
+- Repeated searches for the same title, episode, profile, and source setup share in-progress and
+  recently completed results across the stream list and player source panels. Refreshes and changed
+  source configurations remain separate.
+- Continue Watching can be configured to open an item in the preferred destination. Dismissing a
+  next-up entry is keyed to that content rather than only its series.
+- Stream badge updates are synchronized before the next sync pull, and playback recommendations use
+  the configured Simkl source where available.
 
-- Subtitle preferences can be separated per device, exported/imported with settings, and cleared
-  when a profile is removed.
-- Chapter navigation and chapter-title controls now cover both playback engines and iOS. Android
-  ExoPlayer adds Blu-ray ISO, BDMV and M2TS playback support.
-- Live TV fixes address endless buffering and black screens, and restore the HLS quality chooser.
-  HLS streams missing SPS/PPS initialization data and DASH streams with explicit MIME hints are
-  routed more reliably.
-- MPV position-zero glitches and playback error messages are improved. Saved tokenized stream links
-  can be reused and refreshed after expiry.
-- Folder views respect the catalog-type setting; IMDb actions in Discord Rich Presence are fixed.
-- Simkl AUTH V2 supports PKCE browser and device authorization, protected refresh-token storage,
-  and automatic refresh while retaining StreamBridge's profile-aware settings and sync flow.
-- The Anime4K line sharpener has stronger settings. Stability fixes cover subtitle preferences,
-  playback, and profile removal.
+## Home, collections, and discovery
 
-## Localization
+- Home waits for source catalogs before showing the hero, and its page state and artwork transitions
+  have been refined to avoid unstable content while catalog metadata loads.
+- Landscape poster grids show more items per row, with a tablet-specific layout.
+- Collection headers and covers have improved behavior across orientation changes. The streams
+  artwork backdrop is retained beneath the glass treatment.
+- Trailer playback and its mute control are more consistent on mobile and tablet layouts.
 
-Dutch, French, Vietnamese, and other supported translations were updated while keeping StreamBridge
-wording and community identity localized consistently.
+## iOS video and interface
 
-## Downloads
+- Picture in Picture has improved HDR and Dolby Vision frame handling, including the associated
+  metadata and subtitle-rendering paths.
+- The player drawable uses the source's native resolution. iPad settings sub-pages retain a visible
+  back control, and collection headers respect the native navigation area in landscape.
 
-Download each production build directly from this release:
+## Languages and compatibility
+
+French, Slovak, Vietnamese, Indonesian, and Polish translations were updated. StreamBridge wording,
+community links, and localized product identity are retained.
+
+## Downloads and installation
 
 | Platform / architecture | Download |
 |---|---|
@@ -59,7 +63,7 @@ SideStore installation. Production Android APKs are signed with the existing pro
 ## StreamBridge identity and distribution
 
 The app name, motto **Your Media, Your Way**, footer credit **Made with ❤️ by Saif**, Android and
-iOS identifiers, updater and distribution metadata, GPL-3.0 licensing, production Android signing
-configuration, Telegram automation, and unsigned iOS IPA distribution remain unchanged. The
-AltStore/SideStore source is updated only after the published release workflow verifies the actual
-unsigned IPA and its digest.
+iOS identifiers, updater compatibility, GPL-3.0 licensing, production Android signing, Telegram
+automation, release URLs, and AltStore/SideStore metadata remain StreamBridge-owned. The sideload
+source is updated only after the published release workflow verifies the actual unsigned IPA and its
+digest.

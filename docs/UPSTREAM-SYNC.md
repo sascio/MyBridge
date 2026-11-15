@@ -5,13 +5,31 @@
 | Field | Value |
 |---|---|
 | Official core repo | https://github.com/NuvioMedia/NuvioMobile |
-| Official tag / commit | `0.6.12-beta` / `4135f96cd29f235b7c412f78dcfc13164c4b1e80` |
+| Official release tag / commit | `0.6.12-beta` / `4135f96cd29f235b7c412f78dcfc13164c4b1e80` |
 | Enhanced repo | https://github.com/luqmanfadlli/NuvioMobile-Enhanced |
-| Enhanced tag / commit | `0.6.12-beta` / `ac86e820e76362284c9d7524bb523976df32e195` |
-| Previous Enhanced baseline | `0.6.11-beta` / `254ae152fe94a2541c5a32b897a814594363d97f` |
+| Enhanced tag / commit | `0.6.13-beta` / `cdab5d66183ddfb927992d2715f3c12231fa2ceb` |
+| Previous Enhanced baseline | `0.6.12-beta` / `ac86e820e76362284c9d7524bb523976df32e195` |
+| Official MPVKit base | `da4b7da256a5d67dee74f576762ceb9067fc7a71` |
+| Enhanced MPVKit delta | `359a885342d4eeda757f8e1d2c24fb01fe6d39c2` |
 | StreamBridge release prepared | 0.1.18 / version code 118 |
 
-## 0.6.12-beta / Enhanced 0.6.12-beta integration (0.1.18)
+## Enhanced 0.6.13-beta integration (0.1.18)
+
+Official Nuvio's latest verified release remains `0.6.12-beta`; no Official `0.6.13-beta` release
+was found. The Enhanced `0.6.13-beta` tag is verified at
+`cdab5d66183ddfb927992d2715f3c12231fa2ceb`. Its 59-commit, 82-path delta from the prior Enhanced
+`0.6.12-beta` baseline is reconciled on top of the already-integrated Official core. The working
+comparison records 55 byte-identical paths, 26 paths with StreamBridge-owned differences, and the
+MPVKit dependency path, which is built from Official commit `da4b7da...` plus the reviewed
+three-file Enhanced overlay from `359a885...`. The exact dispositions are in
+[SYNC-MANIFEST-0.6.13-beta.md](SYNC-MANIFEST-0.6.13-beta.md).
+
+The Enhanced tag's GitHub release publication timestamp is `2026-11-15T02:58:11Z` and its target
+commit timestamp is `2026-11-15T01:42:46Z`; the Official `0.6.12-beta` release was published at
+`2026-11-12T00:37:11Z`. These are recorded source metadata; the Enhanced source was not rejected
+based on chronology.
+
+## Prior Official 0.6.12-beta / Enhanced 0.6.12-beta integration (0.1.18)
 
 The exact Enhanced tag was fetched and verified before integration. The official core tag
 `4135f96c` is an ancestor of Enhanced target `ac86e820`. The baseline-to-target range is 46

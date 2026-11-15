@@ -78,6 +78,7 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.ui.dynamicScrimAlpha
 import com.nuvio.app.core.ui.focusedAlignment
+import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.revealAlpha
 import com.nuvio.app.core.ui.heroStretchHeight
@@ -94,6 +95,7 @@ import com.nuvio.app.features.home.HomeHeroArtworkSource
 import com.nuvio.app.features.home.HomeHeroStyle
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.stableKey
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.trailer.TrailerPlaybackResolver
@@ -275,6 +277,7 @@ internal fun HomeHeroSection(
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
     val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val useNativeNavigation = LocalUseNativeNavigation.current
     val cardInsetModifier = if (isCardStyle) {
         Modifier.padding(
             top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
@@ -722,11 +725,16 @@ internal fun HomeHeroSection(
 
                     if (heroTrailerReady && heroTrailerPlaybackSource != null) {
                         val muteIconSize = 20.dp
+                        val muteTopPadding = when {
+                            isCardStyle -> 12.dp
+                            useNativeNavigation -> platformPhysicalTopInset() + 8.dp
+                            else -> statusBarTopPadding + 12.dp
+                        }
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = statusBarTopPadding + 12.dp,
+                                    top = muteTopPadding,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .clip(CircleShape)

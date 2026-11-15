@@ -201,15 +201,6 @@ else
 fi
 echo "Gradle daemon heap for this build: ${gradle_daemon_jvmargs}"
 
-# A daemon that was already running keeps the heap it was started with, and
-# neither the profile written above nor the two Gradle properties below would
-# change it. Nothing in the iOS job starts Gradle before this point, but the
-# build must not silently fall back to the project's Android-sized heap if that
-# ever changes.
-if [[ -x ./gradlew ]]; then
-    ./gradlew --stop >/dev/null 2>&1 || true
-fi
-
 signing_arguments=()
 archive_path=""
 if [[ "${required_signing}" == "1" ]]; then
@@ -228,6 +219,7 @@ if [[ "${required_signing}" == "1" ]]; then
         CODE_SIGN_IDENTITY="${sign_identity}"
         ${profile_argument[@]+"${profile_argument[@]}"}
     )
+    xcode_build_started=${SECONDS}
     "${build_environment[@]}" \
         xcodebuild \
         -project iosApp/iosApp.xcodeproj \
@@ -236,8 +228,11 @@ if [[ "${required_signing}" == "1" ]]; then
         -sdk iphoneos \
         -destination 'generic/platform=iOS' \
         -derivedDataPath "${derived_data}" \
+        -showBuildTimingSummary \
         "${signing_arguments[@]}" \
         archive
+    xcode_build_elapsed=$((SECONDS - xcode_build_started))
+    echo "::notice title=Xcode archive timing::${xcode_build_elapsed}s"
 
     if [[ ! -d "${archive_path}" ]]; then
         echo "::error::iOS archive was not produced at ${archive_path}." >&2
@@ -295,6 +290,7 @@ else
         CODE_SIGN_IDENTITY=
         CODE_SIGN_ENTITLEMENTS=
     )
+    xcode_build_started=${SECONDS}
     "${build_environment[@]}" \
         xcodebuild \
         -project iosApp/iosApp.xcodeproj \
@@ -303,12 +299,16 @@ else
         -sdk iphoneos \
         -destination 'generic/platform=iOS' \
         -derivedDataPath "${derived_data}" \
+        -showBuildTimingSummary \
         "${signing_arguments[@]}" \
         build
+    xcode_build_elapsed=$((SECONDS - xcode_build_started))
+    echo "::notice title=Xcode build timing::${xcode_build_elapsed}s"
 
     app_path="${derived_data}/Build/Products/${configuration}-iphoneos/StreamBridge.app"
 fi
 
+ipa_validation_started=${SECONDS}
 if [[ ! -d "${app_path}" ]]; then
     echo "iOS build did not produce ${app_path}." >&2
     exit 1
@@ -380,7 +380,10 @@ if [[ " ${widget_architectures} " != *" arm64 "* ]]; then
     echo "Built downloads widget does not contain arm64." >&2
     exit 1
 fi
+ipa_validation_elapsed=$((SECONDS - ipa_validation_started))
+echo "::notice title=IPA validation timing::${ipa_validation_elapsed}s"
 
+ipa_packaging_started=${SECONDS}
 mkdir -p "${output_directory}"
 output_directory="$(cd "${output_directory}" && pwd -P)"
 
@@ -402,6 +405,17 @@ else
     unzip -tq "${temporary_ipa}"
     mv "${temporary_ipa}" "${ipa_path}"
 fi
+ipa_packaging_elapsed=$((SECONDS - ipa_packaging_started))
+echo "::notice title=IPA packaging timing::${ipa_packaging_elapsed}s"
+
+{
+    echo
+    echo "### iOS IPA phase durations"
+    echo
+    if [[ -n "${xcode_build_elapsed:-}" ]]; then echo "- Xcode build/archive: ${xcode_build_elapsed}s"; fi
+    echo "- IPA validation: ${ipa_validation_elapsed}s"
+    echo "- IPA packaging: ${ipa_packaging_elapsed}s"
+} >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
 echo "Created ${ipa_path}"
 # Publish the size as a check-run annotation: the job log needs log scope, the

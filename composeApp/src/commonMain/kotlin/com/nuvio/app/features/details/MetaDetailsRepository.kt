@@ -791,7 +791,7 @@ object MetaDetailsRepository {
         return buildString {
             append("${settings.enabled}:${settings.apiKey.trim()}:$providers")
             append("|mdblist_account=${settings.accountScope.takeUnless { settings.hasApiKey }}")
-            append("|more_like=${trackingSettings.moreLikeThisSource}:$traktAuthMode")
+            append("|more_like=${trackingSettings.moreLikeThisSource}:$traktAuthMode:${shouldUseSimklMoreLikeThis(trackingSettings.moreLikeThisSource)}")
             append("|tmdb=${tmdbSettings.enabled}:${tmdbSettings.useMoreLikeThis}:${tmdbSettings.language}")
             append("|omdb=${OmdbEpisodeRatingsService.hasApiKey}:${tmdbSettings.useEpisodeRatings}")
         }

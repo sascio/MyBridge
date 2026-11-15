@@ -5,7 +5,7 @@
 // mirrors it for Xcode and is the fallback source read by androidApp/build.gradle.kts
 // and composeApp/build.gradle.kts.
 //
-// The synced core baseline is the Enhanced 0.6.12-beta tree. StreamBridge never ships the
+// The synced core baseline is the Enhanced 0.6.13-beta tree. StreamBridge never ships the
 // core's version as its own.
 CURRENT_PROJECT_VERSION=118
 MARKETING_VERSION=0.1.18

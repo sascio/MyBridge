@@ -4,38 +4,35 @@ name: iOS simulator Kotlin tests
 # On failure, put the Gradle diagnostics in the job summary and annotations so
 # the cause stays visible even if raw Actions logs are temporarily unavailable.
 on:
-  push:
-    branches: [main, arena/**]
-    paths:
-      - ".github/workflows/ios-simulator-tests.yml"
-      - "composeApp/build.gradle.kts"
-      - "composeApp/src/commonMain/**"
-      - "composeApp/src/commonTest/**"
-      - "composeApp/src/iosMain/**"
-      - "composeApp/src/iosTest/**"
-      - "composeApp/src/iosAppStore/**"
-      - "composeApp/src/iosFull/**"
-      - "composeApp/src/fullCommonMain/**"
-      - "gradle/**"
-      - "gradle.properties"
-      - "scripts/prepare-ios-dependencies.sh"
+  workflow_call:
+    inputs:
+      cache_read_only:
+        description: Restore shared caches without writing from this job
+        required: false
+        default: true
+        type: boolean
   workflow_dispatch:
+    inputs:
+      cache_read_only:
+        description: Restore shared caches without writing from this run
+        required: false
+        default: false
+        type: boolean
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
-  group: ios-simulator-tests-${{ github.ref }}
+  group: ios-simulator-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   ios-simulator-tests:
     name: iOS simulator Kotlin tests
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 180
     env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
       GRADLE_OPTS: -Dfile.encoding=UTF-8
       KOTLIN_DAEMON_JVMARGS: -Xmx8192M
       NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx12288M
@@ -46,6 +43,13 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Assert exact release source commit
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -53,60 +57,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Re-parse the previous failed run's uploaded Gradle log and test reports
-      # on a GitHub runner, since the local sandbox cannot reach Actions storage.
-      - name: Inspect previous simulator-test diagnostics
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          artifact_id=14125278095
-          diagnostic_dir="${RUNNER_TEMP}/previous-ios-simulator-diagnostics"
-          mkdir -p "${diagnostic_dir}/unzipped"
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" > "${diagnostic_dir}/artifact.zip"
-          unzip -q "${diagnostic_dir}/artifact.zip" -d "${diagnostic_dir}/unzipped"
-          python3 - "${diagnostic_dir}/unzipped" "${GITHUB_STEP_SUMMARY}" <<'PY'
-          import pathlib, re, sys, xml.etree.ElementTree as ET
-          root, summary = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
-          sections = []
-          logs = list(root.rglob("ios-simulator-arm64-test.log"))
-          marker = re.compile(r"(?i)(^e: file:|^FAILURE:|^what went wrong|> task .*failed|execution failed for task|there were failing tests|test run failed|assertionerror|caused by:|exception in thread)")
-          for log in logs:
-              lines = log.read_text(errors="replace").splitlines()
-              indices = [i for i, line in enumerate(lines) if marker.search(line)]
-              selected = set(range(max(0, len(lines) - 100), len(lines)))
-              for i in indices:
-                  selected.update(range(max(0, i - 5), min(len(lines), i + 12)))
-              excerpt = "\n".join(f"{i + 1}: {lines[i]}" for i in sorted(selected))
-              sections.append(f"## {log.name}: {len(lines)} lines\n{excerpt[-14000:]}")
-          xml_files = list(root.rglob("*.xml"))
-          test_failures = []
-          for xml_file in xml_files:
-              try:
-                  tree = ET.parse(xml_file)
-              except ET.ParseError:
-                  continue
-              for case in tree.iter("testcase"):
-                  for failure in list(case.findall("failure")) + list(case.findall("error")):
-                      test_failures.append(
-                          f"{case.get('classname')}.{case.get('name')}: "
-                          f"{failure.get('type', '')} {failure.get('message', '')}\n{failure.text or ''}"
-                      )
-          sections.append(f"## Test result XML files: {len(xml_files)}; failing cases: {len(test_failures)}")
-          sections.extend(test_failures)
-          report = "\n\n".join(sections) or "No simulator log or XML report was found in the artifact."
-          with summary.open("a") as out:
-              out.write("\n## Previous failed iOS simulator run diagnostics\n\n```text\n")
-              out.write(report[-20000:])
-              out.write("\n```\n")
-          encoded = report[-14000:].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print(f"::notice title=Previous iOS simulator failure details::{encoded}")
-          PY
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          cache-read-only: false
+          cache-read-only: ${{ inputs.cache_read_only }}
 
       - name: Verify Apple toolchain
         id: toolchain
@@ -120,13 +74,45 @@ jobs:
           xcode_version="${xcode_version//:/-}"
           echo "xcode_version=${xcode_version}" >> "${GITHUB_OUTPUT}"
 
+      - name: Restore Kotlin/Native toolchain cache
+        id: konan_restore
+        if: ${{ inputs.cache_read_only }}
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.konan
+          # Never restore native compiler outputs from a different Xcode or Kotlin toolchain.
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode_version }}-${{ hashFiles('gradle/libs.versions.toml') }}
+
       - name: Cache Kotlin/Native toolchain
+        id: konan_cache
+        if: ${{ !inputs.cache_read_only }}
         uses: actions/cache@v5
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.xcode_version }}-${{ hashFiles('gradle/libs.versions.toml') }}
-          restore-keys: |
-            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Report runner and cache baseline
+        env:
+          KONAN_CACHE_HIT: ${{ inputs.cache_read_only && steps.konan_restore.outputs.cache-hit || steps.konan_cache.outputs.cache-hit }}
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          cpu="$(sysctl -n machdep.cpu.brand_string 2>/dev/null || uname -m)"
+          cpus="$(sysctl -n hw.ncpu 2>/dev/null || echo unknown)"
+          memory_bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+          memory_gib="$(awk -v bytes="${memory_bytes}" 'BEGIN { if (bytes > 0) printf "%.1f GiB", bytes/1073741824; else print "unknown" }')"
+          if [ "${KONAN_CACHE_HIT}" = "true" ]; then cache_status=exact-hit; else cache_status=miss; fi
+          {
+            echo "## iOS simulator runner and cache"
+            echo
+            echo "- UTC start: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "- Source commit: ${SOURCE_SHA}"
+            echo "- Runner: ${RUNNER_OS}/${RUNNER_ARCH}; ${cpu}; ${cpus} logical CPUs; ${memory_gib} RAM"
+            echo "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
+            echo "- Kotlin/Native cache: ${cache_status}"
+            echo "- Free disk: $(df -h . | awk 'NR==2 {print $4}')"
+            echo "- Gradle configuration/build cache: $(grep -E '^org.gradle.(configuration-cache|caching)=' gradle.properties | tr '\n' ', ' )"
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Configure runtime properties
         env:
@@ -164,7 +150,6 @@ jobs:
               echo "kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}"
             } >> "${properties_file}"
           fi
-          ./gradlew --stop >/dev/null 2>&1 || true
 
       - name: Run iOS simulator Kotlin tests
         env:
@@ -173,7 +158,7 @@ jobs:
           set -uo pipefail
           test_log="${RUNNER_TEMP}/ios-simulator-arm64-test.log"
           set +e
-          ./gradlew :composeApp:iosSimulatorArm64Test --stacktrace 2>&1 | tee "${test_log}"
+          ./gradlew --profile :composeApp:iosSimulatorArm64Test --stacktrace 2>&1 | tee "${test_log}"
           status="${PIPESTATUS[0]}"
           set -e
           if [ "${status}" -ne 0 ]; then
@@ -209,5 +194,24 @@ jobs:
             ${{ runner.temp }}/ios-simulator-arm64-test.log
             composeApp/build/test-results/iosSimulatorArm64Test/**
             composeApp/build/reports/tests/iosSimulatorArm64Test/**
+            build/reports/profile/**
+            composeApp/build/reports/profile/**
           if-no-files-found: ignore
           retention-days: 14
+
+      - name: Report simulator job completion
+        if: always()
+        env:
+          JOB_RESULT: ${{ job.status }}
+        run: |
+          {
+            echo
+            echo "### Simulator-test job completion"
+            echo
+            echo "- UTC completion: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "- Result: ${JOB_RESULT}"
+            echo "- Memory pressure: $(memory_pressure 2>/dev/null | head -n 1 || echo unavailable)"
+            echo "- Free disk: $(df -h . | awk 'NR==2 {print $4}')"
+            echo "- VM paging counters:"
+            vm_stat | grep -E 'Pages (free|active|inactive|speculative|wired down|occupied by compressor)|Pageins|Pageouts' || true
+          } >> "${GITHUB_STEP_SUMMARY}"
