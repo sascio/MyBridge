@@ -59,11 +59,11 @@ if [[ -f "${mpvkit_marker}" ]]; then
         exit 1
     fi
 else
-    if ! git -C "${mpvkit_directory}" apply --check "${MPVKIT_OVERLAY}"; then
+    if ! git -C "${mpvkit_directory}" apply --check --unidiff-zero "${MPVKIT_OVERLAY}"; then
         echo "Enhanced MPVKit overlay does not apply cleanly to the Official pin." >&2
         exit 1
     fi
-    git -C "${mpvkit_directory}" apply "${MPVKIT_OVERLAY}"
+    git -C "${mpvkit_directory}" apply --unidiff-zero "${MPVKIT_OVERLAY}"
     printf '%b\n' "${expected_marker}" > "${mpvkit_marker}"
 fi
 

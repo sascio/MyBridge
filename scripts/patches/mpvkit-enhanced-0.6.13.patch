@@ -1,0 +1,111 @@
+diff --git a/Package.swift b/Package.swift
+index aa702be..4274ed5 100644
+--- a/Package.swift
++++ b/Package.swift
+@@ -256,2 +256,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libavcodec.xcframework.zip",
+-            checksum: "bf0aa69d62981ac8859ef08849312474cf5201bf51242ecece86007b2cc07444"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libavcodec.xcframework.zip",
++            checksum: "fbf0b9136398106a50cd4301f35005135695fdf715ca1e46406309cfd62c8f5d"
+@@ -261,2 +261,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libavdevice.xcframework.zip",
+-            checksum: "3aec22d82735405a32b87488a13c1889277af10522bb5c8dc543278b2f2bb1ac"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libavdevice.xcframework.zip",
++            checksum: "5f4f66854a19cba75474495241f19beb1df17dbc5851e098c03e47f4fd1fff2d"
+@@ -266,2 +266,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libavformat.xcframework.zip",
+-            checksum: "962c010aa2c4b369cf8f6efa2b0bd26e0a2392d58a1487e6a2be8c3d73044d45"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libavformat.xcframework.zip",
++            checksum: "1eaa1112f14285ab8df3f671dcbe02a7ff755da33e7fb226535252f623b307cf"
+@@ -271,2 +271,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libavfilter.xcframework.zip",
+-            checksum: "1ea0aebfc460f347d631fad982dd1db3a929896d02722cd18903faeb4c5f4103"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libavfilter.xcframework.zip",
++            checksum: "797b94fd2bc00505d7b3a995836591859151acc3845be9526fa7a063fc7609ad"
+@@ -276,2 +276,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libavutil.xcframework.zip",
+-            checksum: "62d7d932c0a9d2bd45a23d7845db12a293b4f810e5cfae2b5e4ad05e8b737a1b"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libavutil.xcframework.zip",
++            checksum: "594c49ecde7d35a5dbdae7703632e196ec205a1bf9e38cfe911296ab9ce17256"
+@@ -281,2 +281,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libswresample.xcframework.zip",
+-            checksum: "80fbd7a266d0633a916d21a01fcfab347b4ffb8d16c7a02e43671ef71e6999f0"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libswresample.xcframework.zip",
++            checksum: "915d07fb19afb5d696c1d97d60ab26183503ac14afeeeba14ae793d397cae4b9"
+@@ -286,2 +286,2 @@ let package = Package(
+-            url: "https://github.com/mpvkit/MPVKit/releases/download/0.41.0-n8.1.2/Libswscale.xcframework.zip",
+-            checksum: "fd968cad30f5295082b86a8ab7ada5dd9ea18e9049ec194a748e91bd0027afb5"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libswscale.xcframework.zip",
++            checksum: "69c9378d172276328d626126581d1c4286a748a16030aa3791b5a38aa2e12c62"
+@@ -304,2 +304,2 @@ let package = Package(
+-            url: "https://github.com/WhiteGiso/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.5-long-form-video.2/Libmpv.xcframework.zip",
+-            checksum: "8d1b2b098615ecfb4cf0c29e11a50a0377c385ef0c74ba6b11e89d5856d067eb"
++            url: "https://github.com/luqmanfadlli/MPVKit/releases/download/0.41.0-n8.1.2-nuvio.7/Libmpv.xcframework.zip",
++            checksum: "8b8fec8e9b66f409a5f60d102cf560fa8c3148ff61433ac68beeefd50a443359"
+diff --git a/Sources/BuildScripts/XCFrameworkBuild/main.swift b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+index d9a2f65..6440fc5 100644
+--- a/Sources/BuildScripts/XCFrameworkBuild/main.swift
++++ b/Sources/BuildScripts/XCFrameworkBuild/main.swift
+@@ -742,0 +743 @@ private class BuildFFMPEG: BaseBuild {
++        "--enable-filter=acompressor", "--enable-filter=alimiter",
+diff --git a/Sources/BuildScripts/patch/libmpv/0007-optional-ios-picture-in-picture.patch b/Sources/BuildScripts/patch/libmpv/0007-optional-ios-picture-in-picture.patch
+index 2b0ed23..16cceb7 100644
+--- a/Sources/BuildScripts/patch/libmpv/0007-optional-ios-picture-in-picture.patch
++++ b/Sources/BuildScripts/patch/libmpv/0007-optional-ios-picture-in-picture.patch
+@@ -19 +19 @@ index 0000000..97ce5ac
+-@@ -0,0 +1,37 @@
++@@ -0,0 +1,85 @@
+@@ -25,0 +26,2 @@ index 0000000..97ce5ac
+++#include <libavutil/buffer.h>
+++#include <libplacebo/colorspace.h>
+@@ -29,0 +32,2 @@ index 0000000..97ce5ac
+++@optional
+++- (void)nuvioEnqueuePiPFrame:(CVPixelBufferRef)buffer presentationTime:(double)pts isPictureInPictureFrame:(BOOL)active doviMetadata:(NSData *)dovi;
+@@ -31,0 +36,38 @@ index 0000000..97ce5ac
+++static NSData *nuvio_pip_dovi_metadata(struct mp_image *image)
+++{
+++    if (!image->dovi || !image->dovi->data || image->dovi->size < sizeof(struct pl_dovi_metadata))
+++        return nil;
+++    const struct pl_dovi_metadata *dovi = (const struct pl_dovi_metadata *)image->dovi->data;
+++    NSMutableData *data = [NSMutableData dataWithLength:(21 + 3 * 226) * sizeof(float)];
+++    float *out = data.mutableBytes;
+++    for (int i = 0; i < 3; i++)
+++        out[i] = dovi->nonlinear_offset[i];
+++    for (int r = 0; r < 3; r++) {
+++        for (int c = 0; c < 3; c++) {
+++            out[3 + r * 3 + c] = dovi->nonlinear.m[r][c];
+++            out[12 + r * 3 + c] = dovi->linear.m[r][c];
+++        }
+++    }
+++    for (int c = 0; c < 3; c++) {
+++        const struct pl_reshape_data *comp = &dovi->comp[c];
+++        float *d = out + 21 + c * 226;
+++        int pivots = comp->num_pivots > 9 ? 9 : comp->num_pivots;
+++        d[0] = pivots;
+++        for (int i = 0; i < pivots; i++)
+++            d[1 + i] = comp->pivots[i];
+++        for (int i = 0; i < pivots - 1; i++) {
+++            d[10 + i] = comp->method[i];
+++            for (int k = 0; k < 3; k++)
+++                d[18 + i * 3 + k] = comp->poly_coeffs[i][k];
+++            int order = comp->mmr_order[i] > 3 ? 3 : comp->mmr_order[i];
+++            d[42 + i] = order;
+++            d[50 + i] = comp->mmr_constant[i];
+++            for (int j = 0; j < order; j++) {
+++                for (int k = 0; k < 7; k++)
+++                    d[58 + i * 21 + j * 7 + k] = comp->mmr_coeffs[i][j][k];
+++            }
+++        }
+++    }
+++    return data;
+++}
+++
+@@ -49 +91,7 @@ index 0000000..97ce5ac
+-+    if ([object respondsToSelector:@selector(nuvioEnqueuePiPFrame:presentationTime:isPictureInPictureFrame:)]) {
+++    if ([object respondsToSelector:@selector(nuvioEnqueuePiPFrame:presentationTime:isPictureInPictureFrame:doviMetadata:)]) {
+++        @autoreleasepool {
+++            [(id<NuvioPiPFrameSink>)object nuvioEnqueuePiPFrame:
+++                (CVPixelBufferRef)image->planes[3] presentationTime:image->pts isPictureInPictureFrame:active
+++                doviMetadata:nuvio_pip_dovi_metadata(image)];
+++        }
+++    } else if ([object respondsToSelector:@selector(nuvioEnqueuePiPFrame:presentationTime:isPictureInPictureFrame:)]) {
