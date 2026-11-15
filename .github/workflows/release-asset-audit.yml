@@ -40,4 +40,22 @@ jobs:
         run: sdkmanager --install "build-tools;35.0.0"
 
       - name: Download and audit the draft's actual release assets
-        run: scripts/audit-release-assets.sh
+        shell: bash
+        run: |
+          set +e
+          output="${RUNNER_TEMP}/release-asset-audit.log"
+          scripts/audit-release-assets.sh >"${output}" 2>&1
+          result=$?
+          cat "${output}"
+          if [[ "${result}" -ne 0 ]]; then
+            {
+              echo '### Release asset audit failure details'
+              echo
+              echo '```text'
+              cat "${output}"
+              echo '```'
+            } >>"${GITHUB_STEP_SUMMARY}"
+            diagnostic="$(tail -n 1 "${output}" | tr '\n' ' ' | cut -c1-500)"
+            echo "::error title=Release asset audit failed::${diagnostic}"
+            exit "${result}"
+          fi
