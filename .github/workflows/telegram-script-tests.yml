@@ -75,13 +75,16 @@ jobs:
           import html
           import pathlib
           import re
-          files = list(pathlib.Path('prior-test-report').rglob('*AndroidDownloadLifecycleTest*.html'))
-          if not files:
-              raise SystemExit('Download lifecycle HTML report not found')
+          root = pathlib.Path('prior-test-report')
+          files = [p for p in root.rglob('*') if p.is_file() and p.suffix in ('.html', '.json', '.js')]
+          found = False
           for path in files:
               data = path.read_text(encoding='utf-8', errors='replace')
-              blocks = re.findall(r'<pre[^>]*>(.*?)</pre>', data, re.DOTALL)
-              for block in blocks:
+              if 'backgroundExecutionDoesNotNeedRepositoryOrActivityCallbacks' not in data:
+                  continue
+              found = True
+              print(f'::notice title=Previous download report::Found test in {path}')
+              for block in re.findall(r'<pre[^>]*>(.*?)</pre>', data, re.DOTALL):
                   text = html.unescape(re.sub(r'<[^>]+>', '', block))
                   if 'backgroundExecutionDoesNotNeedRepositoryOrActivityCallbacks' not in text:
                       continue
@@ -91,4 +94,9 @@ jobs:
                       if 'AssertionError' in line or 'AndroidDownloadLifecycleTest' in line:
                           safe = line.strip().replace('%', '%25').replace('\r', '%0D')
                           print(f'::notice title=Previous download test::{safe[:800]}')
+          if not found:
+              print('::error title=Prior test report::Test name not found in report files')
+              for path in files[:20]:
+                  print(f'::notice title=Report file::{path}')
+              raise SystemExit(1)
           PY
