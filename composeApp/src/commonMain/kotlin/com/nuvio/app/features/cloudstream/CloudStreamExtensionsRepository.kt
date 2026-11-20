@@ -30,7 +30,7 @@ import kotlinx.serialization.json.Json
  *
  * Honesty rules enforced here:
  *  - a source can only be enabled when it is genuinely activatable
- *  - `.cs3` plugins needing DEX execution can never become installed/enabled
+ *  - only Android Full can install and execute compatible DEX packages
  */
 internal object CloudStreamExtensionsRepository {
 
@@ -329,7 +329,9 @@ internal object CloudStreamExtensionsRepository {
                     // otherwise. Without this a freshly installed provider is
                     // installed-but-disabled and never reaches Play -> Sources,
                     // which reads to the user as the install having done nothing.
-                    enableSourcesByDefault(pluginId)
+                    // Trust or metadata may have changed during the download.
+                    // Do not record a new automatic enable under stale consent.
+                    if (isPluginExecutionAuthorized(extension.plugin)) enableSourcesByDefault(pluginId)
                     // Cache immediately so the provider survives a restart and
                     // is usable offline without waiting for a repository refresh.
                     persistInstalledPlugins()
@@ -360,7 +362,7 @@ internal object CloudStreamExtensionsRepository {
             // A cancellation can arrive after the installer has committed. Do
             // not leave a permanent Downloading state or invent a failure;
             // restore the state from the package actually present on disk.
-            withContext(NonCancellable + Dispatchers.IO) {
+            withContext(NonCancellable + Dispatchers.Default) {
                 val installed = CloudStreamPackageInstaller.isInstalled(extension.plugin)
                 updateInstallStatus(pluginId) {
                     CloudStreamInstallStatus(
