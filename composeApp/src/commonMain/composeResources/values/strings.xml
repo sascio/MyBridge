@@ -3241,4 +3241,13 @@
     <string name="settings_glass_ui_style_dark">Dark</string>
     <string name="settings_glass_ui_style_balanced">Balanced</string>
     <string name="settings_glass_ui_style_vivid">Vivid</string>
+    <string name="cloudstream_trust_title">Authorize repository?</string>
+    <string name="cloudstream_trust_warning">Extensions can execute third-party code with the app’s permissions on Android Full. Only authorize repositories you trust. Authorization and a matching hash do not prove an extension is safe or malware-free.</string>
+    <string name="cloudstream_authorize">Authorize repository</string>
+    <string name="cloudstream_revoke">Revoke repository authorization</string>
+    <string name="cloudstream_cancel">Cancel</string>
+    <string name="cloudstream_hash_unverified">Unverified: no usable published SHA-256.</string>
+    <string name="cloudstream_hash_verified">Installed package SHA-256 matches the published hash.</string>
+    <string name="cloudstream_hash_declared">Published SHA-256 provided; checked when installing and loading.</string>
+    <string name="cloudstream_hash_mismatch">SHA-256 mismatch: package rejected.</string>
 </resources>

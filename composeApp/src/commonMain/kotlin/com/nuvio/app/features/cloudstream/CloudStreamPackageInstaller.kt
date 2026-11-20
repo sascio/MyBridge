@@ -12,6 +12,8 @@ package com.nuvio.app.features.cloudstream
  * Implementations must verify before committing: a package that fails its
  * hash or structural checks must never end up in the install directory.
  */
+internal enum class CloudStreamIntegrity { NOT_INSTALLED, VERIFIED, UNVERIFIED, MISMATCH }
+
 internal expect object CloudStreamPackageInstaller {
 
     /** Whether this distribution can install CloudStream packages at all. */
@@ -19,6 +21,9 @@ internal expect object CloudStreamPackageInstaller {
 
     /** True when a verified package for [plugin] is present on disk. */
     fun isInstalled(plugin: CloudStreamPlugin): Boolean
+
+    /** Digest of the currently installed bytes against the current publisher metadata. */
+    fun integrity(plugin: CloudStreamPlugin): CloudStreamIntegrity
 
     /** Version recorded at install time, or null when not installed. */
     fun installedVersion(plugin: CloudStreamPlugin): Int?

@@ -57,6 +57,7 @@ class CloudStreamPackageValidationTest {
         assertTrue(CloudStreamPackageValidation.matchesExpectedHash("", digest))
         assertFalse(CloudStreamPackageValidation.hasVerifiableHash(null))
         assertFalse(CloudStreamPackageValidation.hasVerifiableHash("sha256-"))
+        assertFalse(CloudStreamPackageValidation.hasVerifiableHash("sha256-not-a-digest"))
         assertTrue(CloudStreamPackageValidation.hasVerifiableHash("sha256-$digest"))
     }
 

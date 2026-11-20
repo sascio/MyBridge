@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.18</strong> (118)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.19</strong> (119)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and

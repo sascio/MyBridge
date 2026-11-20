@@ -105,6 +105,7 @@ internal fun CloudStreamExtensionsPageContent(
         CloudStreamExtensionDetail(
             extension = selectedExtension,
             modifier = modifier,
+            trusted = uiState.trustedRepositories.any { sameCloudStreamRepositoryUrl(it, selectedExtension.repositoryUrl) },
             onBack = { selectedExtensionId = null },
         )
         return

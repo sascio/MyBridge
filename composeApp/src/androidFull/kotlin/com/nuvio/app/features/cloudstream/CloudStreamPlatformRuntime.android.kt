@@ -157,6 +157,14 @@ internal actual object CloudStreamPlatformRuntime {
         plugin: CloudStreamPlugin,
         packageFile: File,
     ): LoadedPlugin = loadMutex.withLock {
+        require(CloudStreamExtensionsRepository.isRepositoryTrusted(plugin.repositoryUrl)) {
+            "CloudStream repository is not authorized"
+        }
+        // Check even cached providers: a refreshed publisher hash must not be
+        // bypassed merely because the previous version was already loaded.
+        require(packageFile.isFile && CloudStreamPackageValidation.matchesExpectedHash(plugin.fileHash, sha256Hex(packageFile))) {
+            "CloudStream package SHA-256 does not match the repository"
+        }
         synchronized(loaded) { loaded[plugin.id] }?.let { cached ->
             // A reinstall or update replaces the file; the cached providers then
             // point at code that is no longer on disk.

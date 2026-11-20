@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -32,6 +33,15 @@ import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.cloudstream_trust_title
+import nuvio.composeapp.generated.resources.cloudstream_trust_warning
+import nuvio.composeapp.generated.resources.cloudstream_authorize
+import nuvio.composeapp.generated.resources.cloudstream_revoke
+import nuvio.composeapp.generated.resources.cloudstream_cancel
+import nuvio.composeapp.generated.resources.cloudstream_hash_unverified
+import nuvio.composeapp.generated.resources.cloudstream_hash_verified
+import nuvio.composeapp.generated.resources.cloudstream_hash_declared
+import nuvio.composeapp.generated.resources.cloudstream_hash_mismatch
 import nuvio.composeapp.generated.resources.cloudstream_action_back
 import nuvio.composeapp.generated.resources.cloudstream_action_configure
 import nuvio.composeapp.generated.resources.cloudstream_authors_format
@@ -55,8 +65,24 @@ import org.jetbrains.compose.resources.stringResource
 internal fun CloudStreamExtensionDetail(
     extension: CloudStreamExtension,
     modifier: Modifier = Modifier,
+    trusted: Boolean,
     onBack: () -> Unit,
 ) {
+    var showTrustWarning by remember { mutableStateOf(false) }
+    if (showTrustWarning) {
+        AlertDialog(
+            onDismissRequest = { showTrustWarning = false },
+            title = { Text(stringResource(Res.string.cloudstream_trust_title)) },
+            text = { Text(stringResource(Res.string.cloudstream_trust_warning) + "\n\n" + extension.repositoryUrl) },
+            confirmButton = {
+                TextButton(onClick = {
+                    CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, true)
+                    showTrustWarning = false
+                }) { Text(stringResource(Res.string.cloudstream_authorize)) }
+            },
+            dismissButton = { TextButton(onClick = { showTrustWarning = false }) { Text(stringResource(Res.string.cloudstream_cancel)) } },
+        )
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -78,13 +104,19 @@ internal fun CloudStreamExtensionDetail(
         }
 
         MetadataCard(extension = extension)
+        TextButton(onClick = {
+            if (trusted) CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, false)
+            else showTrustWarning = true
+        }) {
+            Text(stringResource(if (trusted) Res.string.cloudstream_revoke else Res.string.cloudstream_authorize))
+        }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_sources))
         extension.sources.forEach { source ->
             SourceCard(
                 source = source,
                 // Enabling is only meaningful once the package is on disk.
-                packageInstalled = extension.installStatus.isInstalled,
+                packageInstalled = extension.installStatus.isInstalled && trusted,
                 onEnabledChange = { enabled ->
                     CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled)
                 },
@@ -146,6 +178,19 @@ private fun MetadataCard(extension: CloudStreamExtension) {
             plugin.tvTypes.forEach { type -> MetaChip(type) }
             MetaChip(stringResource(Res.string.cloudstream_sources_format, extension.sourceCount))
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(when {
+                extension.installStatus.error == CloudStreamInstallError.HASH_MISMATCH ||
+                    CloudStreamPackageInstaller.integrity(plugin) == CloudStreamIntegrity.MISMATCH -> Res.string.cloudstream_hash_mismatch
+                CloudStreamPackageInstaller.integrity(plugin) == CloudStreamIntegrity.VERIFIED -> Res.string.cloudstream_hash_verified
+                !CloudStreamPackageValidation.hasVerifiableHash(plugin.fileHash) -> Res.string.cloudstream_hash_unverified
+                else -> Res.string.cloudstream_hash_declared
+            }),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         // Shows what is genuinely on disk, which is what an update offer is
         // compared against.

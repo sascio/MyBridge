@@ -64,8 +64,10 @@ internal object CloudStreamPackageValidation {
     }
 
     /** True when the repository actually pinned the artifact's contents. */
-    fun hasVerifiableHash(expectedHash: String?): Boolean =
-        !expectedHash?.trim()?.removePrefix("sha256-")?.removePrefix("SHA256-").isNullOrBlank()
+    fun hasVerifiableHash(expectedHash: String?): Boolean {
+        val hash = expectedHash?.trim()?.removePrefix("sha256-")?.removePrefix("SHA256-") ?: return false
+        return hash.length == 64 && hash.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    }
 
     /**
      * Rejects archive entries that would escape the extraction directory.

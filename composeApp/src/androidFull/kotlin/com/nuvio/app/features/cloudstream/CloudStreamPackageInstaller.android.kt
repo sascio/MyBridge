@@ -65,6 +65,28 @@ internal actual object CloudStreamPackageInstaller {
         return CloudStreamPackageStorage.isInstalled(context, plugin)
     }
 
+    actual fun integrity(plugin: CloudStreamPlugin): CloudStreamIntegrity {
+        val context = appContext ?: return CloudStreamIntegrity.NOT_INSTALLED
+        val file = CloudStreamPackageStorage.packageFile(context, plugin) ?: return CloudStreamIntegrity.NOT_INSTALLED
+        return runCatching {
+            val hash = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    hash.update(buffer, 0, count)
+                }
+            }
+            val digest = hash.digest().joinToString("") { "%02x".format(it) }
+            when {
+                !CloudStreamPackageValidation.matchesExpectedHash(plugin.fileHash, digest) -> CloudStreamIntegrity.MISMATCH
+                !CloudStreamPackageValidation.hasVerifiableHash(plugin.fileHash) -> CloudStreamIntegrity.UNVERIFIED
+                else -> CloudStreamIntegrity.VERIFIED
+            }
+        }.getOrDefault(CloudStreamIntegrity.MISMATCH)
+    }
+
     /**
      * Version of the installed package, read from the `manifest.json` inside
      * the committed archive.
