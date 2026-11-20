@@ -11,16 +11,18 @@ synchronised from official NuvioMobile **0.5.5-beta** and NuvioMobile-Enhanced
 | App bundle identifier | `com.streambridge.app` |
 | Widget bundle identifier | `com.streambridge.app.DownloadsWidgetExtension` |
 | Marketing version | `0.1.19` (`iosApp/Configuration/Version.xcconfig`) |
-| Build number | `118` |
+| Build number | `119` |
 | Xcode project | `iosApp/iosApp.xcodeproj`, scheme `iosApp` |
 | Product | `StreamBridge.app` |
-| Distribution | `full` (`NUVIO_IOS_DISTRIBUTION=full`, plugins/CloudStream-capable core) |
+| Distribution | `full` (`NUVIO_IOS_DISTRIBUTION=full`; CloudStream DEX execution is not supported on iOS) |
 
 The StreamBridge version comes from
 [`streambridge.version.properties`](../streambridge.version.properties)
 (`STREAMBRIDGE_VERSION_NAME`). `scripts/build-ios-ipa.sh` fails the build if the
 packaged application does not report that version, is not named `StreamBridge`,
 or does not carry a `com.streambridge.app*` bundle identifier.
+
+0.1.19 is a preparation target, not a published release; artifact paths below are expected outputs, not verified downloads.
 
 ## Building locally
 

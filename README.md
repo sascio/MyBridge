@@ -18,6 +18,15 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
+## 0.1.19 preparation
+
+- Android Full requires explicit repository authorization for CloudStream execution;
+  a matching hash is not a malware guarantee, and missing hashes are unverified.
+  Play Store and iOS do not execute CloudStream DEX.
+- Version 0.1.19 is under preparation. Published updater metadata remains at the
+  last release until production artifacts are built and verified. See the
+  [upstream review](docs/UPSTREAM-1.0.0-AUDIT.md) for the limits of the 1.0.0 comparison.
+
 ## Highlights in 0.1.18
 
 - **Core synchronization** — integrated the applicable Enhanced `0.6.11-beta` → `0.6.12-beta`
@@ -115,7 +124,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.18-iOS-unsigned.ipa`
+- `StreamBridge-0.1.18-iOS-unsigned.ipa` (last published version; 0.1.19 is not yet released)
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
