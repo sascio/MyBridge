@@ -122,6 +122,14 @@ internal actual object CloudStreamPackageInstaller {
                 )
             }
 
+            if (!url.looksLikeHttpUrl()) {
+                return@withContext failure(
+                    plugin,
+                    CloudStreamInstallError.INVALID_RESPONSE,
+                    "The extension publishes an invalid or credential-bearing download URL.",
+                )
+            }
+
             val bytes = when (val download = download(url, plugin)) {
                 is Downloaded.Ok -> download.bytes
                 is Downloaded.Error -> return@withContext failure(
@@ -146,7 +154,17 @@ internal actual object CloudStreamPackageInstaller {
                 .digest(bytes)
                 .joinToString("") { byte -> "%02x".format(byte) }
 
-            val staged = File(context.cacheDir, "cloudstream-verify-${plugin.id.hashCode()}.cs3")
+            // Plugin IDs can have identical hashCode values. A unique file is
+            // essential: concurrent installs must never validate each other's bytes.
+            val staged = try {
+                File.createTempFile("cloudstream-verify-", ".cs3", context.cacheDir)
+            } catch (error: IOException) {
+                return@withContext failure(
+                    plugin,
+                    CloudStreamInstallPolicy.classify(error),
+                    "Could not stage the downloaded package.",
+                )
+            }
             try {
                 staged.writeBytes(bytes)
                 when (val verdict = inspect(staged, plugin, digest)) {
@@ -227,10 +245,11 @@ internal actual object CloudStreamPackageInstaller {
 
     /** Fetches the artifact, distinguishing every failure the user can act on. */
     private fun download(url: String, plugin: CloudStreamPlugin): Downloaded {
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept", "application/octet-stream")
-            .build()
+        val request = try {
+            Request.Builder().url(url).header("Accept", "application/octet-stream").build()
+        } catch (_: IllegalArgumentException) {
+            return Downloaded.Error(CloudStreamInstallError.INVALID_RESPONSE, "The extension publishes an invalid download URL.")
+        }
 
         return try {
             AddonHttpClientProvider.get().newCall(request).execute().use { response ->
