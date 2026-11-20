@@ -36,6 +36,7 @@ internal object CloudStreamPackageValidation {
         MISSING_MANIFEST,
         MISSING_DEX,
         UNSAFE_ARCHIVE_ENTRY,
+        DUPLICATE_ARCHIVE_ENTRY,
         MISSING_PLUGIN_CLASS,
         MALFORMED_PLUGIN_CLASS,
     }
@@ -137,6 +138,9 @@ internal object CloudStreamPackageValidation {
                 Rejection.UNSAFE_ARCHIVE_ENTRY,
                 "Archive contains an unsafe entry path: $unsafe",
             )
+        }
+        if (entryNames.size != entryNames.toSet().size) {
+            return Result.Invalid(Rejection.DUPLICATE_ARCHIVE_ENTRY, "Archive contains duplicate entry names.")
         }
         if (entryNames.none { it == MANIFEST_ENTRY }) {
             return Result.Invalid(Rejection.MISSING_MANIFEST, "Package has no $MANIFEST_ENTRY.")

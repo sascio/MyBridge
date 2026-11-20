@@ -98,7 +98,7 @@ internal actual object CloudStreamPackageInstaller {
             ZipFile(file).use { zip ->
                 val entry = zip.getEntry(CloudStreamPackageValidation.MANIFEST_ENTRY)
                     ?: return@use null
-                val text = zip.getInputStream(entry).use { it.readBytes().decodeToString() }
+                val text = zip.readCloudStreamManifest(entry) ?: return@use null
                 json.decodeFromString<CloudStreamPluginArchiveManifest>(text).version
             }
         }.getOrNull()
@@ -226,7 +226,7 @@ internal actual object CloudStreamPackageInstaller {
         val manifestEntry = zip.getEntry(CloudStreamPackageValidation.MANIFEST_ENTRY)
         val pluginClassName = manifestEntry?.let { entry ->
             runCatching {
-                val text = zip.getInputStream(entry).use { it.readBytes().decodeToString() }
+                val text = zip.readCloudStreamManifest(entry) ?: return@runCatching null
                 json.decodeFromString<CloudStreamPluginArchiveManifest>(text).pluginClassName
             }.getOrNull()
         }
@@ -364,7 +364,8 @@ internal actual object CloudStreamPackageInstaller {
                 CloudStreamInstallError.MALFORMED_MANIFEST
             CloudStreamPackageValidation.Rejection.MISSING_DEX ->
                 CloudStreamInstallError.CORRUPT_PACKAGE
-            CloudStreamPackageValidation.Rejection.UNSAFE_ARCHIVE_ENTRY ->
+            CloudStreamPackageValidation.Rejection.UNSAFE_ARCHIVE_ENTRY,
+            CloudStreamPackageValidation.Rejection.DUPLICATE_ARCHIVE_ENTRY ->
                 CloudStreamInstallError.CORRUPT_PACKAGE
             CloudStreamPackageValidation.Rejection.MISSING_PLUGIN_CLASS,
             CloudStreamPackageValidation.Rejection.MALFORMED_PLUGIN_CLASS ->

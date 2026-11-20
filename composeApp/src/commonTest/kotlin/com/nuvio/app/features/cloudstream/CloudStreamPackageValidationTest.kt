@@ -102,6 +102,14 @@ class CloudStreamPackageValidationTest {
     // ---- archive layout --------------------------------------------------
 
     @Test
+    fun duplicateArchiveEntriesAreRejected() {
+        val invalid = assertIs<CloudStreamPackageValidation.Result.Invalid>(
+            validate(entries = validEntries + "manifest.json"),
+        )
+        assertEquals(CloudStreamPackageValidation.Rejection.DUPLICATE_ARCHIVE_ENTRY, invalid.reason)
+    }
+
+    @Test
     fun packageWithoutManifestIsRejected() {
         val invalid = assertIs<CloudStreamPackageValidation.Result.Invalid>(
             validate(entries = listOf("classes.dex")),
