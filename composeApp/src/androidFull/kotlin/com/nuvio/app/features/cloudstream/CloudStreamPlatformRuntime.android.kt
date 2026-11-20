@@ -157,8 +157,8 @@ internal actual object CloudStreamPlatformRuntime {
         plugin: CloudStreamPlugin,
         packageFile: File,
     ): LoadedPlugin = loadMutex.withLock {
-        require(CloudStreamExtensionsRepository.isRepositoryTrusted(plugin.repositoryUrl)) {
-            "CloudStream repository is not authorized"
+        require(CloudStreamExtensionsRepository.isPluginExecutionAuthorized(plugin)) {
+            "CloudStream repository is not authorized or the extension identity is ambiguous"
         }
         // Check even cached providers: a refreshed publisher hash must not be
         // bypassed merely because the previous version was already loaded.

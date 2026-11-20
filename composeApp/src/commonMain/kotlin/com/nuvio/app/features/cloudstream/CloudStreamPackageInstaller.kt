@@ -12,7 +12,7 @@ package com.nuvio.app.features.cloudstream
  * Implementations must verify before committing: a package that fails its
  * hash or structural checks must never end up in the install directory.
  */
-internal enum class CloudStreamIntegrity { NOT_INSTALLED, VERIFIED, UNVERIFIED, MISMATCH }
+internal enum class CloudStreamIntegrity { NOT_INSTALLED, VERIFIED, UNVERIFIED, UNVERIFIABLE, MISMATCH }
 
 internal expect object CloudStreamPackageInstaller {
 

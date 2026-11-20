@@ -3,6 +3,7 @@ package com.nuvio.app.features.cloudstream
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpGetText
 import kotlinx.coroutines.CancellationException
+import io.ktor.http.Url
 
 /**
  * Fetches and normalises CloudStream repositories.
@@ -136,5 +137,11 @@ internal class CloudStreamRepositoryLoader(
     )
 }
 
-private fun String.looksLikeHttpUrl(): Boolean =
-    startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true)
+internal fun String.looksLikeHttpUrl(): Boolean {
+    if (!(startsWith("http://", ignoreCase = true) || startsWith("https://", ignoreCase = true))) return false
+    if (any { it.isWhitespace() || it.code < 32 || it.code == 127 }) return false
+    val authority = substringAfter("://").substringBefore('/').substringBefore('?').substringBefore('#')
+    if (authority.isBlank() || '@' in authority) return false
+    val url = runCatching { Url(this) }.getOrNull() ?: return false
+    return url.host.isNotBlank() && url.protocol.name.lowercase() in setOf("http", "https")
+}

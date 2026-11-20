@@ -103,6 +103,16 @@ class CloudStreamRepositoryLoaderTest {
     }
 
     @Test
+    fun `malformed URLs and credentials are rejected before fetching`() = runBlocking {
+        var fetches = 0
+        val loader = CloudStreamRepositoryLoader(fetch = { fetches++; "{}" }, canExecute = true)
+        listOf("https://", "https:///repo", "https://user:pass@example.com/repo", "https://example.com/a b").forEach { bad ->
+            assertEquals(CloudStreamCompatibility.FAILED, loader.load(bad).compatibility, bad)
+        }
+        assertEquals(0, fetches)
+    }
+
+    @Test
     fun `duplicate plugin ids collapse to the highest version`() = runBlocking {
         val dupes = """
             [{"name":"A","internalName":"A","url":"https://e.com/a1.cs3","apiVersion":1,"version":1},

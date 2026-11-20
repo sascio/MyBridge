@@ -43,12 +43,25 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.format.formatLocalDateTime
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.cloudstream_cancel
 import nuvio.composeapp.generated.resources.cloudstream_save
+import nuvio.composeapp.generated.resources.cloudstream_last_refresh
+import nuvio.composeapp.generated.resources.cloudstream_reinstall
+import nuvio.composeapp.generated.resources.cloudstream_hash_declared
+import nuvio.composeapp.generated.resources.cloudstream_hash_unverified
+import nuvio.composeapp.generated.resources.cloudstream_hash_unverifiable
+import nuvio.composeapp.generated.resources.cloudstream_hash_mismatch
+import nuvio.composeapp.generated.resources.cloudstream_bulk_install
+import nuvio.composeapp.generated.resources.cloudstream_bulk_update
+import nuvio.composeapp.generated.resources.cloudstream_bulk_enable
+import nuvio.composeapp.generated.resources.cloudstream_bulk_disable
+import nuvio.composeapp.generated.resources.cloudstream_bulk_progress
+import nuvio.composeapp.generated.resources.cloudstream_bulk_failure
 import nuvio.composeapp.generated.resources.cloudstream_edit
 import nuvio.composeapp.generated.resources.cloudstream_search
 import nuvio.composeapp.generated.resources.cloudstream_filter_all
@@ -173,6 +186,7 @@ internal fun CloudStreamExtensionsPageContent(
                 Text(repository.name, style = MaterialTheme.typography.titleMedium)
                 Text(repository.url, style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(Res.string.cloudstream_repository_count, repository.plugins.size))
+                repository.refreshedAtEpochMs?.let { Text(stringResource(Res.string.cloudstream_last_refresh, formatLocalDateTime(it)), style = MaterialTheme.typography.bodySmall) }
                 repository.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Row {
                     TextButton(onClick = { editingUrl = repository.url; repositoryUrl = repository.url }) {
@@ -186,6 +200,30 @@ internal fun CloudStreamExtensionsPageContent(
         }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_extensions))
+
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val canRun = uiState.extensions.isNotEmpty() && uiState.bulk?.running != true
+            TextButton(onClick = { CloudStreamExtensionsRepository.startBulk(CloudStreamBulkAction.INSTALL) }, enabled = canRun) {
+                Text(stringResource(Res.string.cloudstream_bulk_install))
+            }
+            TextButton(onClick = { CloudStreamExtensionsRepository.startBulk(CloudStreamBulkAction.UPDATE) }, enabled = canRun) {
+                Text(stringResource(Res.string.cloudstream_bulk_update))
+            }
+            TextButton(onClick = { CloudStreamExtensionsRepository.startBulk(CloudStreamBulkAction.ENABLE) }, enabled = canRun) {
+                Text(stringResource(Res.string.cloudstream_bulk_enable))
+            }
+            TextButton(onClick = { CloudStreamExtensionsRepository.startBulk(CloudStreamBulkAction.DISABLE) }, enabled = canRun) {
+                Text(stringResource(Res.string.cloudstream_bulk_disable))
+            }
+        }
+        uiState.bulk?.let { bulk ->
+            Text(stringResource(Res.string.cloudstream_bulk_progress, bulk.completed, bulk.total))
+            bulk.current?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            bulk.failures.forEach { failure ->
+                Text(stringResource(Res.string.cloudstream_bulk_failure, failure.extensionName, failure.message),
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
 
         OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(),
             singleLine = true, label = { Text(stringResource(Res.string.cloudstream_search)) })
@@ -471,8 +509,18 @@ private fun ExtensionCard(
             )
             InstallStateChip(extension.installStatus)
             extension.plugin.language?.takeIf { it.isNotBlank() }?.let { MetaChip(it.uppercase()) }
+            extension.plugin.tvTypes.forEach { MetaChip(it) }
             MetaChip(stringResource(Res.string.cloudstream_sources_format, extension.sourceCount))
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(stringResource(when {
+            extension.installStatus.error == CloudStreamInstallError.HASH_MISMATCH -> Res.string.cloudstream_hash_mismatch
+            extension.installStatus.error == CloudStreamInstallError.HASH_UNVERIFIABLE ||
+                (!extension.plugin.fileHash.isNullOrBlank() && !CloudStreamPackageValidation.hasVerifiableHash(extension.plugin.fileHash)) -> Res.string.cloudstream_hash_unverifiable
+            extension.plugin.fileHash.isNullOrBlank() -> Res.string.cloudstream_hash_unverified
+            else -> Res.string.cloudstream_hash_declared
+        }), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         // The failure reason is shown verbatim so the user can tell a dead
         // network apart from a package that failed verification.
@@ -501,7 +549,7 @@ private fun ExtensionCard(
  * action is offered while one is already running.
  */
 @Composable
-private fun InstallActions(
+internal fun InstallActions(
     extension: CloudStreamExtension,
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
@@ -539,6 +587,9 @@ private fun InstallActions(
 
             extension.canInstall -> Button(onClick = onInstall) {
                 Text(stringResource(Res.string.cloudstream_action_install))
+            }
+            extension.installStatus.isInstalled -> Button(onClick = onInstall, enabled = !extension.installStatus.isBusy) {
+                Text(stringResource(Res.string.cloudstream_reinstall))
             }
         }
     }

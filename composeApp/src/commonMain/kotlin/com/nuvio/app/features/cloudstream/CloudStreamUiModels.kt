@@ -103,6 +103,7 @@ data class CloudStreamUiState(
     val repositories: List<CloudStreamRepository> = emptyList(),
     val trustedRepositories: Set<String> = emptySet(),
     val extensions: List<CloudStreamExtension> = emptyList(),
+    val bulk: CloudStreamBulkStatus? = null,
     /** Set when the most recent user action failed. Actionable text. */
     val errorMessage: String? = null,
 ) {

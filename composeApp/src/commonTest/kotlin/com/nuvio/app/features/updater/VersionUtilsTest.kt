@@ -6,6 +6,12 @@ import kotlin.test.Test
 
 class VersionUtilsTest {
     @Test
+    fun `streambridge 0 1 19 is newer than 0 1 18`() {
+        assertTrue(VersionUtils.isRemoteNewer("v0.1.19", "0.1.18"))
+        assertFalse(VersionUtils.isRemoteNewer("v0.1.18", "0.1.19"))
+    }
+
+    @Test
     fun `stable release is newer than its prerelease`() {
         assertTrue(VersionUtils.isRemoteNewer("1.1.0", "1.1.0-rc.2"))
     }

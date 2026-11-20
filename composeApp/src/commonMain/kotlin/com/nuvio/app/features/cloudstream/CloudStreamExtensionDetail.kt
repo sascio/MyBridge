@@ -41,6 +41,7 @@ import nuvio.composeapp.generated.resources.cloudstream_authorize
 import nuvio.composeapp.generated.resources.cloudstream_revoke
 import nuvio.composeapp.generated.resources.cloudstream_cancel
 import nuvio.composeapp.generated.resources.cloudstream_hash_unverified
+import nuvio.composeapp.generated.resources.cloudstream_hash_unverifiable
 import nuvio.composeapp.generated.resources.cloudstream_hash_verified
 import nuvio.composeapp.generated.resources.cloudstream_hash_declared
 import nuvio.composeapp.generated.resources.cloudstream_hash_mismatch
@@ -106,6 +107,11 @@ internal fun CloudStreamExtensionDetail(
         }
 
         MetadataCard(extension = extension)
+        InstallActions(
+            extension = extension,
+            onInstall = { CloudStreamExtensionsRepository.installExtension(extension.id) },
+            onUninstall = { CloudStreamExtensionsRepository.removeExtension(extension.id) },
+        )
         TextButton(onClick = {
             if (trusted) CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, false)
             else showTrustWarning = true
@@ -166,6 +172,8 @@ private fun MetadataCard(extension: CloudStreamExtension) {
         }
 
         Spacer(modifier = Modifier.height(10.dp))
+        Text(extension.repositoryUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = plugin.description?.takeIf { it.isNotBlank() }
                 ?: stringResource(Res.string.cloudstream_metadata_unavailable),
@@ -186,12 +194,14 @@ private fun MetadataCard(extension: CloudStreamExtension) {
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+        val integrity = CloudStreamPackageInstaller.integrity(plugin)
         Text(
             text = stringResource(when {
-                extension.installStatus.error == CloudStreamInstallError.HASH_MISMATCH ||
-                    CloudStreamPackageInstaller.integrity(plugin) == CloudStreamIntegrity.MISMATCH -> Res.string.cloudstream_hash_mismatch
-                CloudStreamPackageInstaller.integrity(plugin) == CloudStreamIntegrity.VERIFIED -> Res.string.cloudstream_hash_verified
-                !CloudStreamPackageValidation.hasVerifiableHash(plugin.fileHash) -> Res.string.cloudstream_hash_unverified
+                extension.installStatus.error == CloudStreamInstallError.HASH_MISMATCH || integrity == CloudStreamIntegrity.MISMATCH -> Res.string.cloudstream_hash_mismatch
+                extension.installStatus.error == CloudStreamInstallError.HASH_UNVERIFIABLE || integrity == CloudStreamIntegrity.UNVERIFIABLE ||
+                    (!plugin.fileHash.isNullOrBlank() && !CloudStreamPackageValidation.hasVerifiableHash(plugin.fileHash)) -> Res.string.cloudstream_hash_unverifiable
+                integrity == CloudStreamIntegrity.VERIFIED -> Res.string.cloudstream_hash_verified
+                plugin.fileHash.isNullOrBlank() -> Res.string.cloudstream_hash_unverified
                 else -> Res.string.cloudstream_hash_declared
             }),
             style = MaterialTheme.typography.bodyMedium,

@@ -25,3 +25,40 @@ artifacts and verified checksums. Android Play and iOS remain non-executing
 CloudStream distributions. Android Full loads third-party code in-process;
 authorized repositories and hashes do not make code malware-free. A missing
 published hash is unverified. These checks are not a sandbox.
+
+## Follow-up comparison
+
+A path-and-byte comparison of commonMain Kotlin under `com/nuvio/app` against
+exact official 1.0.0 found 509 identical common paths, 259 different common
+paths, 14 official-only paths and 188 StreamBridge-only paths. These are file
+counts, not an assessment that each difference should be merged. Examples of
+upstream-only work include `features/mdblist/MdbListUserRatingDecoder.kt`,
+`MdbListUserRatings.kt`, `features/simkl/SimklRatings.kt`, details rating UI,
+`features/player/VodCacheSizing.kt`, and Exo buffer settings. These are **not**
+ported here: ratings change tracking persistence, remote APIs and UI together,
+and the player additions need review against StreamBridge's existing playback
+and download changes. Do not treat their absence as an intentional permanent
+exclusion or as a full integration.
+
+Compared examples where the StreamBridge behavior is deliberately retained:
+`MetaDetailsParser.kt` retains TVDB/episode IDs; `ChapterSkipIntervals.kt`
+retains longer credit rolls; `VersionUtils.kt` retains StreamBridge updater
+naming and same-base handling; `BackendRateLimit.kt` retains its delay bound.
+The official version catalogue uses AGP 9.2.0 while this tree uses 9.4.0 and
+also contains additional runtime dependencies; no dependency or native/MPVKit
+pins were changed without compatibility evidence.
+
+The exact Enhanced tag's README and `src/` identify React Native/Expo home,
+search, library, player, Trakt and addon features. The current application
+already has Kotlin implementations of these broad areas, but full functional
+parity has not been established. Directly copying React components, Expo
+configuration, app IDs, remote endpoints or native modules would be incompatible
+and would risk StreamBridge identity. The later Kotlin Enhanced CloudStream
+reference is documented separately in `CLOUDSTREAM-RUNTIME-AUDIT.md` and is
+not represented as the requested 1.0.0 tag.
+
+This follow-up adds CloudStream bulk management, fail-closed handling for
+ambiguous installed filenames and malformed hashes, and retains installed
+metadata when a repository refresh fails. It does not constitute an upstream
+1.0.0 sync. Real-device provider registration, playback and platform regression
+testing are still required before production release.

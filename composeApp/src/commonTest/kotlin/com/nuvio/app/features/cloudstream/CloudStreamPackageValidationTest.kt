@@ -61,6 +61,18 @@ class CloudStreamPackageValidationTest {
         assertTrue(CloudStreamPackageValidation.hasVerifiableHash("sha256-$digest"))
     }
 
+    @Test
+    fun malformedPublishedHashIsUnverifiableAndRejected() {
+        assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState("sha256-", digest))
+        assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState("not-a-sha256", digest))
+        assertFalse(CloudStreamPackageValidation.matchesExpectedHash("sha256-", digest))
+        assertEquals(CloudStreamPackageValidation.Rejection.HASH_UNVERIFIABLE,
+            assertIs<CloudStreamPackageValidation.Result.Invalid>(validate(expectedHash = "sha256-")).reason)
+        assertEquals(CloudStreamIntegrity.UNVERIFIED, CloudStreamPackageValidation.hashState(null, digest))
+        assertEquals(CloudStreamIntegrity.VERIFIED, CloudStreamPackageValidation.hashState("sha256-$digest", digest))
+        assertEquals(CloudStreamIntegrity.MISMATCH, CloudStreamPackageValidation.hashState("b".repeat(64), digest))
+    }
+
     // ---- archive safety (Zip Slip) --------------------------------------
 
     @Test

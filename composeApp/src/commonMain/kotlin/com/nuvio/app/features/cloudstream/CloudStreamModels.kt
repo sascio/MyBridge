@@ -174,6 +174,8 @@ data class CloudStreamRepository(
     val compatibilityReason: CloudStreamCompatibilityReason = CloudStreamCompatibilityReason.NONE,
     /** Human-readable failure text when the repository could not be read. */
     val errorMessage: String? = null,
+    /** Most recent attempted refresh in this app session. */
+    val refreshedAtEpochMs: Long? = null,
 ) {
     val isUsable: Boolean
         get() = compatibility != CloudStreamCompatibility.FAILED

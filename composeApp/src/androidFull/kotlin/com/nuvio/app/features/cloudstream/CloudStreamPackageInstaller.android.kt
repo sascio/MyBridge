@@ -79,12 +79,8 @@ internal actual object CloudStreamPackageInstaller {
                 }
             }
             val digest = hash.digest().joinToString("") { "%02x".format(it) }
-            when {
-                !CloudStreamPackageValidation.matchesExpectedHash(plugin.fileHash, digest) -> CloudStreamIntegrity.MISMATCH
-                !CloudStreamPackageValidation.hasVerifiableHash(plugin.fileHash) -> CloudStreamIntegrity.UNVERIFIED
-                else -> CloudStreamIntegrity.VERIFIED
-            }
-        }.getOrDefault(CloudStreamIntegrity.MISMATCH)
+            CloudStreamPackageValidation.hashState(plugin.fileHash, digest)
+        }.getOrDefault(CloudStreamIntegrity.UNVERIFIABLE)
     }
 
     /**
@@ -341,6 +337,8 @@ internal actual object CloudStreamPackageInstaller {
 
     private fun CloudStreamPackageValidation.Rejection.toInstallError(): CloudStreamInstallError =
         when (this) {
+            CloudStreamPackageValidation.Rejection.HASH_UNVERIFIABLE ->
+                CloudStreamInstallError.HASH_UNVERIFIABLE
             CloudStreamPackageValidation.Rejection.HASH_MISMATCH ->
                 CloudStreamInstallError.HASH_MISMATCH
             CloudStreamPackageValidation.Rejection.MISSING_MANIFEST ->

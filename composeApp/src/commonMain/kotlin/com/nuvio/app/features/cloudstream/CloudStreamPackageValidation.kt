@@ -32,6 +32,7 @@ internal object CloudStreamPackageValidation {
     /** Why a package was refused. Surfaced to the user and to logs. */
     enum class Rejection {
         HASH_MISMATCH,
+        HASH_UNVERIFIABLE,
         MISSING_MANIFEST,
         MISSING_DEX,
         UNSAFE_ARCHIVE_ENTRY,
@@ -57,16 +58,22 @@ internal object CloudStreamPackageValidation {
      * hash is not a mismatch, and inventing one would be dishonest. The caller
      * is responsible for reflecting the weaker guarantee to the user.
      */
-    fun matchesExpectedHash(expectedHash: String?, actualSha256Hex: String): Boolean {
-        val expected = expectedHash?.trim()?.removePrefix("sha256-")?.removePrefix("SHA256-")
-        if (expected.isNullOrBlank()) return true
-        return expected.equals(actualSha256Hex.trim(), ignoreCase = true)
-    }
+    fun matchesExpectedHash(expectedHash: String?, actualSha256Hex: String): Boolean =
+        hashState(expectedHash, actualSha256Hex) in setOf(CloudStreamIntegrity.VERIFIED, CloudStreamIntegrity.UNVERIFIED)
 
-    /** True when the repository actually pinned the artifact's contents. */
+    /** True only for an actual 64-digit SHA-256, not merely a non-empty value. */
     fun hasVerifiableHash(expectedHash: String?): Boolean {
         val hash = expectedHash?.trim()?.removePrefix("sha256-")?.removePrefix("SHA256-") ?: return false
         return hash.length == 64 && hash.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }
+    }
+
+    /** A malformed published digest is not an absent digest and must not pass validation. */
+    fun hashState(expectedHash: String?, actualSha256Hex: String): CloudStreamIntegrity {
+        if (expectedHash.isNullOrBlank()) return CloudStreamIntegrity.UNVERIFIED
+        if (!hasVerifiableHash(expectedHash) || !hasVerifiableHash(actualSha256Hex)) return CloudStreamIntegrity.UNVERIFIABLE
+        val expected = expectedHash.trim().removePrefix("sha256-").removePrefix("SHA256-")
+        return if (expected.equals(actualSha256Hex.trim(), ignoreCase = true)) CloudStreamIntegrity.VERIFIED
+        else CloudStreamIntegrity.MISMATCH
     }
 
     /**
@@ -116,6 +123,9 @@ internal object CloudStreamPackageValidation {
         expectedHash: String?,
         actualSha256Hex: String,
     ): Result {
+        if (hashState(expectedHash, actualSha256Hex) == CloudStreamIntegrity.UNVERIFIABLE) {
+            return Result.Invalid(Rejection.HASH_UNVERIFIABLE, "Published SHA-256 could not be verified.")
+        }
         if (!matchesExpectedHash(expectedHash, actualSha256Hex)) {
             return Result.Invalid(
                 Rejection.HASH_MISMATCH,

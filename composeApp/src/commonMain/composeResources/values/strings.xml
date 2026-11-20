@@ -3241,6 +3241,14 @@
     <string name="settings_glass_ui_style_dark">Dark</string>
     <string name="settings_glass_ui_style_balanced">Balanced</string>
     <string name="settings_glass_ui_style_vivid">Vivid</string>
+    <string name="cloudstream_last_refresh">Last refresh: %1$s</string>
+    <string name="cloudstream_reinstall">Reinstall</string>
+    <string name="cloudstream_bulk_install">Install all</string>
+    <string name="cloudstream_bulk_update">Update all</string>
+    <string name="cloudstream_bulk_enable">Enable all</string>
+    <string name="cloudstream_bulk_disable">Disable all</string>
+    <string name="cloudstream_bulk_progress">%1$d of %2$d processed</string>
+    <string name="cloudstream_bulk_failure">%1$s: %2$s</string>
     <string name="cloudstream_pin">Pin extension</string>
     <string name="cloudstream_unpin">Unpin extension</string>
     <string name="cloudstream_save">Save</string>
@@ -3257,6 +3265,7 @@
     <string name="cloudstream_revoke">Revoke repository authorization</string>
     <string name="cloudstream_cancel">Cancel</string>
     <string name="cloudstream_hash_unverified">Unverified: no usable published SHA-256.</string>
+    <string name="cloudstream_hash_unverifiable">Unverifiable: the published SHA-256 could not be checked. Activation is blocked.</string>
     <string name="cloudstream_hash_verified">Installed package SHA-256 matches the published hash.</string>
     <string name="cloudstream_hash_declared">Published SHA-256 provided; checked when installing and loading.</string>
     <string name="cloudstream_hash_mismatch">SHA-256 mismatch: package rejected.</string>
