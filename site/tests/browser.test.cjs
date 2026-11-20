@@ -1,12 +1,28 @@
 // Browser smoke tests for the static Pages output. Requires playwright and
 // @axe-core/playwright from NODE_PATH (installed only in the CI workspace).
 const assert = require('node:assert/strict');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 const { chromium } = require('playwright');
 const { default: AxeBuilder } = require('@axe-core/playwright');
 
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const root = path.resolve(__dirname, '..');
+  const types = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.mp4': 'video/mp4' };
+  const server = http.createServer((request, response) => {
+    const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
+    const filename = path.resolve(root, '.' + (pathname.endsWith('/') ? pathname + 'index.html' : pathname));
+    if (!filename.startsWith(root + path.sep)) { response.writeHead(403).end(); return; }
+    fs.readFile(filename, (error, bytes) => {
+      if (error) { response.writeHead(404).end(); return; }
+      response.writeHead(200, { 'content-type': types[path.extname(filename)] || 'application/octet-stream' }).end(bytes);
+    });
+  });
+  await new Promise(resolve => server.listen(4173, '127.0.0.1', resolve));
+  let browser;
   try {
+    browser = await chromium.launch({ headless: true });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 720 }]) {
       const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
       await page.route('https://**/*', route => route.abort()); // deterministic; never contact external services
@@ -37,6 +53,7 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
       await page.close();
     }
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
+    await new Promise(resolve => server.close(resolve));
   }
 })().catch(error => { console.error(error); process.exitCode = 1; });

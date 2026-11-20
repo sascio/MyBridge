@@ -30,5 +30,16 @@ jobs:
           "$RUNNER_TEMP/site-browser/node_modules/.bin/playwright" install chromium
       - name: Responsive, interaction and accessibility checks
         run: |
-          python3 -m http.server 4173 --bind 127.0.0.1 --directory site &
-          NODE_PATH="$RUNNER_TEMP/site-browser/node_modules" node site/tests/browser.test.cjs
+          if NODE_PATH="$RUNNER_TEMP/site-browser/node_modules" node site/tests/browser.test.cjs > "$RUNNER_TEMP/site-test.log" 2>&1; then
+            cat "$RUNNER_TEMP/site-test.log"
+          else
+            cat "$RUNNER_TEMP/site-test.log"
+            python3 - "$RUNNER_TEMP/site-test.log" <<'PY'
+          import pathlib, sys
+          text = pathlib.Path(sys.argv[1]).read_text(errors='replace')
+          for line in text.splitlines()[:30]:
+              safe = line.replace('%', '%25').replace('\r', '%0D')
+              print(f'::error title=Website browser test::{safe[:800]}')
+          PY
+            exit 1
+          fi
