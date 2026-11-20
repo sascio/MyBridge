@@ -7,6 +7,8 @@ import java.util.zip.ZipOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFailsWith
+import java.util.zip.ZipException
 
 class CloudStreamArchiveTest {
     @Test
@@ -33,4 +35,25 @@ class CloudStreamArchiveTest {
             file.delete()
         }
     }
+    @Test
+    fun archiveExpansionAndEntryCountAreBounded() {
+        val file = File.createTempFile("cloudstream-limits-test", ".zip")
+        try {
+            ZipOutputStream(file.outputStream()).use { zip ->
+                for (name in listOf("one", "two")) {
+                    zip.putNextEntry(ZipEntry(name))
+                    zip.write(ByteArray(80) { 0 })
+                    zip.closeEntry()
+                }
+            }
+            ZipFile(file).use { zip ->
+                zip.checkCloudStreamExpansion(maxBytes = 160, maxEntries = 2)
+                assertFailsWith<ZipException> { zip.checkCloudStreamExpansion(maxBytes = 159, maxEntries = 2) }
+                assertFailsWith<ZipException> { zip.checkCloudStreamExpansion(maxBytes = 160, maxEntries = 1) }
+            }
+        } finally {
+            file.delete()
+        }
+    }
+
 }

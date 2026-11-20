@@ -2,6 +2,9 @@ package com.nuvio.app.features.cloudstream
 
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -56,4 +59,34 @@ class CloudStreamPackageStorageTest {
         val result = CloudStreamPackageInstaller.install(invalid) as CloudStreamInstallResult.Failure
         assertEquals(CloudStreamInstallError.INVALID_RESPONSE, result.error)
     }
+    @Test fun simultaneousInstallsUseDistinctStagingFiles() {
+        val context = RuntimeEnvironment.getApplication()
+        val one = "first package".encodeToByteArray()
+        val two = "second package".encodeToByteArray()
+        val original = plugin(one)
+        val pool = Executors.newFixedThreadPool(2)
+        val bothStaged = CountDownLatch(2)
+        val names = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        CloudStreamPackageStorage.remove(context, original)
+        try {
+            val tasks = listOf(one, two).map { bytes ->
+                pool.submit {
+                    CloudStreamPackageStorage.install(context, plugin(bytes), bytes) { stage, target ->
+                        names.add(stage.name)
+                        bothStaged.countDown()
+                        check(bothStaged.await(10, TimeUnit.SECONDS))
+                        check(stage.renameTo(target))
+                    }
+                }
+            }
+            tasks.forEach { it.get(15, TimeUnit.SECONDS) }
+            assertEquals(2, names.size)
+            val result = assertNotNull(CloudStreamPackageStorage.packageFile(context, original)).readBytes()
+            kotlin.test.assertTrue(result.contentEquals(one) || result.contentEquals(two))
+        } finally {
+            pool.shutdownNow()
+            CloudStreamPackageStorage.remove(context, original)
+        }
+    }
+
 }

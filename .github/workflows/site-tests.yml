@@ -1,0 +1,34 @@
+name: Website checks
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths: ['site/**', 'functions/**', '.github/workflows/site-tests.yml']
+  pull_request:
+    paths: ['site/**', 'functions/**', '.github/workflows/site-tests.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Static and contact tests
+        run: |
+          node site/tests/website.test.mjs
+          node site/tests/contact.test.mjs
+      - name: Install isolated browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/site-browser" --no-audit --no-fund playwright@1.65.1 @axe-core/playwright@4.14.0
+          "$RUNNER_TEMP/site-browser/node_modules/.bin/playwright" install chromium
+      - name: Responsive, interaction and accessibility checks
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory site &
+          NODE_PATH="$RUNNER_TEMP/site-browser/node_modules" node site/tests/browser.test.cjs

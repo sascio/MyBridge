@@ -2,8 +2,10 @@ package com.nuvio.app.features.cloudstream
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -354,8 +356,24 @@ internal object CloudStreamExtensionsRepository {
                 }
             }
             return result
+        } catch (cancelled: CancellationException) {
+            // A cancellation can arrive after the installer has committed. Do
+            // not leave a permanent Downloading state or invent a failure;
+            // restore the state from the package actually present on disk.
+            withContext(NonCancellable + Dispatchers.IO) {
+                val installed = CloudStreamPackageInstaller.isInstalled(extension.plugin)
+                updateInstallStatus(pluginId) {
+                    CloudStreamInstallStatus(
+                        state = if (installed) CloudStreamInstallState.INSTALLED else CloudStreamInstallState.AVAILABLE,
+                        installedVersion = if (installed) CloudStreamPackageInstaller.installedVersion(extension.plugin) else null,
+                    )
+                }
+                if (installed) persistInstalledPlugins()
+            }
+            throw cancelled
         } finally {
-            mutex.withLock { inFlightInstalls.remove(pluginId) }
+            // Cleanup must run even when the bulk job or caller is cancelled.
+            withContext(NonCancellable) { mutex.withLock { inFlightInstalls.remove(pluginId) } }
         }
     }
 

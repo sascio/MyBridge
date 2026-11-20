@@ -222,6 +222,7 @@ internal actual object CloudStreamPackageInstaller {
         plugin: CloudStreamPlugin,
         digest: String,
     ): CloudStreamPackageValidation.Result = ZipFile(staged).use { zip ->
+        zip.checkCloudStreamExpansion()
         val entries = zip.entries().asSequence().map { it.name }.toList()
         val manifestEntry = zip.getEntry(CloudStreamPackageValidation.MANIFEST_ENTRY)
         val pluginClassName = manifestEntry?.let { entry ->

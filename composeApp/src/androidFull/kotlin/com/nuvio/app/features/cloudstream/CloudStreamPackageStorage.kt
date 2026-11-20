@@ -66,11 +66,10 @@ internal object CloudStreamPackageStorage {
         }
 
         val target = File(directory(context), fileName(plugin))
-        val staging = File(directory(context), "${fileName(plugin)}.part")
+        // A unique stage prevents concurrent installs of the same identity from
+        // deleting, validating or publishing one another's in-progress bytes.
+        val staging = File.createTempFile("cloudstream-stage-", ".part", directory(context))
         runCatching {
-            // A process can die after making the previous staging file read-only.
-            // Discard that incomplete staging entry before attempting a new write.
-            if (staging.exists()) check(staging.delete()) { "Could not clear stale CloudStream staging file" }
             staging.writeBytes(bytes)
             // Android 14 requires dynamically loaded code to be read-only.
             // Set the mode before publication, not after it becomes visible.
@@ -88,11 +87,10 @@ internal object CloudStreamPackageStorage {
         return target
     }
 
-    /** Removes an installed package, clearing the read-only flag first. */
+    /** Removes an installed package without making executable code writable. */
     fun remove(context: Context, plugin: CloudStreamPlugin): Boolean {
         val file = File(directory(context), fileName(plugin))
         if (!file.exists()) return false
-        file.setWritable(true)
         return file.delete()
     }
 }

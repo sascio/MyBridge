@@ -23,3 +23,28 @@ internal fun ZipFile.readCloudStreamManifest(entry: ZipEntry): String? {
         output.toByteArray().decodeToString()
     }
 }
+
+/** Bound actual decompressed bytes and entry count before an archive reaches a class loader. */
+internal fun ZipFile.checkCloudStreamExpansion(
+    maxBytes: Long = 128L * 1024 * 1024,
+    maxEntries: Int = 4096,
+) {
+    val entries = entries()
+    val buffer = ByteArray(16 * 1024)
+    var total = 0L
+    var count = 0
+    while (entries.hasMoreElements()) {
+        val entry = entries.nextElement()
+        if (++count > maxEntries) throw java.util.zip.ZipException("CloudStream archive has too many entries")
+        if (entry.size > maxBytes - total) throw java.util.zip.ZipException("CloudStream archive expands beyond the limit")
+        if (entry.isDirectory) continue
+        getInputStream(entry).use { input ->
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                total += read
+                if (total > maxBytes) throw java.util.zip.ZipException("CloudStream archive expands beyond the limit")
+            }
+        }
+    }
+}

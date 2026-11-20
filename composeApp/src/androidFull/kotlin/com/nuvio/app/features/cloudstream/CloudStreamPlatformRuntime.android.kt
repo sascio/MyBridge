@@ -189,6 +189,7 @@ internal actual object CloudStreamPlatformRuntime {
         // --- gate 2: integrity -------------------------------------------
         val digest = sha256Hex(file)
         val entries = ZipFile(file).use { archive ->
+            archive.checkCloudStreamExpansion()
             archive.entries().toList().map { it.name }
         }
         val manifest = readArchiveManifest(file)
