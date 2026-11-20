@@ -42,7 +42,9 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
       for (const theme of ['light', 'dark']) {
         await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
         const result = await new AxeBuilder({ page }).include('.feature-stories').analyze();
-        assert.deepEqual(result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) })), [], `accessibility: ${theme}`);
+        if (result.violations.length) {
+          throw new Error(`Accessibility ${theme}: ${JSON.stringify(result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) })))}`);
+        }
       }
       if (viewport.width < 700) {
         const toggle = page.locator('.menu-toggle');

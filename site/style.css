@@ -186,3 +186,8 @@ html[data-theme="dark"] .stories-intro p,html[data-theme="dark"] .story-copy p{c
 html[data-theme="dark"] .story-copy ul{color:#e6e6eb}
 html[data-theme="dark"] .story-eyebrow,html[data-theme="dark"] .story-figure figcaption{color:#a6a7af}
 html[data-theme="dark"] .release-badge{background:#38324f;color:#e3dbff}
+/* Ensure readable secondary text in both themes. */
+.stories-intro .kicker,.stories-intro p,.story-copy p,.story-eyebrow,.story-figure figcaption{color:#5f616a}
+.release-badge{color:#514488}
+html[data-theme="dark"] .stories-intro .kicker,html[data-theme="dark"] .stories-intro p,html[data-theme="dark"] .story-copy p,html[data-theme="dark"] .story-eyebrow,html[data-theme="dark"] .story-figure figcaption{color:#b1b2b9}
+html[data-theme="dark"] .release-badge{color:#e3dbff}
