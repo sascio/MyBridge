@@ -6,6 +6,14 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -86,6 +94,26 @@ class CloudStreamPackageStorageTest {
         } finally {
             pool.shutdownNow()
             CloudStreamPackageStorage.remove(context, original)
+        }
+    }
+
+    @Test fun cancellingDownloadStopsTheCallWithoutPublishing(): Unit = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        CloudStreamPackageInstaller.initialize(context)
+        val bytes = "unused".encodeToByteArray()
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+            server.start()
+            val extension = plugin(bytes, server.url("/plugin.cs3").toString())
+            CloudStreamPackageStorage.remove(context, extension)
+            try {
+                val job = launch(Dispatchers.IO) { CloudStreamPackageInstaller.install(extension) }
+                assertNotNull(withContext(Dispatchers.IO) { server.takeRequest(5, TimeUnit.SECONDS) })
+                withTimeout(3000) { job.cancelAndJoin() }
+                assertFalse(CloudStreamPackageStorage.isInstalled(context, extension))
+            } finally {
+                CloudStreamPackageStorage.remove(context, extension)
+            }
         }
     }
 

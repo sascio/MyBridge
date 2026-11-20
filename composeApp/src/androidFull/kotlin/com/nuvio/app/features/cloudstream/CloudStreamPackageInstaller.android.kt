@@ -10,9 +10,17 @@ import java.security.MessageDigest
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Request
+import okhttp3.Response
+import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Android **full (sideload)** installer for CloudStream `.cs3` packages.
@@ -193,6 +201,8 @@ internal actual object CloudStreamPackageInstaller {
                 staged.delete()
             }
 
+            // Do not publish after a cancellation that arrived during inspection.
+            coroutineContext.ensureActive()
             // Verified. Commit it; storage re-checks the hash before writing.
             return@withContext runCatching {
                 CloudStreamPackageStorage.install(context, plugin, bytes)
@@ -244,86 +254,101 @@ internal actual object CloudStreamPackageInstaller {
         data class Error(val error: CloudStreamInstallError, val message: String) : Downloaded
     }
 
-    /** Fetches the artifact, distinguishing every failure the user can act on. */
-    private fun download(url: String, plugin: CloudStreamPlugin): Downloaded {
+    /** Fetches on OkHttp's dispatcher and cancels the call when its coroutine is cancelled. */
+    private suspend fun download(url: String, plugin: CloudStreamPlugin): Downloaded {
         val request = try {
             Request.Builder().url(url).header("Accept", "application/octet-stream").build()
         } catch (_: IllegalArgumentException) {
             return Downloaded.Error(CloudStreamInstallError.INVALID_RESPONSE, "The extension publishes an invalid download URL.")
         }
-
-        return try {
-            AddonHttpClientProvider.get().newCall(request).execute().use { response ->
-                if (response.code == 404 || response.code == 410) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.REPOSITORY_GONE,
-                        "The repository no longer hosts this extension (HTTP ${response.code}).",
-                    )
-                }
-                if (!response.isSuccessful) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "Download failed with HTTP ${response.code}.",
-                    )
+        val call = AddonHttpClientProvider.get().newCall(request)
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, error: IOException) {
+                    continuation.resume(downloadFailure(error))
                 }
 
-                val body = response.body
-                    ?: return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "The server returned an empty response.",
-                    )
-
-                val declared = body.contentLength()
-                if (declared > MAX_PACKAGE_BYTES) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "The package is larger than the ${MAX_PACKAGE_BYTES / (1024 * 1024)} MB limit.",
-                    )
-                }
-
-                val bytes = body.byteStream().use { stream ->
-                    stream.readAtMost(MAX_PACKAGE_BYTES)
-                } ?: return Downloaded.Error(
-                    CloudStreamInstallError.INVALID_RESPONSE,
-                    "The package exceeded the maximum allowed size while downloading.",
-                )
-
-                if (bytes.isEmpty()) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "The server returned an empty package.",
-                    )
-                }
-                // A truncated transfer is a corrupt package, not a mismatch.
-                if (declared > 0 && bytes.size.toLong() != declared) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.CORRUPT_PACKAGE,
-                        "The download was interrupted before it completed.",
-                    )
-                }
-                // Repositories publish fileSize; a disagreement means we did not
-                // get the artifact the repository described.
-                plugin.fileSize?.let { expected ->
-                    if (expected > 0 && bytes.size.toLong() != expected) {
-                        return Downloaded.Error(
-                            CloudStreamInstallError.CORRUPT_PACKAGE,
-                            "Downloaded ${bytes.size} bytes but the repository lists $expected.",
-                        )
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val result = response.use { readResponse(it, plugin) }
+                        continuation.resume(result)
+                    } catch (error: IOException) {
+                        continuation.resume(downloadFailure(error))
+                    } catch (error: Exception) {
+                        continuation.resumeWithException(error)
                     }
                 }
-                Downloaded.Ok(bytes)
-            }
-        } catch (error: InterruptedIOException) {
-            Downloaded.Error(
-                CloudStreamInstallError.TIMEOUT,
-                "The download timed out.",
-            )
-        } catch (error: IOException) {
-            Downloaded.Error(
-                CloudStreamInstallError.NETWORK_UNREACHABLE,
-                error.message ?: "Could not reach the repository.",
+            })
+        }
+    }
+
+    private fun downloadFailure(error: IOException): Downloaded.Error =
+        if (error is InterruptedIOException) {
+            Downloaded.Error(CloudStreamInstallError.TIMEOUT, "The download timed out.")
+        } else {
+            Downloaded.Error(CloudStreamInstallError.NETWORK_UNREACHABLE, error.message ?: "Could not reach the repository.")
+        }
+
+    private fun readResponse(response: Response, plugin: CloudStreamPlugin): Downloaded {
+        if (response.code == 404 || response.code == 410) {
+            return Downloaded.Error(
+                CloudStreamInstallError.REPOSITORY_GONE,
+                "The repository no longer hosts this extension (HTTP ${response.code}).",
             )
         }
+        if (!response.isSuccessful) {
+            return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "Download failed with HTTP ${response.code}.",
+            )
+        }
+
+        val body = response.body
+            ?: return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "The server returned an empty response.",
+            )
+
+        val declared = body.contentLength()
+        if (declared > MAX_PACKAGE_BYTES) {
+            return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "The package is larger than the ${MAX_PACKAGE_BYTES / (1024 * 1024)} MB limit.",
+            )
+        }
+
+        val bytes = body.byteStream().use { stream ->
+            stream.readAtMost(MAX_PACKAGE_BYTES)
+        } ?: return Downloaded.Error(
+            CloudStreamInstallError.INVALID_RESPONSE,
+            "The package exceeded the maximum allowed size while downloading.",
+        )
+
+        if (bytes.isEmpty()) {
+            return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "The server returned an empty package.",
+            )
+        }
+        // A truncated transfer is a corrupt package, not a mismatch.
+        if (declared > 0 && bytes.size.toLong() != declared) {
+            return Downloaded.Error(
+                CloudStreamInstallError.CORRUPT_PACKAGE,
+                "The download was interrupted before it completed.",
+            )
+        }
+        // Repositories publish fileSize; a disagreement means we did not
+        // get the artifact the repository described.
+        plugin.fileSize?.let { expected ->
+            if (expected > 0 && bytes.size.toLong() != expected) {
+                return Downloaded.Error(
+                    CloudStreamInstallError.CORRUPT_PACKAGE,
+                    "Downloaded ${bytes.size} bytes but the repository lists $expected.",
+                )
+            }
+        }
+        return Downloaded.Ok(bytes)
     }
 
     /** Reads the stream, refusing to buffer more than [limit] bytes. */
