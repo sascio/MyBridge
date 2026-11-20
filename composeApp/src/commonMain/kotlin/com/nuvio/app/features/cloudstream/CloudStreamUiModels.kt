@@ -21,8 +21,8 @@ data class CloudStreamOverview(
  * One provider/source entry exposed by an extension.
  *
  * A source is only [installed] when registration genuinely succeeded. For
- * `.cs3` plugins requiring DEX execution this stays false, because StreamBridge
- * has no sanctioned execution backend.
+ * `.cs3` packages cannot execute on Play Store or iOS; Android Full has an
+ * authorization-gated backend.
  */
 data class CloudStreamSource(
     val id: String,
@@ -66,6 +66,8 @@ data class CloudStreamExtension(
     val sources: List<CloudStreamSource> = emptyList(),
     /** Download/install lifecycle for this extension's `.cs3` package. */
     val installStatus: CloudStreamInstallStatus = CloudStreamInstallStatus(),
+    /** Pin belongs to the whole extension, not any individual content type. */
+    val pinned: Boolean = false,
 ) {
     val id: String get() = plugin.id
     val name: String get() = plugin.displayName

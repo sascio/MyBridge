@@ -33,6 +33,8 @@ import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.cloudstream_pin
+import nuvio.composeapp.generated.resources.cloudstream_unpin
 import nuvio.composeapp.generated.resources.cloudstream_trust_title
 import nuvio.composeapp.generated.resources.cloudstream_trust_warning
 import nuvio.composeapp.generated.resources.cloudstream_authorize
@@ -109,6 +111,10 @@ internal fun CloudStreamExtensionDetail(
             else showTrustWarning = true
         }) {
             Text(stringResource(if (trusted) Res.string.cloudstream_revoke else Res.string.cloudstream_authorize))
+        }
+
+        TextButton(onClick = { CloudStreamExtensionsRepository.setExtensionPinned(extension, !extension.pinned) }) {
+            Text(stringResource(if (extension.pinned) Res.string.cloudstream_unpin else Res.string.cloudstream_pin))
         }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_sources))

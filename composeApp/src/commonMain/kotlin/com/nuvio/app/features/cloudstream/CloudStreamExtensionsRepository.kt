@@ -107,6 +107,33 @@ internal object CloudStreamExtensionsRepository {
         return AddCloudStreamRepositoryResult.Success(repository)
     }
 
+    /** Validate the replacement before changing the configured URL. Trust is never transferred. */
+    suspend fun editRepository(oldUrl: String, rawUrl: String): AddCloudStreamRepositoryResult {
+        val url = rawUrl.trim()
+        if (repositoryUrls.none { sameCloudStreamRepositoryUrl(it, oldUrl) }) {
+            return AddCloudStreamRepositoryResult.Error("Repository is no longer configured.")
+        }
+        if (repositoryUrls.any { !sameCloudStreamRepositoryUrl(it, oldUrl) && sameCloudStreamRepositoryUrl(it, url) }) {
+            return AddCloudStreamRepositoryResult.Error("That repository has already been added.")
+        }
+        val repository = loader.load(url)
+        if (repository.compatibility == CloudStreamCompatibility.FAILED) {
+            return AddCloudStreamRepositoryResult.Error(repository.errorMessage ?: "The repository could not be read.")
+        }
+        if (!sameCloudStreamRepositoryUrl(oldUrl, url)) {
+            mutex.withLock {
+                repositoryUrls = repositoryUrls.map { if (sameCloudStreamRepositoryUrl(it, oldUrl)) url else it }
+                configuration.remove(trustKey(oldUrl))
+                persistConfiguration()
+                persistRepositories()
+            }
+            _uiState.value.extensions.filter { sameCloudStreamRepositoryUrl(it.repositoryUrl, oldUrl) }
+                .forEach { CloudStreamPlatformRuntime.unload(it.id) }
+        }
+        reload()
+        return AddCloudStreamRepositoryResult.Success(repository)
+    }
+
     fun removeRepository(url: String) {
         scope.launch {
             mutex.withLock {
@@ -139,6 +166,16 @@ internal object CloudStreamExtensionsRepository {
             trustedRepositories = repositoryUrls.filter { isRepositoryTrusted(it) }.toSet(),
         )
         applyPersistedState()
+    }
+
+    fun setExtensionPinned(extension: CloudStreamExtension, pinned: Boolean) {
+        val key = cloudStreamPinKey(extension.repositoryUrl, extension.id)
+        if (pinned) configuration[key] = "true" else configuration.remove(key)
+        persistConfiguration()
+        _uiState.value = _uiState.value.copy(extensions = _uiState.value.extensions.map {
+            if (sameCloudStreamRepositoryUrl(it.repositoryUrl, extension.repositoryUrl) && it.id == extension.id)
+                it.copy(pinned = pinned) else it
+        })
     }
 
     // --- installation -------------------------------------------------------
@@ -552,6 +589,7 @@ internal object CloudStreamExtensionsRepository {
                 )
                 val previous = previousStatuses[plugin.id]
                 mapped.copy(
+                    pinned = configuration[cloudStreamPinKey(repository.url, plugin.id)] == "true",
                     installStatus = if (previous?.isBusy == true) {
                         previous
                     } else {
@@ -596,7 +634,10 @@ internal object CloudStreamExtensionsRepository {
                 repositoryUrl = entry.repositoryUrl,
                 states = sourceStates,
                 configuration = configuration,
-            ).copy(installStatus = installStatusFor(plugin))
+            ).copy(
+                installStatus = installStatusFor(plugin),
+                pinned = configuration[cloudStreamPinKey(entry.repositoryUrl, plugin.id)] == "true",
+            )
         }.sortedBy { it.name.lowercase() }
 
         if (extensions.isEmpty()) return
@@ -742,3 +783,9 @@ internal object CloudStreamExtensionsRepository {
 
 /** Exact comparison after trimming; URL paths and queries can be case-sensitive. */
 internal fun sameCloudStreamRepositoryUrl(a: String, b: String): Boolean = a.trim() == b.trim()
+
+/** Length-prefixing keeps repository and plugin boundaries unambiguous. */
+internal fun cloudStreamPinKey(repositoryUrl: String, pluginId: String): String {
+    val url = repositoryUrl.trim()
+    return "cloudstream.pin::${url.length}:$url:$pluginId"
+}

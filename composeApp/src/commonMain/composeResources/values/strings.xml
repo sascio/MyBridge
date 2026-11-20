@@ -3241,6 +3241,16 @@
     <string name="settings_glass_ui_style_dark">Dark</string>
     <string name="settings_glass_ui_style_balanced">Balanced</string>
     <string name="settings_glass_ui_style_vivid">Vivid</string>
+    <string name="cloudstream_pin">Pin extension</string>
+    <string name="cloudstream_unpin">Unpin extension</string>
+    <string name="cloudstream_save">Save</string>
+    <string name="cloudstream_edit">Edit</string>
+    <string name="cloudstream_search">Search extensions</string>
+    <string name="cloudstream_filter_all">All</string>
+    <string name="cloudstream_filter_language">Language</string>
+    <string name="cloudstream_filter_type">Type</string>
+    <string name="cloudstream_results">%1$d of %2$d extensions</string>
+    <string name="cloudstream_repository_count">%1$d extensions</string>
     <string name="cloudstream_trust_title">Authorize repository?</string>
     <string name="cloudstream_trust_warning">Extensions can execute third-party code with the app’s permissions on Android Full. Only authorize repositories you trust. Authorization and a matching hash do not prove an extension is safe or malware-free.</string>
     <string name="cloudstream_authorize">Authorize repository</string>

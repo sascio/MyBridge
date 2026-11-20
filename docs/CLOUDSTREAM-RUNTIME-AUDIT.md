@@ -49,7 +49,7 @@ Classification requested by the task:
 | `KickTrCloudStreamProvider` | **C — provider-specific adapter** | Not adopted |
 | `applyHostCompatibilityDefaults()` — `if (pluginClassName == "com.megix.CineStream") …` | **C — provider-specific hack** | Not adopted; the task forbids this shape |
 | iOS and Play Store cannot execute | **D/E — intentional limit** | Same in StreamBridge |
-| No bundled repos, explicit user action, hash mandatory, no secrets in logs | **E — security boundary** | Same in StreamBridge, which adds more |
+| No bundled repos; explicit authorization; published SHA-256 checked when present | **E — security boundary** | StreamBridge allows missing hashes as unverified; it rejects mismatches. Trust and hashes do not prove code is safe. |
 | CloudStream AAR, jsoup, jackson, NiceHttp, rhino, fuzzywuzzy | **F — runtime dependency** | Same set in both |
 
 ---

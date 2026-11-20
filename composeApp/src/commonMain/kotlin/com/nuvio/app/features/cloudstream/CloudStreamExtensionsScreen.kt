@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,6 +47,15 @@ import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.cloudstream_cancel
+import nuvio.composeapp.generated.resources.cloudstream_save
+import nuvio.composeapp.generated.resources.cloudstream_edit
+import nuvio.composeapp.generated.resources.cloudstream_search
+import nuvio.composeapp.generated.resources.cloudstream_filter_all
+import nuvio.composeapp.generated.resources.cloudstream_filter_language
+import nuvio.composeapp.generated.resources.cloudstream_filter_type
+import nuvio.composeapp.generated.resources.cloudstream_results
+import nuvio.composeapp.generated.resources.cloudstream_repository_count
 import nuvio.composeapp.generated.resources.cloudstream_action_add
 import nuvio.composeapp.generated.resources.cloudstream_action_refresh
 import nuvio.composeapp.generated.resources.cloudstream_action_remove
@@ -93,6 +103,10 @@ internal fun CloudStreamExtensionsPageContent(
 
     var repositoryUrl by rememberSaveable { mutableStateOf("") }
     var formMessage by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var search by rememberSaveable { mutableStateOf("") }
+    var language by rememberSaveable { mutableStateOf("") }
+    var type by rememberSaveable { mutableStateOf("") }
     var selectedExtensionId by rememberSaveable { mutableStateOf<String?>(null) }
     val enterUrlMessage = stringResource(Res.string.cloudstream_error_enter_url)
 
@@ -129,6 +143,8 @@ internal fun CloudStreamExtensionsPageContent(
             repositoryUrl = repositoryUrl,
             formMessage = formMessage ?: uiState.errorMessage,
             isBusy = uiState.isLoading || uiState.isRefreshing,
+            isEditing = editingUrl != null,
+            onCancelEdit = { editingUrl = null; repositoryUrl = ""; formMessage = null },
             onUrlChange = {
                 repositoryUrl = it
                 formMessage = null
@@ -141,8 +157,10 @@ internal fun CloudStreamExtensionsPageContent(
                 }
                 formMessage = null
                 coroutineScope.launch {
-                    when (val result = CloudStreamExtensionsRepository.addRepository(requested)) {
-                        is AddCloudStreamRepositoryResult.Success -> repositoryUrl = ""
+                    val result = editingUrl?.let { CloudStreamExtensionsRepository.editRepository(it, requested) }
+                        ?: CloudStreamExtensionsRepository.addRepository(requested)
+                    when (result) {
+                        is AddCloudStreamRepositoryResult.Success -> { repositoryUrl = ""; editingUrl = null }
                         is AddCloudStreamRepositoryResult.Error -> formMessage = result.message
                     }
                 }
@@ -150,21 +168,55 @@ internal fun CloudStreamExtensionsPageContent(
             onRefreshClick = { CloudStreamExtensionsRepository.refresh() },
         )
 
-        // Surface every repository that could not be read, with its own action.
-        uiState.failedRepositories.forEach { repository ->
-            RepositoryProblemCard(
-                repository = repository,
-                onRemove = { CloudStreamExtensionsRepository.removeRepository(repository.url) },
-            )
+        uiState.repositories.forEach { repository ->
+            NuvioSurfaceCard {
+                Text(repository.name, style = MaterialTheme.typography.titleMedium)
+                Text(repository.url, style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(Res.string.cloudstream_repository_count, repository.plugins.size))
+                repository.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                Row {
+                    TextButton(onClick = { editingUrl = repository.url; repositoryUrl = repository.url }) {
+                        Text(stringResource(Res.string.cloudstream_edit))
+                    }
+                    TextButton(onClick = { CloudStreamExtensionsRepository.removeRepository(repository.url) }) {
+                        Text(stringResource(Res.string.cloudstream_action_remove))
+                    }
+                }
+            }
         }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_extensions))
 
+        OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, label = { Text(stringResource(Res.string.cloudstream_search)) })
+        Text(stringResource(Res.string.cloudstream_filter_language))
+        FlowRow {
+            TextButton(onClick = { language = "" }) { Text(stringResource(Res.string.cloudstream_filter_all)) }
+            uiState.extensions.mapNotNull { it.plugin.language?.takeIf(String::isNotBlank) }.distinct().sorted().forEach { item ->
+                TextButton(onClick = { language = item }) { Text(if (language == item) "✓ $item" else item) }
+            }
+        }
+        Text(stringResource(Res.string.cloudstream_filter_type))
+        FlowRow {
+            TextButton(onClick = { type = "" }) { Text(stringResource(Res.string.cloudstream_filter_all)) }
+            uiState.extensions.flatMap { it.plugin.tvTypes }.distinct().sorted().forEach { item ->
+                TextButton(onClick = { type = item }) { Text(if (type == item) "✓ $item" else item) }
+            }
+        }
+        val filtered = uiState.extensions.filter { extension ->
+            (search.isBlank() || extension.name.contains(search.trim(), ignoreCase = true) ||
+                extension.plugin.authors.any { it.contains(search.trim(), ignoreCase = true) } ||
+                extension.plugin.description?.contains(search.trim(), ignoreCase = true) == true) &&
+                (language.isEmpty() || extension.plugin.language == language) &&
+                (type.isEmpty() || type in extension.plugin.tvTypes)
+        }
+        val ordered = filtered.sortedWith(compareByDescending<CloudStreamExtension> { it.pinned }.thenBy { it.name.lowercase() })
+        Text(stringResource(Res.string.cloudstream_results, filtered.size, uiState.extensions.size))
         when {
             uiState.isLoading && !uiState.hasLoadedOnce -> StatusCard(stringResource(Res.string.cloudstream_loading))
             uiState.isRefreshing -> StatusCard(stringResource(Res.string.cloudstream_refreshing))
             uiState.isEmpty -> EmptyStateCard()
-            else -> uiState.extensions.forEach { extension ->
+            else -> ordered.forEach { extension ->
                 ExtensionCard(
                     extension = extension,
                     onClick = { selectedExtensionId = extension.id },
@@ -243,6 +295,8 @@ private fun AddRepositoryCard(
     repositoryUrl: String,
     formMessage: String?,
     isBusy: Boolean,
+    isEditing: Boolean,
+    onCancelEdit: () -> Unit,
     onUrlChange: (String) -> Unit,
     onAddClick: () -> Unit,
     onRefreshClick: () -> Unit,
@@ -272,8 +326,9 @@ private fun AddRepositoryCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(stringResource(Res.string.cloudstream_action_refresh))
             }
+            if (isEditing) TextButton(onClick = onCancelEdit) { Text(stringResource(Res.string.cloudstream_cancel)) }
             Button(onClick = onAddClick, enabled = !isBusy) {
-                Text(stringResource(Res.string.cloudstream_action_add))
+                Text(stringResource(if (isEditing) Res.string.cloudstream_save else Res.string.cloudstream_action_add))
             }
         }
         if (!formMessage.isNullOrBlank()) {
