@@ -28,13 +28,15 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
       await page.route('https://**/*', route => route.abort()); // deterministic; never contact external services
       await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded' });
       assert.equal(await page.locator('h1').innerText(), 'StreamBridge');
+      // Measure the final state, not an in-flight transition frame.
+      await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
       const widths = [];
       for (const name of ['Adaptive', 'Expanded', 'Compact', 'Classic']) {
         await page.locator('.layout-choices label').filter({ hasText: name }).click();
         assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
         widths.push(await page.locator('.preview-nav').evaluate(el => Math.round(el.getBoundingClientRect().width)));
       }
-      assert.ok(new Set(widths).size >= 3, 'layout controls must change the preview');
+      assert.ok(new Set(widths).size >= 3, `layout controls must change the preview: ${widths.join(', ')}`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'horizontal overflow');
       for (const theme of ['light', 'dark']) {
         await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
