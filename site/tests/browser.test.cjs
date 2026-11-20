@@ -24,7 +24,8 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
   try {
     browser = await chromium.launch({ headless: true });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 720 }]) {
-      const page = await browser.newPage({ viewport, reducedMotion: 'reduce' });
+      const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
+      const page = await context.newPage();
       await page.route('https://**/*', route => route.abort()); // deterministic; never contact external services
       await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded' });
       assert.equal(await page.locator('h1').innerText(), 'StreamBridge');
@@ -52,7 +53,7 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
         assert.equal(await page.evaluate(() => location.hash), '#features');
       }
       console.log(`Browser checks passed at ${viewport.width}x${viewport.height}; preview widths ${widths.join(', ')}`);
-      await page.close();
+      await context.close();
     }
   } finally {
     if (browser) await browser.close();
