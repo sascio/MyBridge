@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
@@ -172,6 +173,7 @@ internal object CloudStreamExtensionsRepository {
             .forEach { CloudStreamPlatformRuntime.unload(it.id) }
         _uiState.value = _uiState.value.copy(
             trustedRepositories = repositoryUrls.filter { isRepositoryTrusted(it) }.toSet(),
+            errorMessage = null,
         )
         applyPersistedState()
     }
@@ -462,7 +464,10 @@ internal object CloudStreamExtensionsRepository {
      * Refuses to enable a source that cannot genuinely be activated, so the UI
      * can never show a non-functional provider as active.
      */
-    fun setSourceEnabled(sourceId: String, enabled: Boolean): Boolean {
+    suspend fun setSourceEnabled(sourceId: String, enabled: Boolean): Boolean =
+        withContext(Dispatchers.Default) { mutex.withLock { setSourceEnabledInternal(sourceId, enabled) } }
+
+    private fun setSourceEnabledInternal(sourceId: String, enabled: Boolean): Boolean {
         val source = findSource(sourceId) ?: return false
         val extension = _uiState.value.extensions.firstOrNull { e -> e.sources.any { it.id == sourceId } }
         if (extension != null && cloudStreamIdentityAmbiguous(extension.id, _uiState.value.extensions.map { it.id })) {

@@ -65,6 +65,7 @@ class CloudStreamPackageValidationTest {
     fun malformedPublishedHashIsUnverifiableAndRejected() {
         assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState("sha256-", digest))
         assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState("not-a-sha256", digest))
+        assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState(digest, "bad"))
         assertFalse(CloudStreamPackageValidation.matchesExpectedHash("sha256-", digest))
         assertEquals(CloudStreamPackageValidation.Rejection.HASH_UNVERIFIABLE,
             assertIs<CloudStreamPackageValidation.Result.Invalid>(validate(expectedHash = "sha256-")).reason)

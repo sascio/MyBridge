@@ -25,7 +25,7 @@ class CloudStreamBulkOperationsTest {
         val states = mutableListOf<CloudStreamBulkStatus>()
         runCloudStreamBulk(CloudStreamBulkAction.INSTALL, listOf(extension("one"), extension("two"), extension("three")),
             perform = { item -> calls += item.id; if (item.id == "two") "not authorized" else null },
-            report = states::add,
+            report = { states.add(it) },
         )
         assertEquals(listOf("one", "two", "three"), calls)
         val result = states.last()
@@ -36,7 +36,7 @@ class CloudStreamBulkOperationsTest {
         assertTrue(states.any { it.current == "two" && it.running })
     }
 
-    @Test fun cancellationIsNotMisreportedAsACompletedFailure() = runBlocking {
+    @Test fun cancellationIsNotMisreportedAsACompletedFailure(): Unit = runBlocking {
         assertFailsWith<CancellationException> {
             runCloudStreamBulk(CloudStreamBulkAction.UPDATE, listOf(extension("one")),
                 perform = { throw CancellationException("cancelled") }, report = {})

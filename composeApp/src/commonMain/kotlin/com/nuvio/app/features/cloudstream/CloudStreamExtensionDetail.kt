@@ -21,6 +21,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -56,6 +58,9 @@ import nuvio.composeapp.generated.resources.cloudstream_state_disabled
 import nuvio.composeapp.generated.resources.cloudstream_state_enabled
 import nuvio.composeapp.generated.resources.cloudstream_version_format
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Detail screen for a single CloudStream extension.
@@ -69,8 +74,10 @@ internal fun CloudStreamExtensionDetail(
     extension: CloudStreamExtension,
     modifier: Modifier = Modifier,
     trusted: Boolean,
+    errorMessage: String?,
     onBack: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
     var showTrustWarning by remember { mutableStateOf(false) }
     if (showTrustWarning) {
         AlertDialog(
@@ -107,6 +114,9 @@ internal fun CloudStreamExtensionDetail(
         }
 
         MetadataCard(extension = extension)
+        errorMessage?.takeIf { it.isNotBlank() }?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
         InstallActions(
             extension = extension,
             onInstall = { CloudStreamExtensionsRepository.installExtension(extension.id) },
@@ -130,7 +140,7 @@ internal fun CloudStreamExtensionDetail(
                 // Enabling is only meaningful once the package is on disk.
                 packageInstalled = extension.installStatus.isInstalled && trusted,
                 onEnabledChange = { enabled ->
-                    CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled)
+                    scope.launch { CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled) }
                 },
                 onConfigurationChange = { key, value ->
                     CloudStreamExtensionsRepository.setConfigurationValue(source.id, key, value)
@@ -143,6 +153,10 @@ internal fun CloudStreamExtensionDetail(
 @Composable
 private fun MetadataCard(extension: CloudStreamExtension) {
     val plugin = extension.plugin
+    var integrity by remember(plugin, extension.installStatus) { mutableStateOf(CloudStreamIntegrity.NOT_INSTALLED) }
+    LaunchedEffect(plugin, extension.installStatus) {
+        integrity = withContext(Dispatchers.Default) { CloudStreamPackageInstaller.integrity(plugin) }
+    }
     NuvioSurfaceCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -194,7 +208,6 @@ private fun MetadataCard(extension: CloudStreamExtension) {
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-        val integrity = CloudStreamPackageInstaller.integrity(plugin)
         Text(
             text = stringResource(when {
                 extension.installStatus.error == CloudStreamInstallError.HASH_MISMATCH || integrity == CloudStreamIntegrity.MISMATCH -> Res.string.cloudstream_hash_mismatch
