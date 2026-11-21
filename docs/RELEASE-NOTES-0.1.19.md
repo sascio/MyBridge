@@ -15,6 +15,8 @@ StreamBridge version 0.1.19 (version code 119). Android package and iOS bundle:
 - MDBList library sorting supports release-date ordering as well as added-date ordering.
 - Trakt library refresh requests are coalesced, and TorBox alternate hash responses can be matched to requested hashes.
 - App-owned iOS downloads are excluded from system backups.
+- Profile GIF search can use the configured search proxy or, when none is configured, DuckDuckGo. The selected GIF is saved through the existing avatar editor.
+- Actor filmographies omit talk-show guest appearances while retaining hosts and ordinary acting credits.
 
 ## Release assets
 

@@ -96,3 +96,19 @@ handling; copying its common UI alone would not deliver a usable integration.
 Differences in other features still require integration and validation. The
 1.1.0 beta releases and the current official branch likewise have not been
 fully integrated. This is not a claim of upstream feature parity.
+
+## Later selective ports
+
+- Official `547972efd9fbfbde60e06cf83ae9e2d0c97fd8f4` (included in
+  `1.1.0-beta.2`) adds genre-aware cast filtering for talk-show guests while
+  retaining hosts. The TMDB response mapping and tests are adapted here.
+- Enhanced Kotlin branch `894499115fb1a69cd4bb34d6969a74832f0e5636`
+  supplies the DuckDuckGo GIF search flow. The StreamBridge implementation
+  retains its configured proxy, uses a bounded fallback, and informs users
+  where searches go. Live service behavior has not been verified.
+- Official `97fbfa90565125859f973feff7a5740e8e647928` episode-rating alignment
+  is not copied: it depends on the upstream Tapframe/SeriesGraph episode data
+  pipeline, whereas this fork uses OMDb, persistent season caches, and
+  explicit IMDb/anime mappings. Porting the heuristic without adapting those
+  data sources and avoiding regressions would not provide the same behavior.
+  The newer downloads redesign and server integrations also remain unported.
