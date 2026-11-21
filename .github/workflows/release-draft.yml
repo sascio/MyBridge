@@ -18,6 +18,11 @@ on:
         required: true
         type: string
         default: "v0.1.19"
+      preflight:
+        description: Build and independently inspect artifacts without creating a release or tag
+        required: true
+        type: boolean
+        default: false
   push:
     tags:
       - "v0.1.19"
@@ -42,12 +47,15 @@ jobs:
       - name: Verify approved release target, version, code, and fixes
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          PREFLIGHT: ${{ inputs.preflight }}
         run: |
           set -euo pipefail
-          scripts/verify-release-target.sh \
-            --tag "${TAG}" \
-            --commit "${GITHUB_SHA}" \
-            --verify-tag-ref
+          if [ "${PREFLIGHT}" = "true" ]; then
+            # Preflight creates no tag or release; still verify the source identity.
+            scripts/verify-release-target.sh --tag "${TAG}" --commit "${GITHUB_SHA}"
+          else
+            scripts/verify-release-target.sh --tag "${TAG}" --commit "${GITHUB_SHA}" --verify-tag-ref
+          fi
 
       - uses: actions/setup-java@v5
         with:
@@ -624,12 +632,35 @@ jobs:
             dist/*.ipa
           if-no-files-found: error
 
+  preflight-verification:
+    name: Independently inspect preflight artifacts
+    needs: [android, ios]
+    if: ${{ inputs.preflight == true && needs.android.result == 'success' && needs.ios.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: android-actions/setup-android@v4
+      - name: Install APK inspection tools
+        run: sdkmanager --install "build-tools;35.0.0"
+      - uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-production-full-release-apk
+          path: preflight/android
+      - uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-ios-unsigned-ipa
+          path: preflight/ios
+      - name: Inspect downloaded artifacts and checksums
+        run: scripts/audit-preflight-assets.sh preflight/android preflight/ios
+
   draft:
     name: Draft GitHub Release (Android first)
     # Both platforms must pass before a draft is created. The IPA attachment is
     # performed by attach-ios after the draft and iOS build have succeeded.
     needs: [android, ios]
-    if: ${{ always() && needs.android.result == 'success' && needs.ios.result == 'success' }}
+    if: ${{ always() && inputs.preflight != true && needs.android.result == 'success' && needs.ios.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -724,7 +755,7 @@ jobs:
   attach-ios:
     name: Attach unsigned iOS IPA (independent)
     needs: [draft, ios]
-    if: ${{ needs.ios.result == 'success' }}
+    if: ${{ inputs.preflight != true && needs.ios.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

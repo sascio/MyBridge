@@ -91,7 +91,8 @@ if ! python3 "${SCRIPT_DIR}/telegram-reconcile-test.py"; then
 fi
 
 section "Release workflows"
-run "production tracking credential gates fail closed" python3 scripts/tests/release-tracking-test.py
+run "production tracking credential gates and optional Trakt" python3 scripts/tests/release-tracking-test.py
+run "independent preflight asset inspection" python3 scripts/tests/preflight-assets-test.py
 
 run "iOS IPA and simulator tests share one prepared dependency artifact" \
   python3 - <<'PY'
@@ -141,6 +142,9 @@ run "release draft requires both Android and iOS builds" \
 workflow = open(".github/workflows/release-draft.yml", encoding="utf-8").read()
 assert "needs: [android, ios]" in workflow
 assert "needs.android.result == 'success' && needs.ios.result == 'success'" in workflow
+assert "always() && inputs.preflight != true && needs.android.result" in workflow
+assert "inputs.preflight != true && needs.ios.result" in workflow
+assert 'scripts/audit-preflight-assets.sh preflight/android preflight/ios' in workflow
 assert "inputs.include_ios" not in workflow
 assert "inputs.require_tracking_credentials" not in workflow
 assert 'for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID' in workflow

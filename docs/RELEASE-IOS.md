@@ -230,3 +230,13 @@ codesign --force --deep --sign "Apple Distribution" \
 
 Do not set the iOS version to NuvioMobile's `MARKETING_VERSION` (`0.5.5` at this
 pin). StreamBridge never ships Nuvio's version number as its own.
+
+### Non-publishing production preflight
+
+The production release workflow can be dispatched with `preflight=true` on the
+candidate branch. It checks the v0.1.19 source identity without requiring a tag,
+builds signed Android APKs and an unsigned IPA, then downloads the artifacts into
+an independent job to check APK checksums, identity and production certificate
+and IPA archive integrity, bundle identity and unsigned status. Preflight never
+creates a tag, draft or public release; the normal release path still requires
+the exact verified tag. These checks do not replace device or service testing.
