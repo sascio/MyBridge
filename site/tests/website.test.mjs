@@ -27,13 +27,11 @@ const iconSprite = readFileSync(resolve(root, 'assets/icons.svg'), 'utf8');
 for (const section of ['live-tv', 'appearance', 'watch-party', 'cloudstream']) {
   assert.ok(homePage.includes(`id="${section}"`), `feature section ${section}`);
 }
-for (const mode of ['adaptive', 'expanded', 'compact', 'classic']) {
-  assert.ok(homePage.includes(`name="layout-preview" value="${mode}"`), `navigation preview ${mode}`);
-}
-assert.match(homePage, /website is not a live TV player/);
+assert.match(homePage, /website does not stream live TV/);
 assert.match(homePage, /Live synchronization has not been verified/);
 assert.match(homePage, /Android Play and iOS do not execute Android DEX/);
 assert.match(homePage, /matching hash do not make third-party code safe/);
+assert.doesNotMatch(homePage, /demo-channel|preview-phone|party-frame|cloud-row/);
 
 for (const [name, url, icon, label] of [
   ['Telegram', 'https://t.me/StreamBridge_App', 'telegram', 'Join StreamBridge on Telegram'],

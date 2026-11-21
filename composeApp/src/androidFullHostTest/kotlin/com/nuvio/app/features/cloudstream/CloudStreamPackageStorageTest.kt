@@ -1,6 +1,10 @@
 package com.nuvio.app.features.cloudstream
 
 import java.io.IOException
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import okio.Buffer
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -113,6 +117,40 @@ class CloudStreamPackageStorageTest {
                 assertFalse(CloudStreamPackageStorage.isInstalled(context, extension))
             } finally {
                 CloudStreamPackageStorage.remove(context, extension)
+            }
+        }
+    }
+
+    @Test fun unauthorizedPackageIsNotPublishedAndPreviousFileSurvives(): Unit = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        CloudStreamPackageInstaller.initialize(context)
+        CloudStreamExtensionsRepository.resetForTesting()
+        val previous = "previous package".encodeToByteArray()
+        val archive = ByteArrayOutputStream().also { buffer ->
+            ZipOutputStream(buffer).use { zip ->
+                zip.putNextEntry(ZipEntry("manifest.json"))
+                zip.write("""{"pluginClassName":"com.example.Plugin","version":1}""".encodeToByteArray())
+                zip.closeEntry()
+                zip.putNextEntry(ZipEntry("classes.dex"))
+                zip.write(byteArrayOf(1, 2, 3))
+                zip.closeEntry()
+            }
+        }.toByteArray()
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(Buffer().write(archive)))
+            server.start()
+            val target = plugin(archive, server.url("/plugin.cs3").toString())
+            CloudStreamPackageStorage.remove(context, target)
+            try {
+                CloudStreamPackageStorage.install(context, plugin(previous), previous) { stage, file ->
+                    check(stage.renameTo(file))
+                }
+                val result = CloudStreamPackageInstaller.install(target) as CloudStreamInstallResult.Failure
+                assertEquals(CloudStreamInstallError.UNKNOWN, result.error)
+                assertContentEquals(previous, assertNotNull(CloudStreamPackageStorage.packageFile(context, target)).readBytes())
+            } finally {
+                CloudStreamPackageStorage.remove(context, target)
+                CloudStreamExtensionsRepository.resetForTesting()
             }
         }
     }

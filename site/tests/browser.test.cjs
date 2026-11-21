@@ -29,16 +29,24 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
       await page.route('https://**/*', route => route.abort()); // deterministic; never contact external services
       await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded' });
       assert.equal(await page.locator('h1').innerText(), 'StreamBridge');
-      // Measure the final state, not an in-flight transition frame.
-      await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' });
-      const widths = [];
-      for (const name of ['Adaptive', 'Expanded', 'Compact', 'Classic']) {
-        await page.locator('.layout-choices label').filter({ hasText: name }).click();
-        assert.equal(await page.getByLabel(name, { exact: true }).isChecked(), true);
-        widths.push(await page.locator('.preview-nav').evaluate(el => Math.round(el.getBoundingClientRect().width)));
-      }
-      assert.ok(new Set(widths).size >= 3, `layout controls must change the preview: ${widths.join(', ')}`);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'horizontal overflow');
+      for (const id of ['phone', 'tv', 'desktop', 'smart']) {
+        const tab = page.locator('#tab-' + id);
+        await tab.click();
+        assert.equal(await tab.getAttribute('aria-selected'), 'true');
+        assert.equal(await page.locator('#panel-' + id).isVisible(), true);
+        for (const other of ['phone', 'tv', 'desktop', 'smart'].filter(x => x !== id)) {
+          assert.equal(await page.locator('#panel-' + other).isVisible(), false);
+        }
+      }
+      await page.locator('#tab-phone').focus();
+      await page.keyboard.press('ArrowRight');
+      assert.equal(await page.locator('#tab-tv').getAttribute('aria-selected'), 'true');
+      const faq = page.locator('.faq-list details').first();
+      await faq.locator('summary').click();
+      assert.equal(await faq.evaluate(el => el.open), true);
+      await faq.locator('summary').click();
+      assert.equal(await faq.evaluate(el => el.open), false);
       for (const theme of ['light', 'dark']) {
         await page.evaluate(value => document.documentElement.setAttribute('data-theme', value), theme);
         const result = await new AxeBuilder({ page }).include('.feature-stories').analyze();
@@ -46,15 +54,23 @@ const { default: AxeBuilder } = require('@axe-core/playwright');
           throw new Error(`Accessibility ${theme}: ${JSON.stringify(result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => n.target) })))}`);
         }
       }
+      if (viewport.width >= 700) {
+        const themeButton = page.locator('.theme-toggle');
+        await themeButton.click();
+        assert.equal(await page.locator('html').getAttribute('data-theme'), 'light');
+        assert.equal(await themeButton.getAttribute('aria-pressed'), 'false');
+        await themeButton.click();
+        assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+      }
       if (viewport.width < 700) {
         const toggle = page.locator('.menu-toggle');
         await toggle.click();
         assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
-        await page.locator('#nav-menu a[href="#features"]').click();
+        await page.locator('#nav-menu a[href="#faq"]').click();
         assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
-        assert.equal(await page.evaluate(() => location.hash), '#features');
+        assert.equal(await page.evaluate(() => location.hash), '#faq');
       }
-      console.log(`Browser checks passed at ${viewport.width}x${viewport.height}; preview widths ${widths.join(', ')}`);
+      console.log(`Browser checks passed at ${viewport.width}x${viewport.height}`);
       await context.close();
     }
   } finally {

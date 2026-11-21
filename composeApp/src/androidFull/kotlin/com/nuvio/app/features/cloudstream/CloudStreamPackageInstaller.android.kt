@@ -203,6 +203,16 @@ internal actual object CloudStreamPackageInstaller {
 
             // Do not publish after a cancellation that arrived during inspection.
             coroutineContext.ensureActive()
+            // The user can revoke trust or refresh the repository while a
+            // download is in flight. Never publish bytes for stale metadata or
+            // a repository that is no longer authorized.
+            if (!CloudStreamExtensionsRepository.isPluginExecutionAuthorized(plugin)) {
+                return@withContext failure(
+                    plugin,
+                    CloudStreamInstallError.UNKNOWN,
+                    "Repository authorization or extension metadata changed during installation.",
+                )
+            }
             // Verified. Commit it; storage re-checks the hash before writing.
             return@withContext runCatching {
                 CloudStreamPackageStorage.install(context, plugin, bytes)

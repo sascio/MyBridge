@@ -12,8 +12,7 @@ upstream overlay for the current application.
 The existing StreamBridge tree is based on earlier documented core/Enhanced
 pins and contains substantial StreamBridge-specific changes; a comparison of
 `composeApp` feature code to official 1.0.0 shows hundreds of changed files.
-No full 1.0.0 rebase or wholesale sync has been performed. In particular, no
-upstream feature is claimed as newly merged in this change. A complete review,
+No full 1.0.0 rebase or wholesale sync has been performed. A complete review,
 selective integration and device regression testing remain outstanding. The
 existing `docs/CLOUDSTREAM-RUNTIME-AUDIT.md` compares a later Enhanced branch,
 not the exact 1.0.0 tag.
@@ -62,3 +61,13 @@ ambiguous installed filenames and malformed hashes, and retains installed
 metadata when a repository refresh fails. It does not constitute an upstream
 1.0.0 sync. Real-device provider registration, playback and platform regression
 testing are still required before production release.
+
+## Selective integration: MDBList release ordering
+
+The official 1.0.0 release-order implementation has been adapted into the
+existing StreamBridge MDBList sorter: it requests the unified release order,
+uses available release dates to normalize direction, caches a single order for
+both directions, and preserves the existing added-date and rank behaviors.
+The snapshot's new release-date field is optional for older cached data.
+A focused test exercises both upstream response directions, cache reuse and
+cache restoration. This is one selected upstream feature, not a complete sync.

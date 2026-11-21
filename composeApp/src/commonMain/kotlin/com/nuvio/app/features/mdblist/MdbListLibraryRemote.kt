@@ -16,9 +16,9 @@ internal class MdbListLibraryRemote(private val api: MdbListApiClient, private v
         return MdbListLibrarySnapshot(lists, items, now, addedOrders = addedOrders.filterKeys { it in items })
     }
 
-    suspend fun items(key: String, addedOrder: String? = null): List<MdbListLibraryItem> {
+    suspend fun items(key: String, addedOrder: String? = null, sort: String = "added"): List<MdbListLibraryItem> {
         val path = mdbListLibraryItemsPath(key)
-        val initial = mapOf("limit" to "1000", "sort" to if (addedOrder == null) "rank" else "added",
+        val initial = mapOf("limit" to "1000", "sort" to if (addedOrder == null) "rank" else sort,
             "order" to (addedOrder ?: "asc"), "unified" to "true") +
             if (addedOrder == null) mapOf("append_to_response" to "poster,description,genres") else emptyMap()
         var query = initial
