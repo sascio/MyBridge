@@ -62,6 +62,7 @@ object TraktLibraryRepository {
     val uiState: StateFlow<TraktLibraryUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val refreshCoordinator = TraktRefreshCoordinator(scope)
     private val refreshMutex = Mutex()
     private var lastRefreshAtMs: Long = 0L
     private var lastListTabsRefreshAtMs: Long = 0L
@@ -132,6 +133,10 @@ object TraktLibraryRepository {
 
     private suspend fun refresh(force: Boolean) {
         ensureLoaded()
+        refreshCoordinator.run(force) { refreshOnce(force) }
+    }
+
+    private suspend fun refreshOnce(force: Boolean) {
         refreshMutex.withLock {
             val now = TraktPlatformClock.nowEpochMs()
             val current = _uiState.value

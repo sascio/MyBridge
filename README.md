@@ -27,6 +27,17 @@ endorse any content. Use it only with material you are legally entitled to acces
   last release until production artifacts are built and verified. See the
   [upstream review](docs/UPSTREAM-1.0.0-AUDIT.md) for the limits of the 1.0.0 comparison.
 
+## Highlights in 0.1.19
+
+The following changes are in preparation and are not yet published:
+
+- CloudStream repository authorization, package-integrity handling and staged-install safety.
+- MDBList release-date ordering, TorBox alternative-hash handling and Trakt refresh coalescing.
+- Exclusion of app-owned iOS downloads from system backups.
+
+The planned unsigned iOS asset name is `StreamBridge-0.1.19-iOS-unsigned.ipa`;
+the download becomes available only after a verified release is published.
+
 ## Highlights in 0.1.18
 
 - **Core synchronization** — integrated the applicable Enhanced `0.6.11-beta` → `0.6.12-beta`

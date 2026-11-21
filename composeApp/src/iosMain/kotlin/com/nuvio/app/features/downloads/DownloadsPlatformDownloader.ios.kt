@@ -29,6 +29,7 @@ import platform.Foundation.dataWithContentsOfFile
 import platform.Foundation.writeToFile
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
+import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.Foundation.NSURLRequestReloadIgnoringLocalCacheData
 import platform.Foundation.NSURLSession
 import platform.Foundation.NSURLSessionConfiguration
@@ -584,7 +585,19 @@ private fun downloadsDirectoryPath(): String {
         attributes = null,
         error = null,
     )
+    excludeDownloadsFromBackupOnce(path)
     return path
+}
+
+private var downloadsExcludedFromBackup = false
+
+/** Only the app-owned download directory is changed, not a user-selected folder. */
+@OptIn(ExperimentalForeignApi::class)
+private fun excludeDownloadsFromBackupOnce(path: String) {
+    if (downloadsExcludedFromBackup) return
+    if (NSURL.fileURLWithPath(path).setResourceValue(true, forKey = NSURLIsExcludedFromBackupKey, error = null)) {
+        downloadsExcludedFromBackup = true
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)

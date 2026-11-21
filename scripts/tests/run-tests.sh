@@ -132,8 +132,20 @@ run "draft releases and assets are handled by ID rather than tag-based gh releas
            grep -q "scripts/release-api.sh update-body" .github/workflows/release-draft.yml &&
            ! grep -qE "^[[:space:]]*gh release (view|upload|edit)([[:space:]]|$)" .github/workflows/release-draft.yml'
 
-run "unapproved 0.1.19 release remains blocked by the existing release gate" \
-  bash -c '! scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)"'
+run "release gate accepts the 0.1.19 source identity" \
+  bash -c 'scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)"'
+
+run "release draft requires both Android and iOS builds" \
+  python3 - <<'PYTEST'
+workflow = open(".github/workflows/release-draft.yml", encoding="utf-8").read()
+assert "needs: [android, ios]" in workflow
+assert "needs.android.result == 'success' && needs.ios.result == 'success'" in workflow
+assert "inputs.include_ios" not in workflow
+PYTEST
+
+run "release gate rejects other version tags" \
+  bash -c '! scripts/verify-release-target.sh --tag v0.1.18 --commit "$(git rev-parse HEAD)" &&
+           ! scripts/verify-release-target.sh --tag v0.1.20 --commit "$(git rev-parse HEAD)"'
 
 section "store.json"
 
@@ -176,9 +188,9 @@ assert f"version <strong>{name}</strong> ({code})" in readme
 xcconfig = open("iosApp/Configuration/Version.xcconfig", encoding="utf-8").read()
 assert f"MARKETING_VERSION={name}" in xcconfig
 assert f"CURRENT_PROJECT_VERSION={code}" in xcconfig
-# The current production release gate is intentionally not retargeted until
-# artifacts, notes and checksums have been reviewed for a real release.
-assert 'readonly EXPECTED_TAG="v0.1.18"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
+# Retargeted only to the requested version; release execution still verifies
+# the exact tag commit, signing, notes and generated asset digests.
+assert 'readonly EXPECTED_TAG="v0.1.19"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
 PYTEST
 
 run "no watch-party invite string mentions Nuvio branding" \

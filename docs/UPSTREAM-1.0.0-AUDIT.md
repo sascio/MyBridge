@@ -71,3 +71,24 @@ both directions, and preserves the existing added-date and rank behaviors.
 The snapshot's new release-date field is optional for older cached data.
 A focused test exercises both upstream response directions, cache reuse and
 cache restoration. This is one selected upstream feature, not a complete sync.
+
+## Official 1.0.1 hotfix follow-up
+
+The later stable tag `1.0.1` resolves to
+`3cfc311b494f25213f5b95a3afdfa619b83ceb50`. Its source fixes since 1.0.0
+are Trakt refresh coalescing (`103c5e07ac4e`), TorBox alternative-hash
+matching (`f81edc6530f6`), iOS download backup exclusion (`4baf886eed74`),
+and Android player bottom insets (`c31c30e1ec07`). The first three have been
+adapted here; TorBox fallbacks are limited to eight concurrent lookups and the
+iOS change affects only the app-owned folder, not a user-selected directory.
+The player has a StreamBridge-specific cutout/navigation-bar implementation
+already excluding gesture insets; it was retained instead of replacing it.
+The 1.0.1 version bump was not adopted because StreamBridge has its own version.
+
+Enhanced's Kotlin `enhanced` branch was inspected at
+`894499115fb1a69cd4bb34d6969a74832f0e5636`; this is distinct from its older
+React Native 1.0.0 tag. The branch contains functionality not yet ported,
+including AI assistant and Telegram client implementations. Differences in
+other features still require integration and validation. The 1.1.0 beta
+releases and the current official branch likewise have not been fully
+integrated. This is not a claim of upstream feature parity.
