@@ -44,6 +44,7 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
 import nuvio.composeapp.generated.resources.*
@@ -90,6 +91,12 @@ fun DownloadsScreen(
     }
 
     val tokens = MaterialTheme.nuvio
+
+    // In the embedded view, system Back returns to downloads rather than leaving
+    // the whole page. Navigation-owned show screens handle Back themselves.
+    PlatformBackHandler(enabled = selectedShowId != null && onBackFromShow == null && downloadPendingDeletionId == null) {
+        selectedShowId = null
+    }
 
     NuvioScreen {
         stickyHeader {

@@ -111,4 +111,8 @@ fully integrated. This is not a claim of upstream feature parity.
   pipeline, whereas this fork uses OMDb, persistent season caches, and
   explicit IMDb/anime mappings. Porting the heuristic without adapting those
   data sources and avoiding regressions would not provide the same behavior.
-  The newer downloads redesign and server integrations also remain unported.
+  The newer downloads redesign, custom downloads poster integration and server
+  integrations also remain unported.
+- Official `2dcfbb9f1a77fe690fdc788ef6d472fa91644517` handles system Back
+  for an embedded show within downloads; this fork preserves navigation-owned
+  Back handling and deletion modal behavior.

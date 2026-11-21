@@ -120,8 +120,8 @@ jobs:
       # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
       # file and the checks only test for presence.
       #
-      # Production 0.1.19 must retain the existing tracking integrations. A
-      # presence check follows; it never prints or fabricates credentials.
+      # Trakt is optional for 0.1.19. Simkl and MDBList remain required.
+      # Presence checks never print or fabricate credentials.
       - name: Configure release properties
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
@@ -170,7 +170,7 @@ jobs:
           fi
 
           # Presence-only report; values are never printed. The release gate
-          # below requires all configured tracking clients.
+          # below requires Simkl and MDBList; Trakt is optional for 0.1.19.
           #
           # MDBLIST_CLIENT_ID is included because MdbListConfig.CLIENT_ID gates the
           # MDBList Connect button: without it the app shows "MDBList connection is
@@ -209,10 +209,10 @@ jobs:
             echo "::warning::The decoded local.properties is missing: ${missing[*]}. MDBLIST_CLIENT_ID may instead be supplied by its dedicated secret."
           fi
 
-          # Do not ship the existing integrations disabled. MDBList may be
-          # configured either in local.properties or its dedicated secret.
+          # Simkl and MDBList remain mandatory. MDBList may be configured
+          # either in local.properties or its dedicated secret.
           gate_failed=0
-          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+          for property_name in SIMKL_CLIENT_ID; do
             if ! property_present "${property_name}"; then
               echo "::error::${property_name} is missing. Configure the existing release properties before shipping."
               gate_failed=1
@@ -277,9 +277,16 @@ jobs:
             return 0
           }
 
+          # Both declarations must exist, but their values may be empty. The app
+          # disables Trakt when either credential is unavailable.
+          for constant in CLIENT_ID CLIENT_SECRET; do
+            if [ ! -f "$trakt" ] || ! grep -Eq "^[[:space:]]*const val ${constant} = \".*\"[[:space:]]*$" "$trakt"; then
+              echo "::error::Generated Trakt ${constant} declaration is missing."
+              exit 1
+            fi
+            report_populated TRAKT "$trakt" "$constant" || true
+          done
           tracking_missing=0
-          report_populated TRAKT "$trakt" CLIENT_ID || tracking_missing=1
-          report_populated TRAKT "$trakt" CLIENT_SECRET || tracking_missing=1
           report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1
           report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1
           if [ "$tracking_missing" -ne 0 ]; then
@@ -471,11 +478,11 @@ jobs:
               echo "${property_name} present=true"
             else
               echo "${property_name} present=false"
-              echo "::warning::${property_name} is absent from local.properties; MDBLIST_CLIENT_ID may instead be supplied by its dedicated secret."
+              echo "::notice::${property_name} is absent from local.properties; Trakt is optional and MDBLIST_CLIENT_ID may come from its dedicated secret."
             fi
           done
 
-          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+          for property_name in SIMKL_CLIENT_ID; do
             if ! property_present "${property_name}"; then
               echo "::error::${property_name} is missing. Configure the existing release properties before shipping."
               exit 1
@@ -522,9 +529,16 @@ jobs:
             return 0
           }
 
+          # Both declarations must exist, but their values may be empty. The app
+          # disables Trakt when either credential is unavailable.
+          for constant in CLIENT_ID CLIENT_SECRET; do
+            if [ ! -f "$trakt" ] || ! grep -Eq "^[[:space:]]*const val ${constant} = \".*\"[[:space:]]*$" "$trakt"; then
+              echo "::error::Generated Trakt ${constant} declaration is missing."
+              exit 1
+            fi
+            report_populated TRAKT "$trakt" "$constant" || true
+          done
           tracking_missing=0
-          report_populated TRAKT "$trakt" CLIENT_ID || tracking_missing=1
-          report_populated TRAKT "$trakt" CLIENT_SECRET || tracking_missing=1
           report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1
           report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1
           if [ "$tracking_missing" -ne 0 ]; then

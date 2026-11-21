@@ -43,11 +43,20 @@ class TrackingReleaseGateTest(unittest.TestCase):
 
     def test_missing_any_required_tracking_config_fails(self):
         for ios in (False, True):
-          for name in VALUES:
+          for name in ('SIMKL_CLIENT_ID', 'MDBLIST_CLIENT_ID'):
             with self.subTest(name=name, ios=ios):
                 result = self.configure({k: v for k, v in VALUES.items() if k != name}, ios=ios)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn(name, result.stdout)
+
+    def test_trakt_absent_or_incomplete_is_optional_on_both_platforms(self):
+        for ios in (False, True):
+            for omitted in (('TRAKT_CLIENT_ID', 'TRAKT_CLIENT_SECRET'), ('TRAKT_CLIENT_ID',), ('TRAKT_CLIENT_SECRET',)):
+                with self.subTest(ios=ios, omitted=omitted):
+                    result = self.configure({k: v for k, v in VALUES.items() if k not in omitted}, ios=ios)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    for value in VALUES.values():
+                        self.assertNotIn(value, result.stdout + result.stderr)
 
     def test_configured_and_dedicated_mdblist_secret_pass_without_printing_values(self):
         for ios in (False, True):
@@ -56,6 +65,25 @@ class TrackingReleaseGateTest(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 for value in VALUES.values():
                     self.assertNotIn(value, result.stdout + result.stderr)
+
+    def test_generated_empty_trakt_constants_pass_but_missing_declarations_fail(self):
+        self.assertEqual(GENERATED, IOS_GENERATED)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / 'composeApp/build/generated/runtime-config/kotlin/com/nuvio/app/features'
+            for provider, constants in {
+                'trakt': {'CLIENT_ID': '', 'CLIENT_SECRET': ''},
+                'simkl': {'CLIENT_ID': 'id'},
+                'mdblist': {'CLIENT_ID': 'id'},
+            }.items():
+                target = root / provider / f'{provider.capitalize() if provider != "mdblist" else "MdbList"}Config.kt'
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('\n'.join(f'const val {key} = "{value}"' for key, value in constants.items()))
+            result = subprocess.run(['bash', '-c', GENERATED], cwd=directory, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            (root / 'trakt' / 'TraktConfig.kt').write_text('const val CLIENT_ID = ""\n')
+            result = subprocess.run(['bash', '-c', GENERATED], cwd=directory, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('CLIENT_SECRET', result.stdout)
 
     def test_generated_empty_tracking_config_fails(self):
         self.assertEqual(GENERATED, IOS_GENERATED)
