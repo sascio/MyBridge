@@ -2983,7 +2983,7 @@
     <string name="movie_status_post_production">Post Production</string>
     <string name="profile_gif_search_button">Search GIFs</string>
     <string name="profile_gif_search_title">Search GIFs</string>
-    <string name="profile_gif_search_description">Search for a GIF and use it as the profile avatar.</string>
+    <string name="profile_gif_search_description">Search for a GIF and use it as your avatar. Your search is sent to DuckDuckGo or the configured search service.</string>
     <string name="profile_gif_search_placeholder">Search GIFs</string>
     <string name="profile_gif_search_submit">Search</string>
     <string name="profile_gif_search_loading">Searching…</string>
@@ -2991,7 +2991,7 @@
     <string name="profile_gif_search_no_results">No GIFs found. Try another search.</string>
     <string name="profile_gif_search_error">GIF search failed. Check your connection and try again.</string>
     <string name="profile_gif_search_not_configured">GIF search is not configured for this build.</string>
-    <string name="profile_gif_search_powered_by">GIF results from the search service</string>
+    <string name="profile_gif_search_powered_by">Results from DuckDuckGo or your configured search service</string>
     <string name="compose_settings_page_whats_new">What&apos;s New</string>
     <string name="whats_new_root_description">See what&apos;s changed in recent releases</string>
     <string name="whats_new_current_version">Current version</string>
