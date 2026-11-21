@@ -8,18 +8,19 @@ import kotlinx.coroutines.sync.withLock
 
 /**
  * Coalesce refreshes so automatic callers do not accumulate behind a stalled
- * network request. A manual refresh waits for the in-flight request instead.
+ * network request. Explicit callers that require fresh state can wait for the
+ * in-flight request instead.
  * Adapted from the official 1.0.1 Trakt refresh queue fix.
  */
 internal class TraktRefreshCoordinator(private val scope: CoroutineScope) {
     private val mutex = Mutex()
     private var refreshJob: Job? = null
 
-    suspend fun run(force: Boolean, refresh: suspend () -> Unit) {
+    suspend fun run(waitForOngoing: Boolean, refresh: suspend () -> Unit) {
         val job = mutex.withLock {
             val running = refreshJob?.takeIf(Job::isActive)
             if (running != null) {
-                if (!force) return
+                if (!waitForOngoing) return
                 running
             } else {
                 scope.launch { refresh() }.also { refreshJob = it }

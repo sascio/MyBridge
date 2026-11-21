@@ -18,11 +18,6 @@ on:
         required: true
         type: string
         default: "v0.1.19"
-      require_tracking_credentials:
-        description: Fail the build instead of warning when Trakt credentials are missing
-        required: false
-        type: boolean
-        default: false
   push:
     tags:
       - "v0.1.19"
@@ -125,15 +120,12 @@ jobs:
       # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
       # file and the checks only test for presence.
       #
-      # NUVIO_LOCAL_PROPERTIES_BASE64 is optional. Tracking is not configured for
-      # every release, so when the secret is absent CI creates an empty
-      # local.properties and the build proceeds with unconfigured Trakt/Simkl/MDBList
-      # (empty generated credentials, and Settings shows the missing-credentials
-      # state for each provider). No placeholder credentials are ever injected.
+      # Production 0.1.19 must retain the existing tracking integrations. A
+      # presence check follows; it never prints or fabricates credentials.
       - name: Configure release properties
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
-          REQUIRE_TRACKING_CREDENTIALS: ${{ inputs.require_tracking_credentials }}
+          MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
         run: |
           set -euo pipefail
 
@@ -144,12 +136,8 @@ jobs:
           }
 
           if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" ]; then
-            # Not a build failure: tracking is optional (see
-            # docs/TRAKT-SIMKL-CONFIG.md). It is never a silent success either --
-            # the warning and the step summary below say exactly what the APK
-            # will be missing.
             : > local.properties
-            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set. Building with an empty local.properties, so TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID and MDBLIST_CLIENT_ID are all empty and the app will show the missing-credentials state for Trakt, Simkl and MDBList."
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set. The required tracking credential check will fail."
           else
             # Decode into a temp file first so a malformed secret can never leave a
             # half-written local.properties behind for Gradle to consume.
@@ -181,9 +169,8 @@ jobs:
               | sort -u
           fi
 
-          # Tracking properties are optional: a missing TRAKT_CLIENT_ID,
-          # TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID or MDBLIST_CLIENT_ID must not fail
-          # the release. Presence-only report; values are never printed.
+          # Presence-only report; values are never printed. The release gate
+          # below requires all configured tracking clients.
           #
           # MDBLIST_CLIENT_ID is included because MdbListConfig.CLIENT_ID gates the
           # MDBList Connect button: without it the app shows "MDBList connection is
@@ -219,23 +206,23 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::warning::The decoded local.properties is missing: ${missing[*]}. The APK will show the missing-credentials state for those providers. Update the NUVIO_LOCAL_PROPERTIES_BASE64 secret (see docs/TRAKT-SIMKL-CONFIG.md) before shipping this build."
+            echo "::warning::The decoded local.properties is missing: ${missing[*]}. MDBLIST_CLIENT_ID may instead be supplied by its dedicated secret."
           fi
 
-          # Opt-in gate for a release that must have working Trakt. Default false so
-          # a Simkl/MDBList-only or tracking-free build still succeeds.
-          if [ "${REQUIRE_TRACKING_CREDENTIALS:-false}" = "true" ]; then
-            gate_failed=0
-            for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
-              if ! property_present "${property_name}"; then
-                echo "::error::${property_name} is missing but require_tracking_credentials=true. Add it to NUVIO_LOCAL_PROPERTIES_BASE64 (docs/TRAKT-SIMKL-CONFIG.md)."
-                gate_failed=1
-              fi
-            done
-            if [ "${gate_failed}" -ne 0 ]; then
-              exit 1
+          # Do not ship the existing integrations disabled. MDBList may be
+          # configured either in local.properties or its dedicated secret.
+          gate_failed=0
+          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+            if ! property_present "${property_name}"; then
+              echo "::error::${property_name} is missing. Configure the existing release properties before shipping."
+              gate_failed=1
             fi
+          done
+          if ! property_present MDBLIST_CLIENT_ID && [ -z "${MDBLIST_CLIENT_ID:-}" ]; then
+            echo "::error::MDBLIST_CLIENT_ID is missing. Configure the existing release properties before shipping."
+            gate_failed=1
           fi
+          if [ "${gate_failed}" -ne 0 ]; then exit 1; fi
 
           echo "local.properties configured."
 
@@ -265,16 +252,8 @@ jobs:
           MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
-      # Presence-only report of what reached the generated runtime config
-      # (local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig/MdbListConfig).
-      # Tracking credentials are optional, so empty generated values must not fail
-      # the release unless the run explicitly asked for them. Greps the generated
-      # Kotlin for an empty literal; never prints a value. Each line is prefixed
-      # with its provider because all three constants are named CLIENT_ID and would
-      # otherwise be indistinguishable in the log.
+      # Verify the generated tracking config without printing credential values.
       - name: Report generated tracking config presence
-        env:
-          REQUIRE_TRACKING_CREDENTIALS: ${{ inputs.require_tracking_credentials }}
         run: |
           set -euo pipefail
           generated="composeApp/build/generated/runtime-config/kotlin"
@@ -289,23 +268,22 @@ jobs:
               echo "::warning::Generated config missing: $file"
               return 1
             fi
-            if grep -Eq "const val ${constant} = \"\"" "$file"; then
+            if ! grep -Eq "^[[:space:]]*const val ${constant} = \".+\"[[:space:]]*$" "$file"; then
               echo "${provider} ${constant} present=false"
-              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is empty, so ${provider} shows its missing-credentials state on device."
+              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is absent or empty."
               return 1
             fi
             echo "${provider} ${constant} present=true"
             return 0
           }
 
-          trakt_ok=0
-          report_populated TRAKT "$trakt" CLIENT_ID || trakt_ok=1
-          report_populated TRAKT "$trakt" CLIENT_SECRET || trakt_ok=1
-          report_populated SIMKL "$simkl" CLIENT_ID || true
-          report_populated MDBLIST "$mdblist" CLIENT_ID || true
-
-          if [ "${trakt_ok}" -ne 0 ] && [ "${REQUIRE_TRACKING_CREDENTIALS:-false}" = "true" ]; then
-            echo "::error::This build has no Trakt credentials but require_tracking_credentials=true. Set NUVIO_LOCAL_PROPERTIES_BASE64 before releasing (docs/TRAKT-SIMKL-CONFIG.md)."
+          tracking_missing=0
+          report_populated TRAKT "$trakt" CLIENT_ID || tracking_missing=1
+          report_populated TRAKT "$trakt" CLIENT_SECRET || tracking_missing=1
+          report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1
+          report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1
+          if [ "$tracking_missing" -ne 0 ]; then
+            echo "::error::A required tracking integration is not configured in the generated release."
             exit 1
           fi
 
@@ -397,6 +375,10 @@ jobs:
       # own secret, since runtimeConfigValue() accepts the environment. Empty when
       # unset, which normalisation treats as "not configured".
       MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
+      NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -489,10 +471,20 @@ jobs:
               echo "${property_name} present=true"
             else
               echo "${property_name} present=false"
-              echo "::warning::${property_name} is missing; the iOS build will show the missing-credentials state for that provider."
+              echo "::warning::${property_name} is absent from local.properties; MDBLIST_CLIENT_ID may instead be supplied by its dedicated secret."
             fi
           done
 
+          for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID; do
+            if ! property_present "${property_name}"; then
+              echo "::error::${property_name} is missing. Configure the existing release properties before shipping."
+              exit 1
+            fi
+          done
+          if ! property_present MDBLIST_CLIENT_ID && [ -z "${MDBLIST_CLIENT_ID:-}" ]; then
+            echo "::error::MDBLIST_CLIENT_ID is missing. Configure the existing release properties before shipping."
+            exit 1
+          fi
           echo "local.properties configured."
 
       - name: Prepare iOS dependencies
@@ -505,6 +497,40 @@ jobs:
           # build if the application turns out to be signed anyway.
           STREAMBRIDGE_IOS_SIGNING: "0"
         run: ./scripts/build-ios-ipa.sh
+
+      - name: Report generated tracking config presence
+        run: |
+          set -euo pipefail
+          generated="composeApp/build/generated/runtime-config/kotlin"
+          trakt="$generated/com/nuvio/app/features/trakt/TraktConfig.kt"
+          simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
+          mdblist="$generated/com/nuvio/app/features/mdblist/MdbListConfig.kt"
+
+          # Returns 0 when the generated constant is non-empty, 1 when it is empty.
+          report_populated() {
+            local provider="$1" file="$2" constant="$3"
+            if [ ! -f "$file" ]; then
+              echo "::warning::Generated config missing: $file"
+              return 1
+            fi
+            if ! grep -Eq "^[[:space:]]*const val ${constant} = \".+\"[[:space:]]*$" "$file"; then
+              echo "${provider} ${constant} present=false"
+              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is absent or empty."
+              return 1
+            fi
+            echo "${provider} ${constant} present=true"
+            return 0
+          }
+
+          tracking_missing=0
+          report_populated TRAKT "$trakt" CLIENT_ID || tracking_missing=1
+          report_populated TRAKT "$trakt" CLIENT_SECRET || tracking_missing=1
+          report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1
+          report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1
+          if [ "$tracking_missing" -ne 0 ]; then
+            echo "::error::A required tracking integration is not configured in the generated release."
+            exit 1
+          fi
 
       - name: Package IPA for the release
         id: package

@@ -27,13 +27,16 @@ class TraktRefreshCoordinatorTest {
         started.await()
         val automatic = async { coordinator.run(false) { requests++ } }
         val manual = async { coordinator.run(true) { requests++ } }
+        val membership = async { coordinator.run(waitForOngoing = true) { requests++ } }
         runCurrent()
         assertTrue(automatic.isCompleted)
         assertFalse(manual.isCompleted)
+        assertFalse(membership.isCompleted)
         assertEquals(1, requests)
         release.complete(Unit)
         first.await()
         manual.await()
+        membership.await()
         coordinator.run(false) { requests++ }
         assertEquals(2, requests)
     }

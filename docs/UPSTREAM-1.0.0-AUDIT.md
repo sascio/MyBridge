@@ -88,7 +88,11 @@ The 1.0.1 version bump was not adopted because StreamBridge has its own version.
 Enhanced's Kotlin `enhanced` branch was inspected at
 `894499115fb1a69cd4bb34d6969a74832f0e5636`; this is distinct from its older
 React Native 1.0.0 tag. The branch contains functionality not yet ported,
-including AI assistant and Telegram client implementations. Differences in
-other features still require integration and validation. The 1.1.0 beta
-releases and the current official branch likewise have not been fully
-integrated. This is not a claim of upstream feature parity.
+including AI assistant and Telegram client implementations. The assistant's
+upstream implementations persist API keys in ordinary SharedPreferences and
+NSUserDefaults, so they require a secure-storage adaptation before adoption.
+The Telegram client requires platform-specific native bridges and session
+handling; copying its common UI alone would not deliver a usable integration.
+Differences in other features still require integration and validation. The
+1.1.0 beta releases and the current official branch likewise have not been
+fully integrated. This is not a claim of upstream feature parity.

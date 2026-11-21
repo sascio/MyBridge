@@ -122,15 +122,12 @@ The workflow now:
    is decoded separately);
 5. prints a **presence-only report** for `TRAKT_CLIENT_ID`,
    `TRAKT_CLIENT_SECRET`, `SIMKL_CLIENT_ID` and `MDBLIST_CLIENT_ID`, plus a step
-   summary table and a `::warning::` for every missing provider. Tracking remains
-   optional, so a missing provider is still not a build failure by default. Pass
-   the workflow input **`require_tracking_credentials=true`** to make a release
-   fail instead of warn when `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` are absent;
-6. after assembling, greps the *generated* `TraktConfig.kt`, `SimklConfig.kt` and
-   `MdbListConfig.kt` to confirm the constants are non-empty — presence only,
-   never values. Each line is prefixed with its provider (`TRAKT CLIENT_ID
-   present=true`, …) because all three constants share the name `CLIENT_ID`, and
-   every empty constant produces its own warning.
+   summary table. The 0.1.19 production draft requires all four tracking values
+   on both platforms; `MDBLIST_CLIENT_ID` may alternatively come from its
+   dedicated Actions secret. No credential value is printed;
+6. after building each platform, greps the *generated* `TraktConfig.kt`,
+   `SimklConfig.kt` and `MdbListConfig.kt` to confirm the constants are non-empty.
+   A missing generated value fails the production draft build.
 
 #### Check the secret without building anything
 
