@@ -7,6 +7,7 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
@@ -377,6 +378,31 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
+}
+
+// Resolve the exact Robolectric 4.16 instrumented SDKs through Gradle's cached
+// dependency resolver, once per test task graph. Robolectric's own Maven fetcher
+// otherwise downloads at runtime and can retry the same 429 once per test class.
+// Keep these versions aligned with @Config SDKs 26, 28, 34 and 36 and with
+// DefaultSdkProvider in the pinned Robolectric version.
+val robolectricSdkVersions = listOf(
+    "8.0.0_r4-robolectric-r1-i7",
+    "9-robolectric-4913185-2-i7",
+    "14-robolectric-10818077-i7",
+    "16-robolectric-13921718-i7",
+)
+val robolectricSdkArtifacts = robolectricSdkVersions.map { sdkVersion ->
+    configurations.detachedConfiguration(
+        dependencies.create("org.robolectric:android-all-instrumented:$sdkVersion"),
+    ).apply { isTransitive = false }
+}
+val prepareRobolectricSdkJars = tasks.register<Copy>("prepareRobolectricSdkJars") {
+    from(robolectricSdkArtifacts)
+    into(layout.buildDirectory.dir("robolectric-sdks"))
+}
+tasks.withType<Test>().configureEach {
+    dependsOn(prepareRobolectricSdkJars)
+    systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric-sdks").get().asFile.absolutePath)
 }
 
 val supabaseProps = Properties().apply {

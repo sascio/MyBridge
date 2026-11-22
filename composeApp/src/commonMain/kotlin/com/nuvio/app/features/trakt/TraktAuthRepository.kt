@@ -59,7 +59,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val refreshMutex = Mutex()
 
-    private val _uiState = MutableStateFlow(TraktAuthUiState())
+    private val _uiState = MutableStateFlow(TraktAuthUiState(credentialsConfigured = hasRequiredCredentials()))
     val uiState: StateFlow<TraktAuthUiState> = _uiState.asStateFlow()
 
     private val _isAuthenticated = MutableStateFlow(false)
@@ -205,6 +205,7 @@ object TraktAuthRepository : TrackingAuthProvider {
 
     fun pendingAuthorizationUrl(profileId: Int = ProfileRepository.activeProfileId): String? {
         ensureLoaded(profileId)
+        if (!hasRequiredCredentials()) return null
         val pendingState = authState.pendingAuthorizationState ?: return null
         if (pendingState.startsWith(DEVICE_CODE_PREFIX)) return ACTIVATE_URL
         return buildAuthorizationUrl(pendingState)
@@ -235,7 +236,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     fun onAuthCallbackReceived(callbackUrl: String) {
         val profileId = ProfileRepository.activeProfileId
         ensureLoaded(profileId)
-        if (!pendingDeviceCode().isNullOrBlank()) return
+        if (!hasRequiredCredentials() || !pendingDeviceCode().isNullOrBlank()) return
         if (!callbackUrl.startsWith("${TraktConfig.REDIRECT_URI}?", ignoreCase = true) &&
             !callbackUrl.equals(TraktConfig.REDIRECT_URI, ignoreCase = true)
         ) {
@@ -719,6 +720,8 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private fun loadFromDisk(profileId: Int) {
+        devicePollingJob?.cancel()
+        devicePollingJob = null
         currentProfileId = profileId
         profileGeneration += 1L
         hasLoaded = true
@@ -734,7 +737,7 @@ object TraktAuthRepository : TrackingAuthProvider {
                 }
         }
         publish(statusMessage = null, errorMessage = null)
-        pendingDeviceCode()?.let { deviceCode ->
+        pendingDeviceCode()?.takeIf { hasRequiredCredentials() }?.let { deviceCode ->
             startDeviceTokenPolling(
                 deviceCode = deviceCode,
                 intervalSeconds = DEFAULT_DEVICE_POLL_INTERVAL_SECONDS,
@@ -763,16 +766,13 @@ object TraktAuthRepository : TrackingAuthProvider {
                 }
             }
 
-        val mode = when {
-            authState.isAuthenticated -> TraktConnectionMode.CONNECTED
-            !authState.pendingAuthorizationState.isNullOrBlank() -> TraktConnectionMode.AWAITING_APPROVAL
-            else -> TraktConnectionMode.DISCONNECTED
-        }
+        val configured = hasRequiredCredentials()
+        val mode = traktConnectionMode(authState, configured)
 
-        _isAuthenticated.value = authState.isAuthenticated
+        _isAuthenticated.value = mode == TraktConnectionMode.CONNECTED
         _uiState.value = TraktAuthUiState(
             mode = mode,
-            credentialsConfigured = hasRequiredCredentials(),
+            credentialsConfigured = configured,
             isLoading = isLoading,
             username = authState.username,
             tokenExpiresAtMillis = tokenExpiresAtMillis,

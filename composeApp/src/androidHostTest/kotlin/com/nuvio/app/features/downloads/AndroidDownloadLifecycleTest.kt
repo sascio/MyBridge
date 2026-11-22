@@ -94,7 +94,7 @@ class AndroidDownloadLifecycleTest {
 
             val recreated = AndroidDownloadScheduler(context)
             val restored = recreated.restore(item)
-            assertEquals(DownloadStatus.Completed, restored.status)
+            assertEquals(DownloadStatus.Completed, restored.status, "Transfer failure: ${restored.errorMessage}")
             assertEquals("complete video", File(recreated.directory, item.fileName).readText())
             assertEquals(14L, restored.downloadedBytes)
             assertNotNull(restored.localFileUri)

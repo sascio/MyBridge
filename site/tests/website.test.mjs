@@ -24,6 +24,15 @@ for (const path of ['/', '/news/', '/terms/', '/privacy/']) assert.ok(sitemap.in
 assert.ok(!sitemap.includes('/party/'));
 const homePage = readFileSync(resolve(root, 'index.html'), 'utf8');
 const iconSprite = readFileSync(resolve(root, 'assets/icons.svg'), 'utf8');
+for (const section of ['live-tv', 'appearance', 'watch-party', 'cloudstream']) {
+  assert.ok(homePage.includes(`id="${section}"`), `feature section ${section}`);
+}
+assert.match(homePage, /website does not stream live TV/);
+assert.match(homePage, /Live synchronization has not been verified/);
+assert.match(homePage, /Android Play and iOS do not execute Android DEX/);
+assert.match(homePage, /matching hash do not make third-party code safe/);
+assert.doesNotMatch(homePage, /demo-channel|preview-phone|party-frame|cloud-row/);
+
 for (const [name, url, icon, label] of [
   ['Telegram', 'https://t.me/StreamBridge_App', 'telegram', 'Join StreamBridge on Telegram'],
   ['Discord', 'https://discord.gg/T9apykrjW', 'discord', 'Join the StreamBridge Discord'],

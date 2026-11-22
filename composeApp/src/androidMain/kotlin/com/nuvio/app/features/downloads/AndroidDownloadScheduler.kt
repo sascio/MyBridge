@@ -181,9 +181,7 @@ internal class AndroidDownloadScheduler(val context: Context) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastProgressAt >= 1_000L || bytes == total) {
                     lastProgressAt = now
-                    updateActive(transfer) {
-                        it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = total))
-                    }?.let(onProgress)
+                    updateActive(transfer) { it.withDownloadProgress(bytes, total) }?.let(onProgress)
                 }
             }
 
@@ -267,10 +265,17 @@ internal class AndroidDownloadScheduler(val context: Context) {
             throw cancelled
         } catch (error: Exception) {
             currentCoroutineContext().ensureActive()
-            if (!isActive(transfer)) return@withLock false
-            val retry = shouldRetryAndroidDownload(error, transfer.retryCount)
-            if (retry) updateActive(transfer) { it.copy(retryCount = it.retryCount + 1) }
-            else fail(transfer, error)
+            // Read and update the retry budget under the store lock: this run may
+            // have made progress since its immutable starting snapshot was created.
+            var retry = false
+            updateActive(transfer) { current ->
+                retry = shouldRetryAndroidDownload(error, current.retryCount)
+                if (retry) current.copy(retryCount = current.retryCount + 1)
+                else current.copy(item = current.item.copy(
+                    status = DownloadStatus.Failed,
+                    errorMessage = error.message ?: "Download failed",
+                ))
+            }
             retry
         } finally {
             subtitles.cancel()
@@ -334,6 +339,14 @@ internal class AndroidDownloadScheduler(val context: Context) {
         private const val TAG = "NuvioDownloads"
     }
 }
+
+// Enhanced 1.0.0 resets the consecutive-failure budget once new bytes arrive.
+// A repeated or backward progress report must not reset it.
+internal fun AndroidDownloadTransfer.withDownloadProgress(bytes: Long, total: Long?): AndroidDownloadTransfer =
+    copy(
+        retryCount = if (bytes > item.downloadedBytes) 0 else retryCount,
+        item = item.copy(downloadedBytes = bytes, totalBytes = total),
+    )
 
 internal fun shouldRetryAndroidDownload(error: Exception, retries: Int): Boolean =
     retries < 4 && when (error) {

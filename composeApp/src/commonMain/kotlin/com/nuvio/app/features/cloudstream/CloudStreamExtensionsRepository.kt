@@ -2,13 +2,16 @@ package com.nuvio.app.features.cloudstream
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
@@ -27,7 +30,7 @@ import kotlinx.serialization.json.Json
  *
  * Honesty rules enforced here:
  *  - a source can only be enabled when it is genuinely activatable
- *  - `.cs3` plugins needing DEX execution can never become installed/enabled
+ *  - only Android Full can install and execute compatible DEX packages
  */
 internal object CloudStreamExtensionsRepository {
 
@@ -88,7 +91,7 @@ internal object CloudStreamExtensionsRepository {
         if (url.isEmpty()) {
             return AddCloudStreamRepositoryResult.Error("Enter a repository URL.")
         }
-        if (repositoryUrls.any { it.equals(url, ignoreCase = true) }) {
+        if (repositoryUrls.any { sameCloudStreamRepositoryUrl(it, url) }) {
             return AddCloudStreamRepositoryResult.Error("That repository has already been added.")
         }
 
@@ -107,13 +110,124 @@ internal object CloudStreamExtensionsRepository {
         return AddCloudStreamRepositoryResult.Success(repository)
     }
 
+    /** Validate the replacement before changing the configured URL. Trust is never transferred. */
+    suspend fun editRepository(oldUrl: String, rawUrl: String): AddCloudStreamRepositoryResult {
+        val url = rawUrl.trim()
+        if (repositoryUrls.none { sameCloudStreamRepositoryUrl(it, oldUrl) }) {
+            return AddCloudStreamRepositoryResult.Error("Repository is no longer configured.")
+        }
+        if (repositoryUrls.any { !sameCloudStreamRepositoryUrl(it, oldUrl) && sameCloudStreamRepositoryUrl(it, url) }) {
+            return AddCloudStreamRepositoryResult.Error("That repository has already been added.")
+        }
+        val repository = loader.load(url)
+        if (repository.compatibility == CloudStreamCompatibility.FAILED) {
+            return AddCloudStreamRepositoryResult.Error(repository.errorMessage ?: "The repository could not be read.")
+        }
+        if (!sameCloudStreamRepositoryUrl(oldUrl, url)) {
+            mutex.withLock {
+                repositoryUrls = repositoryUrls.map { if (sameCloudStreamRepositoryUrl(it, oldUrl)) url else it }
+                configuration.remove(trustKey(oldUrl))
+                persistConfiguration()
+                persistRepositories()
+            }
+            _uiState.value.extensions.filter { sameCloudStreamRepositoryUrl(it.repositoryUrl, oldUrl) }
+                .forEach { CloudStreamPlatformRuntime.unload(it.id) }
+        }
+        reload()
+        return AddCloudStreamRepositoryResult.Success(repository)
+    }
+
     fun removeRepository(url: String) {
         scope.launch {
             mutex.withLock {
-                repositoryUrls = repositoryUrls.filterNot { it.equals(url, ignoreCase = true) }
+                repositoryUrls = repositoryUrls.filterNot { sameCloudStreamRepositoryUrl(it, url) }
+                configuration.remove(trustKey(url))
+                persistConfiguration()
                 persistRepositories()
             }
+            _uiState.value.extensions.filter { sameCloudStreamRepositoryUrl(it.repositoryUrl, url) }
+                .forEach { CloudStreamPlatformRuntime.unload(it.id) }
             reload()
+        }
+    }
+
+    private fun trustKey(url: String) = "cloudstream.repository.trust::${url.trim()}"
+
+    /** Trust is explicit, tied to the configured URL, and never case-folds paths. */
+    fun isRepositoryTrusted(url: String?): Boolean = url != null &&
+        repositoryUrls.any { sameCloudStreamRepositoryUrl(it, url) } &&
+        configuration[trustKey(url)] == "true"
+
+    /** Only the unique, currently discovered package may cross the execution boundary. */
+    fun isPluginExecutionAuthorized(plugin: CloudStreamPlugin): Boolean {
+        val extensions = _uiState.value.extensions
+        val extension = extensions.singleOrNull { it.id == plugin.id } ?: return false
+        return !cloudStreamIdentityAmbiguous(plugin.id, extensions.map { it.id }) &&
+            extension.plugin == plugin && isRepositoryTrusted(extension.repositoryUrl)
+    }
+
+    fun setRepositoryTrusted(url: String, trusted: Boolean) {
+        if (repositoryUrls.none { sameCloudStreamRepositoryUrl(it, url) }) return
+        if (trusted) configuration[trustKey(url)] = "true" else configuration.remove(trustKey(url))
+        persistConfiguration()
+        if (!trusted) _uiState.value.extensions
+            .filter { sameCloudStreamRepositoryUrl(it.repositoryUrl, url) }
+            .forEach { CloudStreamPlatformRuntime.unload(it.id) }
+        _uiState.value = _uiState.value.copy(
+            trustedRepositories = repositoryUrls.filter { isRepositoryTrusted(it) }.toSet(),
+            errorMessage = null,
+        )
+        applyPersistedState()
+    }
+
+    fun setExtensionPinned(extension: CloudStreamExtension, pinned: Boolean) {
+        val key = cloudStreamPinKey(extension.repositoryUrl, extension.id)
+        if (pinned) configuration[key] = "true" else configuration.remove(key)
+        persistConfiguration()
+        _uiState.value = _uiState.value.copy(extensions = _uiState.value.extensions.map {
+            if (sameCloudStreamRepositoryUrl(it.repositoryUrl, extension.repositoryUrl) && it.id == extension.id)
+                it.copy(pinned = pinned) else it
+        })
+    }
+
+    /** Bulk operations use the same guarded per-extension operations as individual actions. */
+    fun startBulk(action: CloudStreamBulkAction) {
+        if (_uiState.value.bulk?.running == true) return
+        val candidates = _uiState.value.extensions.filter { extension ->
+            when (action) {
+                CloudStreamBulkAction.INSTALL -> !extension.installStatus.isInstalled
+                CloudStreamBulkAction.UPDATE -> extension.canUpdate
+                CloudStreamBulkAction.ENABLE, CloudStreamBulkAction.DISABLE -> true
+            }
+        }
+        _uiState.value = _uiState.value.copy(bulk = CloudStreamBulkStatus(action, candidates.size))
+        scope.launch {
+            try {
+                runCloudStreamBulk(action, candidates, { extension ->
+                    when (action) {
+                        CloudStreamBulkAction.INSTALL, CloudStreamBulkAction.UPDATE ->
+                            when (val result = installExtensionNow(extension.id)) {
+                                is CloudStreamInstallResult.Success -> null
+                                is CloudStreamInstallResult.Failure -> result.message
+                            }
+                        CloudStreamBulkAction.ENABLE, CloudStreamBulkAction.DISABLE -> {
+                            val enable = action == CloudStreamBulkAction.ENABLE
+                            val sourceErrors = extension.sources.mapNotNull { source ->
+                                if (setSourceEnabled(source.id, enable)) null
+                                else _uiState.value.errorMessage ?: "Source could not be changed."
+                            }
+                            when {
+                                extension.sources.isEmpty() -> "No sources were declared."
+                                sourceErrors.isNotEmpty() -> sourceErrors.distinct().joinToString("; ")
+                                else -> null
+                            }
+                        }
+                    }
+                }) { status -> _uiState.value = _uiState.value.copy(bulk = status) }
+            } finally {
+                val status = _uiState.value.bulk
+                if (status?.running == true) _uiState.value = _uiState.value.copy(bulk = status.copy(running = false, current = null))
+            }
         }
     }
 
@@ -145,6 +259,17 @@ internal object CloudStreamExtensionsRepository {
                 CloudStreamInstallError.REPOSITORY_GONE,
                 "This extension is no longer offered by any configured repository.",
             )
+
+        if (cloudStreamIdentityAmbiguous(extension.id, _uiState.value.extensions.map { it.id })) {
+            val message = "Conflicting extension identities; remove the duplicate repository before installing."
+            _uiState.value = _uiState.value.copy(errorMessage = message)
+            return CloudStreamInstallResult.Failure(pluginId, CloudStreamInstallError.UNKNOWN, message)
+        }
+        if (!isRepositoryTrusted(extension.repositoryUrl)) {
+            val message = "Authorize this repository in extension details before installing."
+            _uiState.value = _uiState.value.copy(errorMessage = message)
+            return CloudStreamInstallResult.Failure(pluginId, CloudStreamInstallError.UNKNOWN, message)
+        }
 
         if (!CloudStreamPackageInstaller.supportsInstallation) {
             val failure = CloudStreamInstallResult.Failure(
@@ -204,7 +329,9 @@ internal object CloudStreamExtensionsRepository {
                     // otherwise. Without this a freshly installed provider is
                     // installed-but-disabled and never reaches Play -> Sources,
                     // which reads to the user as the install having done nothing.
-                    enableSourcesByDefault(pluginId)
+                    // Trust or metadata may have changed during the download.
+                    // Do not record a new automatic enable under stale consent.
+                    if (isPluginExecutionAuthorized(extension.plugin)) enableSourcesByDefault(pluginId)
                     // Cache immediately so the provider survives a restart and
                     // is usable offline without waiting for a repository refresh.
                     persistInstalledPlugins()
@@ -231,8 +358,24 @@ internal object CloudStreamExtensionsRepository {
                 }
             }
             return result
+        } catch (cancelled: CancellationException) {
+            // A cancellation can arrive after the installer has committed. Do
+            // not leave a permanent Downloading state or invent a failure;
+            // restore the state from the package actually present on disk.
+            withContext(NonCancellable + Dispatchers.Default) {
+                val installed = CloudStreamPackageInstaller.isInstalled(extension.plugin)
+                updateInstallStatus(pluginId) {
+                    CloudStreamInstallStatus(
+                        state = if (installed) CloudStreamInstallState.INSTALLED else CloudStreamInstallState.AVAILABLE,
+                        installedVersion = if (installed) CloudStreamPackageInstaller.installedVersion(extension.plugin) else null,
+                    )
+                }
+                if (installed) persistInstalledPlugins()
+            }
+            throw cancelled
         } finally {
-            mutex.withLock { inFlightInstalls.remove(pluginId) }
+            // Cleanup must run even when the bulk job or caller is cancelled.
+            withContext(NonCancellable) { mutex.withLock { inFlightInstalls.remove(pluginId) } }
         }
     }
 
@@ -273,6 +416,10 @@ internal object CloudStreamExtensionsRepository {
     fun removeExtension(pluginId: String) {
         scope.launch {
             val extension = _uiState.value.extensions.firstOrNull { it.id == pluginId } ?: return@launch
+            if (cloudStreamIdentityAmbiguous(pluginId, _uiState.value.extensions.map { it.id })) {
+                _uiState.value = _uiState.value.copy(errorMessage = "Conflicting extension identities; remove the duplicate repository first.")
+                return@launch
+            }
             // Stop executing it before its package leaves the disk.
             CloudStreamPlatformRuntime.unload(pluginId)
             CloudStreamPackageInstaller.remove(extension.plugin)
@@ -337,11 +484,28 @@ internal object CloudStreamExtensionsRepository {
      * Refuses to enable a source that cannot genuinely be activated, so the UI
      * can never show a non-functional provider as active.
      */
-    fun setSourceEnabled(sourceId: String, enabled: Boolean) {
-        val source = findSource(sourceId) ?: return
+    suspend fun setSourceEnabled(sourceId: String, enabled: Boolean): Boolean =
+        withContext(Dispatchers.Default) { mutex.withLock { setSourceEnabledInternal(sourceId, enabled) } }
+
+    private fun setSourceEnabledInternal(sourceId: String, enabled: Boolean): Boolean {
+        val source = findSource(sourceId) ?: return false
+        val extension = _uiState.value.extensions.firstOrNull { e -> e.sources.any { it.id == sourceId } }
+        if (extension != null && cloudStreamIdentityAmbiguous(extension.id, _uiState.value.extensions.map { it.id })) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Conflicting extension identities; remove the duplicate repository first.")
+            return false
+        }
+        if (enabled && (extension == null || !isRepositoryTrusted(extension.repositoryUrl))) {
+            _uiState.value = _uiState.value.copy(errorMessage = "Authorize this repository in extension details before enabling.")
+            return false
+        }
+        if (enabled && extension != null && CloudStreamPackageInstaller.integrity(extension.plugin) in setOf(CloudStreamIntegrity.MISMATCH, CloudStreamIntegrity.UNVERIFIABLE)) {
+            _uiState.value = _uiState.value.copy(errorMessage = "SHA-256 mismatch or unverifiable hash: package cannot be enabled.")
+            return false
+        }
         if (enabled && !source.canActivate) {
             log.w { "Refusing to enable non-activatable CloudStream source '$sourceId'" }
-            return
+            _uiState.value = _uiState.value.copy(errorMessage = "This source is not compatible with this build.")
+            return false
         }
         // Enabling requires a package that is genuinely installed; otherwise the
         // aggregator would target a provider whose code is not on disk.
@@ -350,12 +514,13 @@ internal object CloudStreamExtensionsRepository {
             _uiState.value = _uiState.value.copy(
                 errorMessage = "Install this extension before enabling its sources.",
             )
-            return
+            return false
         }
         val existing = sourceStates[sourceId] ?: CloudStreamSourceState(sourceId)
         sourceStates[sourceId] = existing.copy(enabled = enabled, installed = existing.installed || enabled)
         persistSourceStates()
         applyPersistedState()
+        return true
     }
 
     /** Stores a supported configuration value. */
@@ -427,8 +592,15 @@ internal object CloudStreamExtensionsRepository {
                 ),
             )
 
+        if (!isPluginExecutionAuthorized(extension.plugin)) {
+            return Result.failure(IllegalStateException("CloudStream repository is not authorized or the extension identity is ambiguous."))
+        }
+
         // Re-check executability at request time: persisted state must never be
         // able to activate a plugin the runtime cannot actually run.
+        if (CloudStreamPackageInstaller.integrity(extension.plugin) in setOf(CloudStreamIntegrity.MISMATCH, CloudStreamIntegrity.UNVERIFIABLE)) {
+            return Result.failure(IllegalStateException("SHA-256 mismatch or unverifiable hash: package cannot be executed."))
+        }
         if (!extension.plugin.isExecutable) {
             return Result.failure(
                 IllegalStateException(
@@ -481,6 +653,7 @@ internal object CloudStreamExtensionsRepository {
         val repositories = urls.map { url ->
             // Isolated: one bad repository cannot break discovery for the rest.
             runCatching { loader.load(url) }.getOrElse { error ->
+                if (error is kotlinx.coroutines.CancellationException) throw error
                 log.w { "CloudStream repository '$url' failed: ${error.message}" }
                 CloudStreamRepository(
                     url = url,
@@ -489,23 +662,28 @@ internal object CloudStreamExtensionsRepository {
                     compatibilityReason = CloudStreamCompatibilityReason.MALFORMED_OR_UNREACHABLE,
                     errorMessage = "The repository could not be read.",
                 )
-            }
+            }.copy(refreshedAtEpochMs = kotlin.time.Clock.System.now().toEpochMilliseconds())
         }
 
         // Preserve in-flight install status across a refresh so a download
         // running while the user pulls to refresh is not reported as Available.
         val previousStatuses = _uiState.value.extensions.associate { it.id to it.installStatus }
 
-        val extensions = repositories.flatMap { repository ->
+        val failedUrls = repositories.filter { it.compatibility == CloudStreamCompatibility.FAILED }.map { it.url }
+        val offlineInstalled = _uiState.value.extensions.filter { extension ->
+            extension.installStatus.isInstalled && failedUrls.any { sameCloudStreamRepositoryUrl(it, extension.repositoryUrl) }
+        }
+        val extensions = (repositories.flatMap { repository ->
             repository.plugins.map { plugin ->
                 val mapped = CloudStreamExtensionMapping.toExtension(
-                    plugin = plugin,
+                    plugin = plugin.copy(repositoryUrl = repository.url),
                     repositoryUrl = repository.url,
                     states = sourceStates,
                     configuration = configuration,
                 )
                 val previous = previousStatuses[plugin.id]
                 mapped.copy(
+                    pinned = configuration[cloudStreamPinKey(repository.url, plugin.id)] == "true",
                     installStatus = if (previous?.isBusy == true) {
                         previous
                     } else {
@@ -513,16 +691,19 @@ internal object CloudStreamExtensionsRepository {
                     },
                 )
             }
-        }.sortedBy { it.name.lowercase() }
+        } + offlineInstalled).sortedBy { it.name.lowercase() }
 
         _uiState.value = CloudStreamUiState(
             isLoading = false,
             isRefreshing = false,
             hasLoadedOnce = true,
             repositories = repositories,
+            trustedRepositories = repositoryUrls.filter { isRepositoryTrusted(it) }.toSet(),
             extensions = extensions,
+            bulk = _uiState.value.bulk,
             errorMessage = null,
         )
+        applyPersistedState()
         persistInstalledPlugins()
     }
 
@@ -539,7 +720,7 @@ internal object CloudStreamExtensionsRepository {
         if (cached.isEmpty()) return
 
         val extensions = cached.mapNotNull { entry ->
-            val plugin = CloudStreamRepositoryParser.toPlugin(entry.manifest)
+            val plugin = CloudStreamRepositoryParser.toPlugin(entry.manifest).copy(repositoryUrl = entry.repositoryUrl)
             if (plugin.id.isEmpty()) return@mapNotNull null
             if (!CloudStreamPackageInstaller.isInstalled(plugin)) return@mapNotNull null
 
@@ -548,12 +729,19 @@ internal object CloudStreamExtensionsRepository {
                 repositoryUrl = entry.repositoryUrl,
                 states = sourceStates,
                 configuration = configuration,
-            ).copy(installStatus = installStatusFor(plugin))
+            ).copy(
+                installStatus = installStatusFor(plugin),
+                pinned = configuration[cloudStreamPinKey(entry.repositoryUrl, plugin.id)] == "true",
+            )
         }.sortedBy { it.name.lowercase() }
 
         if (extensions.isEmpty()) return
         log.i { "Restored ${extensions.size} installed CloudStream extension(s) from cache" }
-        _uiState.value = _uiState.value.copy(extensions = extensions)
+        _uiState.value = _uiState.value.copy(
+            extensions = extensions,
+            trustedRepositories = repositoryUrls.filter { isRepositoryTrusted(it) }.toSet(),
+        )
+        applyPersistedState()
     }
 
     /** Caches metadata for every installed extension so it survives restarts. */
@@ -594,10 +782,13 @@ internal object CloudStreamExtensionsRepository {
             // package is genuinely on disk, so stale persisted flags from a
             // removed or failed install can never resurrect a dead provider.
             val packageInstalled = extension.installStatus.isInstalled
+            val integrity = if (packageInstalled) CloudStreamPackageInstaller.integrity(extension.plugin) else CloudStreamIntegrity.NOT_INSTALLED
+            val unambiguous = !cloudStreamIdentityAmbiguous(extension.id, _uiState.value.extensions.map { it.id })
             extension.copy(
                 sources = extension.sources.map { source ->
                     val persisted = sourceStates[source.id]
-                    val usable = source.canActivate && packageInstalled
+                    val usable = source.canActivate && packageInstalled && unambiguous && isRepositoryTrusted(extension.repositoryUrl) &&
+                        integrity !in setOf(CloudStreamIntegrity.MISMATCH, CloudStreamIntegrity.UNVERIFIABLE)
                     source.copy(
                         installed = usable && persisted?.installed == true,
                         enabled = usable && persisted?.enabled == true,
@@ -685,4 +876,19 @@ internal object CloudStreamExtensionsRepository {
         inFlightInstalls.clear()
         _uiState.value = CloudStreamUiState()
     }
+}
+
+/** Exact comparison after trimming; URL paths and queries can be case-sensitive. */
+internal fun sameCloudStreamRepositoryUrl(a: String, b: String): Boolean = a.trim() == b.trim()
+
+/** Length-prefixing keeps repository and plugin boundaries unambiguous. */
+internal fun cloudStreamPinKey(repositoryUrl: String, pluginId: String): String {
+    val url = repositoryUrl.trim()
+    return "cloudstream.pin::${url.length}:$url:$pluginId"
+}
+
+/** The existing private filename sanitization is not injective; reject collisions, not just duplicate IDs. */
+internal fun cloudStreamIdentityAmbiguous(id: String, ids: List<String>): Boolean {
+    fun storageKey(value: String) = value.map { if (it.isLetterOrDigit() || it == '-' || it == '_') it else '_' }.joinToString("")
+    return id.isBlank() || ids.count { storageKey(it) == storageKey(id) } != 1
 }

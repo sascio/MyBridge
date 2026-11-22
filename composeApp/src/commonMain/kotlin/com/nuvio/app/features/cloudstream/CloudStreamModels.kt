@@ -43,8 +43,8 @@ data class CloudStreamRepositoryManifest(
  * A single entry of `plugins.json`.
  *
  * [url] points at the compiled `.cs3` artifact. StreamBridge records it for
- * provenance and integrity reporting but never downloads and executes it; see
- * [CloudStreamCompatibility] for the rationale.
+ * provenance and integrity reporting. Only Android Full can execute it, after
+ * explicit repository authorization and runtime validation.
  */
 @Serializable
 data class CloudStreamPluginManifest(
@@ -69,7 +69,7 @@ data class CloudStreamPluginManifest(
  * `manifest.json` stored inside a `.cs3` archive.
  *
  * Modelled for completeness and for integrity/compatibility reporting. The
- * archive's sibling entry is `classes.dex`, which StreamBridge does not load.
+ * archive's sibling entry is `classes.dex`, loaded only by Android Full after validation.
  */
 @Serializable
 data class CloudStreamPluginArchiveManifest(
@@ -174,6 +174,8 @@ data class CloudStreamRepository(
     val compatibilityReason: CloudStreamCompatibilityReason = CloudStreamCompatibilityReason.NONE,
     /** Human-readable failure text when the repository could not be read. */
     val errorMessage: String? = null,
+    /** Most recent attempted refresh in this app session. */
+    val refreshedAtEpochMs: Long? = null,
 ) {
     val isUsable: Boolean
         get() = compatibility != CloudStreamCompatibility.FAILED

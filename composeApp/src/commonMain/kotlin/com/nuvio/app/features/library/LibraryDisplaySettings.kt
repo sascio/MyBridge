@@ -16,6 +16,7 @@ enum class LibraryLayoutMode {
 
 enum class LibrarySortOption {
     DEFAULT,
+    MDBLIST_SAVED_ORDER,
     ADDED_DESC,
     ADDED_ASC,
     RELEASED_DESC,
@@ -91,8 +92,8 @@ private val ReleaseSortOptions = setOf(LibrarySortOption.RELEASED_DESC, LibraryS
 internal fun availableLibrarySortOptions(sourceMode: LibrarySourceMode): List<LibrarySortOption> =
     when {
         sourceMode == LibrarySourceMode.MDBLIST -> LibrarySortOption.entries
-        sourceMode.isRemoteTrackingSource -> LibrarySortOption.entries.filterNot { it in ReleaseSortOptions }
-        else -> LibrarySortOption.entries.filterNot { it == LibrarySortOption.DEFAULT || it in ReleaseSortOptions }
+        sourceMode.isRemoteTrackingSource -> LibrarySortOption.entries.filterNot { it in ReleaseSortOptions || it == LibrarySortOption.MDBLIST_SAVED_ORDER }
+        else -> LibrarySortOption.entries.filterNot { it == LibrarySortOption.DEFAULT || it == LibrarySortOption.MDBLIST_SAVED_ORDER || it in ReleaseSortOptions }
     }
 
 // The sort option is shared by all sources, so one a source does not offer falls back to its default.
@@ -127,6 +128,11 @@ internal fun sortLibraryItems(
                     .thenBy { libraryTitleTieBreakKey(it) }
                     .thenBy { it.id }
             },
+        )
+        LibrarySortOption.MDBLIST_SAVED_ORDER -> items.sortedWith(
+            compareBy<LibraryItem> { it.listProviderPositions[listKey] ?: Int.MAX_VALUE }
+                .thenBy { libraryTitleTieBreakKey(it) }
+                .thenBy { it.id },
         )
         LibrarySortOption.ADDED_DESC -> items.sortedWith(
             providerOrder?.let(::libraryProviderOrderComparator) ?: compareByDescending<LibraryItem> { it.savedAtEpochMs }

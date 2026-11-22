@@ -14,6 +14,8 @@ internal actual object CloudStreamPackageInstaller {
 
     actual fun isInstalled(plugin: CloudStreamPlugin): Boolean = false
 
+    actual fun integrity(plugin: CloudStreamPlugin): CloudStreamIntegrity = CloudStreamIntegrity.NOT_INSTALLED
+
     actual fun installedVersion(plugin: CloudStreamPlugin): Int? = null
 
     actual suspend fun install(plugin: CloudStreamPlugin): CloudStreamInstallResult =

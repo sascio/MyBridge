@@ -124,6 +124,7 @@ internal actual object CloudStreamPlatformRuntime {
 
     private data class LoadedPlugin(
         val path: String,
+        val digest: String,
         val instance: BasePlugin,
         val providers: List<MainAPI>,
         val extractors: List<com.lagradost.cloudstream3.utils.ExtractorApi>,
@@ -157,10 +158,20 @@ internal actual object CloudStreamPlatformRuntime {
         plugin: CloudStreamPlugin,
         packageFile: File,
     ): LoadedPlugin = loadMutex.withLock {
+        require(CloudStreamExtensionsRepository.isPluginExecutionAuthorized(plugin)) {
+            "CloudStream repository is not authorized or the extension identity is ambiguous"
+        }
+        // Check even cached providers: a refreshed publisher hash must not be
+        // bypassed merely because the previous version was already loaded.
+        require(packageFile.isFile) { "CloudStream package is missing" }
+        val currentDigest = sha256Hex(packageFile)
+        require(CloudStreamPackageValidation.matchesExpectedHash(plugin.fileHash, currentDigest)) {
+            "CloudStream package SHA-256 does not match the repository"
+        }
         synchronized(loaded) { loaded[plugin.id] }?.let { cached ->
             // A reinstall or update replaces the file; the cached providers then
             // point at code that is no longer on disk.
-            if (cached.path == packageFile.absolutePath && File(cached.path).isFile) {
+            if (cached.path == packageFile.absolutePath && cached.digest == currentDigest) {
                 return@withLock cached
             }
             synchronized(loaded) { loaded.remove(plugin.id) }
@@ -178,6 +189,7 @@ internal actual object CloudStreamPlatformRuntime {
         // --- gate 2: integrity -------------------------------------------
         val digest = sha256Hex(file)
         val entries = ZipFile(file).use { archive ->
+            archive.checkCloudStreamExpansion()
             archive.entries().toList().map { it.name }
         }
         val manifest = readArchiveManifest(file)
@@ -255,7 +267,7 @@ internal actual object CloudStreamPlatformRuntime {
                 "Loaded CloudStream plugin '${plugin.id}': " +
                     "${providers.size} provider(s), ${registered.size} extractor(s)"
             }
-            return LoadedPlugin(file.absolutePath, instance, providers, registered)
+            return LoadedPlugin(file.absolutePath, digest, instance, providers, registered)
         } catch (error: Throwable) {
             // Never leave half-registered providers behind for another plugin
             // to pick up: undo everything this load added.
@@ -283,9 +295,8 @@ internal actual object CloudStreamPlatformRuntime {
         ZipFile(file).use { archive ->
             val entry = archive.getEntry(CloudStreamPackageValidation.MANIFEST_ENTRY)
                 ?: return@use null
-            archive.getInputStream(entry).bufferedReader().use { reader ->
-                json.decodeFromString<CloudStreamPluginArchiveManifest>(reader.readText())
-            }
+            val text = archive.readCloudStreamManifest(entry) ?: return@use null
+            json.decodeFromString<CloudStreamPluginArchiveManifest>(text)
         }
     }.getOrNull()
 

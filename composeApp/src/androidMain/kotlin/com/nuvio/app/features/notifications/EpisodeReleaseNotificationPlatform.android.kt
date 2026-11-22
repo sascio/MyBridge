@@ -34,6 +34,8 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
@@ -339,20 +341,24 @@ internal actual object EpisodeReleaseNotificationPlatform {
         val backdropBitmap = loadBackdropBitmap(request.backdropUrl)
         val appIconBitmap = ContextCompat.getDrawable(
             context,
-            AppIconPlatform.currentLauncherIconResource(context),
+            com.nuvio.app.R.drawable.ic_notification_streambridge,
         )?.toBitmap()
 
+        val date = runCatching {
+            LocalDate.parse(request.releaseDateIso).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))
+        }.getOrDefault(request.releaseDateIso)
+        val body = "$date · ${request.notificationTitle} — ${request.notificationBody}"
         return NotificationCompat.Builder(context, channelId)
             .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
-            .setContentTitle(request.notificationTitle)
-            .setContentText(request.notificationBody)
+            .setContentTitle("StreamBridge")
+            .setContentText(body)
             .setStyle(
                 backdropBitmap?.let { bitmap ->
                     NotificationCompat.BigPictureStyle()
                         .bigPicture(bitmap)
                         .bigLargeIcon(appIconBitmap)
-                        .setSummaryText(request.notificationBody)
-                } ?: NotificationCompat.BigTextStyle().bigText(request.notificationBody),
+                        .setSummaryText(body)
+                } ?: NotificationCompat.BigTextStyle().bigText(body),
             )
             .setLargeIcon(appIconBitmap)
             .setAutoCancel(true)

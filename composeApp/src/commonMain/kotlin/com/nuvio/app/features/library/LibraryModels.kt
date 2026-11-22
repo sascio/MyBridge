@@ -35,6 +35,8 @@ data class LibraryItem(
     override val trackingProviderItemId: String? = null,
     override val trackingSourceUrl: String? = null,
     val savedAtEpochMs: Long,
+    // MDBList's saved list order is independent of numeric list ranks.
+    val listProviderPositions: Map<String, Int> = emptyMap(),
 ) : TrackingAttributedItem {
     override val trackingContentId: String
         get() = id

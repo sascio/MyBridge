@@ -33,6 +33,10 @@ on:
         description: Published release tag (e.g. v0.1.08)
         required: true
         type: string
+      source_branch:
+        description: Optional existing branch to receive the verified source update
+        required: false
+        type: string
   workflow_call:
     inputs:
       tag:
@@ -58,7 +62,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
       RELEASE_VERSION: ${{ inputs.version || inputs.tag || github.event.release.tag_name }}
-      SOURCE_BRANCH: ${{ vars.STREAMBRIDGE_SOURCE_BRANCH || github.event.repository.default_branch }}
+      SOURCE_BRANCH: ${{ inputs.source_branch || vars.STREAMBRIDGE_SOURCE_BRANCH || github.event.repository.default_branch }}
+      EXPLICIT_SOURCE_BRANCH: ${{ inputs.source_branch }}
       ICON_PATH: iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png
 
     steps:
@@ -174,6 +179,23 @@ jobs:
             exit 1
           fi
 
+      - name: Verify published release asset links
+        if: steps.ipa.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          while IFS= read -r url; do
+            [[ "$url" == https://github.com/${GITHUB_REPOSITORY}/releases/download/* ]] || {
+              echo "::error::Unexpected release asset URL: $url"
+              exit 1
+            }
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -L -r 0-0 --retry 3 --retry-delay 2 --max-time 120 "$url")"
+            if [[ "$code" != 200 && "$code" != 206 ]]; then
+              echo "::error::Release asset $url returned HTTP $code"
+              exit 1
+            fi
+            echo "Release asset reachable: $url"
+          done < <(jq -r '.assets[] | .browser_download_url' "${RUNNER_TEMP}/release.json")
+
       - name: Commit sideload source
         if: steps.ipa.outputs.skip != 'true'
         run: |
@@ -190,6 +212,10 @@ jobs:
           if git push origin "HEAD:${SOURCE_BRANCH}"; then
             echo "Published store.json for ${RELEASE_VERSION} directly to ${SOURCE_BRANCH}."
             exit 0
+          fi
+          if [[ -n "${EXPLICIT_SOURCE_BRANCH}" ]]; then
+            echo "::error::Could not update the explicitly selected source branch ${SOURCE_BRANCH}; no alternate branch was created."
+            exit 1
           fi
 
           # The source branch is protected by a pull-request ruleset (the

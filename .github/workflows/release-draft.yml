@@ -1,36 +1,27 @@
 name: Draft production GitHub Release
 
-# Manual only, or from the approved v0.1.18 tag push. Never publishes (draft only).
+# Manual only, or from the approved v0.1.19 tag push. Never publishes (draft only).
 #
 # Android: fails closed unless the production upload-keystore GitHub Secrets are
 # set. Debug-signed APKs are never attached. See docs/SIGNING.md.
 #
-# iOS: builds the StreamBridge IPA on a macOS runner, unsigned, and attaches it
-# to the draft. The unsigned IPA is the iOS distribution artifact: AltStore and
-# SideStore re-sign it with the installer's own Apple ID, which is why no Apple
-# Developer credentials are required or used here. The build fails if the
-# application unexpectedly comes out signed. See docs/RELEASE-IOS.md.
+# iOS: publish the unsigned IPA for re-signing with AltStore or SideStore.
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Approved release tag (v0.1.18, version code 118)
+        description: Approved release tag (v0.1.19, version code 119)
         required: true
         type: string
-        default: "v0.1.18"
-      include_ios:
-        description: Also build the iOS release IPA
-        required: false
-        type: boolean
-        default: true
-      require_tracking_credentials:
-        description: Fail the build instead of warning when Trakt credentials are missing
-        required: false
+        default: "v0.1.19"
+      preflight:
+        description: Build and independently inspect artifacts without creating a release or tag
+        required: true
         type: boolean
         default: false
   push:
     tags:
-      - "v0.1.18"
+      - "v0.1.19"
 
 permissions:
   contents: write
@@ -52,12 +43,15 @@ jobs:
       - name: Verify approved release target, version, code, and fixes
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          PREFLIGHT: ${{ inputs.preflight }}
         run: |
           set -euo pipefail
-          scripts/verify-release-target.sh \
-            --tag "${TAG}" \
-            --commit "${GITHUB_SHA}" \
-            --verify-tag-ref
+          if [ "${PREFLIGHT}" = "true" ]; then
+            # Preflight creates no tag or release; still verify the source identity.
+            scripts/verify-release-target.sh --tag "${TAG}" --commit "${GITHUB_SHA}"
+          else
+            scripts/verify-release-target.sh --tag "${TAG}" --commit "${GITHUB_SHA}" --verify-tag-ref
+          fi
 
       - uses: actions/setup-java@v5
         with:
@@ -130,15 +124,12 @@ jobs:
       # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
       # file and the checks only test for presence.
       #
-      # NUVIO_LOCAL_PROPERTIES_BASE64 is optional. Tracking is not configured for
-      # every release, so when the secret is absent CI creates an empty
-      # local.properties and the build proceeds with unconfigured Trakt/Simkl/MDBList
-      # (empty generated credentials, and Settings shows the missing-credentials
-      # state for each provider). No placeholder credentials are ever injected.
+      # Trakt is optional for 0.1.19. Simkl and MDBList remain required.
+      # Presence checks never print or fabricate credentials.
       - name: Configure release properties
         env:
           NUVIO_LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
-          REQUIRE_TRACKING_CREDENTIALS: ${{ inputs.require_tracking_credentials }}
+          MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
         run: |
           set -euo pipefail
 
@@ -149,12 +140,8 @@ jobs:
           }
 
           if [ -z "${NUVIO_LOCAL_PROPERTIES_BASE64:-}" ]; then
-            # Not a build failure: tracking is optional (see
-            # docs/TRAKT-SIMKL-CONFIG.md). It is never a silent success either --
-            # the warning and the step summary below say exactly what the APK
-            # will be missing.
             : > local.properties
-            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set. Building with an empty local.properties, so TRAKT_CLIENT_ID, TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID and MDBLIST_CLIENT_ID are all empty and the app will show the missing-credentials state for Trakt, Simkl and MDBList."
+            echo "::warning::NUVIO_LOCAL_PROPERTIES_BASE64 is not set. The required tracking credential check will fail."
           else
             # Decode into a temp file first so a malformed secret can never leave a
             # half-written local.properties behind for Gradle to consume.
@@ -186,9 +173,8 @@ jobs:
               | sort -u
           fi
 
-          # Tracking properties are optional: a missing TRAKT_CLIENT_ID,
-          # TRAKT_CLIENT_SECRET, SIMKL_CLIENT_ID or MDBLIST_CLIENT_ID must not fail
-          # the release. Presence-only report; values are never printed.
+          # Presence-only report; values are never printed. The release gate
+          # below requires Simkl and MDBList; Trakt is optional for 0.1.19.
           #
           # MDBLIST_CLIENT_ID is included because MdbListConfig.CLIENT_ID gates the
           # MDBList Connect button: without it the app shows "MDBList connection is
@@ -224,23 +210,23 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "::warning::The decoded local.properties is missing: ${missing[*]}. The APK will show the missing-credentials state for those providers. Update the NUVIO_LOCAL_PROPERTIES_BASE64 secret (see docs/TRAKT-SIMKL-CONFIG.md) before shipping this build."
+            echo "::warning::The decoded local.properties is missing: ${missing[*]}. MDBLIST_CLIENT_ID may instead be supplied by its dedicated secret."
           fi
 
-          # Opt-in gate for a release that must have working Trakt. Default false so
-          # a Simkl/MDBList-only or tracking-free build still succeeds.
-          if [ "${REQUIRE_TRACKING_CREDENTIALS:-false}" = "true" ]; then
-            gate_failed=0
-            for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET; do
-              if ! property_present "${property_name}"; then
-                echo "::error::${property_name} is missing but require_tracking_credentials=true. Add it to NUVIO_LOCAL_PROPERTIES_BASE64 (docs/TRAKT-SIMKL-CONFIG.md)."
-                gate_failed=1
-              fi
-            done
-            if [ "${gate_failed}" -ne 0 ]; then
-              exit 1
+          # Simkl and MDBList remain mandatory. MDBList may be configured
+          # either in local.properties or its dedicated secret.
+          gate_failed=0
+          for property_name in SIMKL_CLIENT_ID; do
+            if ! property_present "${property_name}"; then
+              echo "::error::${property_name} is missing. Configure the existing release properties before shipping."
+              gate_failed=1
             fi
+          done
+          if ! property_present MDBLIST_CLIENT_ID && [ -z "${MDBLIST_CLIENT_ID:-}" ]; then
+            echo "::error::MDBLIST_CLIENT_ID is missing. Configure the existing release properties before shipping."
+            gate_failed=1
           fi
+          if [ "${gate_failed}" -ne 0 ]; then exit 1; fi
 
           echo "local.properties configured."
 
@@ -270,16 +256,8 @@ jobs:
           MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
-      # Presence-only report of what reached the generated runtime config
-      # (local.properties -> generateRuntimeConfigs -> TraktConfig/SimklConfig/MdbListConfig).
-      # Tracking credentials are optional, so empty generated values must not fail
-      # the release unless the run explicitly asked for them. Greps the generated
-      # Kotlin for an empty literal; never prints a value. Each line is prefixed
-      # with its provider because all three constants are named CLIENT_ID and would
-      # otherwise be indistinguishable in the log.
+      # Verify the generated tracking config without printing credential values.
       - name: Report generated tracking config presence
-        env:
-          REQUIRE_TRACKING_CREDENTIALS: ${{ inputs.require_tracking_credentials }}
         run: |
           set -euo pipefail
           generated="composeApp/build/generated/runtime-config/kotlin"
@@ -294,23 +272,29 @@ jobs:
               echo "::warning::Generated config missing: $file"
               return 1
             fi
-            if grep -Eq "const val ${constant} = \"\"" "$file"; then
+            if ! grep -Eq "^[[:space:]]*const val ${constant} = \".+\"[[:space:]]*$" "$file"; then
               echo "${provider} ${constant} present=false"
-              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is empty, so ${provider} shows its missing-credentials state on device."
+              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is absent or empty."
               return 1
             fi
             echo "${provider} ${constant} present=true"
             return 0
           }
 
-          trakt_ok=0
-          report_populated TRAKT "$trakt" CLIENT_ID || trakt_ok=1
-          report_populated TRAKT "$trakt" CLIENT_SECRET || trakt_ok=1
-          report_populated SIMKL "$simkl" CLIENT_ID || true
-          report_populated MDBLIST "$mdblist" CLIENT_ID || true
-
-          if [ "${trakt_ok}" -ne 0 ] && [ "${REQUIRE_TRACKING_CREDENTIALS:-false}" = "true" ]; then
-            echo "::error::This build has no Trakt credentials but require_tracking_credentials=true. Set NUVIO_LOCAL_PROPERTIES_BASE64 before releasing (docs/TRAKT-SIMKL-CONFIG.md)."
+          # Both declarations must exist, but their values may be empty. The app
+          # disables Trakt when either credential is unavailable.
+          for constant in CLIENT_ID CLIENT_SECRET; do
+            if [ ! -f "$trakt" ] || ! grep -Eq "^[[:space:]]*const val ${constant} = \".*\"[[:space:]]*$" "$trakt"; then
+              echo "::error::Generated Trakt ${constant} declaration is missing."
+              exit 1
+            fi
+            report_populated TRAKT "$trakt" "$constant" || true
+          done
+          tracking_missing=0
+          report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1
+          report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1
+          if [ "$tracking_missing" -ne 0 ]; then
+            echo "::error::A required tracking integration is not configured in the generated release."
             exit 1
           fi
 
@@ -347,7 +331,7 @@ jobs:
               exit 1
             fi
           done
-          sha256sum "${apks[@]}" | tee checksums.sha256
+          (cd androidApp/build/outputs/apk/full/release && sha256sum ./*.apk | sed 's|  \./|  |') | tee checksums.sha256
 
       - name: Require expected production APKs
         run: |
@@ -383,7 +367,6 @@ jobs:
 
   ios:
     name: iOS unsigned IPA
-    if: ${{ github.event_name == 'push' || inputs.include_ios }}
     runs-on: xcode-27
     timeout-minutes: 180
     env:
@@ -403,6 +386,10 @@ jobs:
       # own secret, since runtimeConfigValue() accepts the environment. Empty when
       # unset, which normalisation treats as "not configured".
       MDBLIST_CLIENT_ID: ${{ secrets.MDBLIST_CLIENT_ID }}
+      NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      NUVIO_SUPABASE_FALLBACK_URL: ${{ secrets.NUVIO_SUPABASE_FALLBACK_URL }}
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -495,10 +482,20 @@ jobs:
               echo "${property_name} present=true"
             else
               echo "${property_name} present=false"
-              echo "::warning::${property_name} is missing; the iOS build will show the missing-credentials state for that provider."
+              echo "::notice::${property_name} is absent from local.properties; Trakt is optional and MDBLIST_CLIENT_ID may come from its dedicated secret."
             fi
           done
 
+          for property_name in SIMKL_CLIENT_ID; do
+            if ! property_present "${property_name}"; then
+              echo "::error::${property_name} is missing. Configure the existing release properties before shipping."
+              exit 1
+            fi
+          done
+          if ! property_present MDBLIST_CLIENT_ID && [ -z "${MDBLIST_CLIENT_ID:-}" ]; then
+            echo "::error::MDBLIST_CLIENT_ID is missing. Configure the existing release properties before shipping."
+            exit 1
+          fi
           echo "local.properties configured."
 
       - name: Prepare iOS dependencies
@@ -511,6 +508,47 @@ jobs:
           # build if the application turns out to be signed anyway.
           STREAMBRIDGE_IOS_SIGNING: "0"
         run: ./scripts/build-ios-ipa.sh
+
+      - name: Report generated tracking config presence
+        run: |
+          set -euo pipefail
+          generated="composeApp/build/generated/runtime-config/kotlin"
+          trakt="$generated/com/nuvio/app/features/trakt/TraktConfig.kt"
+          simkl="$generated/com/nuvio/app/features/simkl/SimklConfig.kt"
+          mdblist="$generated/com/nuvio/app/features/mdblist/MdbListConfig.kt"
+
+          # Returns 0 when the generated constant is non-empty, 1 when it is empty.
+          report_populated() {
+            local provider="$1" file="$2" constant="$3"
+            if [ ! -f "$file" ]; then
+              echo "::warning::Generated config missing: $file"
+              return 1
+            fi
+            if ! grep -Eq "^[[:space:]]*const val ${constant} = \".+\"[[:space:]]*$" "$file"; then
+              echo "${provider} ${constant} present=false"
+              echo "::warning::${provider} is NOT configured in this build: the generated ${constant} is absent or empty."
+              return 1
+            fi
+            echo "${provider} ${constant} present=true"
+            return 0
+          }
+
+          # Both declarations must exist, but their values may be empty. The app
+          # disables Trakt when either credential is unavailable.
+          for constant in CLIENT_ID CLIENT_SECRET; do
+            if [ ! -f "$trakt" ] || ! grep -Eq "^[[:space:]]*const val ${constant} = \".*\"[[:space:]]*$" "$trakt"; then
+              echo "::error::Generated Trakt ${constant} declaration is missing."
+              exit 1
+            fi
+            report_populated TRAKT "$trakt" "$constant" || true
+          done
+          tracking_missing=0
+          report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1
+          report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1
+          if [ "$tracking_missing" -ne 0 ]; then
+            echo "::error::A required tracking integration is not configured in the generated release."
+            exit 1
+          fi
 
       - name: Package IPA for the release
         id: package
@@ -532,7 +570,7 @@ jobs:
           release_ipa="dist/StreamBridge-${version}-iOS-unsigned.ipa"
           mkdir -p dist
           cp "${ipa_path}" "${release_ipa}"
-          shasum -a 256 "${release_ipa}" >> checksums-ios.sha256
+          (cd dist && shasum -a 256 "$(basename "${release_ipa}")") > checksums-ios.sha256
 
           {
             echo "## StreamBridge iOS release build"
@@ -588,16 +626,57 @@ jobs:
           name: StreamBridge-ios-unsigned-ipa
           path: |
             dist/*.ipa
+            checksums-ios.sha256
           if-no-files-found: error
+
+  preflight-verification:
+    name: Independently inspect Android artifacts
+    needs: [android]
+    if: ${{ needs.android.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: android-actions/setup-android@v4
+      - name: Install APK inspection tools
+        run: sdkmanager --install "build-tools;35.0.0"
+      - uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-production-full-release-apk
+          path: preflight/android
+      - name: Inspect downloaded APKs and checksums
+        run: scripts/audit-preflight-assets.sh preflight/android --android-only
+
+  verify-ios:
+    name: Independently inspect unsigned iOS artifact
+    needs: [ios]
+    if: ${{ needs.ios.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: StreamBridge-ios-unsigned-ipa
+          path: preflight/ios
+      - name: Verify IPA checksum, archive, identity and unsigned state
+        run: |
+          set -euo pipefail
+          (cd preflight/ios/dist && sha256sum -c ../checksums-ios.sha256)
+          python3 scripts/verify-unsigned-ipa.py preflight/ios/dist/StreamBridge-0.1.19-iOS-unsigned.ipa
+
+  ios-tests:
+    uses: ./.github/workflows/ios-simulator-tests.yml
+    secrets: inherit
 
   draft:
     name: Draft GitHub Release (Android first)
-    # Android is the release gate. The iOS IPA is produced by the independent
-    # `ios` job above and attached by `attach-ios` when it finishes, so a slow or
-    # failing iOS build can never hold up an Android release. iOS is still built
-    # from the same tag and the same commit.
-    needs: [android]
-    if: ${{ always() && needs.android.result == 'success' }}
+    # Both platforms must pass before a draft is created. The IPA attachment is
+    # performed by attach-ios after the draft and iOS build have succeeded.
+    needs: [android, ios, preflight-verification, verify-ios, ios-tests]
+    if: ${{ always() && inputs.preflight != true && needs.android.result == 'success' && needs.ios.result == 'success' && needs.preflight-verification.result == 'success' && needs.verify-ios.result == 'success' && needs.ios-tests.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -638,7 +717,7 @@ jobs:
               --draft \
               --target "${GITHUB_SHA}" \
               --title "StreamBridge ${TAG}" \
-              --notes-file docs/RELEASE-NOTES-0.1.18.md
+              --notes-file docs/RELEASE-NOTES-0.1.19.md
             lookup_status=0
             scripts/release-api.sh lookup \
               --repo "${GITHUB_REPOSITORY}" \
@@ -659,10 +738,10 @@ jobs:
             echo "::error::Existing release metadata does not match the verified draft target; preserving it without changes."
             exit 1
           fi
-          expected_notes="$(cat docs/RELEASE-NOTES-0.1.18.md)"
+          expected_notes="$(cat docs/RELEASE-NOTES-0.1.19.md)"
           actual_notes="$(jq -r '.body // ""' "${release_json}")"
           if [[ "${actual_notes}" != "${expected_notes}" ]]; then
-            echo "::error::Existing draft notes differ from the approved 0.1.18 notes; preserving them without changes."
+            echo "::error::Existing draft notes differ from the approved 0.1.19 notes; preserving them without changes."
             exit 1
           fi
 
@@ -690,9 +769,9 @@ jobs:
           jq '{tag_name, name, draft, target_commitish, assets:[.assets[]|{name,size,digest,state}]}' "${release_json}"
 
   attach-ios:
-    name: Attach unsigned iOS IPA (independent)
-    needs: [draft, ios]
-    if: ${{ needs.ios.result == 'success' }}
+    name: Attach verified unsigned iOS IPA
+    needs: [draft, ios, verify-ios]
+    if: ${{ inputs.preflight != true && needs.draft.result == 'success' && needs.ios.result == 'success' && needs.verify-ios.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -700,7 +779,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download unsigned iOS IPA
+      - name: Download verified unsigned iOS IPA
         uses: actions/download-artifact@v8
         with:
           name: StreamBridge-ios-unsigned-ipa
@@ -719,7 +798,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          ipa_assets=(ios-assets/*.ipa)
+          ipa_assets=(ios-assets/dist/*.ipa)
           if [ "${#ipa_assets[@]}" -ne 1 ]; then
             echo "::error::Expected exactly one iOS IPA artifact, found ${#ipa_assets[@]}."
             exit 1
@@ -756,46 +835,8 @@ jobs:
             --file "${ipa_assets[0]}" \
             --name "${expected_ipa}"
 
-          notes="$(mktemp)"
-          jq -r '.body // ""' "${release_json}" >"${notes}"
-          if ! grep -q '^### iOS installation' "${notes}"; then
-            if ! grep -q '^### iOS status' "${notes}"; then
-              echo "::error::Release notes have no expected iOS status placeholder; preserving the release unchanged."
-              exit 1
-            fi
-            sed -i '/^### iOS status/,$d' "${notes}"
-            ios_notes=(
-              '### iOS installation'
-              ''
-              'The iOS build in this release is **unsigned**. Install it with'
-              '[AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with'
-              'your own Apple ID on your device, so no Apple Developer account and no App Store listing is'
-              'involved.'
-              ''
-              'Add this repository as a source in AltStore or SideStore to get updates automatically:'
-              ''
-              '`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`'
-              ''
-              'See `docs/RELEASE-IOS.md` for the details.'
-            )
-            printf '%s\n' "${ios_notes[@]}" >>"${notes}"
-            scripts/release-api.sh update-body \
-              --repo "${GITHUB_REPOSITORY}" \
-              --json "${release_json}" \
-              --body-file "${notes}"
-          fi
-
+          scripts/release-api.sh ensure-asset \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json "${release_json}" \
+            --file "ios-assets/checksums-ios.sha256"
           jq '{tag_name, name, draft, assets:[.assets[]|{name,size,digest,state}]}' "${release_json}"
-
-      - name: Refresh the sideload source now that an IPA exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # The sideload source only lists releases that carry exactly one IPA.
-          # It is triggered by `release: published`, which does not fire when an
-          # asset is added later, so dispatch it explicitly. Best effort: a
-          # failure here does not invalidate the attached IPA.
-          gh workflow run update-store-source.yml -f tag="${TAG}" \
-            || echo "::warning::Could not dispatch update-store-source.yml; run it manually for ${TAG}."

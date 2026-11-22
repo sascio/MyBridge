@@ -57,6 +57,9 @@ enum class CloudStreamInstallError {
     /** Digest did not match the repository's published `fileHash`. */
     HASH_MISMATCH,
 
+    /** A published digest is malformed or could not be checked. */
+    HASH_UNVERIFIABLE,
+
     /** Not a readable ZIP, or missing `manifest.json` / `classes.dex`. */
     CORRUPT_PACKAGE,
 

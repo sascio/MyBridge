@@ -10,9 +10,17 @@ import java.security.MessageDigest
 import java.util.zip.ZipException
 import java.util.zip.ZipFile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.Request
+import okhttp3.Response
+import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Android **full (sideload)** installer for CloudStream `.cs3` packages.
@@ -65,6 +73,24 @@ internal actual object CloudStreamPackageInstaller {
         return CloudStreamPackageStorage.isInstalled(context, plugin)
     }
 
+    actual fun integrity(plugin: CloudStreamPlugin): CloudStreamIntegrity {
+        val context = appContext ?: return CloudStreamIntegrity.NOT_INSTALLED
+        val file = CloudStreamPackageStorage.packageFile(context, plugin) ?: return CloudStreamIntegrity.NOT_INSTALLED
+        return runCatching {
+            val hash = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(8192)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    hash.update(buffer, 0, count)
+                }
+            }
+            val digest = hash.digest().joinToString("") { "%02x".format(it) }
+            CloudStreamPackageValidation.hashState(plugin.fileHash, digest)
+        }.getOrDefault(CloudStreamIntegrity.UNVERIFIABLE)
+    }
+
     /**
      * Version of the installed package, read from the `manifest.json` inside
      * the committed archive.
@@ -80,7 +106,7 @@ internal actual object CloudStreamPackageInstaller {
             ZipFile(file).use { zip ->
                 val entry = zip.getEntry(CloudStreamPackageValidation.MANIFEST_ENTRY)
                     ?: return@use null
-                val text = zip.getInputStream(entry).use { it.readBytes().decodeToString() }
+                val text = zip.readCloudStreamManifest(entry) ?: return@use null
                 json.decodeFromString<CloudStreamPluginArchiveManifest>(text).version
             }
         }.getOrNull()
@@ -101,6 +127,14 @@ internal actual object CloudStreamPackageInstaller {
                     plugin,
                     CloudStreamInstallError.REPOSITORY_GONE,
                     "This extension no longer publishes a download URL.",
+                )
+            }
+
+            if (!url.looksLikeHttpUrl()) {
+                return@withContext failure(
+                    plugin,
+                    CloudStreamInstallError.INVALID_RESPONSE,
+                    "The extension publishes an invalid or credential-bearing download URL.",
                 )
             }
 
@@ -128,7 +162,17 @@ internal actual object CloudStreamPackageInstaller {
                 .digest(bytes)
                 .joinToString("") { byte -> "%02x".format(byte) }
 
-            val staged = File(context.cacheDir, "cloudstream-verify-${plugin.id.hashCode()}.cs3")
+            // Plugin IDs can have identical hashCode values. A unique file is
+            // essential: concurrent installs must never validate each other's bytes.
+            val staged = try {
+                File.createTempFile("cloudstream-verify-", ".cs3", context.cacheDir)
+            } catch (error: IOException) {
+                return@withContext failure(
+                    plugin,
+                    CloudStreamInstallPolicy.classify(error),
+                    "Could not stage the downloaded package.",
+                )
+            }
             try {
                 staged.writeBytes(bytes)
                 when (val verdict = inspect(staged, plugin, digest)) {
@@ -157,6 +201,18 @@ internal actual object CloudStreamPackageInstaller {
                 staged.delete()
             }
 
+            // Do not publish after a cancellation that arrived during inspection.
+            coroutineContext.ensureActive()
+            // The user can revoke trust or refresh the repository while a
+            // download is in flight. Never publish bytes for stale metadata or
+            // a repository that is no longer authorized.
+            if (!CloudStreamExtensionsRepository.isPluginExecutionAuthorized(plugin)) {
+                return@withContext failure(
+                    plugin,
+                    CloudStreamInstallError.UNKNOWN,
+                    "Repository authorization or extension metadata changed during installation.",
+                )
+            }
             // Verified. Commit it; storage re-checks the hash before writing.
             return@withContext runCatching {
                 CloudStreamPackageStorage.install(context, plugin, bytes)
@@ -186,11 +242,12 @@ internal actual object CloudStreamPackageInstaller {
         plugin: CloudStreamPlugin,
         digest: String,
     ): CloudStreamPackageValidation.Result = ZipFile(staged).use { zip ->
+        zip.checkCloudStreamExpansion()
         val entries = zip.entries().asSequence().map { it.name }.toList()
         val manifestEntry = zip.getEntry(CloudStreamPackageValidation.MANIFEST_ENTRY)
         val pluginClassName = manifestEntry?.let { entry ->
             runCatching {
-                val text = zip.getInputStream(entry).use { it.readBytes().decodeToString() }
+                val text = zip.readCloudStreamManifest(entry) ?: return@runCatching null
                 json.decodeFromString<CloudStreamPluginArchiveManifest>(text).pluginClassName
             }.getOrNull()
         }
@@ -207,85 +264,101 @@ internal actual object CloudStreamPackageInstaller {
         data class Error(val error: CloudStreamInstallError, val message: String) : Downloaded
     }
 
-    /** Fetches the artifact, distinguishing every failure the user can act on. */
-    private fun download(url: String, plugin: CloudStreamPlugin): Downloaded {
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept", "application/octet-stream")
-            .build()
-
-        return try {
-            AddonHttpClientProvider.get().newCall(request).execute().use { response ->
-                if (response.code == 404 || response.code == 410) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.REPOSITORY_GONE,
-                        "The repository no longer hosts this extension (HTTP ${response.code}).",
-                    )
-                }
-                if (!response.isSuccessful) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "Download failed with HTTP ${response.code}.",
-                    )
+    /** Fetches on OkHttp's dispatcher and cancels the call when its coroutine is cancelled. */
+    private suspend fun download(url: String, plugin: CloudStreamPlugin): Downloaded {
+        val request = try {
+            Request.Builder().url(url).header("Accept", "application/octet-stream").build()
+        } catch (_: IllegalArgumentException) {
+            return Downloaded.Error(CloudStreamInstallError.INVALID_RESPONSE, "The extension publishes an invalid download URL.")
+        }
+        val call = AddonHttpClientProvider.get().newCall(request)
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, error: IOException) {
+                    continuation.resume(downloadFailure(error))
                 }
 
-                val body = response.body
-                    ?: return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "The server returned an empty response.",
-                    )
-
-                val declared = body.contentLength()
-                if (declared > MAX_PACKAGE_BYTES) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "The package is larger than the ${MAX_PACKAGE_BYTES / (1024 * 1024)} MB limit.",
-                    )
-                }
-
-                val bytes = body.byteStream().use { stream ->
-                    stream.readAtMost(MAX_PACKAGE_BYTES)
-                } ?: return Downloaded.Error(
-                    CloudStreamInstallError.INVALID_RESPONSE,
-                    "The package exceeded the maximum allowed size while downloading.",
-                )
-
-                if (bytes.isEmpty()) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.INVALID_RESPONSE,
-                        "The server returned an empty package.",
-                    )
-                }
-                // A truncated transfer is a corrupt package, not a mismatch.
-                if (declared > 0 && bytes.size.toLong() != declared) {
-                    return Downloaded.Error(
-                        CloudStreamInstallError.CORRUPT_PACKAGE,
-                        "The download was interrupted before it completed.",
-                    )
-                }
-                // Repositories publish fileSize; a disagreement means we did not
-                // get the artifact the repository described.
-                plugin.fileSize?.let { expected ->
-                    if (expected > 0 && bytes.size.toLong() != expected) {
-                        return Downloaded.Error(
-                            CloudStreamInstallError.CORRUPT_PACKAGE,
-                            "Downloaded ${bytes.size} bytes but the repository lists $expected.",
-                        )
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val result = response.use { readResponse(it, plugin) }
+                        continuation.resume(result)
+                    } catch (error: IOException) {
+                        continuation.resume(downloadFailure(error))
+                    } catch (error: Exception) {
+                        continuation.resumeWithException(error)
                     }
                 }
-                Downloaded.Ok(bytes)
-            }
-        } catch (error: InterruptedIOException) {
-            Downloaded.Error(
-                CloudStreamInstallError.TIMEOUT,
-                "The download timed out.",
-            )
-        } catch (error: IOException) {
-            Downloaded.Error(
-                CloudStreamInstallError.NETWORK_UNREACHABLE,
-                error.message ?: "Could not reach the repository.",
+            })
+        }
+    }
+
+    private fun downloadFailure(error: IOException): Downloaded.Error =
+        if (error is InterruptedIOException) {
+            Downloaded.Error(CloudStreamInstallError.TIMEOUT, "The download timed out.")
+        } else {
+            Downloaded.Error(CloudStreamInstallError.NETWORK_UNREACHABLE, error.message ?: "Could not reach the repository.")
+        }
+
+    private fun readResponse(response: Response, plugin: CloudStreamPlugin): Downloaded {
+        if (response.code == 404 || response.code == 410) {
+            return Downloaded.Error(
+                CloudStreamInstallError.REPOSITORY_GONE,
+                "The repository no longer hosts this extension (HTTP ${response.code}).",
             )
         }
+        if (!response.isSuccessful) {
+            return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "Download failed with HTTP ${response.code}.",
+            )
+        }
+
+        val body = response.body
+            ?: return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "The server returned an empty response.",
+            )
+
+        val declared = body.contentLength()
+        if (declared > MAX_PACKAGE_BYTES) {
+            return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "The package is larger than the ${MAX_PACKAGE_BYTES / (1024 * 1024)} MB limit.",
+            )
+        }
+
+        val bytes = body.byteStream().use { stream ->
+            stream.readAtMost(MAX_PACKAGE_BYTES)
+        } ?: return Downloaded.Error(
+            CloudStreamInstallError.INVALID_RESPONSE,
+            "The package exceeded the maximum allowed size while downloading.",
+        )
+
+        if (bytes.isEmpty()) {
+            return Downloaded.Error(
+                CloudStreamInstallError.INVALID_RESPONSE,
+                "The server returned an empty package.",
+            )
+        }
+        // A truncated transfer is a corrupt package, not a mismatch.
+        if (declared > 0 && bytes.size.toLong() != declared) {
+            return Downloaded.Error(
+                CloudStreamInstallError.CORRUPT_PACKAGE,
+                "The download was interrupted before it completed.",
+            )
+        }
+        // Repositories publish fileSize; a disagreement means we did not
+        // get the artifact the repository described.
+        plugin.fileSize?.let { expected ->
+            if (expected > 0 && bytes.size.toLong() != expected) {
+                return Downloaded.Error(
+                    CloudStreamInstallError.CORRUPT_PACKAGE,
+                    "Downloaded ${bytes.size} bytes but the repository lists $expected.",
+                )
+            }
+        }
+        return Downloaded.Ok(bytes)
     }
 
     /** Reads the stream, refusing to buffer more than [limit] bytes. */
@@ -319,13 +392,16 @@ internal actual object CloudStreamPackageInstaller {
 
     private fun CloudStreamPackageValidation.Rejection.toInstallError(): CloudStreamInstallError =
         when (this) {
+            CloudStreamPackageValidation.Rejection.HASH_UNVERIFIABLE ->
+                CloudStreamInstallError.HASH_UNVERIFIABLE
             CloudStreamPackageValidation.Rejection.HASH_MISMATCH ->
                 CloudStreamInstallError.HASH_MISMATCH
             CloudStreamPackageValidation.Rejection.MISSING_MANIFEST ->
                 CloudStreamInstallError.MALFORMED_MANIFEST
             CloudStreamPackageValidation.Rejection.MISSING_DEX ->
                 CloudStreamInstallError.CORRUPT_PACKAGE
-            CloudStreamPackageValidation.Rejection.UNSAFE_ARCHIVE_ENTRY ->
+            CloudStreamPackageValidation.Rejection.UNSAFE_ARCHIVE_ENTRY,
+            CloudStreamPackageValidation.Rejection.DUPLICATE_ARCHIVE_ENTRY ->
                 CloudStreamInstallError.CORRUPT_PACKAGE
             CloudStreamPackageValidation.Rejection.MISSING_PLUGIN_CLASS,
             CloudStreamPackageValidation.Rejection.MALFORMED_PLUGIN_CLASS ->

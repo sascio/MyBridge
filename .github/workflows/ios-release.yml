@@ -2,16 +2,10 @@ name: StreamBridge iOS release
 
 # Builds the StreamBridge iOS application and packages it as an IPA.
 #
-# Signing policy (StreamBridge 0.1.08+):
-#   * The default and published build is UNSIGNED. That is the real distribution
-#     artifact, not a placeholder: AltStore and SideStore install it by re-signing
-#     it with the installer's own Apple ID on their device. No Apple Developer
-#     account, certificate, provisioning profile or App Store Connect access is
-#     involved, and none is required to release StreamBridge.
-#   * When Apple signing material is configured, this validation workflow can also
-#     build a SIGNED IPA through an archive export and fails the run if signing
-#     does not succeed. The release workflow (.github/workflows/release-draft.yml)
-#     never does this: it always publishes the unsigned IPA.
+# This validation workflow builds unsigned when signing configuration is absent.
+# When all Apple material is configured it instead validates a signed archive.
+# The production draft workflow always publishes an unsigned IPA for AltStore
+# and SideStore. See docs/RELEASE-IOS.md for distribution details.
 #
 # Required repository secrets for a signed IPA (all optional):
 #   STREAMBRIDGE_IOS_TEAM_ID                Apple Developer team identifier
@@ -19,9 +13,10 @@ name: StreamBridge iOS release
 #   STREAMBRIDGE_IOS_CERTIFICATE_BASE64     base64 of the distribution .p12
 #   STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD   password of that .p12
 #   STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD      password for the temporary CI keychain
-#   STREAMBRIDGE_IOS_PROFILE_BASE64         base64 of the App Store .mobileprovision
+#   STREAMBRIDGE_IOS_PROFILE_BASE64         base64 of the app .mobileprovision
+#   STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64  base64 of the widget .mobileprovision
 # Optional repository variables:
-#   STREAMBRIDGE_IOS_EXPORT_METHOD          app-store (default) | ad-hoc | enterprise
+#   STREAMBRIDGE_IOS_EXPORT_METHOD          ad-hoc | enterprise (required for signing)
 #
 # No credential is ever printed; the workflow only reports presence or absence.
 
@@ -251,6 +246,8 @@ jobs:
           CERTIFICATE_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
           PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_PROFILE_BASE64 }}
+          WIDGET_PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64 }}
+          EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}
         run: |
           set -euo pipefail
           missing=()
@@ -260,6 +257,8 @@ jobs:
           [ -n "${CERTIFICATE_PASSWORD}" ] || missing+=("STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD")
           [ -n "${KEYCHAIN_PASSWORD}" ] || missing+=("STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD")
           [ -n "${PROFILE_BASE64}" ] || missing+=("STREAMBRIDGE_IOS_PROFILE_BASE64")
+          [ -n "${WIDGET_PROFILE_BASE64}" ] || missing+=("STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64")
+          case "${EXPORT_METHOD}" in ad-hoc|enterprise) ;; *) missing+=("STREAMBRIDGE_IOS_EXPORT_METHOD variable");; esac
 
           if [ "${#missing[@]}" -eq 0 ]; then
             echo "signed=true" >> "${GITHUB_OUTPUT}"
@@ -267,19 +266,24 @@ jobs:
           else
             echo "signed=false" >> "${GITHUB_OUTPUT}"
             echo "missing_secrets=$(printf '%s, ' "${missing[@]}" | sed 's/, $//')" >> "${GITHUB_OUTPUT}"
-            echo "::notice::This run builds the UNSIGNED IPA, which is the published form of the iOS application: AltStore and SideStore install it by re-signing it with the installer's own Apple ID, so no Apple Developer certificate or provisioning profile is needed. Apple signing material ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')) is only used by this validation workflow's optional signed mode and is never required by release-draft.yml. See docs/RELEASE-IOS.md."
+            echo "::notice::This validation run builds an UNSIGNED IPA; it is not a production-signed artifact. Apple signing configuration ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')) is missing. The production release workflow also builds unsigned for AltStore and SideStore. See docs/RELEASE-IOS.md."
           fi
 
       - name: Decode provisioning profile
         if: steps.signing.outputs.signed == 'true'
         env:
           PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_PROFILE_BASE64 }}
+          WIDGET_PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
           profile_path="${RUNNER_TEMP}/streambridge-ios.mobileprovision"
           printf '%s' "${PROFILE_BASE64}" | base64 --decode > "${profile_path}"
           test -s "${profile_path}"
           echo "STREAMBRIDGE_IOS_PROFILE_PATH=${profile_path}" >> "${GITHUB_ENV}"
+          widget_path="${RUNNER_TEMP}/streambridge-widget.mobileprovision"
+          printf '%s' "${WIDGET_PROFILE_BASE64}" | base64 --decode > "${widget_path}"
+          test -s "${widget_path}"
+          echo "STREAMBRIDGE_IOS_WIDGET_PROFILE_PATH=${widget_path}" >> "${GITHUB_ENV}"
 
       - name: Download shared iOS dependencies
         uses: actions/download-artifact@v8
@@ -308,7 +312,7 @@ jobs:
           STREAMBRIDGE_IOS_CERTIFICATE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_BASE64 }}
           STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD }}
           STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
-          STREAMBRIDGE_IOS_EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD || 'app-store' }}
+          STREAMBRIDGE_IOS_EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}
         run: |
           set -uo pipefail
           (

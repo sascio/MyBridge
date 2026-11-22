@@ -62,6 +62,7 @@ object TraktLibraryRepository {
     val uiState: StateFlow<TraktLibraryUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val refreshCoordinator = TraktRefreshCoordinator(scope)
     private val refreshMutex = Mutex()
     private var lastRefreshAtMs: Long = 0L
     private var lastListTabsRefreshAtMs: Long = 0L
@@ -130,8 +131,12 @@ object TraktLibraryRepository {
         }
     }
 
-    private suspend fun refresh(force: Boolean) {
+    private suspend fun refresh(force: Boolean, waitForOngoing: Boolean = force) {
         ensureLoaded()
+        refreshCoordinator.run(waitForOngoing) { refreshOnce(force) }
+    }
+
+    private suspend fun refreshOnce(force: Boolean) {
         refreshMutex.withLock {
             val now = TraktPlatformClock.nowEpochMs()
             val current = _uiState.value
@@ -188,7 +193,9 @@ object TraktLibraryRepository {
     suspend fun getMembershipSnapshot(item: LibraryItem): TraktMembershipSnapshot {
         ensureLoaded()
         if (TraktAuthRepository.isAuthenticated.value) {
-            ensureFresh()
+            // Membership must use the completed snapshot even when an
+            // automatic refresh is already running.
+            refresh(force = false, waitForOngoing = true)
         }
         val itemMembership = _uiState.value.membershipByContent[contentKey(item.id, item.type)].orEmpty()
         val map = _uiState.value.listTabs.associate { tab ->
@@ -200,7 +207,7 @@ object TraktLibraryRepository {
     suspend fun applyMembershipChanges(item: LibraryItem, changes: TraktMembershipChanges) {
         ensureLoaded()
         val headers = TraktAuthRepository.authorizedHeaders() ?: return
-        ensureFresh()
+        refresh(force = false, waitForOngoing = true)
 
         val current = getMembershipSnapshot(item).listMembership
         val desired = changes.desiredMembership

@@ -798,10 +798,16 @@ class WorkflowTests(unittest.TestCase):
             ".github/workflows/build.yml", ".github/workflows/telegram-release-delivery.yml",
             ".github/workflows/telegram-script-tests.yml", ".github/workflows/ios-simulator-tests.yml",
             "docs/TELEGRAM-ANNOUNCEMENTS.md", "scripts/telegram_*.py", "scripts/tests/telegram-*.py",
+            ".github/workflows/site-tests.yml", "site/**", "functions/**",
         }
         build_on = build.get("on", build.get(True))
         self.assertEqual(set(build_on["push"]["paths-ignore"]), expected)
         self.assertEqual(set(build_on["pull_request"]["paths-ignore"]), expected)
+        website = yaml.safe_load((SCRIPTS.parent / ".github/workflows/site-tests.yml").read_text(encoding="utf-8"))
+        website_on = website.get("on", website.get(True))
+        for event in ("push", "pull_request"):
+            self.assertTrue({"site/**", "functions/**", ".github/workflows/site-tests.yml"}.issubset(set(website_on[event]["paths"])))
+        self.assertEqual(website["permissions"], {"contents": "read"})
         focused_path = SCRIPTS.parent / ".github/workflows/telegram-script-tests.yml"
         focused = yaml.safe_load(focused_path.read_text(encoding="utf-8"))
         self.assertEqual(set(focused.get("on", focused.get(True))), {

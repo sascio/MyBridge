@@ -122,23 +122,20 @@ The workflow now:
    is decoded separately);
 5. prints a **presence-only report** for `TRAKT_CLIENT_ID`,
    `TRAKT_CLIENT_SECRET`, `SIMKL_CLIENT_ID` and `MDBLIST_CLIENT_ID`, plus a step
-   summary table and a `::warning::` for every missing provider. Tracking remains
-   optional, so a missing provider is still not a build failure by default. Pass
-   the workflow input **`require_tracking_credentials=true`** to make a release
-   fail instead of warn when `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` are absent;
-6. after assembling, greps the *generated* `TraktConfig.kt`, `SimklConfig.kt` and
-   `MdbListConfig.kt` to confirm the constants are non-empty — presence only,
-   never values. Each line is prefixed with its provider (`TRAKT CLIENT_ID
-   present=true`, …) because all three constants share the name `CLIENT_ID`, and
-   every empty constant produces its own warning.
+   summary table. For 0.1.19 Trakt is optional; Simkl and MDBList remain
+   required on both platforms. `MDBLIST_CLIENT_ID` may alternatively come from
+   its dedicated Actions secret. No credential value is printed;
+6. after building each platform, greps the *generated* `TraktConfig.kt`,
+   `SimklConfig.kt` and `MdbListConfig.kt`. Trakt declarations must exist but
+   may be empty; missing Simkl or MDBList values fail the production draft build.
 
 #### Check the secret without building anything
 
 Run **Actions → Check tracking secrets → Run workflow**
 (`.github/workflows/check-tracking-secrets.yml`). It decodes the stored secret
 exactly like the release does, lists the property names it finds, and fails with a
-clear message if Trakt's two keys are missing. It builds nothing, publishes
-nothing, and never prints a value — use it before every release.
+a notice if Trakt's two keys are missing. It builds nothing, publishes
+nothing, and never prints a value.
 
 #### Updating `NUVIO_LOCAL_PROPERTIES_BASE64` safely (beginner steps)
 

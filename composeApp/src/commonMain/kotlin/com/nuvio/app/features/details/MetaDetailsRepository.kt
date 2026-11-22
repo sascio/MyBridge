@@ -216,6 +216,19 @@ object MetaDetailsRepository {
         return cachedMeta.withUnreleasedFilter()
     }
 
+    suspend fun withPreferredMoreLikeThis(
+        meta: MetaDetails,
+        fallbackItemId: String,
+        fallbackItemType: String,
+    ): MetaDetails {
+        if (meta.moreLikeThisSource == MoreLikeThisSource.SIMKL || meta.moreLikeThisSource == MoreLikeThisSource.TRAKT) {
+            return meta
+        }
+        return withContext(Dispatchers.Default) {
+            applyMoreLikeThisSource(meta, fallbackItemId, fallbackItemType)
+        }.withUnreleasedFilter()
+    }
+
     fun clearCachedMetadata() {
         cachedMetaByRequestKey.clear()
     }
@@ -641,8 +654,13 @@ object MetaDetailsRepository {
             fallbackItemId = fallbackItemId,
             settings = TmdbSettingsRepository.snapshot(),
         )
-        val enrichedMeta = applyMoreLikeThisSource(
+        val fallbackRatedMeta = SeriesGraphEpisodeRatings.applyTo(
             meta = imdbRatedMeta,
+            fallbackId = fallbackItemId,
+            settings = TmdbSettingsRepository.snapshot(),
+        )
+        val enrichedMeta = applyMoreLikeThisSource(
+            meta = fallbackRatedMeta,
             fallbackItemId = fallbackItemId,
             fallbackItemType = fallbackItemType,
         )
@@ -685,15 +703,18 @@ object MetaDetailsRepository {
                     fallbackItemType = fallbackItemType,
                 )
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 log.w { "Failed to load Simkl related titles for ${meta.id}: ${error.message}" }
                 InAppLogger.warn("Metadata/Simkl", "Failed related titles id=${meta.id} error=${InAppLogger.throwableSummary(error)}")
             }.getOrDefault(emptyList())
 
-            return meta.copy(
-                moreLikeThis = items,
-                moreLikeThisSource = MoreLikeThisSource.SIMKL.takeIf { items.isNotEmpty() },
-                moreLikeThisHasMore = false,
-            )
+            if (items.isNotEmpty()) {
+                return meta.copy(
+                    moreLikeThis = items,
+                    moreLikeThisSource = MoreLikeThisSource.SIMKL,
+                    moreLikeThisHasMore = false,
+                )
+            }
         }
 
         val shouldUseTrakt = shouldUseTraktMoreLikeThis(
@@ -710,6 +731,7 @@ object MetaDetailsRepository {
                     fallbackItemType = fallbackItemType,
                 )
             }.onFailure { error ->
+                if (error is CancellationException) throw error
                 log.w { "Failed to load Trakt related titles for ${meta.id}: ${error.message}" }
                 InAppLogger.warn("Metadata/Trakt", "Failed related titles id=${meta.id} error=${InAppLogger.throwableSummary(error)}")
             }.getOrDefault(MoreLikeThisPage())
@@ -760,6 +782,7 @@ object MetaDetailsRepository {
         if (shouldFetchMdbListOnMetaScreen(meta, fallbackItemId, settings)) return true
         TmdbSettingsRepository.ensureLoaded()
         if (OmdbEpisodeRatingsService.shouldApply(meta, TmdbSettingsRepository.snapshot())) return true
+        if (SeriesGraphEpisodeRatings.shouldApply(meta, fallbackItemId, TmdbSettingsRepository.snapshot())) return true
         return shouldApplyMoreLikeThisSource(meta)
     }
 

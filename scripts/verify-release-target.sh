@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.18
-# release target, code 118, and contains the approved watch-party and release
+# Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.19
+# release target, code 119, and contains the approved watch-party and release
 # pipeline fixes. Release workflows pass --verify-tag-ref so the tag itself must
 # point to the exact commit being built.
 
 set -euo pipefail
 
-readonly EXPECTED_TAG="v0.1.18"
-readonly EXPECTED_VERSION="0.1.18"
-readonly EXPECTED_CODE="118"
+readonly EXPECTED_TAG="v0.1.19"
+readonly EXPECTED_VERSION="0.1.19"
+readonly EXPECTED_CODE="119"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -40,6 +40,7 @@ fail() { printf '::error::%s\n' "$*" >&2; exit 1; }
 [[ "${TAG}" == "${EXPECTED_TAG}" ]] || fail "Only ${EXPECTED_TAG} is authorized for this release task; got ${TAG}."
 [[ -f streambridge.version.properties ]] || fail "streambridge.version.properties is missing."
 [[ -f iosApp/Configuration/Version.xcconfig ]] || fail "Xcode version configuration is missing."
+python3 scripts/verify-enhanced-media3.py || fail "Enhanced 1.0.0 Media3 binary verification failed."
 
 property() {
   local key="$1" count value
@@ -83,7 +84,7 @@ for required_text in \
   'androidApp-full-armeabi-v7a-release.apk' \
   'androidApp-full-x86-release.apk' \
   'androidApp-full-x86_64-release.apk' \
-  'StreamBridge-0.1.18-iOS-unsigned.ipa' \
+  'StreamBridge-0.1.19-iOS-unsigned.ipa' \
   'checksums.sha256'; do
   grep -Fq "${required_text}" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
     || fail "Release notes are missing required website, community, or download entry: ${required_text}"
@@ -137,8 +138,8 @@ grep -Fq 'scripts/release-api.sh lookup' .github/workflows/release-draft.yml \
   || fail "Release workflow does not resolve drafts through the releases list."
 grep -Fq 'scripts/release-api.sh ensure-asset' .github/workflows/release-draft.yml \
   || fail "Release workflow does not use the non-clobbering, draft-safe asset uploader."
-grep -Fq 'scripts/release-api.sh update-body' .github/workflows/release-draft.yml \
-  || fail "Release workflow does not update draft notes by release ID."
+grep -Fq 'scripts/verify-unsigned-ipa.py' .github/workflows/release-draft.yml \
+  || fail "Release workflow does not independently verify the unsigned IPA."
 
 # v0.1.14 corrected build gates: the About Us heading, the footer layout, the
 # hero metadata wiring and the user-facing branding rules are part of the

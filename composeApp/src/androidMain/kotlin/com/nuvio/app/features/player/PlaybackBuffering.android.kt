@@ -100,10 +100,18 @@ internal fun DataSource.Factory.withPlaybackBuffering(
     val cacheDirectory = context.cacheDir
     var bufferedFactory: DataSource.Factory = plainFactory
     if (settings.vodDiskCacheEnabled) {
-        bufferedFactory = CacheDataSource.Factory()
-            .setCache(PlaybackDiskCache.get(context, settings))
-            .setUpstreamDataSourceFactory(plainFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        // Low disk space or an unavailable cache must not prevent playback.
+        PlaybackDiskCache.get(context, settings)?.let { diskCache ->
+            val cachedFactory = CacheDataSource.Factory()
+                .setCache(diskCache)
+                .setUpstreamDataSourceFactory(plainFactory)
+                .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            // Official's buffered reader reduces small cache reads; keep it
+            // inside the selective factory so non-VOD and live streams bypass it.
+            bufferedFactory = DataSource.Factory {
+                BufferedReadDataSource(cachedFactory.createDataSource())
+            }
+        }
     }
     val readAheadBytes = settings.nativeReadAheadBytes()
     if (readAheadBytes > 0L) {
@@ -126,20 +134,29 @@ private object PlaybackDiskCache {
     private var cache: SimpleCache? = null
 
     @Synchronized
-    fun get(context: Context, settings: PlayerSettingsUiState): SimpleCache =
-        cache ?: run {
-            val directory = File(context.cacheDir, "vod_playback_cache").apply { mkdirs() }
-            val maxBytes = if (settings.vodDiskCacheAutoSize) {
-                (directory.usableSpace / 5L).coerceIn(256L * MB, 10_240L * MB)
-            } else {
-                settings.vodDiskCacheSizeMb * MB
-            }
+    fun get(context: Context, settings: PlayerSettingsUiState): SimpleCache? {
+        cache?.let { return it }
+        return try {
+            val directory = File(context.cacheDir, "vod_playback_cache")
+            if (!directory.isDirectory && !directory.mkdirs()) return null
+            val resolvedBytes = VodCacheSizing.resolveMaxBytes(
+                mode = if (settings.vodDiskCacheAutoSize) VodCacheSizeMode.AUTO else VodCacheSizeMode.MANUAL,
+                manualSizeMb = settings.vodDiskCacheSizeMb,
+                reclaimableBytes = directory.usableSpace.coerceAtLeast(0L),
+            )
+            // Preserve StreamBridge's existing 10 GiB automatic maximum.
+            val maxBytes = if (settings.vodDiskCacheAutoSize) minOf(resolvedBytes, 10_240L * MB) else resolvedBytes
+            if (maxBytes <= 0L) return null
             SimpleCache(
                 directory,
                 LeastRecentlyUsedCacheEvictor(maxBytes),
                 StandaloneDatabaseProvider(context.applicationContext),
-            )
-        }.also { cache = it }
+            ).also { cache = it }
+        } catch (error: Exception) {
+            android.util.Log.w("PlaybackDiskCache", "Disk cache unavailable; continuing without it", error)
+            null
+        }
+    }
 }
 
 private class SelectiveBufferedDataSource(

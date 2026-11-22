@@ -16,6 +16,9 @@ import kotlinx.coroutines.withContext
 import platform.Foundation.NSCalendar
 import platform.Foundation.NSDate
 import platform.Foundation.NSDateComponents
+import platform.Foundation.NSDateFormatter
+import platform.Foundation.NSDateFormatterMediumStyle
+import platform.Foundation.NSDateFormatterNoStyle
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.NSTemporaryDirectory
@@ -100,8 +103,8 @@ internal actual object EpisodeReleaseNotificationPlatform {
             upcoming.forEach { (request, dateComponents, _) ->
                 val existing = pendingById[request.requestId]
                 if (existing != null &&
-                    existing.content.title == request.notificationTitle &&
-                    existing.content.body == request.notificationBody
+                    existing.content.title == "StreamBridge" &&
+                    existing.content.body == notificationBody(request)
                 ) {
                     scheduledIds += request.requestId
                     return@forEach
@@ -197,10 +200,21 @@ internal actual object EpisodeReleaseNotificationPlatform {
             ?.filter { value -> value.isNotBlank() }
             .orEmpty()
 
+    private fun notificationBody(request: EpisodeReleaseNotificationRequest): String {
+        val date = buildDateComponents(request.releaseDateIso)?.let { NSCalendar.currentCalendar.dateFromComponents(it) }
+        val formatted = date?.let {
+            NSDateFormatter().apply {
+                dateStyle = NSDateFormatterMediumStyle
+                timeStyle = NSDateFormatterNoStyle
+            }.stringFromDate(it)
+        } ?: request.releaseDateIso
+        return "$formatted · ${request.notificationTitle} — ${request.notificationBody}"
+    }
+
     private suspend fun buildNotificationContent(request: EpisodeReleaseNotificationRequest): UNMutableNotificationContent =
         UNMutableNotificationContent().apply {
-            setTitle(request.notificationTitle)
-            setBody(request.notificationBody)
+            setTitle("StreamBridge")
+            setBody(notificationBody(request))
             setUserInfo(mapOf("deeplink" to request.deepLinkUrl))
             attachmentFor(request)?.let { attachment ->
                 setAttachments(listOf(attachment))

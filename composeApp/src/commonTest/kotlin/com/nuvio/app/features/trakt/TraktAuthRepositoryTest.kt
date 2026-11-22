@@ -8,6 +8,17 @@ import kotlin.test.assertTrue
 class TraktAuthRepositoryTest {
 
     @Test
+    fun `unconfigured builds do not show saved Trakt sessions as connected or pending`() {
+        val connected = TraktAuthState(accessToken = "access", refreshToken = "refresh")
+        val pending = TraktAuthState(pendingAuthorizationState = "device:code")
+        assertEquals(TraktConnectionMode.DISCONNECTED, traktConnectionMode(connected, false))
+        assertEquals(TraktConnectionMode.DISCONNECTED, traktConnectionMode(pending, false))
+        assertEquals(TraktConnectionMode.CONNECTED, traktConnectionMode(connected, true))
+        assertEquals(TraktConnectionMode.AWAITING_APPROVAL, traktConnectionMode(pending, true))
+        assertEquals(TraktConnectionMode.DISCONNECTED, traktConnectionMode(TraktAuthState(), true))
+    }
+
+    @Test
     fun `HTTP 400 permanently invalidates a rejected refresh token`() {
         assertEquals(
             TraktTokenRefreshResponseAction.INVALIDATE,

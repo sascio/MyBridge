@@ -13,6 +13,7 @@ import com.nuvio.app.features.tracking.countersTotal
 import com.nuvio.app.features.tracking.intOrNull
 import com.nuvio.app.features.tracking.notFoundTotal
 import com.nuvio.app.features.tracking.objectOrNull
+import com.nuvio.app.features.tracking.sharesIdentityWith
 import com.nuvio.app.features.tracking.toTrackingExternalIds
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -57,14 +58,17 @@ object SimklRatingsProvider : TrackingRatingProvider {
 
     override suspend fun setRating(profileId: Int, target: TrackingRatingTarget, rating: Int) {
         checkProfile(profileId)
+        SimklSyncRepository.ensureLoaded()
+        val resolved = resolveSimklRatingTarget(target, SimklSyncRepository.state.value.snapshot.entries)
         val response = SimklApi.client.execute(
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
                 path = "/sync/ratings",
-                body = buildBody(target, rating).toString(),
+                body = buildSimklRatingBody(resolved, rating).toString(),
                 retryPolicy = SimklRetryPolicy.SYNC_WRITE,
             ),
         )
+        checkProfile(profileId)
         val payload = json.parseToJsonElement(response.body.ifBlank { "{}" }).objectOrNull()
         val added = payload?.get("added").countersTotal()
         if (payload?.get("not_found").notFoundTotal() > 0 || (payload?.containsKey("added") == true && added <= 0)) {
@@ -74,34 +78,21 @@ object SimklRatingsProvider : TrackingRatingProvider {
 
     override suspend fun removeRating(profileId: Int, target: TrackingRatingTarget) {
         checkProfile(profileId)
+        SimklSyncRepository.ensureLoaded()
+        val resolved = resolveSimklRatingTarget(target, SimklSyncRepository.state.value.snapshot.entries)
         val response = SimklApi.client.execute(
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
                 path = "/sync/ratings/remove",
-                body = buildBody(target, null).toString(),
+                body = buildSimklRatingBody(resolved, null).toString(),
                 retryPolicy = SimklRetryPolicy.SYNC_WRITE,
             ),
         )
+        checkProfile(profileId)
         val payload = json.parseToJsonElement(response.body.ifBlank { "{}" }).objectOrNull()
         if (payload?.get("not_found").notFoundTotal() > 0) {
             throw TrackingRatingException("Simkl did not find this item")
         }
-    }
-
-    private fun buildBody(target: TrackingRatingTarget, rating: Int?): JsonObject {
-        if (target.scope !in supportedScopes) throw TrackingRatingException("Simkl cannot rate ${target.scope}")
-        val item = buildJsonObject {
-            rating?.let { put("rating", it) }
-            target.ids.toSimklJsonObjectOrNull()?.let { put("ids", it) }
-            target.title?.takeIf(String::isNotBlank)?.let { put("title", it) }
-            target.year?.let { put("year", it) }
-        }
-        val group = when {
-            target.scope == TrackingRatingScope.MOVIE -> "movies"
-            target.kind == TrackingMediaKind.ANIME -> "anime"
-            else -> "shows"
-        }
-        return buildJsonObject { put(group, JsonArray(listOf(item))) }
     }
 
     private fun parseRows(root: JsonElement): List<JsonObject> = when (root) {
@@ -124,4 +115,40 @@ object SimklRatingsProvider : TrackingRatingProvider {
     private fun checkProfile(profileId: Int) {
         if (profileId != ProfileRepository.activeProfileId) throw CancellationException("Simkl profile changed")
     }
+}
+
+// Prefer the uniquely matched cached Simkl entry, as in Official 1.0.0, so an
+// anime supplied by an addon as an ordinary movie/show uses the correct bucket.
+// Ambiguous IDs never cause us to borrow a different title's metadata.
+internal fun resolveSimklRatingTarget(target: TrackingRatingTarget, entries: List<SimklLibraryEntry>): TrackingRatingTarget {
+    val match = entries.filter { entry ->
+        entry.isMovieEntry() == (target.scope == TrackingRatingScope.MOVIE) &&
+            entry.media?.toTrackingExternalIds()?.sharesIdentityWith(target.ids) == true
+    }.singleOrNull() ?: return target
+    val media = match.media ?: return target
+    return target.copy(
+        kind = if (match.mediaType == SimklMediaType.ANIME) TrackingMediaKind.ANIME else target.kind,
+        ids = target.ids.mergeMissing(media.toTrackingExternalIds()),
+        title = target.title ?: media.title,
+        year = target.year ?: media.year,
+    )
+}
+
+// Adapted from Official 1.0.0: Simkl removes anime ratings from the shows bucket.
+internal fun buildSimklRatingBody(target: TrackingRatingTarget, rating: Int?): JsonObject {
+    if (target.scope !in setOf(TrackingRatingScope.MOVIE, TrackingRatingScope.SHOW)) {
+        throw TrackingRatingException("Simkl cannot rate ${target.scope}")
+    }
+    val item = buildJsonObject {
+        rating?.let { put("rating", it) }
+        target.ids.toSimklJsonObjectOrNull()?.let { put("ids", it) }
+        target.title?.takeIf(String::isNotBlank)?.let { put("title", it) }
+        target.year?.let { put("year", it) }
+    }
+    val group = when {
+        target.kind == TrackingMediaKind.ANIME -> if (rating == null) "shows" else "anime"
+        target.scope == TrackingRatingScope.MOVIE -> "movies"
+        else -> "shows"
+    }
+    return buildJsonObject { put(group, JsonArray(listOf(item))) }
 }

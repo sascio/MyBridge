@@ -1,6 +1,7 @@
 package com.nuvio.app.features.cloudstream
 
 import android.content.Context
+import android.system.Os
 import co.touchlab.kermit.Logger
 import java.io.File
 import java.security.MessageDigest
@@ -50,7 +51,12 @@ internal object CloudStreamPackageStorage {
      * @return the committed read-only file
      * @throws IllegalStateException when the artifact fails verification
      */
-    fun install(context: Context, plugin: CloudStreamPlugin, bytes: ByteArray): File {
+    fun install(
+        context: Context,
+        plugin: CloudStreamPlugin,
+        bytes: ByteArray,
+        commit: (File, File) -> Unit = { from, to -> Os.rename(from.absolutePath, to.absolutePath) },
+    ): File {
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(bytes)
             .joinToString("") { "%02x".format(it) }
@@ -60,17 +66,18 @@ internal object CloudStreamPackageStorage {
         }
 
         val target = File(directory(context), fileName(plugin))
-        val staging = File(directory(context), "${fileName(plugin)}.part")
+        // A unique stage prevents concurrent installs of the same identity from
+        // deleting, validating or publishing one another's in-progress bytes.
+        val staging = File.createTempFile("cloudstream-stage-", ".part", directory(context))
         runCatching {
             staging.writeBytes(bytes)
-            if (target.exists()) {
-                // A previously installed package is read-only; restore write
-                // permission so the replacement can be committed atomically.
-                target.setWritable(true)
-                target.delete()
-            }
-            check(staging.renameTo(target)) { "Could not commit CloudStream package" }
-            target.setReadOnly()
+            // Android 14 requires dynamically loaded code to be read-only.
+            // Set the mode before publication, not after it becomes visible.
+            check(staging.setReadOnly()) { "Could not protect staged CloudStream package" }
+            // POSIX rename within the same private directory replaces the old
+            // entry atomically. Never delete the previous working package first:
+            // a failed rename must leave it available for the next launch.
+            commit(staging, target)
         }.onFailure {
             staging.delete()
             throw it
@@ -80,11 +87,10 @@ internal object CloudStreamPackageStorage {
         return target
     }
 
-    /** Removes an installed package, clearing the read-only flag first. */
+    /** Removes an installed package without making executable code writable. */
     fun remove(context: Context, plugin: CloudStreamPlugin): Boolean {
         val file = File(directory(context), fileName(plugin))
         if (!file.exists()) return false
-        file.setWritable(true)
         return file.delete()
     }
 }

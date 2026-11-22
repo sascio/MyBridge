@@ -920,15 +920,32 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         }
     }
 
+    LaunchedEffect(isMoviePlayback, playerSettingsUiState.movieRecommendationsEnabled, parentMetaId, playerMeta) {
+        playerMoreLikeThis = null
+        val meta = playerMeta
+        if (!isMoviePlayback || !playerSettingsUiState.movieRecommendationsEnabled || meta == null || meta.id != parentMetaId) {
+            return@LaunchedEffect
+        }
+        playerMoreLikeThis = try {
+            MetaDetailsRepository.withPreferredMoreLikeThis(meta, parentMetaId, parentMetaType).moreLikeThis
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null // Fall back to the metadata already available to the player.
+        }
+    }
+
     LaunchedEffect(
         playbackSnapshot.positionMs,
         playbackSnapshot.durationMs,
         playbackSnapshot.isEnded,
         playerMeta?.moreLikeThis,
+        playerMoreLikeThis,
+        watchedUiState.watchedKeys,
         movieRecommendationDismissedStage,
         playerSettingsUiState.movieRecommendationsEnabled,
     ) {
-        if (!isMoviePlayback || !playerSettingsUiState.movieRecommendationsEnabled || playerMeta?.moreLikeThis.isNullOrEmpty()) {
+        if (!isMoviePlayback || !playerSettingsUiState.movieRecommendationsEnabled || movieRecommendationCandidates.isEmpty()) {
             showMovieRecommendationCard = false
             movieRecommendationStage = 0
             return@LaunchedEffect

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -20,6 +21,8 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +35,18 @@ import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.cloudstream_pin
+import nuvio.composeapp.generated.resources.cloudstream_unpin
+import nuvio.composeapp.generated.resources.cloudstream_trust_title
+import nuvio.composeapp.generated.resources.cloudstream_trust_warning
+import nuvio.composeapp.generated.resources.cloudstream_authorize
+import nuvio.composeapp.generated.resources.cloudstream_revoke
+import nuvio.composeapp.generated.resources.cloudstream_cancel
+import nuvio.composeapp.generated.resources.cloudstream_hash_unverified
+import nuvio.composeapp.generated.resources.cloudstream_hash_unverifiable
+import nuvio.composeapp.generated.resources.cloudstream_hash_verified
+import nuvio.composeapp.generated.resources.cloudstream_hash_declared
+import nuvio.composeapp.generated.resources.cloudstream_hash_mismatch
 import nuvio.composeapp.generated.resources.cloudstream_action_back
 import nuvio.composeapp.generated.resources.cloudstream_action_configure
 import nuvio.composeapp.generated.resources.cloudstream_authors_format
@@ -43,6 +58,9 @@ import nuvio.composeapp.generated.resources.cloudstream_state_disabled
 import nuvio.composeapp.generated.resources.cloudstream_state_enabled
 import nuvio.composeapp.generated.resources.cloudstream_version_format
 import org.jetbrains.compose.resources.stringResource
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Detail screen for a single CloudStream extension.
@@ -55,8 +73,26 @@ import org.jetbrains.compose.resources.stringResource
 internal fun CloudStreamExtensionDetail(
     extension: CloudStreamExtension,
     modifier: Modifier = Modifier,
+    trusted: Boolean,
+    errorMessage: String?,
     onBack: () -> Unit,
 ) {
+    val scope = rememberCoroutineScope()
+    var showTrustWarning by remember { mutableStateOf(false) }
+    if (showTrustWarning) {
+        AlertDialog(
+            onDismissRequest = { showTrustWarning = false },
+            title = { Text(stringResource(Res.string.cloudstream_trust_title)) },
+            text = { Text(stringResource(Res.string.cloudstream_trust_warning) + "\n\n" + extension.repositoryUrl) },
+            confirmButton = {
+                TextButton(onClick = {
+                    CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, true)
+                    showTrustWarning = false
+                }) { Text(stringResource(Res.string.cloudstream_authorize)) }
+            },
+            dismissButton = { TextButton(onClick = { showTrustWarning = false }) { Text(stringResource(Res.string.cloudstream_cancel)) } },
+        )
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -78,15 +114,33 @@ internal fun CloudStreamExtensionDetail(
         }
 
         MetadataCard(extension = extension)
+        errorMessage?.takeIf { it.isNotBlank() }?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+        InstallActions(
+            extension = extension,
+            onInstall = { CloudStreamExtensionsRepository.installExtension(extension.id) },
+            onUninstall = { CloudStreamExtensionsRepository.removeExtension(extension.id) },
+        )
+        TextButton(onClick = {
+            if (trusted) CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, false)
+            else showTrustWarning = true
+        }) {
+            Text(stringResource(if (trusted) Res.string.cloudstream_revoke else Res.string.cloudstream_authorize))
+        }
+
+        TextButton(onClick = { CloudStreamExtensionsRepository.setExtensionPinned(extension, !extension.pinned) }) {
+            Text(stringResource(if (extension.pinned) Res.string.cloudstream_unpin else Res.string.cloudstream_pin))
+        }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_sources))
         extension.sources.forEach { source ->
             SourceCard(
                 source = source,
                 // Enabling is only meaningful once the package is on disk.
-                packageInstalled = extension.installStatus.isInstalled,
+                packageInstalled = extension.installStatus.isInstalled && trusted,
                 onEnabledChange = { enabled ->
-                    CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled)
+                    scope.launch { CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled) }
                 },
                 onConfigurationChange = { key, value ->
                     CloudStreamExtensionsRepository.setConfigurationValue(source.id, key, value)
@@ -99,6 +153,10 @@ internal fun CloudStreamExtensionDetail(
 @Composable
 private fun MetadataCard(extension: CloudStreamExtension) {
     val plugin = extension.plugin
+    var integrity by remember(plugin, extension.installStatus) { mutableStateOf(CloudStreamIntegrity.NOT_INSTALLED) }
+    LaunchedEffect(plugin, extension.installStatus) {
+        integrity = withContext(Dispatchers.Default) { CloudStreamPackageInstaller.integrity(plugin) }
+    }
     NuvioSurfaceCard {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -128,6 +186,8 @@ private fun MetadataCard(extension: CloudStreamExtension) {
         }
 
         Spacer(modifier = Modifier.height(10.dp))
+        Text(extension.repositoryUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(10.dp))
         Text(
             text = plugin.description?.takeIf { it.isNotBlank() }
                 ?: stringResource(Res.string.cloudstream_metadata_unavailable),
@@ -146,6 +206,20 @@ private fun MetadataCard(extension: CloudStreamExtension) {
             plugin.tvTypes.forEach { type -> MetaChip(type) }
             MetaChip(stringResource(Res.string.cloudstream_sources_format, extension.sourceCount))
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(when {
+                extension.installStatus.error == CloudStreamInstallError.HASH_MISMATCH || integrity == CloudStreamIntegrity.MISMATCH -> Res.string.cloudstream_hash_mismatch
+                extension.installStatus.error == CloudStreamInstallError.HASH_UNVERIFIABLE || integrity == CloudStreamIntegrity.UNVERIFIABLE ||
+                    (!plugin.fileHash.isNullOrBlank() && !CloudStreamPackageValidation.hasVerifiableHash(plugin.fileHash)) -> Res.string.cloudstream_hash_unverifiable
+                integrity == CloudStreamIntegrity.VERIFIED -> Res.string.cloudstream_hash_verified
+                plugin.fileHash.isNullOrBlank() -> Res.string.cloudstream_hash_unverified
+                else -> Res.string.cloudstream_hash_declared
+            }),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
 
         // Shows what is genuinely on disk, which is what an update offer is
         // compared against.

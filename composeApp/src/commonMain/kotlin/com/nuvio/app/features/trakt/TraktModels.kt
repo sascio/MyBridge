@@ -24,6 +24,15 @@ enum class TraktConnectionMode {
     CONNECTED,
 }
 
+// Keep saved sessions intact, but do not report them as usable when this build
+// cannot refresh or authenticate them.
+internal fun traktConnectionMode(state: TraktAuthState, credentialsConfigured: Boolean): TraktConnectionMode = when {
+    !credentialsConfigured -> TraktConnectionMode.DISCONNECTED
+    state.isAuthenticated -> TraktConnectionMode.CONNECTED
+    !state.pendingAuthorizationState.isNullOrBlank() -> TraktConnectionMode.AWAITING_APPROVAL
+    else -> TraktConnectionMode.DISCONNECTED
+}
+
 data class TraktAuthUiState(
     val mode: TraktConnectionMode = TraktConnectionMode.DISCONNECTED,
     val credentialsConfigured: Boolean = true,

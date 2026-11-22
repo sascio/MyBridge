@@ -57,7 +57,21 @@ class CloudStreamPackageValidationTest {
         assertTrue(CloudStreamPackageValidation.matchesExpectedHash("", digest))
         assertFalse(CloudStreamPackageValidation.hasVerifiableHash(null))
         assertFalse(CloudStreamPackageValidation.hasVerifiableHash("sha256-"))
+        assertFalse(CloudStreamPackageValidation.hasVerifiableHash("sha256-not-a-digest"))
         assertTrue(CloudStreamPackageValidation.hasVerifiableHash("sha256-$digest"))
+    }
+
+    @Test
+    fun malformedPublishedHashIsUnverifiableAndRejected() {
+        assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState("sha256-", digest))
+        assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState("not-a-sha256", digest))
+        assertEquals(CloudStreamIntegrity.UNVERIFIABLE, CloudStreamPackageValidation.hashState(digest, "bad"))
+        assertFalse(CloudStreamPackageValidation.matchesExpectedHash("sha256-", digest))
+        assertEquals(CloudStreamPackageValidation.Rejection.HASH_UNVERIFIABLE,
+            assertIs<CloudStreamPackageValidation.Result.Invalid>(validate(expectedHash = "sha256-")).reason)
+        assertEquals(CloudStreamIntegrity.UNVERIFIED, CloudStreamPackageValidation.hashState(null, digest))
+        assertEquals(CloudStreamIntegrity.VERIFIED, CloudStreamPackageValidation.hashState("sha256-$digest", digest))
+        assertEquals(CloudStreamIntegrity.MISMATCH, CloudStreamPackageValidation.hashState("b".repeat(64), digest))
     }
 
     // ---- archive safety (Zip Slip) --------------------------------------
@@ -86,6 +100,14 @@ class CloudStreamPackageValidationTest {
     }
 
     // ---- archive layout --------------------------------------------------
+
+    @Test
+    fun duplicateArchiveEntriesAreRejected() {
+        val invalid = assertIs<CloudStreamPackageValidation.Result.Invalid>(
+            validate(entries = validEntries + "manifest.json"),
+        )
+        assertEquals(CloudStreamPackageValidation.Rejection.DUPLICATE_ARCHIVE_ENTRY, invalid.reason)
+    }
 
     @Test
     fun packageWithoutManifestIsRejected() {

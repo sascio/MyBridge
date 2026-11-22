@@ -77,6 +77,8 @@ import coil3.request.ImageRequest
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.ui.dynamicScrimAlpha
+import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
+import com.nuvio.app.core.ui.rememberDynamicArtworkBackgroundEnabled
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.rememberBackdropFocusState
@@ -91,6 +93,7 @@ import com.nuvio.app.features.details.components.DetailIconAction
 import com.nuvio.app.features.details.components.HeroTrailerPlayerSurface
 import com.nuvio.app.features.details.selectHeroTrailer
 import com.nuvio.app.features.details.youtubePlaybackUrl
+import com.nuvio.app.features.player.MiniPlayerController
 import com.nuvio.app.features.home.HomeHeroArtworkSource
 import com.nuvio.app.features.home.HomeHeroStyle
 import com.nuvio.app.features.home.MetaPreview
@@ -249,7 +252,8 @@ internal fun HomeHeroSection(
     val autoScrollPage = pagerState.settledPage
     val effectiveTrailerPlaybackEnabled = trailerPlaybackEnabled &&
         AppFeaturePolicy.heroTrailerPlaybackSupported &&
-        AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP
+        AppFeaturePolicy.trailerPlaybackMode == TrailerPlaybackMode.IN_APP &&
+        !MiniPlayerController.isActive
 
     LaunchedEffect(pagerState) {
         pagerState.scrollToPage(pagerState.currentPage)
@@ -390,6 +394,13 @@ internal fun HomeHeroSection(
                 }
             }
 
+            if (onActiveArtworkChange != null && rememberDynamicArtworkBackgroundEnabled()) {
+                val heroArtworkUrls = remember(items, effectiveArtworkSource) {
+                    items.mapNotNull { item -> heroArtworkUrl(item, effectiveArtworkSource) }
+                }
+                PrefetchArtworkDominantColors(heroArtworkUrls)
+            }
+
             // Faithful port of the reference hero prefetch: while the carousel
             // rests on a page, warm the Coil memory cache with the neighbours'
             // artwork and logo and resolve their details into the repository
@@ -503,38 +514,40 @@ internal fun HomeHeroSection(
                             val item = items[layer.itemIndex]
                             val artworkUrl = heroArtworkUrl(item, effectiveArtworkSource)
                             val isCurrentLayer = layer.page == currentPage
-                            val backdropFocus = rememberBackdropFocusState(artworkUrl)
-                            AsyncImage(
-                                model = artworkUrl,
-                                contentDescription = item.name,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        // Draw-time alpha/offset from the live pager
-                                        // position, as in the reference: neighbour layers
-                                        // stay fully opaque while partially visible so the
-                                        // backdrop never dips mid-swipe.
-                                        val offset = heroPageOffset(pagerState, layer.page)
-                                        val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
-                                        alpha = backdropFocus.revealAlpha * when {
-                                            isCurrentLayer -> visibility
-                                            visibility > 0f -> 1f
-                                            else -> 0f
-                                        }
-                                        translationX = -offset * heroWidthPx * artworkParallax
-                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                        scaleX = artworkBaseScale *
-                                            if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                        scaleY = artworkBaseScale *
-                                            if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                    },
-                                alignment = backdropFocus.focusedAlignment(
-                                    if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                                ),
-                                contentScale = ContentScale.Crop,
-                                onSuccess = { state -> backdropFocus.onImageLoaded(state.result.image) },
-                                onError = { backdropFocus.onImageFailed() },
-                            )
+                            key(layer.page, effectiveArtworkSource, item.type, item.id, artworkUrl) {
+                                val backdropFocus = rememberBackdropFocusState(artworkUrl)
+                                AsyncImage(
+                                    model = artworkUrl,
+                                    contentDescription = item.name,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer {
+                                            // Draw-time alpha/offset from the live pager
+                                            // position, as in the reference: neighbour layers
+                                            // stay fully opaque while partially visible so the
+                                            // backdrop never dips mid-swipe.
+                                            val offset = heroPageOffset(pagerState, layer.page)
+                                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
+                                            alpha = backdropFocus.revealAlpha * when {
+                                                isCurrentLayer -> visibility
+                                                visibility > 0f -> 1f
+                                                else -> 0f
+                                            }
+                                            translationX = -offset * heroWidthPx * artworkParallax
+                                            translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                            scaleX = artworkBaseScale *
+                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                            scaleY = artworkBaseScale *
+                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        },
+                                    alignment = backdropFocus.focusedAlignment(
+                                        if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                    ),
+                                    contentScale = ContentScale.Crop,
+                                    onSuccess = { state -> backdropFocus.onImageLoaded(state.result.image) },
+                                    onError = { backdropFocus.onImageFailed() },
+                                )
+                            }
                         }
 
                         val heroTrailerSourceUrl = heroTrailerPlaybackSource

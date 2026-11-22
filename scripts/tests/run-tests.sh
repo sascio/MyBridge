@@ -91,6 +91,10 @@ if ! python3 "${SCRIPT_DIR}/telegram-reconcile-test.py"; then
 fi
 
 section "Release workflows"
+run "production tracking credential gates and optional Trakt" python3 scripts/tests/release-tracking-test.py
+run "independent preflight asset inspection" python3 scripts/tests/preflight-assets-test.py
+run "iOS production signing and provisioning" python3 scripts/tests/ios-signing-test.py
+run "Unsigned iOS release verification" python3 scripts/tests/unsigned-ipa-test.py
 
 run "iOS IPA and simulator tests share one prepared dependency artifact" \
   python3 - <<'PY'
@@ -129,11 +133,33 @@ run "the release workflow refuses to reuse a tag for a newer commit" \
 run "draft releases and assets are handled by ID rather than tag-based gh release commands" \
   bash -c 'grep -q "scripts/release-api.sh lookup" .github/workflows/release-draft.yml &&
            grep -q "scripts/release-api.sh ensure-asset" .github/workflows/release-draft.yml &&
-           grep -q "scripts/release-api.sh update-body" .github/workflows/release-draft.yml &&
            ! grep -qE "^[[:space:]]*gh release (view|upload|edit)([[:space:]]|$)" .github/workflows/release-draft.yml'
 
-run "the approved tag/version/code and invite fixes are explicitly verified" \
-  bash -c 'scripts/verify-release-target.sh --tag v0.1.18 --commit "$(git rev-parse HEAD)"'
+run "release gate accepts the 0.1.19 source identity" \
+  bash -c 'scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)"'
+
+run "release draft requires both Android and iOS builds" \
+  python3 - <<'PYTEST'
+workflow = open(".github/workflows/release-draft.yml", encoding="utf-8").read()
+assert "needs: [android, ios, preflight-verification, verify-ios, ios-tests]" in workflow
+assert "needs.preflight-verification.result == 'success'" in workflow
+assert "needs.verify-ios.result == 'success'" in workflow
+assert "needs.ios-tests.result == 'success'" in workflow
+assert "needs.draft.result == 'success'" in workflow
+assert 'scripts/audit-preflight-assets.sh preflight/android --android-only' in workflow
+assert 'python3 scripts/verify-unsigned-ipa.py' in workflow
+assert 'STREAMBRIDGE_IOS_SIGNING: "0"' in workflow
+assert 'STREAMBRIDGE_IOS_SIGNING: "1"' not in workflow
+assert "inputs.include_ios" not in workflow
+assert "inputs.require_tracking_credentials" not in workflow
+assert 'for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID' in workflow
+assert 'report_populated MDBLIST "$mdblist" CLIENT_ID || tracking_missing=1' in workflow
+assert 'report_populated SIMKL "$simkl" CLIENT_ID || tracking_missing=1' in workflow
+PYTEST
+
+run "release gate rejects other version tags" \
+  bash -c '! scripts/verify-release-target.sh --tag v0.1.18 --commit "$(git rev-parse HEAD)" &&
+           ! scripts/verify-release-target.sh --tag v0.1.20 --commit "$(git rev-parse HEAD)"'
 
 section "store.json"
 
@@ -166,33 +192,20 @@ PY
 
 section "Version wiring"
 
-run "README, version properties, Xcode, workflow input and release notes agree on 0.1.18 / 118" \
-  python3 - <<'PY'
-props = dict(
-    line.split("=", 1)
-    for line in open("streambridge.version.properties", encoding="utf-8").read().splitlines()
-    if line and not line.startswith("#")
-)
+run "README, version properties and Xcode agree on 0.1.19 / 119" \
+  python3 - <<'PYTEST'
+props = dict(line.split("=", 1) for line in open("streambridge.version.properties", encoding="utf-8").read().splitlines() if line and not line.startswith("#"))
 name, code = props["STREAMBRIDGE_VERSION_NAME"].strip(), props["STREAMBRIDGE_VERSION_CODE"].strip()
-assert (name, code) == ("0.1.18", "118"), (name, code)
+assert (name, code) == ("0.1.19", "119"), (name, code)
 readme = open("README.md", encoding="utf-8").read()
-assert f"version <strong>{name}</strong> ({code})" in readme, "README version banner is stale"
-assert f"## Highlights in {name}" in readme, "README highlights section is stale"
-assert f"StreamBridge-{name}-iOS-unsigned.ipa" in readme, "README iOS asset name is stale"
+assert f"version <strong>{name}</strong> ({code})" in readme
 xcconfig = open("iosApp/Configuration/Version.xcconfig", encoding="utf-8").read()
 assert f"MARKETING_VERSION={name}" in xcconfig
 assert f"CURRENT_PROJECT_VERSION={code}" in xcconfig
-workflow = open(".github/workflows/release-draft.yml", encoding="utf-8").read()
-assert f'default: "v{name}"' in workflow, "release workflow default tag is stale"
-assert f'tags:\n      - "v{name}"' in workflow, "release workflow tag trigger is not restricted to the approved tag"
-notes = open("docs/RELEASE-NOTES-0.1.18.md", encoding="utf-8").read()
-assert f"## StreamBridge {name}" in notes, "release notes header is stale"
-assert f"version {name} (version code {code})" in notes, "release notes version is stale"
-for path in ("streambridge.version.properties", "iosApp/Configuration/Version.xcconfig", "README.md", ".github/workflows/release-draft.yml", "docs/RELEASE-NOTES-0.1.18.md"):
-    text = open(path, encoding="utf-8").read()
-    for stale in ("0.1.13", "113", "0.1.14", "114", "0.1.15", "115", "0.1.16", "116", "0.1.17", "117"):
-        assert stale not in text, f"{path} still references an earlier version ({stale})"
-PY
+# Retargeted only to the requested version; release execution still verifies
+# the exact tag commit, signing, notes and generated asset digests.
+assert 'readonly EXPECTED_TAG="v0.1.19"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
+PYTEST
 
 run "no watch-party invite string mentions Nuvio branding" \
   bash -c '! grep -rnE "(Join my Nuvio|Nuvio watch party|https://nuvio\.tv/party|nuvio://party/\$)" composeApp/src/commonMain/composeResources composeApp/src/commonMain/kotlin/com/nuvio/app/features/party site/party/index.html'

@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.18</strong> (118)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.19</strong> (119)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -17,6 +17,26 @@ watch progress, downloads and optional tracking.
 It ships empty. There are no built-in catalogs, no bundled providers and no recommended
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
+
+## 0.1.19 preparation
+
+- Android Full requires explicit repository authorization for CloudStream execution;
+  a matching hash is not a malware guarantee, and missing hashes are unverified.
+  Play Store and iOS do not execute CloudStream DEX.
+- Version 0.1.19 is under preparation. Published updater metadata remains at the
+  last release until production artifacts are built and verified. See the
+  [upstream review](docs/UPSTREAM-1.0.0-AUDIT.md) for the limits of the 1.0.0 comparison.
+
+## Highlights in 0.1.19
+
+The following changes are in preparation and are not yet published:
+
+- CloudStream repository authorization, package-integrity handling and staged-install safety.
+- MDBList release-date ordering, TorBox alternative-hash handling and Trakt refresh coalescing.
+- Exclusion of app-owned iOS downloads from system backups.
+
+The planned unsigned iOS asset name is `StreamBridge-0.1.19-iOS-unsigned.ipa`;
+the download becomes available only after a verified release is published.
 
 ## Highlights in 0.1.18
 
@@ -115,7 +135,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.18-iOS-unsigned.ipa`
+- `StreamBridge-0.1.18-iOS-unsigned.ipa` (last published version; 0.1.19 is not yet released)
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
