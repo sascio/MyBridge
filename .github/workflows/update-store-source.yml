@@ -63,6 +63,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
       RELEASE_VERSION: ${{ inputs.version || inputs.tag || github.event.release.tag_name }}
       SOURCE_BRANCH: ${{ inputs.source_branch || vars.STREAMBRIDGE_SOURCE_BRANCH || github.event.repository.default_branch }}
+      EXPLICIT_SOURCE_BRANCH: ${{ inputs.source_branch }}
       ICON_PATH: iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png
 
     steps:
@@ -194,6 +195,10 @@ jobs:
           if git push origin "HEAD:${SOURCE_BRANCH}"; then
             echo "Published store.json for ${RELEASE_VERSION} directly to ${SOURCE_BRANCH}."
             exit 0
+          fi
+          if [[ -n "${EXPLICIT_SOURCE_BRANCH}" ]]; then
+            echo "::error::Could not update the explicitly selected source branch ${SOURCE_BRANCH}; no alternate branch was created."
+            exit 1
           fi
 
           # The source branch is protected by a pull-request ruleset (the
