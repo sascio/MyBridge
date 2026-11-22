@@ -151,12 +151,11 @@ internal object CloudStreamExtensionsRepository {
         }
     }
 
-    private fun trustKey(url: String) = "cloudstream.repository.trust::${url.trim()}"
+    private fun trustKey(url: String) = cloudStreamTrustKey(url)
 
     /** Trust is explicit, tied to the configured URL, and never case-folds paths. */
-    fun isRepositoryTrusted(url: String?): Boolean = url != null &&
-        repositoryUrls.any { sameCloudStreamRepositoryUrl(it, url) } &&
-        configuration[trustKey(url)] == "true"
+    fun isRepositoryTrusted(url: String?): Boolean =
+        cloudStreamRepositoryAuthorized(repositoryUrls, configuration, url)
 
     /** Only the unique, currently discovered package may cross the execution boundary. */
     fun isPluginExecutionAuthorized(plugin: CloudStreamPlugin): Boolean {
@@ -175,7 +174,13 @@ internal object CloudStreamExtensionsRepository {
             .forEach { CloudStreamPlatformRuntime.unload(it.id) }
         _uiState.value = _uiState.value.copy(
             trustedRepositories = repositoryUrls.filter { isRepositoryTrusted(it) }.toSet(),
-            errorMessage = null,
+            // A successful authorization clears the "authorize this repository"
+            // prompt: leaving it after the user acted would read as a failure.
+            errorMessage = if (trusted) {
+                _uiState.value.errorMessage?.takeIf { it != unauthorizedInstallMessage && it != unauthorizedEnableMessage }
+            } else {
+                null
+            },
         )
         applyPersistedState()
     }
@@ -266,9 +271,15 @@ internal object CloudStreamExtensionsRepository {
             return CloudStreamInstallResult.Failure(pluginId, CloudStreamInstallError.UNKNOWN, message)
         }
         if (!isRepositoryTrusted(extension.repositoryUrl)) {
-            val message = "Authorize this repository in extension details before installing."
-            _uiState.value = _uiState.value.copy(errorMessage = message)
-            return CloudStreamInstallResult.Failure(pluginId, CloudStreamInstallError.UNKNOWN, message)
+            // A typed failure, not just a sentence in the general error slot: the
+            // details screen offers the authorization action for exactly this
+            // state, so the user always has a way to proceed.
+            _uiState.value = _uiState.value.copy(errorMessage = unauthorizedInstallMessage)
+            return CloudStreamInstallResult.Failure(
+                pluginId,
+                CloudStreamInstallError.REPOSITORY_UNAUTHORIZED,
+                unauthorizedInstallMessage,
+            )
         }
 
         if (!CloudStreamPackageInstaller.supportsInstallation) {
@@ -495,7 +506,7 @@ internal object CloudStreamExtensionsRepository {
             return false
         }
         if (enabled && (extension == null || !isRepositoryTrusted(extension.repositoryUrl))) {
-            _uiState.value = _uiState.value.copy(errorMessage = "Authorize this repository in extension details before enabling.")
+            _uiState.value = _uiState.value.copy(errorMessage = unauthorizedEnableMessage)
             return false
         }
         if (enabled && extension != null && CloudStreamPackageInstaller.integrity(extension.plugin) in setOf(CloudStreamIntegrity.MISMATCH, CloudStreamIntegrity.UNVERIFIABLE)) {
@@ -880,6 +891,37 @@ internal object CloudStreamExtensionsRepository {
 
 /** Exact comparison after trimming; URL paths and queries can be case-sensitive. */
 internal fun sameCloudStreamRepositoryUrl(a: String, b: String): Boolean = a.trim() == b.trim()
+
+/**
+ * Shown when a package is requested from a repository the user has not
+ * authorized. Shared so the UI can recognise the exact prompt and offer the
+ * authorization action instead of printing an error with no way forward.
+ */
+internal const val unauthorizedInstallMessage: String =
+    "Authorize this repository in extension details before installing."
+
+internal const val unauthorizedEnableMessage: String =
+    "Authorize this repository in extension details before enabling."
+
+/** Storage key for one repository's explicit authorization. */
+internal fun cloudStreamTrustKey(repositoryUrl: String): String =
+    "cloudstream.repository.trust::${repositoryUrl.trim()}"
+
+/**
+ * Whether [repositoryUrl] is both configured and explicitly authorized.
+ *
+ * Authorization is opt-in per repository URL: adding a repository never
+ * authorizes it, and no global switch can authorize every repository at once.
+ * The URL must still be one the user configured, so a stale key left behind by
+ * an edited repository can never authorize a different one.
+ */
+internal fun cloudStreamRepositoryAuthorized(
+    configuredUrls: List<String>,
+    configuration: Map<String, String>,
+    repositoryUrl: String?,
+): Boolean = repositoryUrl != null &&
+    configuredUrls.any { sameCloudStreamRepositoryUrl(it, repositoryUrl) } &&
+    configuration[cloudStreamTrustKey(repositoryUrl)] == "true"
 
 /** Length-prefixing keeps repository and plugin boundaries unambiguous. */
 internal fun cloudStreamPinKey(repositoryUrl: String, pluginId: String): String {

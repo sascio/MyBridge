@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.19</strong> (119)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.20</strong> (120)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,24 +18,30 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## 0.1.19 preparation
+## 0.1.20 preparation
 
 - Android Full requires explicit repository authorization for CloudStream execution;
   a matching hash is not a malware guarantee, and missing hashes are unverified.
-  Play Store and iOS do not execute CloudStream DEX.
-- Version 0.1.19 is under preparation. Published updater metadata remains at the
-  last release until production artifacts are built and verified. See the
+  Play Store and iOS do not execute CloudStream DEX. See the
   [upstream review](docs/UPSTREAM-1.0.0-AUDIT.md) for the limits of the 1.0.0 comparison.
+- Version 0.1.20 is under preparation. Published updater metadata remains at the
+  last release until production artifacts are built and verified.
 
-## Highlights in 0.1.19
+## Highlights in 0.1.20
 
-The following changes are in preparation and are not yet published:
+- **CloudStream authorization is a visible action.** The extension details screen and every
+  repository card show the authorization state and an **Authorize repository** button, and the
+  confirmation names the repository. Authorizing covers every extension that repository
+  provides, CNC Verse and other providers included. A refused install or enable shows a banner
+  that carries the authorization action rather than an error with no way forward. Authorization
+  stays explicit and per repository: adding a repository never authorizes it and no build
+  auto-trusts every repository.
+- **Android build provisioning fixed.** The build now validates and repairs the runner's SDK
+  (platform, build-tools, CMake and NDK) before Gradle runs and pins the validated NDK, instead
+  of failing at configuration time when the runner's NDK directory is incomplete or its SDK
+  download cache is corrupt.
 
-- CloudStream repository authorization, package-integrity handling and staged-install safety.
-- MDBList release-date ordering, TorBox alternative-hash handling and Trakt refresh coalescing.
-- Exclusion of app-owned iOS downloads from system backups.
-
-The planned unsigned iOS asset name is `StreamBridge-0.1.19-iOS-unsigned.ipa`;
+The planned unsigned iOS asset name is `StreamBridge-0.1.20-iOS-unsigned.ipa`;
 the download becomes available only after a verified release is published.
 
 ## Highlights in 0.1.18
@@ -135,7 +141,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.18-iOS-unsigned.ipa` (last published version; 0.1.19 is not yet released)
+- `StreamBridge-0.1.20-iOS-unsigned.ipa` (version 0.1.20, build 120)
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:

@@ -82,6 +82,39 @@ val releaseAppVersionCode = streamBridgeProps.getProperty("STREAMBRIDGE_VERSION_
     ?: readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
 val requestedTaskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
+/**
+ * NDK selection.
+ *
+ * AGP resolves an NDK while *configuring* every variant, so a broken
+ * `$ANDROID_HOME/ndk/<version>` directory (one without `source.properties`)
+ * fails the whole build -- including the unit-test task -- with
+ * `[CXX1101] NDK ... did not have a source.properties file`, which is exactly
+ * what happened on f41ea7a (issue #309).
+ *
+ * `scripts/setup-android-sdk.sh` repairs the image and exports the version it
+ * validated as ANDROID_NDK_VERSION. When that variable is present the build
+ * uses that exact NDK and fails early with an actionable message if the
+ * directory is not usable, instead of letting AGP pick an arbitrary NDK from
+ * the image. Locally (variable absent) AGP keeps its normal behaviour.
+ */
+val validatedNdkVersion = providers.environmentVariable("ANDROID_NDK_VERSION").orNull
+    ?.trim()?.takeIf { it.isNotBlank() }
+val validatedNdkDirectory = validatedNdkVersion?.let { version ->
+    val sdkRoot = providers.environmentVariable("ANDROID_HOME").orNull
+        ?: providers.environmentVariable("ANDROID_SDK_ROOT").orNull
+    sdkRoot?.let { File(it, "ndk/$version") }
+}
+if (validatedNdkVersion != null) {
+    val usable = validatedNdkDirectory?.let { dir ->
+        File(dir, "source.properties").isFile && File(dir, "ndk-build").exists()
+    } == true
+    check(usable) {
+        "ANDROID_NDK_VERSION=$validatedNdkVersion does not name a usable NDK " +
+            "under ${validatedNdkDirectory ?: "$ANDROID_HOME/ndk"}. Run " +
+            "scripts/setup-android-sdk.sh to install and validate it."
+    }
+}
+
 val buildsReleaseApks = requestedTaskNames.any {
     it.startsWith("assemble", ignoreCase = true) && it.endsWith("Release", ignoreCase = true)
 }
@@ -90,6 +123,9 @@ android {
     namespace = "com.nuvio.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
     compileSdkMinor = libs.versions.android.compileSdkMinor.get().toInt()
+    // Pin the NDK that CI validated rather than whichever one AGP finds. Both
+    // the CMake/lipmpv module and the cargo-ndk task use this.
+    validatedNdkVersion?.let { ndkVersion = it }
 
     signingConfigs {
         if (hasCompleteReleaseSigning) {

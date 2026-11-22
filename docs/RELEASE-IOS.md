@@ -10,8 +10,8 @@ synchronised from official NuvioMobile **0.5.5-beta** and NuvioMobile-Enhanced
 | App name | StreamBridge |
 | App bundle identifier | `com.streambridge.app` |
 | Widget bundle identifier | `com.streambridge.app.DownloadsWidgetExtension` |
-| Marketing version | `0.1.19` (`iosApp/Configuration/Version.xcconfig`) |
-| Build number | `119` |
+| Marketing version | `0.1.20` (`iosApp/Configuration/Version.xcconfig`) |
+| Build number | `120` |
 | Xcode project | `iosApp/iosApp.xcodeproj`, scheme `iosApp` |
 | Product | `StreamBridge.app` |
 | Distribution | `full` (`NUVIO_IOS_DISTRIBUTION=full`; CloudStream DEX execution is not supported on iOS) |
@@ -22,7 +22,7 @@ The StreamBridge version comes from
 packaged application does not report that version, is not named `StreamBridge`,
 or does not carry a `com.streambridge.app*` bundle identifier.
 
-0.1.19 is a preparation target, not a published release; artifact paths below are expected outputs, not verified downloads.
+0.1.20 is a preparation target, not a published release; artifact paths below are expected outputs, not verified downloads.
 
 ## Building locally
 
@@ -31,7 +31,7 @@ or does not carry a `com.streambridge.app*` bundle identifier.
 ./scripts/build-ios-ipa.sh              # unsigned sideload build
 ```
 
-Output: `build/ios-ipa/streambridge-0.1.19-full-release.ipa`.
+Output: `build/ios-ipa/streambridge-0.1.20-full-release.ipa`.
 
 Environment:
 
@@ -66,7 +66,7 @@ the archive downloaded and build-verified.
 
 `NuvioEngine` is kept only in the path and file names of the upstream engine
 artifact. The iOS application itself is named and versioned as
-StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.19), and
+StreamBridge (`StreamBridge.app`, `com.streambridge.app`, 0.1.20), and
 `scripts/build-ios-ipa.sh` fails if the packaged app reports anything else.
 
 ## Memory
@@ -152,7 +152,7 @@ pin). StreamBridge never ships Nuvio's version number as its own.
 ### Non-publishing production preflight
 
 The production release workflow can be dispatched with `preflight=true` on the
-candidate branch. It checks the v0.1.19 source identity without requiring a tag,
+candidate branch. It checks the v0.1.20 source identity without requiring a tag,
 builds signed Android APKs and an unsigned IPA, then downloads each platform’s
 artifacts into independent jobs to verify checksums, identity and signing state. Preflight never
 creates a tag, draft or public release; the normal release path still requires
