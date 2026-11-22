@@ -2,6 +2,7 @@
 
 package com.nuvio.app.features.player
 
+import android.app.Application
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.ByteArrayDataSource
@@ -9,10 +10,12 @@ import androidx.media3.datasource.DataSpec
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
 class BufferedReadDataSourceTest {
     @Test
     fun readsSmallAndLargeRequestsAndResetsAfterReopen() {

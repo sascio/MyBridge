@@ -55,6 +55,9 @@ class ExternalPlaybackProgressTest {
     fun infuseReturnWithoutDurationPersistsResumeWithoutMarkingWatched() = runBlocking {
         val result = infuseResult(positionSeconds = 1800, durationMs = null)
         recordExternalPlaybackProgress(result, fallbackSession = null)
+        // Clearing state intentionally discards pending writes; emulate the app's
+        // background flush before reloading from storage instead of racing it.
+        WatchProgressRepository.flushPendingWrites()
         WatchProgressRepository.clearLocalState()
         val entry = assertNotNull(WatchProgressRepository.progressForVideo("tt123"))
         assertEquals(1_800_000L, entry.lastPositionMs)
