@@ -195,3 +195,19 @@ number fields. It rejects invalid coordinates and out-of-range scores. The
 fork's shared personal-rating model stores integers, so a precise MDBList score
 is rounded to the nearest supported 1–10 value rather than represented with
 fractional precision; writes retain the existing fork API and tracking UI.
+
+## Official Android native allocator: unresolved binary integration
+
+Official 1.0.0 uses a different Media3 fork from the exact Enhanced tag.
+Official's `lib-common-release.aar` provides `NuvioEngineConfig` and its
+`lib-exoplayer-release.aar` provides `DefaultAllocatorNative` and
+`SampleDataQueueNative`. Enhanced and StreamBridge instead use the Enhanced
+`lib-exoplayer-release.aar` (SHA-256
+`5b4cf27f273c212b71e1413ec262fd0621f06ff327e6e14d32b7a09e437cf2bd`)
+and Maven Media3 common/datasource; the Official Exo AAR has SHA-256
+`d8c5a4357c4672c289164597d0eb1a5088daffdb1b1bdb94fcf5899fc4ad4a95`.
+The Official native allocator therefore cannot simply be enabled against the
+current Enhanced binaries. Combining the implementations requires reconciling
+the overlapping Media3 classes and validating the resulting ABI, playback,
+CloudStream and decoder behavior; no such integration or compatibility claim
+is made here. StreamBridge's native read-ahead is not the same allocator.

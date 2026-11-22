@@ -121,14 +121,10 @@ class StoreSignedIpaTest(unittest.TestCase):
                     z.writestr(prefix + '_CodeSignature/CodeResources', b'signed')
                     z.writestr(prefix + 'embedded.mobileprovision', b'profile')
             with self.assertRaises(ValueError): source.read_ipa_metadata(ipa)
-            info, _ = source.read_ipa_metadata(ipa, verified_signed=True)
-            self.assertEqual(info['CFBundleIdentifier'], mod.APP)
-
-    def test_store_workflow_binds_verified_digest_to_downloaded_bytes(self):
+    def test_store_workflow_only_accepts_unsigned_ipa(self):
         workflow = (ROOT / '.github/workflows/update-store-source.yml').read_text()
-        self.assertIn('python3 scripts/ios-signing.py verify', workflow)
-        self.assertIn('needs.verify-signed-ipa.outputs.sha256', workflow)
-        self.assertIn('steps.download.outputs.sha256', workflow)
-        self.assertIn('--verified-signed', workflow)
+        self.assertNotIn('needs: [verify-signed-ipa]', workflow)
+        self.assertNotIn('STREAMBRIDGE_IOS_TEAM_ID', workflow)
+        self.assertNotIn('--verified-signed', workflow)
 
 if __name__ == '__main__': unittest.main(verbosity=2)

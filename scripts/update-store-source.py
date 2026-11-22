@@ -6,12 +6,11 @@ MIT-compatible GPL-3.0 project) and adapted to StreamBridge: the source is
 validated against the StreamBridge application identity, and the release date and
 download URL always come from the actual published GitHub release.
 
-By default the script accepts only an unsigned StreamBridge IPA. Signed IPAs
-require --verified-signed, reserved for the workflow after independent macOS
-signature and provisioning verification:
+The script refuses to publish anything that is not a genuine unsigned
+StreamBridge IPA:
 
   * the IPA must contain exactly one application bundle
-  * signed IPAs need explicit prior verification by scripts/ios-signing.py
+  * the IPA must not be signed (no _CodeSignature entries)
   * CFBundleIdentifier must be the StreamBridge application identifier
   * CFBundleShortVersionString must equal the release version
   * the download URL must be HTTPS and end in .ipa
@@ -54,7 +53,6 @@ def parse_args() -> argparse.Namespace:
         default="",
         help="Refresh the source icon URL (e.g. pointing at the immutable release tag).",
     )
-    parser.add_argument("--verified-signed", action="store_true", help="Allow an IPA already independently verified on macOS")
     parser.add_argument("--output", type=Path)
     return parser.parse_args()
 
@@ -77,7 +75,7 @@ def read_source(path: Path) -> dict:
     return source
 
 
-def read_ipa_metadata(path: Path, verified_signed: bool = False) -> tuple[dict, dict[str, str]]:
+def read_ipa_metadata(path: Path) -> tuple[dict, dict[str, str]]:
     if not path.is_file():
         raise ValueError(f"IPA does not exist: {path}")
     with zipfile.ZipFile(path) as archive:
@@ -87,15 +85,8 @@ def read_ipa_metadata(path: Path, verified_signed: bool = False) -> tuple[dict, 
             raise ValueError(
                 f"IPA must contain exactly one application Info.plist, found {len(app_info_names)}"
             )
-        is_signed = any("/_CodeSignature/" in name for name in names)
-        if is_signed and not verified_signed:
-            raise ValueError("IPA must be unsigned unless independently verified")
-        if verified_signed:
-            app_root = app_info_names[0].removesuffix("Info.plist")
-            widget_root = app_root + "PlugIns/DownloadsWidgetExtension.appex/"
-            if not all(prefix + item in names for prefix in (app_root, widget_root)
-                       for item in ("_CodeSignature/CodeResources", "embedded.mobileprovision")):
-                raise ValueError("Verified signed IPA must contain both signed, provisioned bundles")
+        if any("/_CodeSignature/" in name for name in names):
+            raise ValueError("IPA must be unsigned")
         app_info = plistlib.loads(archive.read(app_info_names[0]))
         privacy: dict[str, str] = {}
         for name in names:
@@ -187,7 +178,7 @@ def write_source(path: Path, source: dict) -> None:
 def main() -> int:
     args = parse_args()
     source = read_source(args.source)
-    app_info, privacy = read_ipa_metadata(args.ipa, args.verified_signed)
+    app_info, privacy = read_ipa_metadata(args.ipa)
 
     bundle_identifier = require_string(app_info, "CFBundleIdentifier", "application Info.plist")
     if bundle_identifier != EXPECTED_BUNDLE_IDENTIFIER:

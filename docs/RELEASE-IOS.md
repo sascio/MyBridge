@@ -126,12 +126,8 @@ as a source in either app and StreamBridge appears as an installable,
 updatable application.
 
 The file is generated from an actual public release, never guessed in advance.
-The updater downloads the sole IPA and checks its size and GitHub SHA-256. For
-a signed IPA, a separate macOS job verifies the Apple signatures, profiles,
-team, bundle identifiers and version, and the updater checks the downloaded
-bytes have the same digest before creating an entry. The source update is not
-proof that a particular sideloading client can re-sign a signed IPA; that must
-be tested on a device. Existing older unsigned releases remain supported.
+The updater downloads the sole IPA, checks its size and GitHub SHA-256, and
+rejects signed or misidentified artifacts before creating an entry.
 
 ## Production distribution
 
