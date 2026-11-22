@@ -102,10 +102,15 @@ internal fun DataSource.Factory.withPlaybackBuffering(
     if (settings.vodDiskCacheEnabled) {
         // Low disk space or an unavailable cache must not prevent playback.
         PlaybackDiskCache.get(context, settings)?.let { diskCache ->
-            bufferedFactory = CacheDataSource.Factory()
+            val cachedFactory = CacheDataSource.Factory()
                 .setCache(diskCache)
                 .setUpstreamDataSourceFactory(plainFactory)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            // Official's buffered reader reduces small cache reads; keep it
+            // inside the selective factory so non-VOD and live streams bypass it.
+            bufferedFactory = DataSource.Factory {
+                BufferedReadDataSource(cachedFactory.createDataSource())
+            }
         }
     }
     val readAheadBytes = settings.nativeReadAheadBytes()

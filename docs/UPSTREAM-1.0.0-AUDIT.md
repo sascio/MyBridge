@@ -127,9 +127,9 @@ fork's different tracking interface. Simkl anime rating removal now uses the
 Official show's removal bucket; MDBList ratings now follow both cursor and
 offset pagination, reject repeated pages or an exhausted page limit rather
 than cache an incomplete response, and retain the older has-more-only format.
-The Official disk-space-based cache sizing is connected to StreamBridge's
-Android Exo disk cache, which bypasses the cache when space is too low. This
-is not a port of upstream's write sink, cache eviction lifecycle, or iOS cache.
+The Official disk-space-based cache sizing and buffered VOD reader are connected to
+StreamBridge's Android Exo disk cache, which bypasses the cache when space is too
+low. This is not a port of upstream's write sink, cache eviction lifecycle, or iOS cache.
 Real service and device playback validation remain necessary.
 
 ## Enhanced 1.0.0 opt-in assistant
