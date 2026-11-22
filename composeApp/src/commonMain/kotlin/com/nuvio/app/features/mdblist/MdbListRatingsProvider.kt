@@ -55,22 +55,11 @@ internal class MdbListRatingsProvider(
         lastFetch?.let { (cachedScope, fetchedAt, records) ->
             if (cachedScope == authScope && now - fetchedAt <= MDBLIST_RATINGS_REUSE_MS) return@withLock records
         }
-        val records = mutableListOf<TrackingRatingRecord>()
-        var offset = 0
-        for (page in 0 until MDBLIST_RATINGS_MAX_PAGES) {
-            val response = api.get(
-                "/sync/ratings",
-                query = mapOf("offset" to offset.toString(), "limit" to MDBLIST_RATINGS_PAGE_LIMIT.toString()),
-                scope = authScope,
-            )
+        val records = fetchMdbListRatingPages { query ->
+            val response = api.get("/sync/ratings", query = query, scope = authScope)
             store.checkScope(authScope)
-            val payload = json.parseToJsonElement(response.body.ifBlank { "{}" }).objectOrNull() ?: break
-            val pageRecords = parsePage(payload)
-            records += pageRecords
-            val pagination = payload["pagination"].objectOrNull()
-            val hasMore = (pagination?.get("has_more") as? JsonPrimitive)?.content?.toBooleanStrictOrNull() == true
-            if (!hasMore || pageRecords.isEmpty()) break
-            offset += MDBLIST_RATINGS_PAGE_LIMIT
+            json.parseToJsonElement(response.body.ifBlank { "{}" }).objectOrNull()
+                ?: throw TrackingRatingException("Invalid MDBList ratings response")
         }
         lastFetch = Triple(authScope, now, records)
         records
@@ -124,7 +113,46 @@ internal class MdbListRatingsProvider(
         return buildJsonObject { put(group, JsonArray(listOf(item))) }
     }
 
-    private fun parsePage(payload: JsonObject): List<TrackingRatingRecord> = buildList {
+    private fun scope(profileId: Int): MdbListAuthScope = store.scope().also {
+        if (it.profileId != profileId) throw CancellationException("MDBList profile changed")
+    }
+}
+
+// Supports both cursor and offset pages, without caching partial responses.
+internal suspend fun fetchMdbListRatingPages(fetch: suspend (Map<String, String>) -> JsonObject): List<TrackingRatingRecord> {
+    val records = mutableListOf<TrackingRatingRecord>()
+    var query = mapOf("offset" to "0", "limit" to MDBLIST_RATINGS_PAGE_LIMIT.toString())
+    val visited = mutableSetOf<Map<String, String>>()
+    repeat(MDBLIST_RATINGS_MAX_PAGES) {
+        if (!visited.add(query)) throw TrackingRatingException("MDBList ratings pagination repeated")
+        val payload = fetch(query)
+        if (listOf("movies", "shows", "seasons", "episodes").none(payload::containsKey)) {
+            throw TrackingRatingException("Invalid MDBList ratings response")
+        }
+        val items = parseMdbListRatingPage(payload)
+        val pagination = payload["pagination"].objectOrNull() ?: payload
+        // Older responses only provided has_more; retain the prior offset-based
+        // behavior when the request itself supplies an unambiguous offset.
+        val legacyMore = (pagination["has_more"] as? JsonPrimitive)?.content?.toBooleanStrictOrNull() == true
+        val legacyOffset = query["offset"]?.toIntOrNull()
+        val page = if (legacyMore && pagination.text("next_cursor") == null &&
+            pagination["offset"] == null && pagination["limit"] == null && legacyOffset != null
+        ) {
+            MdbListPage(items, nextOffset = legacyOffset + MDBLIST_RATINGS_PAGE_LIMIT)
+        } else {
+            mdbListPage(payload, items)
+        }
+        records += page.items
+        query = when {
+            page.nextCursor != null -> mapOf("cursor" to page.nextCursor, "limit" to MDBLIST_RATINGS_PAGE_LIMIT.toString())
+            page.nextOffset != null -> mapOf("offset" to page.nextOffset.toString(), "limit" to MDBLIST_RATINGS_PAGE_LIMIT.toString())
+            else -> return records
+        }
+    }
+    throw TrackingRatingException("MDBList ratings exceeded the page limit")
+}
+
+internal fun parseMdbListRatingPage(payload: JsonObject): List<TrackingRatingRecord> = buildList {
         payload["movies"].arrayOrEmpty().forEach { row ->
             val obj = row.objectOrNull() ?: return@forEach
             val rating = obj.intOrNull("rating") ?: return@forEach
@@ -158,10 +186,5 @@ internal class MdbListRatingsProvider(
         }
     }.filter { it.ids.hasAny }
 
-    private fun showIds(row: JsonObject, child: JsonObject): TrackingExternalIds =
-        (child["show"].objectOrNull() ?: row["show"].objectOrNull())?.get("ids").toTrackingExternalIds()
-
-    private fun scope(profileId: Int): MdbListAuthScope = store.scope().also {
-        if (it.profileId != profileId) throw CancellationException("MDBList profile changed")
-    }
-}
+private fun showIds(row: JsonObject, child: JsonObject): TrackingExternalIds =
+    (child["show"].objectOrNull() ?: row["show"].objectOrNull())?.get("ids").toTrackingExternalIds()

@@ -61,7 +61,7 @@ object SimklRatingsProvider : TrackingRatingProvider {
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
                 path = "/sync/ratings",
-                body = buildBody(target, rating).toString(),
+                body = buildSimklRatingBody(target, rating).toString(),
                 retryPolicy = SimklRetryPolicy.SYNC_WRITE,
             ),
         )
@@ -78,7 +78,7 @@ object SimklRatingsProvider : TrackingRatingProvider {
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
                 path = "/sync/ratings/remove",
-                body = buildBody(target, null).toString(),
+                body = buildSimklRatingBody(target, null).toString(),
                 retryPolicy = SimklRetryPolicy.SYNC_WRITE,
             ),
         )
@@ -86,22 +86,6 @@ object SimklRatingsProvider : TrackingRatingProvider {
         if (payload?.get("not_found").notFoundTotal() > 0) {
             throw TrackingRatingException("Simkl did not find this item")
         }
-    }
-
-    private fun buildBody(target: TrackingRatingTarget, rating: Int?): JsonObject {
-        if (target.scope !in supportedScopes) throw TrackingRatingException("Simkl cannot rate ${target.scope}")
-        val item = buildJsonObject {
-            rating?.let { put("rating", it) }
-            target.ids.toSimklJsonObjectOrNull()?.let { put("ids", it) }
-            target.title?.takeIf(String::isNotBlank)?.let { put("title", it) }
-            target.year?.let { put("year", it) }
-        }
-        val group = when {
-            target.scope == TrackingRatingScope.MOVIE -> "movies"
-            target.kind == TrackingMediaKind.ANIME -> "anime"
-            else -> "shows"
-        }
-        return buildJsonObject { put(group, JsonArray(listOf(item))) }
     }
 
     private fun parseRows(root: JsonElement): List<JsonObject> = when (root) {
@@ -124,4 +108,23 @@ object SimklRatingsProvider : TrackingRatingProvider {
     private fun checkProfile(profileId: Int) {
         if (profileId != ProfileRepository.activeProfileId) throw CancellationException("Simkl profile changed")
     }
+}
+
+// Adapted from Official 1.0.0: Simkl removes anime ratings from the shows bucket.
+internal fun buildSimklRatingBody(target: TrackingRatingTarget, rating: Int?): JsonObject {
+    if (target.scope !in setOf(TrackingRatingScope.MOVIE, TrackingRatingScope.SHOW)) {
+        throw TrackingRatingException("Simkl cannot rate ${target.scope}")
+    }
+    val item = buildJsonObject {
+        rating?.let { put("rating", it) }
+        target.ids.toSimklJsonObjectOrNull()?.let { put("ids", it) }
+        target.title?.takeIf(String::isNotBlank)?.let { put("title", it) }
+        target.year?.let { put("year", it) }
+    }
+    val group = when {
+        target.scope == TrackingRatingScope.MOVIE -> "movies"
+        target.kind == TrackingMediaKind.ANIME && rating != null -> "anime"
+        else -> "shows"
+    }
+    return buildJsonObject { put(group, JsonArray(listOf(item))) }
 }

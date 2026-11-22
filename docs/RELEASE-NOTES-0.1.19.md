@@ -14,6 +14,8 @@ StreamBridge version 0.1.19 (version code 119). Android package and iOS bundle:
 - CloudStream repository management includes bulk operations, collision checks, offline metadata retention and safer staged package replacement.
 - MDBList library sorting supports release-date ordering as well as added-date ordering.
 - Trakt library refresh requests are coalesced when Trakt is configured, and TorBox alternate hash responses can be matched to requested hashes. This release does not include Trakt credentials, so Trakt sign-in and sync are unavailable in this build.
+- MDBList personal ratings follow cursor and offset pages, and Simkl anime rating removal uses the show's removal endpoint.
+- Android's optional playback disk cache sizes itself against available space and bypasses caching when space is insufficient.
 - App-owned iOS downloads are excluded from system backups. System Back returns from an embedded show's downloads to the downloads list.
 - Profile GIF search can use the configured search proxy or, when none is configured, DuckDuckGo. The selected GIF is saved through the existing avatar editor.
 - Actor filmographies omit talk-show guest appearances while retaining hosts and ordinary acting credits.
