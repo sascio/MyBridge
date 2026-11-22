@@ -63,6 +63,7 @@ scripts/*
 !scripts/telegram_publish.py
 !scripts/telegram_auto.py
 !scripts/verify-release-target.sh
+!scripts/verify-enhanced-media3.py
 !scripts/update-store-source.py
 !scripts/optimize-app-assets.py
 iosApp/Configuration/DeviceSigning.local.json

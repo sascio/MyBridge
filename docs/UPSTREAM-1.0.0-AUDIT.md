@@ -196,7 +196,7 @@ fork's shared personal-rating model stores integers, so a precise MDBList score
 is rounded to the nearest supported 1–10 value rather than represented with
 fractional precision; writes retain the existing fork API and tracking UI.
 
-## Official Android native allocator: unresolved binary integration
+## Android Media3 selection for 0.1.19
 
 Official 1.0.0 uses a different Media3 fork from the exact Enhanced tag.
 Official's `lib-common-release.aar` provides `NuvioEngineConfig` and its
@@ -207,7 +207,26 @@ Official's `lib-common-release.aar` provides `NuvioEngineConfig` and its
 and Maven Media3 common/datasource; the Official Exo AAR has SHA-256
 `d8c5a4357c4672c289164597d0eb1a5088daffdb1b1bdb94fcf5899fc4ad4a95`.
 The Official native allocator therefore cannot simply be enabled against the
-current Enhanced binaries. Combining the implementations requires reconciling
-the overlapping Media3 classes and validating the resulting ABI, playback,
-CloudStream and decoder behavior; no such integration or compatibility claim
-is made here. StreamBridge's native read-ahead is not the same allocator.
+current Enhanced binaries. Its `Allocation` and sample queue use native buffers,
+and its `ByteBufferDataReader` support also spans the custom common, datasource,
+extractor and HLS modules. The AARs overlap Maven classes, so adding both forks
+would produce duplicate classes rather than a working combination.
+
+A bytecode comparison also found a decoder conflict: both video renderers carry
+the `mapDV7ToHevc` setting, but the Official renderer's decoder enumeration
+calls the four-argument `MediaCodecUtil.getAlternativeDecoderInfos` overload,
+which delegates with that mapping disabled. The Enhanced renderer passes the
+setting to the five-argument overload. The Official renderer additionally
+exposes a static `supportsFormat(Context, MediaCodecSelector, Format)` method
+that is absent from Enhanced's renderer. Swapping either whole renderer without
+considering these differences risks losing functionality or breaking binary
+compatibility.
+
+For 0.1.19, Enhanced is the selected consistent implementation: its ExoPlayer,
+UI and decoder AARs are pinned and verified by `scripts/verify-enhanced-media3.py`,
+with Maven Media3 common/datasource as in Enhanced. The Enhanced native
+read-ahead buffer and its heap-based Exo allocator remain in use; they are not
+Official's native Exo allocator. The compatible Official buffered cache reader
+is retained outside the Media3 binary classes. No Official Media3 AAR is mixed
+into the build. Playback and decoder behavior still require device validation;
+the targeted ports above do not claim complete upstream parity.

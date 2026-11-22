@@ -40,6 +40,7 @@ fail() { printf '::error::%s\n' "$*" >&2; exit 1; }
 [[ "${TAG}" == "${EXPECTED_TAG}" ]] || fail "Only ${EXPECTED_TAG} is authorized for this release task; got ${TAG}."
 [[ -f streambridge.version.properties ]] || fail "streambridge.version.properties is missing."
 [[ -f iosApp/Configuration/Version.xcconfig ]] || fail "Xcode version configuration is missing."
+python3 scripts/verify-enhanced-media3.py || fail "Enhanced 1.0.0 Media3 binary verification failed."
 
 property() {
   local key="$1" count value
