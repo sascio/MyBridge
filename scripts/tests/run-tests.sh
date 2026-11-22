@@ -199,6 +199,31 @@ for app in store["apps"]:
     assert names == sorted(names, key=key, reverse=True), f"{app['bundleIdentifier']} versions are not newest first: {names}"
 PY
 
+section "Gradle Kotlin DSL safety"
+
+# `$ANDROID_HOME` inside a Kotlin string is an interpolation, not a shell
+# variable: it broke the 0.1.19 build with "Unresolved reference 'ANDROID_HOME'"
+# at script compilation time. Comments are fine; string literals are not.
+run "no Kotlin DSL string interpolates an unresolved bare NAME variable" \
+  python3 - <<'PY'
+import pathlib, re
+bad = []
+for path in pathlib.Path(".").rglob("*.gradle.kts"):
+    if any(part in {".git", "build", ".gradle"} for part in path.parts):
+        continue
+    text = path.read_text(encoding="utf-8")
+    # Drop comments (line and block) before scanning for string literals.
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    text = re.sub(r"//.*", "", text)
+    for match in re.finditer(r'\$([A-Z][A-Z0-9_]{2,})\b', text):
+        bad.append(f"{path}:${match.group(1)}")
+if bad:
+    raise SystemExit("Bare uppercase interpolation in Kotlin DSL (write ${'$'}NAME only "
+                     "if it is a Kotlin symbol; use a string literal otherwise):\n"
+                     + "\n".join(sorted(set(bad))))
+print("no stray Kotlin DSL interpolations")
+PY
+
 section "CloudStream repository authorization"
 
 # The v0.1.19 regression: an install was refused with "Authorize this repository

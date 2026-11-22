@@ -110,7 +110,7 @@ if (validatedNdkVersion != null) {
     } == true
     check(usable) {
         "ANDROID_NDK_VERSION=$validatedNdkVersion does not name a usable NDK " +
-            "under ${validatedNdkDirectory ?: "$ANDROID_HOME/ndk"}. Run " +
+            "under ${validatedNdkDirectory ?: "<ANDROID_HOME>/ndk"}. Run " +
             "scripts/setup-android-sdk.sh to install and validate it."
     }
 }
