@@ -9,7 +9,6 @@ import com.nuvio.app.features.tracking.TrackingRatingScope
 import com.nuvio.app.features.tracking.TrackingRatingTarget
 import com.nuvio.app.features.tracking.arrayOrEmpty
 import com.nuvio.app.features.tracking.countersTotal
-import com.nuvio.app.features.tracking.intOrNull
 import com.nuvio.app.features.tracking.notFoundTotal
 import com.nuvio.app.features.tracking.objectOrNull
 import com.nuvio.app.features.tracking.toTrackingExternalIds
@@ -22,6 +21,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlin.math.roundToInt
 import kotlin.time.Clock
 
 private const val MDBLIST_RATINGS_PAGE_LIMIT = 5000
@@ -153,38 +153,39 @@ internal suspend fun fetchMdbListRatingPages(fetch: suspend (Map<String, String>
 }
 
 internal fun parseMdbListRatingPage(payload: JsonObject): List<TrackingRatingRecord> = buildList {
-        payload["movies"].arrayOrEmpty().forEach { row ->
-            val obj = row.objectOrNull() ?: return@forEach
-            val rating = obj.intOrNull("rating") ?: return@forEach
-            add(TrackingRatingRecord(TrackingRatingScope.MOVIE, obj["movie"].objectOrNull()?.get("ids").toTrackingExternalIds(), rating))
+    for ((name, scope) in listOf(
+        "movie" to TrackingRatingScope.MOVIE,
+        "show" to TrackingRatingScope.SHOW,
+        "season" to TrackingRatingScope.SEASON,
+        "episode" to TrackingRatingScope.EPISODE,
+    )) {
+        payload["${name}s"].arrayOrEmpty().forEach { element ->
+            val row = element.objectOrNull() ?: return@forEach
+            val target = row[name].objectOrNull() ?: row
+            val parent = when (scope) {
+                TrackingRatingScope.MOVIE, TrackingRatingScope.SHOW -> target
+                else -> row["show"].objectOrNull() ?: target["show"].objectOrNull() ?: return@forEach
+            }
+            // The fork's rating UI is integer-only; round a valid precise value
+            // to the nearest supported star rather than dropping the record.
+            val rating = sequenceOf("rating_precise", "rating")
+                .mapNotNull { row.text(it)?.toDoubleOrNull()?.takeIf { value -> value.isFinite() && value > 0.0 && value <= 10.0 } }
+                .firstOrNull()?.roundToInt()?.coerceIn(1, 10) ?: return@forEach
+            val season = when (scope) {
+                TrackingRatingScope.SEASON -> target.integer("number", "season")?.takeIf { it >= 0 } ?: return@forEach
+                TrackingRatingScope.EPISODE -> target.integer("season")?.takeIf { it >= 0 } ?: return@forEach
+                else -> null
+            }
+            val episode = if (scope == TrackingRatingScope.EPISODE) {
+                target.integer("number", "episode")?.takeIf { it > 0 } ?: return@forEach
+            } else null
+            val directIds = (parent["ids"] ?: parent).toTrackingExternalIds()
+            val aliases = runCatching { decodeMdbListIds(parent) }.getOrNull()
+            val ids = if (aliases == null) directIds else directIds.mergeMissing(TrackingExternalIds(
+                imdb = aliases.imdb, tmdb = aliases.tmdb, tvdb = aliases.tvdb?.toString(),
+                trakt = aliases.trakt, mdblist = aliases.mdblist,
+            ))
+            if (ids.hasAny) add(TrackingRatingRecord(scope, ids, rating, season, episode))
         }
-        payload["shows"].arrayOrEmpty().forEach { row ->
-            val obj = row.objectOrNull() ?: return@forEach
-            val rating = obj.intOrNull("rating") ?: return@forEach
-            add(TrackingRatingRecord(TrackingRatingScope.SHOW, obj["show"].objectOrNull()?.get("ids").toTrackingExternalIds(), rating))
-        }
-        payload["seasons"].arrayOrEmpty().forEach { row ->
-            val obj = row.objectOrNull() ?: return@forEach
-            val rating = obj.intOrNull("rating") ?: return@forEach
-            val season = obj["season"].objectOrNull() ?: return@forEach
-            val number = season.intOrNull("number") ?: return@forEach
-            add(TrackingRatingRecord(TrackingRatingScope.SEASON, showIds(obj, season), rating, season = number))
-        }
-        payload["episodes"].arrayOrEmpty().forEach { row ->
-            val obj = row.objectOrNull() ?: return@forEach
-            val rating = obj.intOrNull("rating") ?: return@forEach
-            val episode = obj["episode"].objectOrNull() ?: return@forEach
-            add(
-                TrackingRatingRecord(
-                    TrackingRatingScope.EPISODE,
-                    showIds(obj, episode),
-                    rating,
-                    season = episode.intOrNull("season") ?: return@forEach,
-                    episode = episode.intOrNull("number") ?: return@forEach,
-                ),
-            )
-        }
-    }.filter { it.ids.hasAny }
-
-private fun showIds(row: JsonObject, child: JsonObject): TrackingExternalIds =
-    (child["show"].objectOrNull() ?: row["show"].objectOrNull())?.get("ids").toTrackingExternalIds()
+    }
+}

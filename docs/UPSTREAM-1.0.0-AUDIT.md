@@ -183,3 +183,12 @@ to unmapped anime IDs. It caches successful results briefly, bounds response
 size and preserves coroutine cancellation. The SeriesGraph fallback currently
 uses an explicit TMDB ID rather than performing an extra cross-service ID lookup;
 real service results, device UI, and unusual anime numbering remain unverified.
+
+## Official 1.0.0 MDBList rating decoding
+
+The existing StreamBridge rating provider now accepts Official's flat and
+nested media rows, `rating_precise`, ID aliases and alternative season/episode
+number fields. It rejects invalid coordinates and out-of-range scores. The
+fork's shared personal-rating model stores integers, so a precise MDBList score
+is rounded to the nearest supported 1–10 value rather than represented with
+fractional precision; writes retain the existing fork API and tracking UI.

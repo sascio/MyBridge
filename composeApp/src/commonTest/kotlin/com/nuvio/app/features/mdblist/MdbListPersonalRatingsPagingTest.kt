@@ -49,6 +49,25 @@ class MdbListPersonalRatingsPagingTest {
     }
 
     @Test
+    fun preciseAndFlatRatingsAreAdaptedWithoutAcceptingInvalidCoordinates() {
+        val result = parseMdbListRatingPage(json("""{
+          "movies":[{"rating_precise":8.6,"imdbid":"tt123"}],
+          "seasons":[{"rating":"7.4","season":0,"show":{"ids":{"tmdbid":12}}}],
+          "episodes":[
+            {"rating_precise":0.5,"season":1,"episode":2,"show":{"ids":{"imdb":"tt123"}}},
+            {"rating":7,"season":-1,"episode":2,"show":{"ids":{"imdb":"tt123"}}},
+            {"rating":11,"season":1,"episode":3,"show":{"ids":{"imdb":"tt123"}}}
+          ]
+        }"""))
+        assertEquals(listOf(9, 7, 1), result.map { it.rating })
+        assertEquals("tt123", result[0].ids.imdb)
+        assertEquals(12L, result[1].ids.tmdb)
+        assertEquals(0, result[1].season)
+        assertEquals(1, result[2].season)
+        assertEquals(2, result[2].episode)
+    }
+
+    @Test
     fun paginationLimitDoesNotReturnPartialData(): Unit = runBlocking {
         var count = 0
         assertFailsWith<TrackingRatingException> {
