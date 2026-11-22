@@ -53,7 +53,12 @@ pins were changed without compatibility evidence.
 The specified Enhanced 1.0.0 snapshot is a Kotlin tree closely related to this
 fork. A path comparison found 833 identical, 92 changed, and two upstream-only
 commonMain Kotlin files, plus seven changed Android and three changed iOS files;
-these counts alone do not establish feature parity. StreamBridge-specific
+these counts alone do not establish feature parity. Comparing the previously
+recorded Enhanced `cdab5d66183ddfb927992d2715f3c12231fa2ceb` baseline to the
+1.0.0 tag shows the player recommendation and Simkl changes already adapted
+here; the iOS backing-scale fix is now included as well. StreamBridge retains
+its own episode artwork treatment and branding rather than replacing those
+with the upstream presentation or release metadata. StreamBridge-specific
 identity, integrations, security and behavior must be preserved while resolving
 differences. The separate CloudStream runtime audit references a later branch,
 not this tag.
