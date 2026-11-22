@@ -380,11 +380,29 @@ plugins {
     alias(libs.plugins.kotlinxSerialization)
 }
 
-// Robolectric resolves instrumented Android jars at test runtime. Maven Central's
-// canonical endpoint avoids the repo1.maven.org rate limits observed in CI; test
-// coverage and artifact coordinates remain unchanged.
+// Resolve the exact Robolectric 4.16 instrumented SDKs through Gradle's cached
+// dependency resolver, once per test task graph. Robolectric's own Maven fetcher
+// otherwise downloads at runtime and can retry the same 429 once per test class.
+// Keep these versions aligned with @Config SDKs 26, 28, 34 and 36 and with
+// DefaultSdkProvider in the pinned Robolectric version.
+val robolectricSdkVersions = listOf(
+    "8.0.0_r4-robolectric-r1-i7",
+    "9-robolectric-4913185-2-i7",
+    "14-robolectric-10818077-i7",
+    "16-robolectric-13921718-i7",
+)
+val robolectricSdkArtifacts = robolectricSdkVersions.map { sdkVersion ->
+    configurations.detachedConfiguration(
+        dependencies.create("org.robolectric:android-all-instrumented:$sdkVersion"),
+    ).apply { isTransitive = false }
+}
+val prepareRobolectricSdkJars = tasks.register<Copy>("prepareRobolectricSdkJars") {
+    from(robolectricSdkArtifacts)
+    into(layout.buildDirectory.dir("robolectric-sdks"))
+}
 tasks.withType<Test>().configureEach {
-    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+    dependsOn(prepareRobolectricSdkJars)
+    systemProperty("robolectric.dependency.dir", layout.buildDirectory.dir("robolectric-sdks").get().asFile.absolutePath)
 }
 
 val supabaseProps = Properties().apply {

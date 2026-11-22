@@ -39,7 +39,11 @@ for abi in arm64-v8a armeabi-v7a x86 x86_64; do
   [[ "$(printf '%s\n' "$certs" | grep -c 'certificate SHA-256 digest:')" == 1 ]] || { echo 'Expected exactly one APK signer' >&2; exit 1; }
   cert="$(printf '%s\n' "$certs" | sed -n 's/.*Signer #1 certificate SHA-256 digest:[[:space:]]*//p' | head -n1 | tr 'A-F' 'a-f' | tr -d ' :')"
   [[ "$cert" == "$expected_cert" ]] || { echo 'Unexpected APK signing certificate' >&2; exit 1; }
-  sha256sum "$apk"
+  checksum="$(sha256sum "$apk" | awk '{print $1}')"
+  echo "${checksum}  $(basename "$apk")"
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    echo "::notice title=Verified production APK::$(basename "$apk") SHA-256 ${checksum}; package com.streambridge.app; version 0.1.19 (119); signer ${cert}"
+  fi
 done
 if [[ "$2" == --android-only ]]; then
   echo "Downloaded Android APKs independently verified."
