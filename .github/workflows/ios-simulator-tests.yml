@@ -18,10 +18,6 @@ on:
         type: boolean
   workflow_dispatch:
     inputs:
-      inspect_run:
-        description: Prior Android CI run ID to inspect without running simulator tests
-        required: false
-        type: string
       cache_read_only:
         description: Restore shared caches without writing from this run
         required: false
@@ -35,51 +31,13 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
-  group: ios-simulator-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.inspect_run || 'test' }}
+  group: ios-simulator-tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  inspect-test-report:
-    if: ${{ inputs.inspect_run != '' }}
-    name: Inspect Android host test errors
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: Stream-Bridge-unit-test-report
-          run-id: ${{ inputs.inspect_run }}
-          github-token: ${{ github.token }}
-          path: report
-      - name: Surface artifact fetch diagnostics
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import html, re
-          seen = set()
-          for path in Path('report').rglob('*.html'):
-              data = html.unescape(path.read_text(errors='replace'))
-              if 'MavenArtifactFetcher' not in data:
-                  continue
-              for line in data.splitlines():
-                  line = re.sub(r'<[^>]+>', '', line).strip()
-                  if re.search(r'(HTTP response code|Failed to fetch|Caused by:.*(?:IOException|SSL|UnknownHost|ConnectException|FileNotFound))', line):
-                      line = re.sub(r'(https?://[^\s?<>]+)\?[^\s<>]+', r'\1?[redacted]', line)
-                      if line not in seen:
-                          seen.add(line)
-                          print('::notice::' + line[:500].replace('%', '%25'))
-                  if len(seen) >= 20:
-                      break
-              if len(seen) >= 20:
-                  break
-          if not seen:
-              raise SystemExit('No matching diagnostics in report')
-          PY
-
   ios-simulator-tests:
-    if: ${{ inputs.inspect_run == '' }}
     name: iOS simulator Kotlin tests
     runs-on: xcode-27
     timeout-minutes: 180

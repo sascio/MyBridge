@@ -7,6 +7,7 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
@@ -14,6 +15,13 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.io.StringReader
 import java.security.MessageDigest
 import java.util.Properties
+
+// Robolectric resolves instrumented Android jars at test runtime. Maven Central's
+// canonical endpoint avoids the repo1.maven.org rate limits observed in CI; test
+// coverage and artifact coordinates remain unchanged.
+tasks.withType<Test>().configureEach {
+    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+}
 
 abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:OutputDirectory
