@@ -179,6 +179,23 @@ jobs:
             exit 1
           fi
 
+      - name: Verify published release asset links
+        if: steps.ipa.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          while IFS= read -r url; do
+            [[ "$url" == https://github.com/${GITHUB_REPOSITORY}/releases/download/* ]] || {
+              echo "::error::Unexpected release asset URL: $url"
+              exit 1
+            }
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -L -r 0-0 --retry 3 --retry-delay 2 --max-time 120 "$url")"
+            if [[ "$code" != 200 && "$code" != 206 ]]; then
+              echo "::error::Release asset $url returned HTTP $code"
+              exit 1
+            fi
+            echo "Release asset reachable: $url"
+          done < <(jq -r '.assets[] | .browser_download_url' "${RUNNER_TEMP}/release.json")
+
       - name: Commit sideload source
         if: steps.ipa.outputs.skip != 'true'
         run: |
