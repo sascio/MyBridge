@@ -32,6 +32,11 @@ on:
       - 'scripts/tests/telegram-*.py'
   workflow_dispatch:
     inputs:
+      ipa_log_diagnostic:
+        description: Inspect progress of the active release IPA build
+        required: false
+        type: boolean
+        default: false
       upload_artifacts:
         description: Upload CI reports/APKs and allow CI issue updates
         required: false
@@ -74,9 +79,24 @@ env:
         (github.event_name == 'pull_request' && contains(github.event.pull_request.body, '<!-- ci:no-upload -->')) }}
 
 jobs:
+  ipa-progress-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.ipa_log_diagnostic == true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Report release build progress without dumping configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/137204957273/logs" > "$RUNNER_TEMP/ipa.log"
+          progress="$(grep -E '> Task :|\*\* BUILD (SUCCEEDED|FAILED) \*\*|BUILD (SUCCESSFUL|FAILED)' "$RUNNER_TEMP/ipa.log" | tail -12 | tr '\n' ';' || true)"
+          echo "::notice title=IPA build progress::${progress:-No Gradle or Xcode build stage has been logged}"
+
   build:
     name: Nuvio-core full Android APK
-    if: github.event_name != 'workflow_dispatch' || (inputs.telegram_readiness != true && inputs.telegram_state_verification != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == ''))
+    if: github.event_name != 'workflow_dispatch' || (inputs.ipa_log_diagnostic != true && inputs.telegram_readiness != true && inputs.telegram_state_verification != true && (inputs.telegram_cutover_mode == 'none' || inputs.telegram_cutover_mode == ''))
     runs-on: ubuntu-latest
     permissions:
       contents: read
