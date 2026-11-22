@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -22,11 +21,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,11 +36,6 @@ import com.nuvio.app.core.ui.NuvioSurfaceCard
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.cloudstream_pin
 import nuvio.composeapp.generated.resources.cloudstream_unpin
-import nuvio.composeapp.generated.resources.cloudstream_trust_title
-import nuvio.composeapp.generated.resources.cloudstream_trust_warning
-import nuvio.composeapp.generated.resources.cloudstream_authorize
-import nuvio.composeapp.generated.resources.cloudstream_revoke
-import nuvio.composeapp.generated.resources.cloudstream_cancel
 import nuvio.composeapp.generated.resources.cloudstream_hash_unverified
 import nuvio.composeapp.generated.resources.cloudstream_hash_unverifiable
 import nuvio.composeapp.generated.resources.cloudstream_hash_verified
@@ -78,21 +72,6 @@ internal fun CloudStreamExtensionDetail(
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var showTrustWarning by remember { mutableStateOf(false) }
-    if (showTrustWarning) {
-        AlertDialog(
-            onDismissRequest = { showTrustWarning = false },
-            title = { Text(stringResource(Res.string.cloudstream_trust_title)) },
-            text = { Text(stringResource(Res.string.cloudstream_trust_warning) + "\n\n" + extension.repositoryUrl) },
-            confirmButton = {
-                TextButton(onClick = {
-                    CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, true)
-                    showTrustWarning = false
-                }) { Text(stringResource(Res.string.cloudstream_authorize)) }
-            },
-            dismissButton = { TextButton(onClick = { showTrustWarning = false }) { Text(stringResource(Res.string.cloudstream_cancel)) } },
-        )
-    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -117,17 +96,19 @@ internal fun CloudStreamExtensionDetail(
         errorMessage?.takeIf { it.isNotBlank() }?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
+        // Authorization is the gate the installer checks, so it is always
+        // visible on this screen -- above the install controls, not buried in a
+        // menu -- and covers every extension the repository provides.
+        CloudStreamRepositoryAuthorizationCard(
+            repositoryUrl = extension.repositoryUrl,
+            authorized = trusted,
+        )
         InstallActions(
             extension = extension,
             onInstall = { CloudStreamExtensionsRepository.installExtension(extension.id) },
             onUninstall = { CloudStreamExtensionsRepository.removeExtension(extension.id) },
+            authorized = trusted,
         )
-        TextButton(onClick = {
-            if (trusted) CloudStreamExtensionsRepository.setRepositoryTrusted(extension.repositoryUrl, false)
-            else showTrustWarning = true
-        }) {
-            Text(stringResource(if (trusted) Res.string.cloudstream_revoke else Res.string.cloudstream_authorize))
-        }
 
         TextButton(onClick = { CloudStreamExtensionsRepository.setExtensionPinned(extension, !extension.pinned) }) {
             Text(stringResource(if (extension.pinned) Res.string.cloudstream_unpin else Res.string.cloudstream_pin))
@@ -137,8 +118,12 @@ internal fun CloudStreamExtensionDetail(
         extension.sources.forEach { source ->
             SourceCard(
                 source = source,
-                // Enabling is only meaningful once the package is on disk.
-                packageInstalled = extension.installStatus.isInstalled && trusted,
+                // Enabling is only meaningful once the package is on disk. The
+                // repository authorization is a separate gate enforced by
+                // setSourceEnabled, so an unauthorized repository still shows a
+                // switch that explains itself rather than one that silently
+                // does nothing.
+                packageInstalled = extension.installStatus.isInstalled,
                 onEnabledChange = { enabled ->
                     scope.launch { CloudStreamExtensionsRepository.setSourceEnabled(source.id, enabled) }
                 },

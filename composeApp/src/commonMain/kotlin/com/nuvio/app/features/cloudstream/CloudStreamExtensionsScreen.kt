@@ -48,6 +48,7 @@ import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.cloudstream_authorize
 import nuvio.composeapp.generated.resources.cloudstream_cancel
 import nuvio.composeapp.generated.resources.cloudstream_save
 import nuvio.composeapp.generated.resources.cloudstream_last_refresh
@@ -63,6 +64,7 @@ import nuvio.composeapp.generated.resources.cloudstream_bulk_disable
 import nuvio.composeapp.generated.resources.cloudstream_bulk_progress
 import nuvio.composeapp.generated.resources.cloudstream_bulk_failure
 import nuvio.composeapp.generated.resources.cloudstream_edit
+import nuvio.composeapp.generated.resources.cloudstream_revoke
 import nuvio.composeapp.generated.resources.cloudstream_search
 import nuvio.composeapp.generated.resources.cloudstream_filter_all
 import nuvio.composeapp.generated.resources.cloudstream_filter_language
@@ -76,6 +78,7 @@ import nuvio.composeapp.generated.resources.cloudstream_action_install
 import nuvio.composeapp.generated.resources.cloudstream_action_retry
 import nuvio.composeapp.generated.resources.cloudstream_action_uninstall
 import nuvio.composeapp.generated.resources.cloudstream_action_update
+import nuvio.composeapp.generated.resources.cloudstream_install_needs_authorization
 import nuvio.composeapp.generated.resources.cloudstream_install_unsupported
 import nuvio.composeapp.generated.resources.cloudstream_authors_format
 import nuvio.composeapp.generated.resources.cloudstream_empty_description
@@ -127,6 +130,18 @@ internal fun CloudStreamExtensionsPageContent(
         uiState.extensions.firstOrNull { it.id == selectedExtensionId }
     }
 
+    var authorizingUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    authorizingUrl?.let { url ->
+        CloudStreamTrustDialog(
+            repositoryUrl = url,
+            onDismiss = { authorizingUrl = null },
+            onConfirm = {
+                CloudStreamExtensionsRepository.setRepositoryTrusted(url, true)
+                authorizingUrl = null
+            },
+        )
+    }
+
     // Detail screen for one extension, with its own Sources list.
     if (selectedExtension != null) {
         CloudStreamExtensionDetail(
@@ -151,6 +166,18 @@ internal fun CloudStreamExtensionsPageContent(
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_overview))
         OverviewCard(overview = uiState.overview)
+
+        // The install path refuses an unauthorized repository. Previously that
+        // refusal was only a sentence appended to the add-repository form, far
+        // from the button the user pressed and with no action attached. Keep it
+        // where it belongs: an error banner that names the repository and
+        // carries the authorization action itself.
+        uiState.unauthorizedRepositoryUrl?.let { blockedUrl ->
+            AuthorizationRequiredCard(
+                url = blockedUrl,
+                onAuthorize = { authorizingUrl = blockedUrl },
+            )
+        }
 
         NuvioSectionLabel(text = stringResource(Res.string.cloudstream_section_repository))
         AddRepositoryCard(
@@ -183,15 +210,34 @@ internal fun CloudStreamExtensionsPageContent(
         )
 
         uiState.repositories.forEach { repository ->
+            val authorized = uiState.trustedRepositories.any { sameCloudStreamRepositoryUrl(it, repository.url) }
             NuvioSurfaceCard {
                 Text(repository.name, style = MaterialTheme.typography.titleMedium)
                 Text(repository.url, style = MaterialTheme.typography.bodySmall)
                 Text(stringResource(Res.string.cloudstream_repository_count, repository.plugins.size))
                 repository.refreshedAtEpochMs?.let { Text(stringResource(Res.string.cloudstream_last_refresh, formatLocalDateTime(it)), style = MaterialTheme.typography.bodySmall) }
                 repository.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                // Authorization lives here as well as on every extension's
+                // details screen: the gate the installer enforces must be
+                // reachable from the repository itself, whichever entry point
+                // the user starts from.
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CloudStreamRepositoryAuthorizationChip(authorized = authorized)
+                    if (!authorized) {
+                        TextButton(onClick = { authorizingUrl = repository.url }) {
+                            Text(stringResource(Res.string.cloudstream_authorize))
+                        }
+                    }
+                }
                 Row {
                     TextButton(onClick = { editingUrl = repository.url; repositoryUrl = repository.url }) {
                         Text(stringResource(Res.string.cloudstream_edit))
+                    }
+                    if (authorized) {
+                        TextButton(onClick = { CloudStreamExtensionsRepository.setRepositoryTrusted(repository.url, false) }) {
+                            Text(stringResource(Res.string.cloudstream_revoke))
+                        }
                     }
                     TextButton(onClick = { CloudStreamExtensionsRepository.removeRepository(repository.url) }) {
                         Text(stringResource(Res.string.cloudstream_action_remove))
@@ -258,6 +304,9 @@ internal fun CloudStreamExtensionsPageContent(
             else -> ordered.forEach { extension ->
                 ExtensionCard(
                     extension = extension,
+                    authorized = uiState.trustedRepositories.any {
+                        sameCloudStreamRepositoryUrl(it, extension.repositoryUrl)
+                    },
                     onClick = { selectedExtensionId = extension.id },
                     onInstall = { CloudStreamExtensionsRepository.installExtension(extension.id) },
                     onUninstall = { CloudStreamExtensionsRepository.removeExtension(extension.id) },
@@ -443,6 +492,7 @@ private fun EmptyStateCard() {
 @Composable
 private fun ExtensionCard(
     extension: CloudStreamExtension,
+    authorized: Boolean,
     onClick: () -> Unit,
     onInstall: () -> Unit = {},
     onUninstall: () -> Unit = {},
@@ -538,6 +588,7 @@ private fun ExtensionCard(
             extension = extension,
             onInstall = onInstall,
             onUninstall = onUninstall,
+            authorized = authorized,
         )
     }
 }
@@ -554,6 +605,7 @@ internal fun InstallActions(
     extension: CloudStreamExtension,
     onInstall: () -> Unit,
     onUninstall: () -> Unit,
+    authorized: Boolean = true,
 ) {
     if (!extension.plugin.isExecutable) {
         Spacer(modifier = Modifier.height(8.dp))
@@ -566,6 +618,17 @@ internal fun InstallActions(
     }
 
     Spacer(modifier = Modifier.height(10.dp))
+    // Installing from an unauthorized repository is refused by the installer.
+    // Saying so here, next to the controls, keeps the refusal and the reason in
+    // the same place instead of surfacing only as a transient error line.
+    if (!authorized) {
+        Text(
+            text = stringResource(Res.string.cloudstream_install_needs_authorization),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),

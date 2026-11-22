@@ -94,50 +94,18 @@ jobs:
 
       - name: Set up Android SDK
         run: |
-          set -x
-          exec > >(tee -a gradle-build.log) 2>&1
-          echo "ANDROID_HOME=${ANDROID_HOME:-unset} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          ls "$SDK" || true
-          ls "$SDK/platforms" || true
-          SDKMANAGER="$(command -v sdkmanager || echo "$SDK/cmdline-tools/latest/bin/sdkmanager")"
-          echo "sdkmanager=$SDKMANAGER"
-          "$SDKMANAGER" --version
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-
-          # The runner image ships minor-versioned platforms (android-37.0,
-          # android-37.1, ...); the unsuffixed "platforms;android-37" package
-          # no longer exists, so installing it hard-fails the job. AGP resolves
-          # compileSdk=37 + compileSdkMinor=0 to android-37.0, which is already
-          # present, so only install what is genuinely missing.
-          PLATFORM="android-${ANDROID_COMPILE_SDK}.${ANDROID_COMPILE_SDK_MINOR}"
-          if [ -d "$SDK/platforms/$PLATFORM" ]; then
-            echo "platform $PLATFORM already installed"
-          else
-            "$SDKMANAGER" --install "platforms;$PLATFORM"
-          fi
-          if [ -d "$SDK/build-tools/${ANDROID_BUILD_TOOLS}" ]; then
-            echo "build-tools ${ANDROID_BUILD_TOOLS} already installed"
-          else
-            "$SDKMANAGER" --install "build-tools;${ANDROID_BUILD_TOOLS}"
-          fi
-
-          # :androidApp builds the optional libmpv/libass JNI surface through
-          # CMake. AGP needs both that exact CMake version and an NDK; the
-          # runner image usually has them, so only install what is missing.
-          if [ -d "$SDK/cmake/${ANDROID_CMAKE_VERSION}" ]; then
-            echo "cmake ${ANDROID_CMAKE_VERSION} already installed"
-          else
-            "$SDKMANAGER" --install "cmake;${ANDROID_CMAKE_VERSION}"
-          fi
-
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          set -o pipefail
+          # Validates every component AGP needs, repairs an NDK directory that is
+          # not a real NDK (the f41ea7a CXX1101 failure), and drops sdkmanager's
+          # corrupt download cache instead of reusing it. See
+          # scripts/setup-android-sdk.sh for the full rationale.
+          scripts/setup-android-sdk.sh 2>&1 | tee -a gradle-build.log
         env:
           ANDROID_COMPILE_SDK: '37'
           ANDROID_COMPILE_SDK_MINOR: '1'
           ANDROID_BUILD_TOOLS: '36.0.0'
           ANDROID_CMAKE_VERSION: '3.22.1'
+          ANDROID_NDK_VERSION: '28.2.13676358'
 
       # Upstream 0.6.6 compiles the `native/` Cargo workspace into the APK with
       # cargo-ndk (seek-bar thumbnails, Matroska/MP4 container indexes). The

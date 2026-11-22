@@ -41,6 +41,14 @@ if ! "${SCRIPT_DIR}/release-api-test.sh"; then
   failures=$((failures + 1))
 fi
 
+section "Android SDK provisioning"
+# The f41ea7a build failed before running a single test because the runner's
+# NDK directory was not an NDK. This drives the repair script against a fake
+# SDK, with no network, JDK or real SDK.
+if ! "${SCRIPT_DIR}/setup-android-sdk-test.sh"; then
+  failures=$((failures + 1))
+fi
+
 section "Telegram release announcement"
 # The announcement tests parse the workflow to check its own guardrails; PyYAML
 # is already present on GitHub's ubuntu runners. Without it those checks skip
@@ -135,8 +143,8 @@ run "draft releases and assets are handled by ID rather than tag-based gh releas
            grep -q "scripts/release-api.sh ensure-asset" .github/workflows/release-draft.yml &&
            ! grep -qE "^[[:space:]]*gh release (view|upload|edit)([[:space:]]|$)" .github/workflows/release-draft.yml'
 
-run "release gate accepts the 0.1.19 source identity" \
-  bash -c 'scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)"'
+run "release gate accepts the 0.1.20 source identity" \
+  bash -c 'scripts/verify-release-target.sh --tag v0.1.20 --commit "$(git rev-parse HEAD)"'
 
 run "release draft requires both Android and iOS builds" \
   python3 - <<'PYTEST'
@@ -159,7 +167,8 @@ PYTEST
 
 run "release gate rejects other version tags" \
   bash -c '! scripts/verify-release-target.sh --tag v0.1.18 --commit "$(git rev-parse HEAD)" &&
-           ! scripts/verify-release-target.sh --tag v0.1.20 --commit "$(git rev-parse HEAD)"'
+           ! scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)" &&
+           ! scripts/verify-release-target.sh --tag v0.1.21 --commit "$(git rev-parse HEAD)"'
 
 section "store.json"
 
@@ -190,13 +199,133 @@ for app in store["apps"]:
     assert names == sorted(names, key=key, reverse=True), f"{app['bundleIdentifier']} versions are not newest first: {names}"
 PY
 
+section "Gradle Kotlin DSL safety"
+
+# `$ANDROID_HOME` inside a Kotlin string is an interpolation, not a shell
+# variable: it broke the 0.1.19 build with "Unresolved reference 'ANDROID_HOME'"
+# at script compilation time. Comments are fine; string literals are not.
+run "no Kotlin DSL string interpolates an unresolved bare NAME variable" \
+  python3 - <<'PY'
+import pathlib, re
+bad = []
+for path in pathlib.Path(".").rglob("*.gradle.kts"):
+    if any(part in {".git", "build", ".gradle"} for part in path.parts):
+        continue
+    text = path.read_text(encoding="utf-8")
+    # Drop comments (line and block) before scanning for string literals.
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    text = re.sub(r"//.*", "", text)
+    for match in re.finditer(r'\$([A-Z][A-Z0-9_]{2,})\b', text):
+        bad.append(f"{path}:${match.group(1)}")
+if bad:
+    raise SystemExit("Bare uppercase interpolation in Kotlin DSL (write ${'$'}NAME only "
+                     "if it is a Kotlin symbol; use a string literal otherwise):\n"
+                     + "\n".join(sorted(set(bad))))
+print("no stray Kotlin DSL interpolations")
+PY
+
+section "CloudStream repository authorization"
+
+# The v0.1.19 regression: an install was refused with "Authorize this repository
+# in extension details before installing." while the details screen offered no
+# authorization action. These checks pin the contract that fixed it, so the gate
+# can never again exist without a visible way to satisfy it. The Kotlin
+# semantics themselves are covered by CloudStreamRepositoryTrustTest; this is the
+# wiring guard that runs without a JDK.
+run "authorization is a visible action, not only an error string" \
+  python3 - <<'PY'
+import pathlib, re, xml.etree.ElementTree as ET
+
+cloud = pathlib.Path("composeApp/src/commonMain/kotlin/com/nuvio/app/features/cloudstream")
+detail = (cloud / "CloudStreamExtensionDetail.kt").read_text(encoding="utf-8")
+screen = (cloud / "CloudStreamExtensionsScreen.kt").read_text(encoding="utf-8")
+trust = (cloud / "CloudStreamRepositoryTrust.kt").read_text(encoding="utf-8")
+repo = (cloud / "CloudStreamExtensionsRepository.kt").read_text(encoding="utf-8")
+models = (cloud / "CloudStreamUiModels.kt").read_text(encoding="utf-8")
+installation = (cloud / "CloudStreamInstallation.kt").read_text(encoding="utf-8")
+
+# 1. The details screen renders the authorization surface. In v0.1.19 the only
+#    control was a bare TextButton whose label was easy to miss, and the refusal
+#    text pointed at a screen that showed no explicit state.
+assert "CloudStreamRepositoryAuthorizationCard(" in detail, "details screen has no authorization card"
+assert "authorized = trusted" in detail, "details screen does not pass the authorization state"
+assert "CloudStreamRepositoryAuthorizationCard(" in trust, "authorization card component is missing"
+
+# 2. The card offers the action itself, with a confirmation that names the
+#    repository, and a revoke path once authorized.
+assert "CloudStreamTrustDialog(" in trust
+assert "setRepositoryTrusted(repositoryUrl, true)" in trust
+assert "setRepositoryTrusted(repositoryUrl, false)" in trust
+assert "cloudstream_trust_confirm_scope" in trust
+
+# 3. Repositories are manageable from the list too: the gate is reachable
+#    without opening an extension first.
+assert "CloudStreamRepositoryAuthorizationChip(" in screen, "repository cards show no authorization state"
+assert "authorizingUrl = repository.url" in screen, "repository cards have no authorize action"
+assert "CloudStreamTrustDialog(" in screen, "repository-level authorize action does not confirm"
+
+# 4. A refusal is surfaced as an actionable banner, not appended to an unrelated
+#    form, and carries the button that resolves it.
+assert "AuthorizationRequiredCard(" in screen, "no actionable banner for a refused install"
+assert "unauthorizedRepositoryUrl" in models, "blocked repository is not derived"
+assert "AuthorizationRequiredCard(" in trust
+assert "cloudstream_authorization_required_title" in trust
+
+# 5. Explicit, per-repository consent is preserved end to end: adding a
+#    repository still does not authorize it, and the gate checks the configured
+#    URL plus the stored key (never a global "trust everything" flag).
+assert "REPOSITORY_UNAUTHORIZED" in installation, "refusal is not typed distinctly"
+# The container itself may use UNKNOWN for unrelated failures; the install
+# refusal path specifically must carry the typed authorization error.
+guard = repo[repo.index("if (!isRepositoryTrusted(extension.repositoryUrl))"):]
+guard = guard[:guard.index("if (!CloudStreamPackageInstaller.supportsInstallation)")]
+assert "REPOSITORY_UNAUTHORIZED" in guard, "install refusal still reports an untyped error"
+assert "cloudStreamRepositoryAuthorized(" in repo, "authorization check is not shared"
+assert "configuredUrls.any { sameCloudStreamRepositoryUrl(it, repositoryUrl) }" in repo, \
+    "authorization is not tied to a configured repository URL"
+assert "cloudStreamTrustKey(" in repo
+# No blanket trust: authorization must never be derived from repository count.
+assert "trusted = true" not in repo, "authorization is granted implicitly"
+assert "isRepositoryTrusted" in repo and "setRepositoryTrusted" in repo
+
+# 6. Every new user-facing string used by the UI exists in the default locale.
+strings = {item.get("name") for item in ET.parse(
+    "composeApp/src/commonMain/composeResources/values/strings.xml").getroot().findall("string")}
+for source, name in [(trust, "trust"), (screen, "screen"), (detail, "detail")]:
+    for resource in re.findall(r"Res\.string\.(cloudstream_[A-Za-z0-9_]+)", source):
+        assert resource in strings, f"{name} references undefined string {resource}"
+print("authorization wiring verified")
+PY
+
+run "authorization stays explicit per repository in the tests" \
+  python3 - <<'PY'
+import pathlib
+source = pathlib.Path(
+    "composeApp/src/commonTest/kotlin/com/nuvio/app/features/cloudstream/"
+    "CloudStreamRepositoryTrustTest.kt").read_text(encoding="utf-8")
+# The acceptance criteria: authorized repositories install, unauthorized ones are
+# rejected, one grant covers every extension of that repository, and a key for a
+# repository that is no longer configured grants nothing.
+for required in (
+    "addingARepositoryDoesNotAuthorizeIt",
+    "explicitAuthorizationIsRecognisedForTheConfiguredUrl",
+    "authorizationCoversEveryExtensionOfTheSameRepository",
+    "aDifferentRepositoryStaysUnauthorized",
+    "anAuthorizationKeyForAnUnconfiguredRepositoryGrantsNothing",
+    "installRefusalNamesAnUnauthorizedRepositoryAndCarriesTheAction",
+    "authorizingEveryRepositoryClearsThePrompt",
+):
+    assert required in source, f"missing authorization test: {required}"
+print("authorization tests present")
+PY
+
 section "Version wiring"
 
-run "README, version properties and Xcode agree on 0.1.19 / 119" \
+run "README, version properties and Xcode agree on 0.1.20 / 120" \
   python3 - <<'PYTEST'
 props = dict(line.split("=", 1) for line in open("streambridge.version.properties", encoding="utf-8").read().splitlines() if line and not line.startswith("#"))
 name, code = props["STREAMBRIDGE_VERSION_NAME"].strip(), props["STREAMBRIDGE_VERSION_CODE"].strip()
-assert (name, code) == ("0.1.19", "119"), (name, code)
+assert (name, code) == ("0.1.20", "120"), (name, code)
 readme = open("README.md", encoding="utf-8").read()
 assert f"version <strong>{name}</strong> ({code})" in readme
 xcconfig = open("iosApp/Configuration/Version.xcconfig", encoding="utf-8").read()
@@ -204,7 +333,7 @@ assert f"MARKETING_VERSION={name}" in xcconfig
 assert f"CURRENT_PROJECT_VERSION={code}" in xcconfig
 # Retargeted only to the requested version; release execution still verifies
 # the exact tag commit, signing, notes and generated asset digests.
-assert 'readonly EXPECTED_TAG="v0.1.19"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
+assert 'readonly EXPECTED_TAG="v0.1.20"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
 PYTEST
 
 run "no watch-party invite string mentions Nuvio branding" \

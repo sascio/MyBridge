@@ -118,6 +118,23 @@ data class CloudStreamUiState(
 
     val hasRepositories: Boolean get() = repositories.isNotEmpty()
 
+    /**
+     * The repository named by the most recent authorization refusal.
+     *
+     * Derived from the trusted set rather than stored: a repository that was
+     * authorized since the refusal cannot keep prompting, and clearing the
+     * error clears the prompt. Null when nothing is blocked.
+     */
+    val unauthorizedRepositoryUrl: String?
+        get() {
+            val blocked = errorMessage == unauthorizedInstallMessage ||
+                errorMessage == unauthorizedEnableMessage
+            if (!blocked) return null
+            return repositories
+                .map { it.url }
+                .firstOrNull { url -> trustedRepositories.none { sameCloudStreamRepositoryUrl(it, url) } }
+        }
+
     /** Repositories that could not be read, for the problem banner. */
     val failedRepositories: List<CloudStreamRepository>
         get() = repositories.filter { it.compatibility == CloudStreamCompatibility.FAILED }

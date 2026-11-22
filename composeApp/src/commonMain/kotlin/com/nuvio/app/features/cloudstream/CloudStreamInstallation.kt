@@ -78,6 +78,15 @@ enum class CloudStreamInstallError {
     /** The extension is no longer present in any configured repository. */
     REPOSITORY_GONE,
 
+    /**
+     * The repository has not been authorized yet.
+     *
+     * Deliberately distinct from [UNKNOWN]: the UI offers the authorization
+     * action for exactly this case, so the user is never left with an error
+     * sentence and no way to act on it.
+     */
+    REPOSITORY_UNAUTHORIZED,
+
     /** Anything else; the message carries the detail. */
     UNKNOWN,
 }

@@ -14,11 +14,11 @@ class UnsignedIpaTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / 'test.ipa'
-    def write(self, signed=False, widget=True, version='0.1.19'):
+    def write(self, signed=False, widget=True, version='0.1.20'):
         with zipfile.ZipFile(self.path, 'w') as z:
             for root, identifier in [('Payload/StreamBridge.app/', 'com.streambridge.app'),
                                      ('Payload/StreamBridge.app/PlugIns/DownloadsWidgetExtension.appex/', 'com.streambridge.app.DownloadsWidgetExtension')][:2 if widget else 1]:
-                z.writestr(root + 'Info.plist', plistlib.dumps({'CFBundleIdentifier': identifier, 'CFBundleShortVersionString': version, 'CFBundleVersion': '119', 'CFBundleExecutable': 'bin'}))
+                z.writestr(root + 'Info.plist', plistlib.dumps({'CFBundleIdentifier': identifier, 'CFBundleShortVersionString': version, 'CFBundleVersion': '120', 'CFBundleExecutable': 'bin'}))
                 z.writestr(root + 'bin', b'executable')
             if signed: z.writestr('Payload/StreamBridge.app/_CodeSignature/CodeResources', b'signed')
     def test_unsigned(self):
