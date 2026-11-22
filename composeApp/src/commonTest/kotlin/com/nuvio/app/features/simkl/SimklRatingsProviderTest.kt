@@ -5,6 +5,7 @@ import com.nuvio.app.features.tracking.TrackingMediaKind
 import com.nuvio.app.features.tracking.TrackingRatingException
 import com.nuvio.app.features.tracking.TrackingRatingScope
 import com.nuvio.app.features.tracking.TrackingRatingTarget
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -29,6 +30,29 @@ class SimklRatingsProviderTest {
         assertTrue("shows" in removed)
         assertFalse("rating" in removed.getValue("shows").jsonArray.single().jsonObject)
         assertFalse("anime" in removed)
+    }
+
+    @Test
+    fun cachedAnimeEntryEnrichesOrdinaryShowAndMovieTargetsWithoutGuessingOnAmbiguity() {
+        val media = SimklMedia(title = "Anime", year = 2024, ids = mapOf(
+            "imdb" to JsonPrimitive("tt123"), "simkl" to JsonPrimitive(42),
+        ))
+        val show = SimklLibraryEntry(mediaType = SimklMediaType.ANIME, show = media)
+        val showTarget = TrackingRatingTarget(TrackingRatingScope.SHOW, TrackingMediaKind.SHOW, TrackingExternalIds(imdb = "tt123"))
+        val resolved = resolveSimklRatingTarget(showTarget, listOf(show))
+        assertEquals(TrackingMediaKind.ANIME, resolved.kind)
+        assertEquals(42L, resolved.ids.simkl)
+        assertEquals("Anime", resolved.title)
+        assertTrue("anime" in buildSimklRatingBody(resolved, 8))
+        assertTrue("shows" in buildSimklRatingBody(resolved, null))
+        assertEquals(showTarget, resolveSimklRatingTarget(showTarget, listOf(show, show)))
+
+        val animeMovie = show.copy(animeType = "movie")
+        val movieTarget = showTarget.copy(scope = TrackingRatingScope.MOVIE, kind = TrackingMediaKind.MOVIE)
+        val resolvedMovie = resolveSimklRatingTarget(movieTarget, listOf(animeMovie))
+        assertTrue("anime" in buildSimklRatingBody(resolvedMovie, 8))
+        assertTrue("shows" in buildSimklRatingBody(resolvedMovie, null))
+        assertEquals(movieTarget, resolveSimklRatingTarget(movieTarget, listOf(show)))
     }
 
     @Test
