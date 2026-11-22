@@ -19,6 +19,7 @@ StreamBridge version 0.1.19 (version code 119). Android package and iOS bundle:
 - App-owned iOS downloads are excluded from system backups. System Back returns from an embedded show's downloads to the downloads list.
 - Profile GIF search can use the configured search proxy or, when none is configured, DuckDuckGo. The selected GIF is saved through the existing avatar editor.
 - Actor filmographies omit talk-show guest appearances while retaining hosts and ordinary acting credits.
+- An optional title assistant can use your OpenRouter key and chosen model. The key and conversation are kept only while the dialog is open; sending shares title metadata and messages with the external service and model provider.
 
 ## Release assets
 

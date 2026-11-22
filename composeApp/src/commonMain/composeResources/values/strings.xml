@@ -26,7 +26,7 @@
     <string name="privacy_policy_network_addons_title">Addons and plugin repositories</string>
     <string name="privacy_policy_network_addons_body">Catalog and stream requests go to the Stremio-compatible addons and Nuvio-compatible plugin repositories you add yourself. StreamBridge sends these servers your IP address and the catalog or stream queries you make. StreamBridge does not operate these services and does not preseed any of them.</string>
     <string name="privacy_policy_network_optional_title">Optional metadata and tracking services</string>
-    <string name="privacy_policy_network_optional_body">TMDB, MDBList, and OMDb enrichment, plus Trakt and Simkl syncing, are inactive until you provide your own API keys or complete sign-in. Once configured, those services receive your queries and, for Trakt and Simkl, your watch activity.</string>
+    <string name="privacy_policy_network_optional_body">TMDB, MDBList, and OMDb enrichment, plus Trakt and Simkl syncing, are inactive until you provide your own API keys or complete sign-in. Once configured, those services receive your queries and, for Trakt and Simkl, your watch activity. If you choose to use the title assistant, OpenRouter and your selected model provider receive the title metadata and your messages.</string>
     <string name="privacy_policy_network_debrid_title">Debrid and cloud services</string>
     <string name="privacy_policy_network_debrid_body">Premiumize and Torbox integrations only contact those services after you connect an account, for example to browse or open your cloud library.</string>
     <string name="privacy_policy_network_livetv_title">Live TV sources</string>
@@ -3269,4 +3269,12 @@
     <string name="cloudstream_hash_verified">Installed package SHA-256 matches the published hash.</string>
     <string name="cloudstream_hash_declared">Published SHA-256 provided; checked when installing and loading.</string>
     <string name="cloudstream_hash_mismatch">SHA-256 mismatch: package rejected.</string>
+    <string name="assistant_title">Ask AI about this title</string>
+    <string name="assistant_description">Optional: sending shares this title’s metadata and your conversation with OpenRouter and your chosen model provider. Their terms and charges apply. Responses may be inaccurate or contain spoilers. Your API key and conversation stay in memory only and are discarded when you close this dialog.</string>
+    <string name="assistant_api_key">OpenRouter API key</string>
+    <string name="assistant_model">Model ID (provider/model)</string>
+    <string name="assistant_question">Your question</string>
+    <string name="assistant_send">Send</string>
+    <string name="assistant_close">Close</string>
+    <string name="assistant_error">The request failed. Check your key, model, and connection.</string>
 </resources>

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.rounded.StarBorder
+import com.nuvio.app.features.assistant.AssistantEntry
 import com.nuvio.app.features.ratings.UserRatingSheet
 import com.nuvio.app.features.ratings.UserRatingSheetRequest
 import com.nuvio.app.features.ratings.episodeUserRatingTarget
@@ -1337,6 +1338,13 @@ fun MetaDetailsScreen(
                                         }
                                     }
 
+                                    item(key = "detail-ai-assistant") {
+                                        DetailSectionContainer(
+                                            horizontalPadding = contentHorizontalPadding,
+                                            contentMaxWidth = if (isTablet && !useTabletLayout) contentMaxWidth else Dp.Unspecified,
+                                        ) { AssistantEntry(meta) }
+                                    }
+
                                     configuredMetaSectionItems(
                                         settings = if (useTabletLayout) {
                                             metaScreenSettingsUiState.copy(
@@ -1432,7 +1440,7 @@ fun MetaDetailsScreen(
                                         animatedVisibilityScope = animatedVisibilityScope,
                                         episodeNavigator = episodeNavigator,
                                         listState = listState,
-                                        leadingItemCount = 1,
+                                        leadingItemCount = 2,
                                         stickyBackground = heroGradientColor ?: colorScheme.background,
                                     )
 
