@@ -1,0 +1,45 @@
+name: Inspect host test artifact failures
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Android CI run ID
+        required: true
+        type: string
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: Stream-Bridge-unit-test-report
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: report
+      - name: Summarize Robolectric fetch errors
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import html, re
+          seen = set()
+          for path in Path('report').rglob('*.html'):
+              data = html.unescape(path.read_text(errors='replace'))
+              if 'MavenArtifactFetcher' not in data:
+                  continue
+              for line in data.splitlines():
+                  line = re.sub(r'<[^>]+>', '', line).strip()
+                  if re.search(r'(HTTP response code|Failed to fetch|MavenArtifactFetcher|Caused by:.*(?:IOException|SSL|UnknownHost|ConnectException|FileNotFound))', line):
+                      line = re.sub(r'(https?://[^\s?<>]+)\?[^\s<>]+', r'\1?[redacted]', line)
+                      if line not in seen:
+                          seen.add(line)
+                          print(line[:500])
+                  if len(seen) >= 20:
+                      break
+              if len(seen) >= 20:
+                  break
+          if not seen:
+              raise SystemExit('No matching diagnostics in the report')
+          PY

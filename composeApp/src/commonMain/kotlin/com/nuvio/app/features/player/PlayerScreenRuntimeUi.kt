@@ -1318,15 +1318,23 @@ private fun PlayerScreenRuntime.currentUserRatingTarget(): TrackingRatingTarget?
     }
 
 internal val PlayerScreenRuntime.movieRecommendationCandidates: List<MetaPreview>
-    get() {
-        val watchedKeys = watchedUiState.watchedKeys
-        return playerMeta?.moreLikeThis.orEmpty()
-            .asSequence()
-            .filterNot { it.id == parentMetaId }
-            .filterNot { WatchingState.isPosterWatched(watchedKeys = watchedKeys, item = it) }
-            .take(MOVIE_RECOMMENDATION_LIMIT)
-            .toList()
-    }
+    get() = movieRecommendationCandidates(
+        preferred = playerMoreLikeThis.takeIf { playerMeta?.id == parentMetaId },
+        fallback = playerMeta?.takeIf { it.id == parentMetaId }?.moreLikeThis.orEmpty(),
+        parentMetaId = parentMetaId,
+        watchedKeys = watchedUiState.watchedKeys,
+    )
+
+internal fun movieRecommendationCandidates(
+    preferred: List<MetaPreview>?,
+    fallback: List<MetaPreview>,
+    parentMetaId: String,
+    watchedKeys: Set<String>,
+): List<MetaPreview> = (preferred ?: fallback).asSequence()
+    .filterNot { it.id == parentMetaId }
+    .filterNot { WatchingState.isPosterWatched(watchedKeys = watchedKeys, item = it) }
+    .take(MOVIE_RECOMMENDATION_LIMIT)
+    .toList()
 
 private const val MOVIE_RECOMMENDATION_LIMIT = 10
 
