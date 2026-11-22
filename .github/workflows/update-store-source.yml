@@ -33,6 +33,10 @@ on:
         description: Published release tag (e.g. v0.1.08)
         required: true
         type: string
+      source_branch:
+        description: Optional existing branch to receive the verified source update
+        required: false
+        type: string
   workflow_call:
     inputs:
       tag:
@@ -58,7 +62,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
       RELEASE_VERSION: ${{ inputs.version || inputs.tag || github.event.release.tag_name }}
-      SOURCE_BRANCH: ${{ vars.STREAMBRIDGE_SOURCE_BRANCH || github.event.repository.default_branch }}
+      SOURCE_BRANCH: ${{ inputs.source_branch || vars.STREAMBRIDGE_SOURCE_BRANCH || github.event.repository.default_branch }}
       ICON_PATH: iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png
 
     steps:
