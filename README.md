@@ -35,7 +35,7 @@ The following changes are in preparation and are not yet published:
 - MDBList release-date ordering, TorBox alternative-hash handling and Trakt refresh coalescing.
 - Exclusion of app-owned iOS downloads from system backups.
 
-The planned unsigned iOS asset name is `StreamBridge-0.1.19-iOS-unsigned.ipa`;
+The planned signed iOS asset name is `StreamBridge-0.1.19-iOS-signed.ipa`;
 the download becomes available only after a verified release is published.
 
 ## Highlights in 0.1.18

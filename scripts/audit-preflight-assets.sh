@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Inspect a separately downloaded, non-published production-build artifact set.
 set -euo pipefail
-[[ $# -eq 2 ]] || { echo 'Usage: audit-preflight-assets.sh ANDROID_DIR IOS_DIR' >&2; exit 2; }
-android="$(cd "$1" && pwd)"; ios="$(cd "$2" && pwd)"
+[[ $# -eq 2 ]] || { echo 'Usage: audit-preflight-assets.sh ANDROID_DIR IOS_DIR|--android-only' >&2; exit 2; }
+android="$(cd "$1" && pwd)"
+if [[ "$2" != --android-only ]]; then ios="$(cd "$2" && pwd)"; fi
 expected_cert=5da621d8e6f5c4ffb7396de3fbf686f3bf61bcec71cccffba9bbbbdef56285fc
 build_tools="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/build-tools/35.0.0"
 aapt="$build_tools/aapt"; apksigner="$build_tools/apksigner"
@@ -19,7 +20,9 @@ for line in manifest.read_text().splitlines():
     path = pathlib.PurePosixPath(name)
     if path.is_absolute() or '..' in path.parts or path.name not in expected or path.name in seen:
         raise SystemExit('Unexpected or duplicate APK checksum entry')
-    target = root.joinpath(*path.parts)
+    allowed = pathlib.PurePosixPath('androidApp/build/outputs/apk/full/release') / path.name
+    if path not in (pathlib.PurePosixPath(path.name), allowed): raise SystemExit('Unexpected APK checksum path')
+    target = root.joinpath(*allowed.parts)
     if not target.is_file(): raise SystemExit(f'Missing APK: {path.name}')
     with target.open('rb') as f: actual = hashlib.file_digest(f, 'sha256').hexdigest()
     if actual != digest.lower(): raise SystemExit(f'Checksum mismatch: {path.name}')
@@ -38,6 +41,10 @@ for abi in arm64-v8a armeabi-v7a x86 x86_64; do
   [[ "$cert" == "$expected_cert" ]] || { echo 'Unexpected APK signing certificate' >&2; exit 1; }
   sha256sum "$apk"
 done
+if [[ "$2" == --android-only ]]; then
+  echo "Downloaded Android APKs independently verified."
+  exit 0
+fi
 python3 - "$ios/StreamBridge-0.1.19-iOS-unsigned.ipa" <<'PY'
 import hashlib, plistlib, sys, zipfile
 from pathlib import PurePosixPath

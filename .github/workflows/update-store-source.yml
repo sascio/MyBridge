@@ -1,13 +1,14 @@
 name: Update Sideload Source
 
 # Publishes a released StreamBridge version into store.json, the AltStore and
-# SideStore source that points at the unsigned iOS IPA. Ported from
+# SideStore source that points at the verified iOS IPA. Ported from
 # NuvioMedia/NuvioMobile 0.5.5-beta (.github/workflows/update-store-source.yml).
 #
 # Triggers when a GitHub release is published, so store.json always describes the
 # real published asset: the IPA is downloaded from the release, its digest and
 # size are verified against the release metadata, and the script refuses anything
-# that is signed, mis-branded or of the wrong version.
+# that is mis-branded or of the wrong version. Signed releases also require
+# independent macOS signature and provisioning verification before source update.
 #
 # Release lookup lives in scripts/release-lookup.sh so its failure modes are
 # covered by scripts/tests/release-lookup-test.sh. The v0.1.13 release failed here
@@ -51,7 +52,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-signed-ipa:
+    name: Verify signed release IPA before source update
+    runs-on: xcode-27
+    permissions:
+      contents: read
+    outputs:
+      signed: ${{ steps.inspect.outputs.signed }}
+      sha256: ${{ steps.inspect.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Inspect published release and verify signed IPA
+        id: inspect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          TEAM_ID: ${{ secrets.STREAMBRIDGE_IOS_TEAM_ID }}
+          EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}
+        run: |
+          set -euo pipefail
+          release="${RUNNER_TEMP}/store-release.json"
+          rc=0
+          scripts/release-lookup.sh resolve --repo "${GITHUB_REPOSITORY}" --tag "${RELEASE_TAG}" --json "${release}" --attempts 6 --delay 10 || rc=$?
+          case "${rc}" in 0) ;; 20|22) echo "signed=false" >> "${GITHUB_OUTPUT}"; exit 0;; *) exit "${rc}";; esac
+          name="$(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release}")"
+          if [[ "${name}" == *-iOS-unsigned.ipa ]]; then
+            echo "signed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          [[ "${name}" == "StreamBridge-${RELEASE_TAG#v}-iOS-signed.ipa" ]] || { echo "::error::Unexpected signed IPA name"; exit 1; }
+          [[ -n "${TEAM_ID}" ]] || { echo "::error::Missing STREAMBRIDGE_IOS_TEAM_ID"; exit 1; }
+          case "${EXPORT_METHOD}" in ad-hoc|enterprise) ;; *) echo "::error::Missing STREAMBRIDGE_IOS_EXPORT_METHOD variable"; exit 1;; esac
+          gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --pattern "${name}" --dir "${RUNNER_TEMP}/store-ipa"
+          file="${RUNNER_TEMP}/store-ipa/${name}"
+          digest="$(jq -r --arg name "${name}" '.assets[] | select(.name == $name) | .digest // empty' "${release}")"
+          size="$(jq -r --arg name "${name}" '.assets[] | select(.name == $name) | .size' "${release}")"
+          [[ "${digest}" == "sha256:$(shasum -a 256 "${file}" | awk '{print $1}')" ]] || { echo "::error::IPA digest mismatch or missing"; exit 1; }
+          [[ "${size}" == "$(wc -c < "${file}" | tr -d ' ')" ]] || { echo "::error::IPA size mismatch"; exit 1; }
+          python3 scripts/ios-signing.py verify --ipa "${file}" --team "${TEAM_ID}" \
+            --method "${EXPORT_METHOD}" --version "${RELEASE_TAG#v}"
+          echo "sha256=${digest#sha256:}" >> "${GITHUB_OUTPUT}"
+          echo "signed=true" >> "${GITHUB_OUTPUT}"
+
   update:
+    needs: [verify-signed-ipa]
     name: Update store.json
     runs-on: ubuntu-latest
     env:
@@ -138,7 +182,16 @@ jobs:
           # points at a stale or branch-dependent asset.
           icon_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${RELEASE_TAG}/${ICON_PATH}"
 
+          signed_arg=()
+          if [[ "${{ needs.verify-signed-ipa.outputs.signed }}" == true ]]; then
+            [[ "${{ needs.verify-signed-ipa.outputs.sha256 }}" == "${{ steps.download.outputs.sha256 }}" ]] || {
+              echo "::error::Downloaded IPA differs from the independently verified signed IPA."
+              exit 1
+            }
+            signed_arg+=(--verified-signed)
+          fi
           python3 scripts/update-store-source.py \
+            "${signed_arg[@]}" \
             --source store.json \
             --ipa "source-assets/${ipa_name}" \
             --release-notes "${release_notes}" \

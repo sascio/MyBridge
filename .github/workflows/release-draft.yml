@@ -5,11 +5,9 @@ name: Draft production GitHub Release
 # Android: fails closed unless the production upload-keystore GitHub Secrets are
 # set. Debug-signed APKs are never attached. See docs/SIGNING.md.
 #
-# iOS: builds the StreamBridge IPA on a macOS runner, unsigned, and attaches it
-# to the draft. The unsigned IPA is the iOS distribution artifact: AltStore and
-# SideStore re-sign it with the installer's own Apple ID, which is why no Apple
-# Developer credentials are required or used here. The build fails if the
-# application unexpectedly comes out signed. See docs/RELEASE-IOS.md.
+# iOS: production archives require distinct app and widget provisioning profiles,
+# an Apple distribution certificate, and an explicit ad-hoc or enterprise export.
+# No unsigned artifact is accepted or attached by this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -335,7 +333,7 @@ jobs:
               exit 1
             fi
           done
-          sha256sum "${apks[@]}" | tee checksums.sha256
+          (cd androidApp/build/outputs/apk/full/release && sha256sum ./*.apk | sed 's|  \./|  |') | tee checksums.sha256
 
       - name: Require expected production APKs
         run: |
@@ -370,7 +368,7 @@ jobs:
           if-no-files-found: error
 
   ios:
-    name: iOS unsigned IPA
+    name: Production-signed iOS IPA
     runs-on: xcode-27
     timeout-minutes: 180
     env:
@@ -397,6 +395,40 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+
+      - name: Require and decode Apple distribution signing configuration
+        env:
+          TEAM_ID: ${{ secrets.STREAMBRIDGE_IOS_TEAM_ID }}
+          SIGN_IDENTITY: ${{ secrets.STREAMBRIDGE_IOS_SIGN_IDENTITY }}
+          CERTIFICATE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
+          APP_PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_PROFILE_BASE64 }}
+          WIDGET_PROFILE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64 }}
+          EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${TEAM_ID}" ] || missing+=(STREAMBRIDGE_IOS_TEAM_ID)
+          [ -n "${SIGN_IDENTITY}" ] || missing+=(STREAMBRIDGE_IOS_SIGN_IDENTITY)
+          [ -n "${CERTIFICATE_BASE64}" ] || missing+=(STREAMBRIDGE_IOS_CERTIFICATE_BASE64)
+          [ -n "${CERTIFICATE_PASSWORD}" ] || missing+=(STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD)
+          [ -n "${KEYCHAIN_PASSWORD}" ] || missing+=(STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD)
+          [ -n "${APP_PROFILE_BASE64}" ] || missing+=(STREAMBRIDGE_IOS_PROFILE_BASE64)
+          [ -n "${WIDGET_PROFILE_BASE64}" ] || missing+=(STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64)
+          case "${EXPORT_METHOD}" in ad-hoc|enterprise) ;; *) missing+=("STREAMBRIDGE_IOS_EXPORT_METHOD repository variable (ad-hoc or enterprise)");; esac
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Missing Apple signing configuration: ${missing[*]}. See docs/RELEASE-IOS.md."
+            exit 1
+          fi
+          umask 077
+          app_profile="${RUNNER_TEMP}/streambridge-app.mobileprovision"
+          widget_profile="${RUNNER_TEMP}/streambridge-widget.mobileprovision"
+          printf '%s' "${APP_PROFILE_BASE64}" | base64 --decode > "${app_profile}"
+          printf '%s' "${WIDGET_PROFILE_BASE64}" | base64 --decode > "${widget_profile}"
+          test -s "${app_profile}" && test -s "${widget_profile}"
+          echo "STREAMBRIDGE_IOS_PROFILE_PATH=${app_profile}" >> "${GITHUB_ENV}"
+          echo "STREAMBRIDGE_IOS_WIDGET_PROFILE_PATH=${widget_profile}" >> "${GITHUB_ENV}"
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -507,10 +539,13 @@ jobs:
 
       - name: Build StreamBridge IPA
         env:
-          # Always unsigned: the published IPA is re-signed by the installer's
-          # own Apple ID through AltStore/SideStore. build-ios-ipa.sh fails the
-          # build if the application turns out to be signed anyway.
-          STREAMBRIDGE_IOS_SIGNING: "0"
+          STREAMBRIDGE_IOS_SIGNING: "1"
+          STREAMBRIDGE_IOS_TEAM_ID: ${{ secrets.STREAMBRIDGE_IOS_TEAM_ID }}
+          STREAMBRIDGE_IOS_SIGN_IDENTITY: ${{ secrets.STREAMBRIDGE_IOS_SIGN_IDENTITY }}
+          STREAMBRIDGE_IOS_CERTIFICATE_BASE64: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_BASE64 }}
+          STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD }}
+          STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD: ${{ secrets.STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD }}
+          STREAMBRIDGE_IOS_EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}
         run: ./scripts/build-ios-ipa.sh
 
       - name: Report generated tracking config presence
@@ -563,30 +598,16 @@ jobs:
             echo "::error::No StreamBridge IPA was produced."
             exit 1
           fi
-          if unzip -l "${ipa_path}" | grep -q '_CodeSignature'; then
-            echo "::error::The produced IPA is signed; refusing to publish it."
-            exit 1
-          fi
-
-          # The release asset name says outright that it is unsigned, so nobody
-          # installs it from the release page expecting an App Store build.
           version="$(basename "${ipa_path}" | sed -E 's/^streambridge-(.*)-full-release\.ipa$/\1/')"
-          release_ipa="dist/StreamBridge-${version}-iOS-unsigned.ipa"
+          release_ipa="dist/StreamBridge-${version}-iOS-signed.ipa"
           mkdir -p dist
           cp "${ipa_path}" "${release_ipa}"
-          shasum -a 256 "${release_ipa}" >> checksums-ios.sha256
-
+          (cd dist && shasum -a 256 "$(basename "${release_ipa}")") > checksums-ios.sha256
           {
-            echo "## StreamBridge iOS release build"
-            echo
+            echo "## StreamBridge signed iOS release build"
             echo "- File: $(basename "${release_ipa}")"
-            echo "- Size: $(du -h "${release_ipa}" | cut -f1)"
             echo "- SHA-256: $(shasum -a 256 "${release_ipa}" | awk '{print $1}')"
-            echo "- Signing: none (unsigned)"
-            echo
-            echo "> Install with AltStore or SideStore: the unsigned IPA is re-signed with"
-            echo "> your own Apple ID at install time. \`store.json\` in this repository is"
-            echo "> the sideload source that points at this release asset."
+            echo "- Export method: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Report IPA composition
@@ -627,15 +648,20 @@ jobs:
       - name: Upload StreamBridge iOS IPA
         uses: actions/upload-artifact@v7
         with:
-          name: StreamBridge-ios-unsigned-ipa
+          name: StreamBridge-ios-signed-ipa
           path: |
             dist/*.ipa
+            checksums-ios.sha256
           if-no-files-found: error
 
+      - name: Remove temporary provisioning profiles
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/streambridge-app.mobileprovision" "${RUNNER_TEMP}/streambridge-widget.mobileprovision"
+
   preflight-verification:
-    name: Independently inspect preflight artifacts
-    needs: [android, ios]
-    if: ${{ inputs.preflight == true && needs.android.result == 'success' && needs.ios.result == 'success' }}
+    name: Independently inspect Android artifacts
+    needs: [android]
+    if: ${{ needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -648,19 +674,42 @@ jobs:
         with:
           name: StreamBridge-production-full-release-apk
           path: preflight/android
+      - name: Inspect downloaded APKs and checksums
+        run: scripts/audit-preflight-assets.sh preflight/android --android-only
+
+  verify-ios:
+    name: Independently inspect signed iOS artifact
+    needs: [ios]
+    if: ${{ needs.ios.result == 'success' }}
+    runs-on: xcode-27
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v8
         with:
-          name: StreamBridge-ios-unsigned-ipa
+          name: StreamBridge-ios-signed-ipa
           path: preflight/ios
-      - name: Inspect downloaded artifacts and checksums
-        run: scripts/audit-preflight-assets.sh preflight/android preflight/ios
+      - name: Verify checksum, signatures, profiles and identity
+        env:
+          STREAMBRIDGE_IOS_TEAM_ID: ${{ secrets.STREAMBRIDGE_IOS_TEAM_ID }}
+          STREAMBRIDGE_IOS_EXPORT_METHOD: ${{ vars.STREAMBRIDGE_IOS_EXPORT_METHOD }}
+        run: |
+          set -euo pipefail
+          (cd preflight/ios/dist && shasum -a 256 -c ../checksums-ios.sha256)
+          python3 scripts/ios-signing.py verify --ipa preflight/ios/dist/StreamBridge-0.1.19-iOS-signed.ipa \
+            --team "${STREAMBRIDGE_IOS_TEAM_ID}" --method "${STREAMBRIDGE_IOS_EXPORT_METHOD}" --build 119
+
+  ios-tests:
+    uses: ./.github/workflows/ios-simulator-tests.yml
+    secrets: inherit
 
   draft:
     name: Draft GitHub Release (Android first)
     # Both platforms must pass before a draft is created. The IPA attachment is
     # performed by attach-ios after the draft and iOS build have succeeded.
-    needs: [android, ios]
-    if: ${{ always() && inputs.preflight != true && needs.android.result == 'success' && needs.ios.result == 'success' }}
+    needs: [android, ios, preflight-verification, verify-ios, ios-tests]
+    if: ${{ always() && inputs.preflight != true && needs.android.result == 'success' && needs.ios.result == 'success' && needs.preflight-verification.result == 'success' && needs.verify-ios.result == 'success' && needs.ios-tests.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -753,9 +802,9 @@ jobs:
           jq '{tag_name, name, draft, target_commitish, assets:[.assets[]|{name,size,digest,state}]}' "${release_json}"
 
   attach-ios:
-    name: Attach unsigned iOS IPA (independent)
-    needs: [draft, ios]
-    if: ${{ inputs.preflight != true && needs.ios.result == 'success' }}
+    name: Attach verified signed iOS IPA
+    needs: [draft, ios, verify-ios]
+    if: ${{ inputs.preflight != true && needs.draft.result == 'success' && needs.ios.result == 'success' && needs.verify-ios.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -763,10 +812,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download unsigned iOS IPA
+      - name: Download verified signed iOS IPA
         uses: actions/download-artifact@v8
         with:
-          name: StreamBridge-ios-unsigned-ipa
+          name: StreamBridge-ios-signed-ipa
           path: ios-assets
 
       - name: Resolve release tag
@@ -782,7 +831,7 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          ipa_assets=(ios-assets/*.ipa)
+          ipa_assets=(ios-assets/dist/*.ipa)
           if [ "${#ipa_assets[@]}" -ne 1 ]; then
             echo "::error::Expected exactly one iOS IPA artifact, found ${#ipa_assets[@]}."
             exit 1
@@ -793,7 +842,7 @@ jobs:
             --commit "${GITHUB_SHA}" \
             --verify-tag-ref
           version_name="$(grep '^STREAMBRIDGE_VERSION_NAME=' streambridge.version.properties | cut -d= -f2 | tr -d '\r')"
-          expected_ipa="StreamBridge-${version_name}-iOS-unsigned.ipa"
+          expected_ipa="StreamBridge-${version_name}-iOS-signed.ipa"
           if [ "$(basename "${ipa_assets[0]}")" != "${expected_ipa}" ]; then
             echo "::error::Expected ${expected_ipa}, got $(basename "${ipa_assets[0]}")."
             exit 1
@@ -819,46 +868,8 @@ jobs:
             --file "${ipa_assets[0]}" \
             --name "${expected_ipa}"
 
-          notes="$(mktemp)"
-          jq -r '.body // ""' "${release_json}" >"${notes}"
-          if ! grep -q '^### iOS installation' "${notes}"; then
-            if ! grep -q '^### iOS status' "${notes}"; then
-              echo "::error::Release notes have no expected iOS status placeholder; preserving the release unchanged."
-              exit 1
-            fi
-            sed -i '/^### iOS status/,$d' "${notes}"
-            ios_notes=(
-              '### iOS installation'
-              ''
-              'The iOS build in this release is **unsigned**. Install it with'
-              '[AltStore](https://altstore.io) or [SideStore](https://sidestore.io): either signs the IPA with'
-              'your own Apple ID on your device, so no Apple Developer account and no App Store listing is'
-              'involved.'
-              ''
-              'Add this repository as a source in AltStore or SideStore to get updates automatically:'
-              ''
-              '`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json`'
-              ''
-              'See `docs/RELEASE-IOS.md` for the details.'
-            )
-            printf '%s\n' "${ios_notes[@]}" >>"${notes}"
-            scripts/release-api.sh update-body \
-              --repo "${GITHUB_REPOSITORY}" \
-              --json "${release_json}" \
-              --body-file "${notes}"
-          fi
-
+          scripts/release-api.sh ensure-asset \
+            --repo "${GITHUB_REPOSITORY}" \
+            --json "${release_json}" \
+            --file "ios-assets/checksums-ios.sha256"
           jq '{tag_name, name, draft, assets:[.assets[]|{name,size,digest,state}]}' "${release_json}"
-
-      - name: Refresh the sideload source now that an IPA exists
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          # The sideload source only lists releases that carry exactly one IPA.
-          # It is triggered by `release: published`, which does not fire when an
-          # asset is added later, so dispatch it explicitly. Best effort: a
-          # failure here does not invalidate the attached IPA.
-          gh workflow run update-store-source.yml -f tag="${TAG}" \
-            || echo "::warning::Could not dispatch update-store-source.yml; run it manually for ${TAG}."

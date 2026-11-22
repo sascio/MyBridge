@@ -23,15 +23,9 @@
 #   STREAMBRIDGE_IOS_SIGNING      "1" to require a signed build
 #   STREAMBRIDGE_IOS_TEAM_ID      Apple Developer team identifier
 #   STREAMBRIDGE_IOS_SIGN_IDENTITY  Codesign identity, e.g. "Apple Distribution"
-#   STREAMBRIDGE_IOS_PROFILE_SPECIFIER
-#                                 Named provisioning profile, or
-#   STREAMBRIDGE_IOS_PROFILE_PATH Local .mobileprovision file (optional; a
-#                                 temporary keychain is created from
-#                                 STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD when
-#                                 STREAMBRIDGE_IOS_CERTIFICATE_BASE64 is set)
-#   STREAMBRIDGE_IOS_EXPORT_METHOD app-store | ad-hoc | enterprise (default app-store)
-#   STREAMBRIDGE_IOS_EXPORT_OPTIONS_PLIST
-#                                 Full exportOptions.plist override
+#   STREAMBRIDGE_IOS_PROFILE_PATH App .mobileprovision file
+#   STREAMBRIDGE_IOS_WIDGET_PROFILE_PATH Widget .mobileprovision file
+#   STREAMBRIDGE_IOS_EXPORT_METHOD ad-hoc | enterprise (required for signed builds)
 #   STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD
 #                                 Password for the temporary CI keychain
 #   STREAMBRIDGE_IOS_CERTIFICATE_BASE64
@@ -86,10 +80,9 @@ fi
 
 team_id="${STREAMBRIDGE_IOS_TEAM_ID:-}"
 sign_identity="${STREAMBRIDGE_IOS_SIGN_IDENTITY:-}"
-profile_specifier="${STREAMBRIDGE_IOS_PROFILE_SPECIFIER:-}"
 profile_path="${STREAMBRIDGE_IOS_PROFILE_PATH:-}"
-export_method="${STREAMBRIDGE_IOS_EXPORT_METHOD:-app-store}"
-export_options_plist="${STREAMBRIDGE_IOS_EXPORT_OPTIONS_PLIST:-}"
+widget_profile_path="${STREAMBRIDGE_IOS_WIDGET_PROFILE_PATH:-}"
+export_method="${STREAMBRIDGE_IOS_EXPORT_METHOD:-}"
 keychain_password="${STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD:-}"
 certificate_base64="${STREAMBRIDGE_IOS_CERTIFICATE_BASE64:-}"
 certificate_password="${STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD:-}"
@@ -99,9 +92,12 @@ cleanup() {
     if [[ -n "${temporary_keychain}" ]]; then
         security delete-keychain "${temporary_keychain}" >/dev/null 2>&1 || true
     fi
-    if [[ -n "${profile_copy:-}" && -f "${profile_copy}" ]]; then
-        rm -f "${profile_copy}"
+    if [[ -n "${installed_profiles:-}" && -f "${installed_profiles}" ]]; then
+        while IFS= read -r installed; do [[ -z "${installed}" ]] || rm -f "${installed}"; done < "${installed_profiles}"
+        rm -f "${installed_profiles}"
     fi
+    if [[ -n "${signing_project:-}" && -d "${signing_project}" ]]; then rm -rf "${signing_project}"; fi
+    if [[ -n "${verification_root:-}" && -d "${verification_root}" ]]; then rm -rf "${verification_root}"; fi
 }
 trap cleanup EXIT
 
@@ -109,9 +105,9 @@ if [[ "${required_signing}" == "1" ]]; then
     missing=()
     [[ -n "${team_id}" ]] || missing+=("STREAMBRIDGE_IOS_TEAM_ID")
     [[ -n "${sign_identity}" ]] || missing+=("STREAMBRIDGE_IOS_SIGN_IDENTITY")
-    if [[ -z "${profile_specifier}" && -z "${profile_path}" ]]; then
-        missing+=("STREAMBRIDGE_IOS_PROFILE_SPECIFIER or STREAMBRIDGE_IOS_PROFILE_PATH")
-    fi
+    [[ -n "${profile_path}" ]] || missing+=("STREAMBRIDGE_IOS_PROFILE_PATH")
+    [[ -n "${widget_profile_path}" ]] || missing+=("STREAMBRIDGE_IOS_WIDGET_PROFILE_PATH")
+    case "${export_method}" in ad-hoc|enterprise) ;; *) missing+=("STREAMBRIDGE_IOS_EXPORT_METHOD (ad-hoc or enterprise)");; esac
     if [[ -n "${certificate_base64}" && -z "${keychain_password}" ]]; then
         missing+=("STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD")
     fi
@@ -127,7 +123,7 @@ if [[ "${required_signing}" == "1" ]]; then
         temporary_keychain="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/streambridge-ios-signing.keychain-db"
         rm -f "${temporary_keychain}"
         security create-keychain -p "${keychain_password}" "${temporary_keychain}"
-        security set-keychain-settings -lut 900 "${temporary_keychain}"
+        security set-keychain-settings -lut 21600 "${temporary_keychain}"
         security unlock-keychain -p "${keychain_password}" "${temporary_keychain}"
         certificate_path="$(mktemp "${TMPDIR:-/tmp}/streambridge-certificate.XXXXXX.p12")"
         trap 'rm -f "${certificate_path}"; cleanup' EXIT
@@ -139,20 +135,18 @@ if [[ "${required_signing}" == "1" ]]; then
             "${temporary_keychain}" >/dev/null
         security list-keychains -d user -s "${temporary_keychain}" $(security list-keychains -d user | tr -d '"')
     fi
-    if [[ -n "${profile_path}" ]]; then
-        if [[ ! -f "${profile_path}" ]]; then
-            echo "::error::STREAMBRIDGE_IOS_PROFILE_PATH does not point to a file." >&2
-            exit 1
-        fi
-        profiles_directory="${HOME}/Library/MobileDevice/Provisioning Profiles"
-        mkdir -p "${profiles_directory}"
-        profile_copy="${profiles_directory}/streambridge-release.mobileprovision"
-        cp "${profile_path}" "${profile_copy}"
-    fi
-    if [[ -n "${certificate_base64}" ]]; then
-        # The default keychain was replaced above; make sure xcodebuild sees it.
-        export HOME="${HOME}"
-    fi
+    [[ -f "${profile_path}" && -f "${widget_profile_path}" ]] || { echo "::error::App and widget provisioning profiles must exist." >&2; exit 1; }
+    # Xcode needs a distinct profile for each bundle. Use a disposable project
+    # alongside the original so relative source paths remain unchanged.
+    signing_project="${repository_root}/iosApp/StreamBridgeSigning-$$.xcodeproj"
+    installed_profiles="$(mktemp "${TMPDIR:-/tmp}/streambridge-profiles.XXXXXX")"
+    export_options_plist="${derived_data}/ExportOptions.plist"
+    mkdir -p "${derived_data}"
+    python3 "${repository_root}/scripts/ios-signing.py" prepare \
+        --app-profile "${profile_path}" --widget-profile "${widget_profile_path}" \
+        --source "${repository_root}/iosApp/iosApp.xcodeproj" --project "${signing_project}" \
+        --export-options "${export_options_plist}" --installed-list "${installed_profiles}" \
+        --team "${team_id}" --method "${export_method}"
     export STREAMBRIDGE_IOS_SIGNING=1
 fi
 
@@ -207,22 +201,16 @@ if [[ "${required_signing}" == "1" ]]; then
     # A signed IPA must come from an archive: only an archive carries the
     # provisioning profile and certificate through to a distributable .ipa.
     archive_path="${derived_data}/StreamBridge-${configuration}.xcarchive"
-    profile_argument=()
-    if [[ -n "${profile_specifier}" ]]; then
-        profile_argument+=(PROVISIONING_PROFILE_SPECIFIER="${profile_specifier}")
-    fi
     signing_arguments+=(
-        -allowProvisioningUpdates
         -archivePath "${archive_path}"
         DEVELOPMENT_TEAM="${team_id}"
         CODE_SIGN_STYLE=Manual
         CODE_SIGN_IDENTITY="${sign_identity}"
-        ${profile_argument[@]+"${profile_argument[@]}"}
     )
     xcode_build_started=${SECONDS}
     "${build_environment[@]}" \
         xcodebuild \
-        -project iosApp/iosApp.xcodeproj \
+        -project "${signing_project}" \
         -scheme iosApp \
         -configuration "${configuration}" \
         -sdk iphoneos \
@@ -239,31 +227,6 @@ if [[ "${required_signing}" == "1" ]]; then
         exit 1
     fi
 
-    if [[ -z "${export_options_plist}" ]]; then
-        export_options_plist="${derived_data}/ExportOptions.plist"
-        team_argument=""
-        if [[ -n "${team_id}" ]]; then
-            team_argument="<key>teamID</key><string>${team_id}</string>"
-        fi
-        cat > "${export_options_plist}" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>method</key>
-    <string>${export_method}</string>
-    ${team_argument}
-    <key>signingStyle</key>
-    <string>manual</string>
-    <key>destination</key>
-    <string>export</string>
-    <key>stripSwiftSymbols</key>
-    <true/>
-</dict>
-</plist>
-PLIST
-    fi
-
     export_directory="${derived_data}/export-${configuration_slug}"
     rm -rf "${export_directory}"
     "${build_environment[@]}" \
@@ -271,18 +234,19 @@ PLIST
         -exportArchive \
         -archivePath "${archive_path}" \
         -exportPath "${export_directory}" \
-        -exportOptionsPlist "${export_options_plist}" \
-        -allowProvisioningUpdates
+        -exportOptionsPlist "${export_options_plist}"
 
     exported_ipa="$(find "${export_directory}" -maxdepth 1 -type f -name '*.ipa' -print -quit)"
     if [[ -z "${exported_ipa}" ]]; then
         echo "::error::Signed export produced no IPA in ${export_directory}." >&2
         exit 1
     fi
-    app_path="$(mktemp -d "${TMPDIR:-/tmp}/streambridge-ipa-check.XXXXXX")"
-    trap 'rm -rf "${app_path}"; cleanup' EXIT
-    unzip -q "${exported_ipa}" -d "${app_path}"
-    app_path="${app_path}/Payload/StreamBridge.app"
+    build_number="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([^[:space:]]+).*$/\1/p' "${version_file}" | head -n1)"
+    python3 "${repository_root}/scripts/ios-signing.py" verify --ipa "${exported_ipa}" \
+        --team "${team_id}" --method "${export_method}" --version "${version}" --build "${build_number}"
+    verification_root="$(mktemp -d "${TMPDIR:-/tmp}/streambridge-ipa-check.XXXXXX")"
+    unzip -q "${exported_ipa}" -d "${verification_root}"
+    app_path="${verification_root}/Payload/StreamBridge.app"
 else
     signing_arguments=(
         CODE_SIGNING_ALLOWED=NO

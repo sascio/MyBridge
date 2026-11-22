@@ -93,6 +93,7 @@ fi
 section "Release workflows"
 run "production tracking credential gates and optional Trakt" python3 scripts/tests/release-tracking-test.py
 run "independent preflight asset inspection" python3 scripts/tests/preflight-assets-test.py
+run "iOS production signing and provisioning" python3 scripts/tests/ios-signing-test.py
 
 run "iOS IPA and simulator tests share one prepared dependency artifact" \
   python3 - <<'PY'
@@ -131,7 +132,6 @@ run "the release workflow refuses to reuse a tag for a newer commit" \
 run "draft releases and assets are handled by ID rather than tag-based gh release commands" \
   bash -c 'grep -q "scripts/release-api.sh lookup" .github/workflows/release-draft.yml &&
            grep -q "scripts/release-api.sh ensure-asset" .github/workflows/release-draft.yml &&
-           grep -q "scripts/release-api.sh update-body" .github/workflows/release-draft.yml &&
            ! grep -qE "^[[:space:]]*gh release (view|upload|edit)([[:space:]]|$)" .github/workflows/release-draft.yml'
 
 run "release gate accepts the 0.1.19 source identity" \
@@ -140,11 +140,14 @@ run "release gate accepts the 0.1.19 source identity" \
 run "release draft requires both Android and iOS builds" \
   python3 - <<'PYTEST'
 workflow = open(".github/workflows/release-draft.yml", encoding="utf-8").read()
-assert "needs: [android, ios]" in workflow
-assert "needs.android.result == 'success' && needs.ios.result == 'success'" in workflow
-assert "always() && inputs.preflight != true && needs.android.result" in workflow
-assert "inputs.preflight != true && needs.ios.result" in workflow
-assert 'scripts/audit-preflight-assets.sh preflight/android preflight/ios' in workflow
+assert "needs: [android, ios, preflight-verification, verify-ios, ios-tests]" in workflow
+assert "needs.preflight-verification.result == 'success'" in workflow
+assert "needs.verify-ios.result == 'success'" in workflow
+assert "needs.ios-tests.result == 'success'" in workflow
+assert "needs.draft.result == 'success'" in workflow
+assert 'scripts/audit-preflight-assets.sh preflight/android --android-only' in workflow
+assert 'python3 scripts/ios-signing.py verify' in workflow
+assert 'STREAMBRIDGE_IOS_SIGNING: "1"' in workflow
 assert "inputs.include_ios" not in workflow
 assert "inputs.require_tracking_credentials" not in workflow
 assert 'for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID' in workflow
