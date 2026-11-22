@@ -28,7 +28,7 @@ or does not carry a `com.streambridge.app*` bundle identifier.
 
 ```bash
 ./scripts/prepare-ios-dependencies.sh   # MPVKit local package + Nuvio Engine XCFramework
-./scripts/build-ios-ipa.sh              # unsigned local validation build (not production)
+./scripts/build-ios-ipa.sh              # unsigned sideload build
 ```
 
 Output: `build/ios-ipa/streambridge-0.1.19-full-release.ipa`.
@@ -99,7 +99,7 @@ cache read-only so concurrent cache writers cannot race. The previous Xcode 26.6
 | Workflow | Purpose |
 | --- | --- |
 | [`.github/workflows/ios-release.yml`](../.github/workflows/ios-release.yml) | Build the IPA on demand (`workflow_dispatch`) and on pushes that touch iOS paths. Always unsigned unless Apple secrets exist; reports the IPA composition. |
-| [`.github/workflows/release-draft.yml`](../.github/workflows/release-draft.yml) | Draft production release. Requires verified per-ABI Android APKs, a signed iOS IPA and simulator tests. |
+| [`.github/workflows/release-draft.yml`](../.github/workflows/release-draft.yml) | Draft production release. Requires verified per-ABI Android APKs, an independently inspected unsigned iOS IPA and simulator tests. |
 | [`.github/workflows/update-store-source.yml`](../.github/workflows/update-store-source.yml) | Runs when a release is published. Verifies the published IPA and commits the regenerated `store.json`. |
 
 Artifacts and release assets:
@@ -110,8 +110,8 @@ Artifacts and release assets:
   build fails. The workflow also republishes the failing lines as run
   annotations (`.github/report-ios-failure.sh`) and comments them on the pull
   request, because the raw Actions log is not always downloadable.
-- `StreamBridge-ios-signed-ipa` — the independently verified production artifact;
-  the draft attaches `StreamBridge-<version>-iOS-signed.ipa` and `checksums-ios.sha256`.
+- `StreamBridge-ios-unsigned-ipa` — the independently verified production artifact;
+  the draft attaches `StreamBridge-<version>-iOS-unsigned.ipa` and `checksums-ios.sha256`.
 
 ## Sideload source (`store.json`)
 
@@ -133,45 +133,13 @@ bytes have the same digest before creating an entry. The source update is not
 proof that a particular sideloading client can re-sign a signed IPA; that must
 be tested on a device. Existing older unsigned releases remain supported.
 
-## Production signing
+## Production distribution
 
-`release-draft.yml` requires a signed IPA and fails closed before building if
-any configuration below is absent. Configure these as **GitHub Actions repository
-secrets**, not in source, chat, logs or artifacts:
-
-| Secret name | Purpose |
-| --- | --- |
-| `STREAMBRIDGE_IOS_TEAM_ID` | Apple Developer team identifier |
-| `STREAMBRIDGE_IOS_SIGN_IDENTITY` | Distribution code-sign identity |
-| `STREAMBRIDGE_IOS_CERTIFICATE_BASE64` | Distribution certificate and private key as base64-encoded PKCS#12 |
-| `STREAMBRIDGE_IOS_CERTIFICATE_PASSWORD` | PKCS#12 password |
-| `STREAMBRIDGE_IOS_KEYCHAIN_PASSWORD` | Temporary runner keychain password |
-| `STREAMBRIDGE_IOS_PROFILE_BASE64` | App provisioning profile for `com.streambridge.app` |
-| `STREAMBRIDGE_IOS_WIDGET_PROFILE_BASE64` | Separate widget profile for `com.streambridge.app.DownloadsWidgetExtension` |
-
-Set repository variable `STREAMBRIDGE_IOS_EXPORT_METHOD` explicitly to `ad-hoc`
-or `enterprise`, matching **both** profiles. App Store exports are not directly
-installable GitHub release assets and are intentionally rejected here. Ad-hoc
-IPAs install only on devices included in both profiles; enterprise builds must
-comply with Apple's enterprise program rules. Select the distribution route
-before publishing; signing alone does not establish public installability.
-
-The build decodes profiles on the runner, validates each explicit bundle ID,
-team, expiry, distribution type and common certificate, imports the certificate
-into a temporary keychain, and signs app and widget using a disposable Xcode
-project with separate profile settings. The exported IPA is checked with macOS
-`codesign`, including the embedded profiles and signing certificate; the artifact
-is then downloaded to another macOS job for the same verification and checksum
-check. Temporary profiles and keychain are removed. No secret values are printed.
-This path needs a real configured Apple identity and a successful real run; its
-synthetic tests alone do not prove signing works.
-
-For local validation only, `scripts/build-ios-ipa.sh` defaults to an unsigned IPA.
-For a signed local build, set `STREAMBRIDGE_IOS_SIGNING=1` and provide the team,
-identity, export method, `STREAMBRIDGE_IOS_PROFILE_PATH` and
-`STREAMBRIDGE_IOS_WIDGET_PROFILE_PATH`; use a suitably configured keychain or
-the certificate and keychain environment variables described in that script.
-Never commit those files or values.
+The release workflow builds an unsigned IPA for AltStore and SideStore. These
+clients re-sign it at installation using the user's Apple ID. No Apple
+certificate or provisioning profile is required in the release workflow.
+The separately downloaded IPA is checked for its checksum, archive integrity,
+app and widget identity, version, executables and unsigned state.
 
 ## Version bumps
 
@@ -189,8 +157,7 @@ pin). StreamBridge never ships Nuvio's version number as its own.
 
 The production release workflow can be dispatched with `preflight=true` on the
 candidate branch. It checks the v0.1.19 source identity without requiring a tag,
-builds signed Android APKs and a signed IPA, then downloads each platform’s
-artifacts into independent jobs to verify checksums, identity and signatures.
-The Android inspection runs independently even when Apple signing is missing. Preflight never
+builds signed Android APKs and an unsigned IPA, then downloads each platform’s
+artifacts into independent jobs to verify checksums, identity and signing state. Preflight never
 creates a tag, draft or public release; the normal release path still requires
 the exact verified tag. These checks do not replace device or service testing.

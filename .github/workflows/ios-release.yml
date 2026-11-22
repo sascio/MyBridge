@@ -4,8 +4,8 @@ name: StreamBridge iOS release
 #
 # This validation workflow builds unsigned when signing configuration is absent.
 # When all Apple material is configured it instead validates a signed archive.
-# The production draft workflow always requires signing and never publishes an
-# unsigned IPA. See docs/RELEASE-IOS.md for distribution restrictions.
+# The production draft workflow always publishes an unsigned IPA for AltStore
+# and SideStore. See docs/RELEASE-IOS.md for distribution details.
 #
 # Required repository secrets for a signed IPA (all optional):
 #   STREAMBRIDGE_IOS_TEAM_ID                Apple Developer team identifier
@@ -266,7 +266,7 @@ jobs:
           else
             echo "signed=false" >> "${GITHUB_OUTPUT}"
             echo "missing_secrets=$(printf '%s, ' "${missing[@]}" | sed 's/, $//')" >> "${GITHUB_OUTPUT}"
-            echo "::notice::This validation run builds an UNSIGNED IPA; it is not a production-signed artifact. Apple signing configuration ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')) is missing. The production release workflow requires signing. See docs/RELEASE-IOS.md."
+            echo "::notice::This validation run builds an UNSIGNED IPA; it is not a production-signed artifact. Apple signing configuration ($(printf '%s, ' "${missing[@]}" | sed 's/, $//')) is missing. The production release workflow also builds unsigned for AltStore and SideStore. See docs/RELEASE-IOS.md."
           fi
 
       - name: Decode provisioning profile

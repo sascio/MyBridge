@@ -64,7 +64,7 @@ grep -Fq "version <strong>${EXPECTED_VERSION}</strong> (${EXPECTED_CODE})" READM
   || fail "README version banner does not identify ${EXPECTED_VERSION} (${EXPECTED_CODE})."
 grep -Fq "## Highlights in ${EXPECTED_VERSION}" README.md \
   || fail "README highlights do not identify ${EXPECTED_VERSION}."
-grep -Fq "StreamBridge-${EXPECTED_VERSION}-iOS-signed.ipa" README.md \
+grep -Fq "StreamBridge-${EXPECTED_VERSION}-iOS-unsigned.ipa" README.md \
   || fail "README iOS asset name does not match ${EXPECTED_VERSION}."
 
 grep -Fq "default: \"${EXPECTED_TAG}\"" .github/workflows/release-draft.yml \
@@ -83,7 +83,7 @@ for required_text in \
   'androidApp-full-armeabi-v7a-release.apk' \
   'androidApp-full-x86-release.apk' \
   'androidApp-full-x86_64-release.apk' \
-  'StreamBridge-0.1.19-iOS-signed.ipa' \
+  'StreamBridge-0.1.19-iOS-unsigned.ipa' \
   'checksums.sha256'; do
   grep -Fq "${required_text}" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
     || fail "Release notes are missing required website, community, or download entry: ${required_text}"
@@ -137,8 +137,8 @@ grep -Fq 'scripts/release-api.sh lookup' .github/workflows/release-draft.yml \
   || fail "Release workflow does not resolve drafts through the releases list."
 grep -Fq 'scripts/release-api.sh ensure-asset' .github/workflows/release-draft.yml \
   || fail "Release workflow does not use the non-clobbering, draft-safe asset uploader."
-grep -Fq 'scripts/ios-signing.py verify' .github/workflows/release-draft.yml \
-  || fail "Release workflow does not independently verify iOS signing."
+grep -Fq 'scripts/verify-unsigned-ipa.py' .github/workflows/release-draft.yml \
+  || fail "Release workflow does not independently verify the unsigned IPA."
 
 # v0.1.14 corrected build gates: the About Us heading, the footer layout, the
 # hero metadata wiring and the user-facing branding rules are part of the

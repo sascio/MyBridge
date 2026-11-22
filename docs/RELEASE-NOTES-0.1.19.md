@@ -24,13 +24,14 @@ StreamBridge version 0.1.19 (version code 119). Android package and iOS bundle:
 ## Release assets
 
 - Android Full: `androidApp-full-arm64-v8a-release.apk`, `androidApp-full-armeabi-v7a-release.apk`, `androidApp-full-x86-release.apk`, `androidApp-full-x86_64-release.apk`.
-- iOS: `StreamBridge-0.1.19-iOS-signed.ipa` (distribution eligibility depends on the provisioning profile).
+- iOS: `StreamBridge-0.1.19-iOS-unsigned.ipa` (for AltStore or SideStore).
 - SHA-256: `checksums.sha256` for Android and `checksums-ios.sha256` for iOS.
 
 StreamBridge is GPL-3.0 software. **Your Media, Your Way.** Made with ❤️ by Saif.
 
 ### iOS installation
 
-This IPA is signed for the configured distribution profile. Ad-hoc builds work
-only on devices registered in that profile; enterprise distribution is subject
-to Apple’s enterprise program rules. Verify device eligibility before installing.
+This IPA is **unsigned**. Install with [AltStore](https://altstore.io) or
+[SideStore](https://sidestore.io), which signs it with your Apple ID. Add
+`https://raw.githubusercontent.com/sascio/MyBridge/main/store.json` as a source
+for updates. See `docs/RELEASE-IOS.md` for installation details.

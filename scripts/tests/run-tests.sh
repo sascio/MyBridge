@@ -94,6 +94,7 @@ section "Release workflows"
 run "production tracking credential gates and optional Trakt" python3 scripts/tests/release-tracking-test.py
 run "independent preflight asset inspection" python3 scripts/tests/preflight-assets-test.py
 run "iOS production signing and provisioning" python3 scripts/tests/ios-signing-test.py
+run "Unsigned iOS release verification" python3 scripts/tests/unsigned-ipa-test.py
 
 run "iOS IPA and simulator tests share one prepared dependency artifact" \
   python3 - <<'PY'
@@ -146,8 +147,9 @@ assert "needs.verify-ios.result == 'success'" in workflow
 assert "needs.ios-tests.result == 'success'" in workflow
 assert "needs.draft.result == 'success'" in workflow
 assert 'scripts/audit-preflight-assets.sh preflight/android --android-only' in workflow
-assert 'python3 scripts/ios-signing.py verify' in workflow
-assert 'STREAMBRIDGE_IOS_SIGNING: "1"' in workflow
+assert 'python3 scripts/verify-unsigned-ipa.py' in workflow
+assert 'STREAMBRIDGE_IOS_SIGNING: "0"' in workflow
+assert 'STREAMBRIDGE_IOS_SIGNING: "1"' not in workflow
 assert "inputs.include_ios" not in workflow
 assert "inputs.require_tracking_credentials" not in workflow
 assert 'for property_name in TRAKT_CLIENT_ID TRAKT_CLIENT_SECRET SIMKL_CLIENT_ID' in workflow
