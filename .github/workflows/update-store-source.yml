@@ -37,6 +37,11 @@ on:
         description: Optional existing branch to receive the verified source update
         required: false
         type: string
+      diagnose_ipa:
+        description: Diagnose the active IPA build
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
@@ -55,7 +60,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ipa-diagnostic:
+    if: github.event_name == 'workflow_dispatch' && inputs.diagnose_ipa == true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Diagnose active release job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/137204957273/logs" > "$RUNNER_TEMP/ipa.log" 2> "$RUNNER_TEMP/error"; then
+            progress="$(grep -E '> Task :|\*\* BUILD (SUCCEEDED|FAILED) \*\*|BUILD (SUCCESSFUL|FAILED)' "$RUNNER_TEMP/ipa.log" | tail -15 | tr '\n' ';' || true)"
+            echo "::notice title=IPA build progress::${progress:-No build stages logged}"
+          else
+            category="$(python3 -c 'import re,sys; s=open(sys.argv[1]).read(); print(" ".join(re.findall(r"HTTP [0-9]{3}|EOF|Not Found|Resource not accessible|Forbidden",s)) or "log endpoint unavailable")' "$RUNNER_TEMP/error")"
+            echo "::notice title=IPA log request failed::$category"
+          fi
   update:
+    if: inputs.diagnose_ipa != true
     name: Update store.json
     runs-on: ubuntu-latest
     env:
