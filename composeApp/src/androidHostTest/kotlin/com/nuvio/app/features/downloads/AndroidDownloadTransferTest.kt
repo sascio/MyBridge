@@ -114,6 +114,22 @@ class AndroidDownloadTransferTest {
     }
 
     @Test
+    fun forwardProgressResetsConsecutiveRetryBudgetOnlyForNewBytes() {
+        val transfer = AndroidDownloadTransfer(
+            item = downloadItem().copy(downloadedBytes = 100L),
+            jobId = 1,
+            generation = "test",
+            retryCount = 4,
+        )
+        assertEquals(4, transfer.withDownloadProgress(100L, 200L).retryCount)
+        assertEquals(4, transfer.withDownloadProgress(50L, 200L).retryCount)
+        val progressed = transfer.withDownloadProgress(101L, 200L)
+        assertEquals(0, progressed.retryCount)
+        assertEquals(101L, progressed.item.downloadedBytes)
+        assertTrue(shouldRetryAndroidDownload(IOException("connection lost"), progressed.retryCount))
+    }
+
+    @Test
     fun retryPolicyDistinguishesTransientAndPermanentFailures() {
         assertTrue(shouldRetryAndroidDownload(IOException("connection lost"), 0))
         assertTrue(shouldRetryAndroidDownload(DownloadHttpException(503), 0))

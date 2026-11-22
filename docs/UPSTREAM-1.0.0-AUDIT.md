@@ -110,11 +110,10 @@ fully integrated. This is not a claim of upstream feature parity.
   where searches go. Live service behavior has not been verified.
 - Official `97fbfa90565125859f973feff7a5740e8e647928` episode-rating alignment
   is not copied: it depends on the upstream Tapframe/SeriesGraph episode data
-  pipeline, whereas this fork uses OMDb, persistent season caches, and
-  explicit IMDb/anime mappings. Porting the heuristic without adapting those
-  data sources and avoiding regressions would not provide the same behavior.
-  The newer downloads redesign, custom downloads poster integration and server
-  integrations also remain unported.
+  pipeline and additional alignment heuristics; the 1.0.0 endpoint is now
+  adapted below as a fallback, but that later alignment has not been fully
+  integrated. The newer downloads redesign, custom downloads poster integration
+  and server integrations also remain unported.
 - Official `2dcfbb9f1a77fe690fdc788ef6d472fa91644517` handles system Back
   for an embedded show within downloads; this fork preserves navigation-owned
   Back handling and deletion modal behavior.
@@ -149,3 +148,38 @@ with the existing account-scoped sync, list picker and read-only protections.
 The fork's prior default ordering remains available; MDBList saved order is a
 separate selectable sort. This is a targeted integration, not a statement that
 all remaining differences have been reviewed or that device testing is complete.
+
+## Enhanced 1.0.0 download recovery conflict
+
+The Enhanced Android downloader resets the consecutive-retry budget when new
+bytes arrive. StreamBridge now incorporates that behavior and reads the current
+retry count atomically when a transfer fails, rather than the stale count from
+the start of a run. A repeated or backward progress report does not reset the
+budget. Tests cover the progress transition and existing transient/permanent
+failure policy.
+
+Enhanced also reschedules a missing user-initiated Android job, including after
+`STOP_REASON_USER`. StreamBridge deliberately pauses such a transfer instead:
+rescheduling after the system reports a user stop can override the user's
+explicit cancellation, and a missing job at restore time does not reliably
+identify whether it was cancelled by the user or lost by the system. Users may
+resume the paused item explicitly. This is a conflict resolution, not a claim of
+complete integration or on-device validation.
+
+Enhanced's empty-server addon migration/preservation is not blindly applied:
+StreamBridge treats an empty server list as authoritative, so migrating cached
+local entries on an empty response could resurrect addons intentionally removed
+on another device. A safe migration needs an explicit first-sync marker and
+cross-device deletion semantics; no such migration is claimed here.
+
+## Official 1.0.0 episode-ratings fallback
+
+The official Tapframe/SeriesGraph season-ratings endpoint is adapted as a
+fallback in the existing metadata enrichment pipeline, using the already-wired
+optional API base URLs. It preserves OMDb ratings and the fork's IMDb/TMDB
+separation, fills only missing IMDb ratings, validates season/episode/rating
+values, and avoids applying a show-level map to a different explicit IMDb ID or
+to unmapped anime IDs. It caches successful results briefly, bounds response
+size and preserves coroutine cancellation. The SeriesGraph fallback currently
+uses an explicit TMDB ID rather than performing an extra cross-service ID lookup;
+real service results, device UI, and unusual anime numbering remain unverified.

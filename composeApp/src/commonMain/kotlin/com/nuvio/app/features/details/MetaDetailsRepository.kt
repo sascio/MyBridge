@@ -654,8 +654,13 @@ object MetaDetailsRepository {
             fallbackItemId = fallbackItemId,
             settings = TmdbSettingsRepository.snapshot(),
         )
-        val enrichedMeta = applyMoreLikeThisSource(
+        val fallbackRatedMeta = SeriesGraphEpisodeRatings.applyTo(
             meta = imdbRatedMeta,
+            fallbackId = fallbackItemId,
+            settings = TmdbSettingsRepository.snapshot(),
+        )
+        val enrichedMeta = applyMoreLikeThisSource(
+            meta = fallbackRatedMeta,
             fallbackItemId = fallbackItemId,
             fallbackItemType = fallbackItemType,
         )
@@ -777,6 +782,7 @@ object MetaDetailsRepository {
         if (shouldFetchMdbListOnMetaScreen(meta, fallbackItemId, settings)) return true
         TmdbSettingsRepository.ensureLoaded()
         if (OmdbEpisodeRatingsService.shouldApply(meta, TmdbSettingsRepository.snapshot())) return true
+        if (SeriesGraphEpisodeRatings.shouldApply(meta, fallbackItemId, TmdbSettingsRepository.snapshot())) return true
         return shouldApplyMoreLikeThisSource(meta)
     }
 

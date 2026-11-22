@@ -107,4 +107,28 @@ class SigningTest(unittest.TestCase):
             return self.fake_run(cmd, **kwargs)
         with patch.object(mod.subprocess, 'run', side_effect=fail), self.assertRaises(subprocess.CalledProcessError): mod.verify(args)
 
+class StoreSignedIpaTest(unittest.TestCase):
+    def test_store_source_rejects_unverified_signed_ipa(self):
+        spec = importlib.util.spec_from_file_location('store_source', ROOT / 'scripts/update-store-source.py')
+        source = importlib.util.module_from_spec(spec); spec.loader.exec_module(source)
+        with tempfile.TemporaryDirectory() as temp:
+            ipa = Path(temp) / 'test.ipa'
+            with zipfile.ZipFile(ipa, 'w') as z:
+                app = 'Payload/StreamBridge.app/'
+                widget = app + 'PlugIns/DownloadsWidgetExtension.appex/'
+                z.writestr(app + 'Info.plist', plistlib.dumps({'CFBundleIdentifier': mod.APP}))
+                for prefix in (app, widget):
+                    z.writestr(prefix + '_CodeSignature/CodeResources', b'signed')
+                    z.writestr(prefix + 'embedded.mobileprovision', b'profile')
+            with self.assertRaises(ValueError): source.read_ipa_metadata(ipa)
+            info, _ = source.read_ipa_metadata(ipa, verified_signed=True)
+            self.assertEqual(info['CFBundleIdentifier'], mod.APP)
+
+    def test_store_workflow_binds_verified_digest_to_downloaded_bytes(self):
+        workflow = (ROOT / '.github/workflows/update-store-source.yml').read_text()
+        self.assertIn('python3 scripts/ios-signing.py verify', workflow)
+        self.assertIn('needs.verify-signed-ipa.outputs.sha256', workflow)
+        self.assertIn('steps.download.outputs.sha256', workflow)
+        self.assertIn('--verified-signed', workflow)
+
 if __name__ == '__main__': unittest.main(verbosity=2)
