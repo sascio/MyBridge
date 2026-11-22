@@ -35,6 +35,30 @@ class SeriesGraphEpisodeRatingsTest {
     }
 
     @Test
+    fun resolvesTmdbOnlyWhenPrimaryIsEmptyAndNoExplicitIdExists() = runTest {
+        var resolutions = 0
+        val requests = mutableListOf<String>()
+        suspend fun run(primaryHasRatings: Boolean, explicit: String?) = fetchSeriesGraphRatings(
+            imdbUrl = "primary", tmdbId = explicit, tmdbUrl = { "tmdb/$it" },
+            resolveTmdb = { resolutions++; "42" },
+            fetch = { url ->
+                requests += url
+                if (url != "primary" || primaryHasRatings) mapOf((1 to 1) to 8.0) else emptyMap()
+            },
+        )
+        assertEquals(8.0, run(true, null)[1 to 1])
+        assertEquals(0, resolutions)
+        requests.clear()
+        assertEquals(8.0, run(false, null)[1 to 1])
+        assertEquals(listOf("primary", "tmdb/42"), requests)
+        assertEquals(1, resolutions)
+        requests.clear()
+        run(false, "17")
+        assertEquals(listOf("primary", "tmdb/17"), requests)
+        assertEquals(1, resolutions)
+    }
+
+    @Test
     fun fillsOnlyMissingRatingsWithoutOverwritingOrMixingAnimeTitles() {
         val meta = MetaDetails(id = "tt123", type = "series", name = "Show", videos = listOf(
             MetaVideo(id = "one", title = "One", season = 1, episode = 1),

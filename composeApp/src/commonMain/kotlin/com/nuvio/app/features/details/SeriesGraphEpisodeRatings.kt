@@ -2,6 +2,7 @@ package com.nuvio.app.features.details
 
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.library.LibraryClock
+import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.features.tmdb.TmdbSettings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -35,18 +36,29 @@ internal object SeriesGraphEpisodeRatings {
         if (meta.type.equals("movie", ignoreCase = true) || (settings.enabled && !settings.useEpisodeRatings)) return false
         if (meta.videos.none { it.imdbRating == null && ((it.season != null && it.episode != null) || (it.imdbSeason != null && it.imdbEpisode != null)) }) return false
         return (ImdbEpisodeRatingsConfig.IMDB_TAPFRAME_API_BASE_URL.isNotBlank() && imdbId(meta, fallbackId) != null) ||
-            (ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL.isNotBlank() && tmdbId(meta, fallbackId) != null)
+            (ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL.isNotBlank() && (tmdbId(meta, fallbackId) != null || imdbId(meta, fallbackId) != null))
     }
 
     suspend fun applyTo(meta: MetaDetails, fallbackId: String, settings: TmdbSettings): MetaDetails {
         if (!shouldApply(meta, fallbackId, settings)) return meta
         val imdb = imdbId(meta, fallbackId)
         val tmdb = tmdbId(meta, fallbackId)
-        val candidates = listOfNotNull(
-            imdb?.let { candidateUrl(ImdbEpisodeRatingsConfig.IMDB_TAPFRAME_API_BASE_URL, it) },
-            tmdb?.let { candidateUrl(ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL, it) },
+        val ratings = fetchSeriesGraphRatings(
+            imdbUrl = imdb?.let { candidateUrl(ImdbEpisodeRatingsConfig.IMDB_TAPFRAME_API_BASE_URL, it) },
+            tmdbId = tmdb,
+            tmdbUrl = { id -> candidateUrl(ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL, id) },
+            resolveTmdb = {
+                if (imdb == null || ImdbEpisodeRatingsConfig.IMDB_RATINGS_API_BASE_URL.isBlank()) null
+                else try {
+                    TmdbService.ensureTmdbId(imdb, "tv")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+            },
+            fetch = ::fetch,
         )
-        val ratings = firstAvailableSeriesGraphRatings(candidates, ::fetch)
         return if (ratings.isEmpty()) meta else applySeriesGraphRatings(meta, ratings, imdb)
     }
 
@@ -72,6 +84,22 @@ internal object SeriesGraphEpisodeRatings {
         if (ratings.isNotEmpty()) mutex.withLock { cache[url] = (LibraryClock.nowEpochMs() + CACHE_TTL_MS) to ratings }
         return ratings
     }
+}
+
+internal suspend fun fetchSeriesGraphRatings(
+    imdbUrl: String?,
+    tmdbId: String?,
+    tmdbUrl: (String) -> String?,
+    resolveTmdb: suspend () -> String?,
+    fetch: suspend (String) -> Map<Pair<Int, Int>, Double>,
+): Map<Pair<Int, Int>, Double> {
+    if (imdbUrl != null) {
+        val ratings = fetch(imdbUrl)
+        if (ratings.isNotEmpty()) return ratings
+    }
+    val resolved = (tmdbId ?: resolveTmdb())?.toLongOrNull()?.takeIf { it > 0 }?.toString()
+    val fallbackUrl = resolved?.let(tmdbUrl) ?: return emptyMap()
+    return fetch(fallbackUrl)
 }
 
 internal suspend fun firstAvailableSeriesGraphRatings(

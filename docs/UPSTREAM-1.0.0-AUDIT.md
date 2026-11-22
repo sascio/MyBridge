@@ -16,8 +16,10 @@ selective integration and device regression testing remain outstanding. The
 existing `docs/CLOUDSTREAM-RUNTIME-AUDIT.md` compares a later Enhanced branch,
 not the exact 1.0.0 tag.
 
-MPVKit/native pins were not changed: the tag comparison alone does not establish
-binary compatibility with StreamBridge's native overlays. `store.json` remains
+The exact Official 1.0.0 tag points to MPVKit `da4b7da256a5d67dee74f576762ceb9067fc7a71`
+and the exact Enhanced 1.0.0 tag points to `359a885342d4eeda757f8e1d2c24fb01fe6d39c2`,
+matching the existing Official pin and Enhanced overlay used by the iOS dependency
+script. Their runtime behavior still needs device testing. `store.json` remains
 at the last published version; 0.1.19 metadata requires real production
 artifacts and verified checksums. Android Play and iOS remain non-executing
 CloudStream distributions. Android Full loads third-party code in-process;
@@ -180,9 +182,10 @@ optional API base URLs. It preserves OMDb ratings and the fork's IMDb/TMDB
 separation, fills only missing IMDb ratings, validates season/episode/rating
 values, and avoids applying a show-level map to a different explicit IMDb ID or
 to unmapped anime IDs. It caches successful results briefly, bounds response
-size and preserves coroutine cancellation. The SeriesGraph fallback currently
-uses an explicit TMDB ID rather than performing an extra cross-service ID lookup;
-real service results, device UI, and unusual anime numbering remain unverified.
+size and preserves coroutine cancellation. The SeriesGraph fallback uses an explicit TMDB ID when available, and otherwise
+resolves the IMDb show ID through the existing TMDB service only if the primary
+ratings source is empty. Real service results, device UI, and unusual anime
+numbering remain unverified.
 
 ## Official 1.0.0 MDBList rating decoding
 
