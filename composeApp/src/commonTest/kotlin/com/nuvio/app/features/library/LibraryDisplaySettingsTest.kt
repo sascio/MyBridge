@@ -86,6 +86,20 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
+    fun `MDBList saved order is selectable without changing the existing default`() {
+        val listKey = "mdblist:list:1"
+        val items = listOf(
+            item("first", savedAt = 1L).copy(listRanks = mapOf(listKey to 8), listProviderPositions = mapOf(listKey to 0)),
+            item("second", savedAt = 2L).copy(listRanks = mapOf(listKey to 2), listProviderPositions = mapOf(listKey to 1)),
+        )
+        assertEquals(listOf("second", "first"), sortLibraryItems(items, LibrarySortOption.DEFAULT, LibrarySourceMode.MDBLIST, listKey).map { it.id })
+        assertEquals(listOf("first", "second"), sortLibraryItems(items.reversed(), LibrarySortOption.MDBLIST_SAVED_ORDER, LibrarySourceMode.MDBLIST, listKey).map { it.id })
+        assertEquals(LibrarySortOption.MDBLIST_SAVED_ORDER, effectiveLibrarySortOption(LibrarySortOption.MDBLIST_SAVED_ORDER, LibrarySourceMode.MDBLIST))
+        assertEquals(LibrarySortOption.DEFAULT, effectiveLibrarySortOption(LibrarySortOption.MDBLIST_SAVED_ORDER, LibrarySourceMode.TRAKT))
+        assertEquals(LibrarySortOption.ADDED_DESC, effectiveLibrarySortOption(LibrarySortOption.MDBLIST_SAVED_ORDER, LibrarySourceMode.LOCAL))
+    }
+
+    @Test
     fun `release year sorting keeps items without a year last in both directions`() {
         val items = listOf(
             item("unknown"),

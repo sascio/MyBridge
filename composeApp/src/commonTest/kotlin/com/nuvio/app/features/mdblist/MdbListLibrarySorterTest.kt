@@ -39,6 +39,21 @@ class MdbListLibrarySorterTest {
     }
 
     @Test
+    fun `saved order follows response position even when provider ranks disagree`() {
+        val page = """[
+          {"id":1,"mediatype":"movie","title":"First","rank":8},
+          {"id":2,"mediatype":"movie","title":"Second","rank":1}
+        ]"""
+        val snapshot = mdbListLibrarySnapshot(0).copy(itemsByList = mapOf(MDBLIST_TEST_LIST_KEY to decodeMdbListLibraryPage(page).items))
+        val entries = MdbListLibraryProjection(snapshot).entries.reversed()
+        val result = com.nuvio.app.features.library.sortLibraryItems(entries,
+            com.nuvio.app.features.library.LibrarySortOption.MDBLIST_SAVED_ORDER,
+            com.nuvio.app.features.library.LibrarySourceMode.MDBLIST, MDBLIST_TEST_LIST_KEY)
+        assertEquals(listOf("First", "Second"), result.map { it.name })
+        assertEquals(listOf(8, 1), result.map { it.listRanks[MDBLIST_TEST_LIST_KEY] })
+    }
+
+    @Test
     fun `each added direction is fetched once and survives a cache reload`() = runTest {
         val h = MdbListSyncTestHarness(backgroundScope)
         h.seedLibrary(mdbListLibrarySnapshot(h.http.now).copy(itemsByList = mapOf(MDBLIST_TEST_LIST_KEY to items)))
@@ -170,12 +185,17 @@ class MdbListLibrarySorterTest {
         )))
         h.http.reply(body = mdbListLibraryListsBody())
         h.http.reply(body = MDBLIST_EMPTY_LIBRARY_PAGE)
+        h.http.reply(body = page)
+        h.http.reply(body = "[]")
+        h.http.reply(body = MDBLIST_EMPTY_LIKED_LISTS)
         val service = h.libraryService(backgroundScope)
         service.refresh(TrackingRefreshIntent.USER_INITIATED)
         assertEquals(mapOf(MDBLIST_TEST_LIST_KEY to orders), h.repository.currentSnapshot()!!.library!!.addedOrders)
         h.http.reply(body = mdbListLibraryListsBody("v2"))
         h.http.reply(body = MDBLIST_EMPTY_LIBRARY_PAGE)
         h.http.reply(body = page)
+        h.http.reply(body = "[]")
+        h.http.reply(body = MDBLIST_EMPTY_LIKED_LISTS)
         service.refresh(TrackingRefreshIntent.USER_INITIATED)
         assertTrue(h.repository.currentSnapshot()!!.library!!.addedOrders.isEmpty())
     }
@@ -209,11 +229,13 @@ class MdbListLibrarySorterTest {
         h.http.reply(body = mdbListLibraryListsBody("v2"))
         h.http.reply(body = MDBLIST_EMPTY_LIBRARY_PAGE)
         h.http.reply(body = page)
+        h.http.reply(body = "[]")
+        h.http.reply(body = MDBLIST_EMPTY_LIKED_LISTS)
         h.http.reply(body = """[{"id":2,"mediatype":"movie"},{"id":1,"mediatype":"show"},{"id":1,"mediatype":"movie"}]""")
         service.refresh(TrackingRefreshIntent.USER_INITIATED)
         runCurrent()
         assertEquals(listOf("movie:tmdb:2", "series:tmdb:1", "movie:tmdb:1"), observed.last())
-        assertEquals(4, h.http.engine.requests.size)
+        assertEquals(6, h.http.engine.requests.size)
         assertEquals("added", h.http.engine.requests.last().query["sort"])
     }
 

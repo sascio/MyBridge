@@ -1,13 +1,12 @@
 # Upstream 1.0.0 review for StreamBridge 0.1.19
 
 Reviewed tag snapshots (not branch tips): official `NuvioMedia/NuvioMobile`
-`511ebd5f175dd39e31b9cc0e7b259259e887cf6f`, Enhanced
-`yesnt10/NuvioMobile-Enhanced` `3138f33fee8803d324a3ee213f588697995aafda`.
-Both tag refs were verified against GitHub. The official tag is Kotlin
-Multiplatform; the exact Enhanced tag is an older Expo/React Native tree, not
-the later Kotlin Enhanced branch used in the existing CloudStream runtime audit.
-It contains no CloudStream implementation under `src`. It is not a drop-in
-upstream overlay for the current application.
+`511ebd5f175dd39e31b9cc0e7b259259e887cf6f` and the specified Enhanced
+`luqmanfadlli/NuvioMobile-Enhanced` `6c2ad7937171965608d05005080b96ca19345379`.
+Both tag refs were verified against GitHub. Both are Kotlin Multiplatform trees.
+The earlier review incorrectly used `yesnt10/NuvioMobile-Enhanced` tag
+`3138f33fee8803d324a3ee213f588697995aafda`; that unrelated Expo/React Native
+tag is not the specified Enhanced 1.0.0 and cannot establish its parity.
 
 The existing StreamBridge tree is based on earlier documented core/Enhanced
 pins and contains substantial StreamBridge-specific changes; a comparison of
@@ -49,14 +48,13 @@ The official version catalogue uses AGP 9.2.0 while this tree uses 9.4.0 and
 also contains additional runtime dependencies; no dependency or native/MPVKit
 pins were changed without compatibility evidence.
 
-The exact Enhanced tag's README and `src/` identify React Native/Expo home,
-search, library, player, Trakt and addon features. The current application
-already has Kotlin implementations of these broad areas, but full functional
-parity has not been established. Directly copying React components, Expo
-configuration, app IDs, remote endpoints or native modules would be incompatible
-and would risk StreamBridge identity. The later Kotlin Enhanced CloudStream
-reference is documented separately in `CLOUDSTREAM-RUNTIME-AUDIT.md` and is
-not represented as the requested 1.0.0 tag.
+The specified Enhanced 1.0.0 snapshot is a Kotlin tree closely related to this
+fork. A path comparison found 833 identical, 92 changed, and two upstream-only
+commonMain Kotlin files, plus seven changed Android and three changed iOS files;
+these counts alone do not establish feature parity. StreamBridge-specific
+identity, integrations, security and behavior must be preserved while resolving
+differences. The separate CloudStream runtime audit references a later branch,
+not this tag.
 
 This follow-up adds CloudStream bulk management, fail-closed handling for
 ambiguous installed filenames and malformed hashes, and retains installed
@@ -88,8 +86,8 @@ already excluding gesture insets; it was retained instead of replacing it.
 The 1.0.1 version bump was not adopted because StreamBridge has its own version.
 
 Enhanced's Kotlin `enhanced` branch was inspected at
-`894499115fb1a69cd4bb34d6969a74832f0e5636`; this is distinct from its older
-React Native 1.0.0 tag. The branch contains functionality not yet ported,
+`894499115fb1a69cd4bb34d6969a74832f0e5636`; this is distinct from the specified
+Kotlin 1.0.0 tag. The branch contains functionality not yet ported,
 including the Telegram client and richer AI assistant implementations. The
 upstream assistant persists API keys in ordinary SharedPreferences and
 NSUserDefaults; StreamBridge instead provides an opt-in, session-only OpenRouter
@@ -135,10 +133,19 @@ Real service and device playback validation remain necessary.
 
 ## Enhanced 1.0.0 opt-in assistant
 
-The exact React Native tag `3138f33fee8803d324a3ee213f588697995aafda`
-includes an OpenRouter title assistant. StreamBridge now offers an opt-in chat
+The unrelated React Native tag `3138f33fee8803d324a3ee213f588697995aafda`
+includes an OpenRouter title assistant; it is not the requested Enhanced tag. StreamBridge now offers an opt-in chat
 from title details, using an entered OpenRouter key and model only in memory for
 the open dialog. Sending discloses the title metadata and conversation to the
 service and selected provider; responses can contain spoilers or inaccuracies.
 The fork intentionally does not persist the key in unprotected preferences, and
 does not yet replicate the tag's episode/series context or settings screen.
+
+## Specified Enhanced 1.0.0 MDBList library integration
+
+The specified `6c2ad793` snapshot adds dynamic, external and liked list reads,
+per-list visibility controls, and MDBList-saved ordering. These are integrated
+with the existing account-scoped sync, list picker and read-only protections.
+The fork's prior default ordering remains available; MDBList saved order is a
+separate selectable sort. This is a targeted integration, not a statement that
+all remaining differences have been reviewed or that device testing is complete.

@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
-// Stored beside added-date orders, but keyed separately to preserve existing caches.
+// Cached next to the added orders ("asc"/"desc") of each list, oldest release first.
 internal const val RELEASED_ORDER_KEY = "released_oldest"
 
 internal class MdbListLibrarySorter(
@@ -25,20 +25,21 @@ internal class MdbListLibrarySorter(
     override fun observeAddedOrder(listKey: String, descending: Boolean): Flow<List<String>?> {
         // MDBList returns the newest additions for order=asc and the oldest for order=desc.
         val direction = if (descending) "asc" else "desc"
-        return observeOrder(listKey, direction, reversed = false) { it.items(listKey, direction) }
+        return observeOrder(listKey, direction, reversed = false) { it.items(listKey, "added", direction) }
     }
 
-    // Adapted from official 1.0.0: one oldest-first order serves both directions.
+    // One oldest-first order serves both directions. Like added, MDBList returns the newest
+    // releases for order=asc, so the oldest are requested with order=desc.
     override fun observeReleaseOrder(listKey: String, descending: Boolean): Flow<List<String>?> =
         observeOrder(listKey, RELEASED_ORDER_KEY, reversed = descending) {
-            it.items(listKey, addedOrder = "desc", sort = "released").oldestFirst()
+            it.items(listKey, "released", "desc").oldestFirst()
         }
 
     private fun observeOrder(
         listKey: String,
         cacheKey: String,
         reversed: Boolean,
-        fetch: suspend (MdbListLibraryRemote) -> List<MdbListLibraryItem>,
+        fetch: suspend (MdbListLibraryRemote) -> List<MdbListLibraryItem>
     ) = snapshots.map { scoped ->
         val (scope, library) = scoped ?: return@map null
         if (listKey !in library.itemsByList) return@map null
@@ -56,6 +57,7 @@ internal class MdbListLibrarySorter(
         }
     }.distinctUntilChanged()
 
+    // The order direction is undocumented, so it is checked against the returned release dates.
     private fun List<MdbListLibraryItem>.oldestFirst(): List<MdbListLibraryItem> {
         val dates = mapNotNull { it.releaseDate ?: it.media.year?.toString() }
         return if (dates.isNotEmpty() && dates.first() > dates.last()) reversed() else this

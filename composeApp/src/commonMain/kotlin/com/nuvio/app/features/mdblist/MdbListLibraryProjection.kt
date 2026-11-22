@@ -20,6 +20,7 @@ internal class MdbListLibraryProjection(snapshot: MdbListLibrarySnapshot) {
                 val previous = combined[key]
                 val listKeys = previous?.listKeys.orEmpty() + listKey
                 val ranks = previous?.listRanks.orEmpty() + (listKey to if (hasRanks) requireNotNull(item.rank) else position)
+                val positions = previous?.listProviderPositions.orEmpty() + (listKey to position)
                 combined[key] = LibraryItem(
                     id = media.ids.contentId,
                     type = if (item.type == MdbListItemType.MOVIE) "movie" else "series",
@@ -34,6 +35,7 @@ internal class MdbListLibraryProjection(snapshot: MdbListLibrarySnapshot) {
                     addonBaseUrl = null,
                     listKeys = listKeys,
                     listRanks = ranks,
+                    listProviderPositions = positions,
                     savedAtEpochMs = maxOf(previous?.savedAtEpochMs ?: 0, item.listedAt),
                     imdbId = media.ids.imdb,
                     tmdbId = media.ids.tmdb?.takeIf { it <= Int.MAX_VALUE }?.toInt(),

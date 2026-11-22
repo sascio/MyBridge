@@ -12,7 +12,7 @@ StreamBridge version 0.1.19 (version code 119). Android package and iOS bundle:
 
 - CloudStream repository authorization is explicit. Package installation and loading check archive structure and published SHA-256 hashes. Packages without a published hash are identified as unverified. Android Full can run authorized third-party extensions; Android Play and iOS do not execute their code. Repository authorization and a matching hash do not make third-party code safe.
 - CloudStream repository management includes bulk operations, collision checks, offline metadata retention and safer staged package replacement.
-- MDBList library sorting supports release-date ordering as well as added-date ordering.
+- MDBList library supports dynamic, external and liked read-only lists, list visibility controls, and selectable saved-list, release-date and added-date ordering.
 - Trakt library refresh requests are coalesced when Trakt is configured, and TorBox alternate hash responses can be matched to requested hashes. This release does not include Trakt credentials, so Trakt sign-in and sync are unavailable in this build.
 - MDBList personal ratings follow cursor and offset pages, and Simkl anime rating removal uses the show's removal endpoint.
 - Android's optional playback disk cache sizes itself against available space and bypasses caching when space is insufficient.
