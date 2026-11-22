@@ -82,8 +82,8 @@ internal class MdbListRatingsProvider(
         val authScope = scope(profileId)
         val response = api.post("/sync/ratings/remove", buildBody(target, null).toString(), authScope)
         val payload = json.parseToJsonElement(response.body.ifBlank { "{}" }).objectOrNull()
-        if (payload?.get("not_found").notFoundTotal() > 0) {
-            throw TrackingRatingException("MDBList did not find this item")
+        if (payload?.get("not_found").notFoundTotal() > 0 || payload?.get("errors").arrayOrEmpty().isNotEmpty()) {
+            throw TrackingRatingException("MDBList did not remove this rating")
         }
         invalidate()
     }
