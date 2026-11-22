@@ -27,12 +27,6 @@ class CloudStreamRepositoryTrustTest {
     private fun authorized(setting: Map<String, String>, url: String?) =
         cloudStreamRepositoryAuthorized(configured, setting, url)
 
-    @Test fun PROBE_tempFailToProveThisClassRuns() {
-        // Temporary probe: proves this test class is compiled and executed by
-        // CI's :composeApp:check. Reverted immediately after.
-        error("PROBE: CloudStreamRepositoryTrustTest executed")
-    }
-
     @Test fun addingARepositoryDoesNotAuthorizeIt() {
         assertFalse(authorized(emptyMap(), "https://repo.example/repo.json"))
     }
