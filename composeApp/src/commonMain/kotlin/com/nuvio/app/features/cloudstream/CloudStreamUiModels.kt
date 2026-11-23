@@ -27,6 +27,8 @@ data class CloudStreamOverview(
 data class CloudStreamSource(
     val id: String,
     val name: String,
+    /** Runtime provider identity when this is a nested provider. */
+    val providerId: String? = null,
     /** Content type declared by the extension, e.g. Movie / TvSeries / Anime. */
     val contentType: String? = null,
     val language: String? = null,

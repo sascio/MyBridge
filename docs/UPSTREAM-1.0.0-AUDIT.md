@@ -95,12 +95,7 @@ The 1.0.1 version bump was not adopted because StreamBridge has its own version.
 Enhanced's Kotlin `enhanced` branch was inspected at
 `894499115fb1a69cd4bb34d6969a74832f0e5636`; this is distinct from the specified
 Kotlin 1.0.0 tag. The branch contains functionality not yet ported,
-including the Telegram client and richer AI assistant implementations. The
-upstream assistant persists API keys in ordinary SharedPreferences and
-NSUserDefaults; StreamBridge instead provides an opt-in, session-only OpenRouter
-chat without persistent credentials. It uses limited title metadata and is not
-a complete port of Enhanced's series and episode context. The Telegram client
-requires platform-specific native bridges and session
+including the Telegram client. The Telegram client requires platform-specific native bridges and session
 handling; copying its common UI alone would not deliver a usable integration.
 Differences in other features still require integration and validation. The
 1.1.0 beta releases and the current official branch likewise have not been
@@ -137,15 +132,7 @@ StreamBridge's Android Exo disk cache, which bypasses the cache when space is to
 low. This is not a port of upstream's write sink, cache eviction lifecycle, or iOS cache.
 Real service and device playback validation remain necessary.
 
-## Enhanced 1.0.0 opt-in assistant
 
-The unrelated React Native tag `3138f33fee8803d324a3ee213f588697995aafda`
-includes an OpenRouter title assistant; it is not the requested Enhanced tag. StreamBridge now offers an opt-in chat
-from title details, using an entered OpenRouter key and model only in memory for
-the open dialog. Sending discloses the title metadata and conversation to the
-service and selected provider; responses can contain spoilers or inaccuracies.
-The fork intentionally does not persist the key in unprotected preferences, and
-does not yet replicate the tag's episode/series context or settings screen.
 
 ## Specified Enhanced 1.0.0 MDBList library integration
 

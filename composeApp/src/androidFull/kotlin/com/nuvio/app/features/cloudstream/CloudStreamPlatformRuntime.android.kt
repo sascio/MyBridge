@@ -368,6 +368,19 @@ internal actual object CloudStreamPlatformRuntime {
             }
         }
 
+        override suspend fun discoverProviders(
+            plugin: CloudStreamPlugin,
+        ): List<CloudStreamProviderDescriptor> = withContext(Dispatchers.IO) {
+            providersFor(plugin).mapIndexed { index, api ->
+                CloudStreamProviderDescriptor(
+                    id = providerId(index, api),
+                    name = api.name.ifBlank { "Provider ${index + 1}" },
+                    contentTypes = api.supportedTypes.map { it.name }.distinct(),
+                    mainUrl = api.mainUrl.takeIf { it.isNotBlank() },
+                )
+            }
+        }
+
         override suspend fun search(
             plugin: CloudStreamPlugin,
             query: String,
@@ -430,8 +443,14 @@ internal actual object CloudStreamPlatformRuntime {
          */
         override suspend fun resolve(request: CloudStreamResolveRequest): CloudStreamLinkResult =
             withContext(Dispatchers.IO) {
-                val apis = providersFor(request.plugin)
-                if (apis.isEmpty()) error("Extension exposes no CloudStream provider")
+                val registeredApis = providersFor(request.plugin)
+                val apis = request.providerId?.let { wanted ->
+                    registeredApis.filterIndexed { index, api -> providerId(index, api) == wanted }
+                } ?: registeredApis
+                if (apis.isEmpty()) error(
+                    request.providerId?.let { "Selected CloudStream provider '$it' is no longer registered" }
+                        ?: "Extension exposes no CloudStream provider",
+                )
 
                 val title = request.title?.takeIf { it.isNotBlank() }
                     ?: error("No title available to search this CloudStream provider")
@@ -630,6 +649,9 @@ internal actual object CloudStreamPlatformRuntime {
                 },
             )
         }
+
+        private fun providerId(index: Int, api: MainAPI): String =
+            "$index:${api.name.trim().lowercase()}"
 
         /** Loads the plugin on demand and returns the providers it registered. */
         private suspend fun providersFor(plugin: CloudStreamPlugin): List<MainAPI> {

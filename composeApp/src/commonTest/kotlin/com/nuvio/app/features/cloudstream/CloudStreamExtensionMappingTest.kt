@@ -212,4 +212,24 @@ class CloudStreamExtensionMappingTest {
             source.compatibilityReason,
         )
     }
+
+    @Test
+    fun `runtime providers become distinct nested sources under their extension`() {
+        val extension = CloudStreamExtensionMapping.toExtension(
+            plugin = executablePlugin("CNCVerse", listOf("Movie", "TvSeries")),
+            repositoryUrl = "https://example.test/repo.json",
+            providers = listOf(
+                CloudStreamProviderDescriptor("0:netflix", "Netflix", listOf("Movie", "TvSeries")),
+                CloudStreamProviderDescriptor("1:prime video", "Prime Video", listOf("Movie")),
+                CloudStreamProviderDescriptor("2:disney", "Disney", listOf("Movie")),
+                CloudStreamProviderDescriptor("3:pixar", "Pixar", listOf("Movie")),
+            ),
+        )
+
+        assertEquals(setOf("Netflix", "Prime Video", "Disney", "Pixar"), extension.sources.map { it.name }.toSet())
+        assertEquals(5, extension.sources.size)
+        assertEquals(5, extension.sources.map { it.id }.distinct().size)
+        assertTrue(extension.sources.all { it.providerId != null })
+    }
+
 }
