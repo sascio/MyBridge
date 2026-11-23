@@ -14,7 +14,7 @@ class UnsignedIpaTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / 'test.ipa'
-    def write(self, signed=False, widget=True, version='0.1.20'):
+    def write(self, signed=False, widget=True, version='0.1.21'):
         with zipfile.ZipFile(self.path, 'w') as z:
             for root, identifier in [('Payload/StreamBridge.app/', 'com.streambridge.app'),
                                      ('Payload/StreamBridge.app/PlugIns/DownloadsWidgetExtension.appex/', 'com.streambridge.app.DownloadsWidgetExtension')][:2 if widget else 1]:

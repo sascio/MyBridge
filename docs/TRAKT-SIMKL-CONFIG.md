@@ -122,7 +122,7 @@ The workflow now:
    is decoded separately);
 5. prints a **presence-only report** for `TRAKT_CLIENT_ID`,
    `TRAKT_CLIENT_SECRET`, `SIMKL_CLIENT_ID` and `MDBLIST_CLIENT_ID`, plus a step
-   summary table. For 0.1.20 Trakt is optional; Simkl and MDBList remain
+   summary table. For 0.1.21 Trakt is optional; Simkl and MDBList remain
    required on both platforms. `MDBLIST_CLIENT_ID` may alternatively come from
    its dedicated Actions secret. No credential value is printed;
 6. after building each platform, greps the *generated* `TraktConfig.kt`,

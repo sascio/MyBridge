@@ -34,7 +34,7 @@ for abi in arm64-v8a armeabi-v7a x86 x86_64; do
   [[ -f "$apk" ]] || { echo "Missing $apk" >&2; exit 1; }
   badging="$("$aapt" dump badging "$apk")"
   package_line="$(printf '%s\n' "$badging" | grep -m1 '^package:')"
-  [[ "$package_line" == *"name='com.streambridge.app'"* && "$package_line" == *"versionCode='120'"* && "$package_line" == *"versionName='0.1.20'"* ]] || { echo "Unexpected APK identity: $package_line" >&2; exit 1; }
+  [[ "$package_line" == *"name='com.streambridge.app'"* && "$package_line" == *"versionCode='120'"* && "$package_line" == *"versionName='0.1.21'"* ]] || { echo "Unexpected APK identity: $package_line" >&2; exit 1; }
   certs="$("$apksigner" verify --print-certs "$apk")"
   [[ "$(printf '%s\n' "$certs" | grep -c 'certificate SHA-256 digest:')" == 1 ]] || { echo 'Expected exactly one APK signer' >&2; exit 1; }
   cert="$(printf '%s\n' "$certs" | sed -n 's/.*Signer #1 certificate SHA-256 digest:[[:space:]]*//p' | head -n1 | tr 'A-F' 'a-f' | tr -d ' :')"
@@ -42,14 +42,14 @@ for abi in arm64-v8a armeabi-v7a x86 x86_64; do
   checksum="$(sha256sum "$apk" | awk '{print $1}')"
   echo "${checksum}  $(basename "$apk")"
   if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-    echo "::notice title=Verified production APK::$(basename "$apk") SHA-256 ${checksum}; package com.streambridge.app; version 0.1.20 (120); signer ${cert}"
+    echo "::notice title=Verified production APK::$(basename "$apk") SHA-256 ${checksum}; package com.streambridge.app; version 0.1.21 (120); signer ${cert}"
   fi
 done
 if [[ "$2" == --android-only ]]; then
   echo "Downloaded Android APKs independently verified."
   exit 0
 fi
-python3 - "$ios/StreamBridge-0.1.20-iOS-unsigned.ipa" <<'PY'
+python3 - "$ios/StreamBridge-0.1.21-iOS-unsigned.ipa" <<'PY'
 import hashlib, plistlib, sys, zipfile
 from pathlib import PurePosixPath
 path = sys.argv[1]
@@ -61,7 +61,7 @@ with zipfile.ZipFile(path) as z:
     if len(app_infos) != 1: raise SystemExit('Expected exactly one app Info.plist')
     if any('_CodeSignature/' in n or n.lower().endswith('embedded.mobileprovision') for n in names): raise SystemExit('IPA must be unsigned')
     info = plistlib.loads(z.read(app_infos[0]))
-    if (info.get('CFBundleIdentifier'), info.get('CFBundleShortVersionString'), str(info.get('CFBundleVersion'))) != ('com.streambridge.app', '0.1.20', '120'):
+    if (info.get('CFBundleIdentifier'), info.get('CFBundleShortVersionString'), str(info.get('CFBundleVersion'))) != ('com.streambridge.app', '0.1.21', '120'):
         raise SystemExit('IPA bundle identity or version mismatch')
 with open(path, 'rb') as f:
     print(hashlib.file_digest(f, 'sha256').hexdigest(), path)

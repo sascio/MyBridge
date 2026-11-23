@@ -1,6 +1,6 @@
 name: Draft production GitHub Release
 
-# Manual only, or from the approved v0.1.20 tag push. Never publishes (draft only).
+# Manual only, or from the approved v0.1.21 tag push. Never publishes (draft only).
 #
 # Android: fails closed unless the production upload-keystore GitHub Secrets are
 # set. Debug-signed APKs are never attached. See docs/SIGNING.md.
@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Approved release tag (v0.1.20, version code 120)
+        description: Approved release tag (v0.1.21, version code 121)
         required: true
         type: string
-        default: "v0.1.20"
+        default: "v0.1.21"
       preflight:
         description: Build and independently inspect artifacts without creating a release or tag
         required: true
@@ -21,7 +21,7 @@ on:
         default: false
   push:
     tags:
-      - "v0.1.20"
+      - "v0.1.21"
 
 permissions:
   contents: write
@@ -124,7 +124,7 @@ jobs:
       # file before Gradle runs. Nothing is echoed: base64 -d writes straight to the
       # file and the checks only test for presence.
       #
-      # Trakt is optional for 0.1.20. Simkl and MDBList remain required.
+      # Trakt is optional for 0.1.21. Simkl and MDBList remain required.
       # Presence checks never print or fabricate credentials.
       - name: Configure release properties
         env:
@@ -174,7 +174,7 @@ jobs:
           fi
 
           # Presence-only report; values are never printed. The release gate
-          # below requires Simkl and MDBList; Trakt is optional for 0.1.20.
+          # below requires Simkl and MDBList; Trakt is optional for 0.1.21.
           #
           # MDBLIST_CLIENT_ID is included because MdbListConfig.CLIENT_ID gates the
           # MDBList Connect button: without it the app shows "MDBList connection is
@@ -665,7 +665,7 @@ jobs:
         run: |
           set -euo pipefail
           (cd preflight/ios/dist && sha256sum -c ../checksums-ios.sha256)
-          python3 scripts/verify-unsigned-ipa.py preflight/ios/dist/StreamBridge-0.1.20-iOS-unsigned.ipa
+          python3 scripts/verify-unsigned-ipa.py preflight/ios/dist/StreamBridge-0.1.21-iOS-unsigned.ipa
 
   ios-tests:
     uses: ./.github/workflows/ios-simulator-tests.yml
@@ -717,7 +717,7 @@ jobs:
               --draft \
               --target "${GITHUB_SHA}" \
               --title "StreamBridge ${TAG}" \
-              --notes-file docs/RELEASE-NOTES-0.1.20.md
+              --notes-file docs/RELEASE-NOTES-0.1.21.md
             lookup_status=0
             scripts/release-api.sh lookup \
               --repo "${GITHUB_REPOSITORY}" \
@@ -738,10 +738,10 @@ jobs:
             echo "::error::Existing release metadata does not match the verified draft target; preserving it without changes."
             exit 1
           fi
-          expected_notes="$(cat docs/RELEASE-NOTES-0.1.20.md)"
+          expected_notes="$(cat docs/RELEASE-NOTES-0.1.21.md)"
           actual_notes="$(jq -r '.body // ""' "${release_json}")"
           if [[ "${actual_notes}" != "${expected_notes}" ]]; then
-            echo "::error::Existing draft notes differ from the approved 0.1.20 notes; preserving them without changes."
+            echo "::error::Existing draft notes differ from the approved 0.1.21 notes; preserving them without changes."
             exit 1
           fi
 

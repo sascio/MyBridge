@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.20</strong> (120)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.21</strong> (120)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -18,16 +18,16 @@ It ships empty. There are no built-in catalogs, no bundled providers and no reco
 streams: what you see is what you configured. StreamBridge does not host, provide or
 endorse any content. Use it only with material you are legally entitled to access.
 
-## 0.1.20 preparation
+## 0.1.21 preparation
 
 - Android Full requires explicit repository authorization for CloudStream execution;
   a matching hash is not a malware guarantee, and missing hashes are unverified.
   Play Store and iOS do not execute CloudStream DEX. See the
   [upstream review](docs/UPSTREAM-1.0.0-AUDIT.md) for the limits of the 1.0.0 comparison.
-- Version 0.1.20 is under preparation. Published updater metadata remains at the
+- Version 0.1.21 is under preparation. Published updater metadata remains at the
   last release until production artifacts are built and verified.
 
-## Highlights in 0.1.20
+## Highlights in 0.1.21
 
 - **CloudStream authorization is a visible action.** The extension details screen and every
   repository card show the authorization state and an **Authorize repository** button, and the
@@ -41,7 +41,7 @@ endorse any content. Use it only with material you are legally entitled to acces
   of failing at configuration time when the runner's NDK directory is incomplete or its SDK
   download cache is corrupt.
 
-The planned unsigned iOS asset name is `StreamBridge-0.1.20-iOS-unsigned.ipa`;
+The planned unsigned iOS asset name is `StreamBridge-0.1.21-iOS-unsigned.ipa`;
 the download becomes available only after a verified release is published.
 
 ## Highlights in 0.1.18
@@ -141,7 +141,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.20-iOS-unsigned.ipa` (version 0.1.20, build 120)
+- `StreamBridge-0.1.21-iOS-unsigned.ipa` (version 0.1.21, build 120)
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:
