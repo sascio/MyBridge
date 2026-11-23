@@ -23,7 +23,15 @@ internal object CloudStreamExtensionMapping {
         repositoryUrl: String,
         states: Map<String, CloudStreamSourceState> = emptyMap(),
         configuration: Map<String, String> = emptyMap(),
+        providers: List<CloudStreamProviderDescriptor> = emptyList(),
     ): CloudStreamExtension {
+        if (providers.isNotEmpty()) {
+            val sources = providers.flatMap { provider ->
+                val types = provider.contentTypes.filter { it.isNotBlank() }.ifEmpty { listOf(null) }
+                types.map { type -> buildSource(plugin, provider.name, type, states, configuration, provider.id) }
+            }.distinctBy { it.id }
+            return CloudStreamExtension(plugin = plugin, repositoryUrl = repositoryUrl, sources = sources)
+        }
         val declaredTypes = plugin.tvTypes.filter { it.isNotBlank() }
         val sources = if (declaredTypes.isEmpty()) {
             listOf(buildSource(plugin, plugin.displayName, null, states, configuration))
@@ -48,8 +56,9 @@ internal object CloudStreamExtensionMapping {
         contentType: String?,
         states: Map<String, CloudStreamSourceState>,
         configuration: Map<String, String>,
+        providerId: String? = null,
     ): CloudStreamSource {
-        val id = sourceId(plugin, contentType)
+        val id = if (providerId == null) sourceId(plugin, contentType) else sourceId(plugin, "$providerId::${contentType.orEmpty()}")
         val persisted = states[id]
         // An unsupported plugin can never be installed or enabled, regardless
         // of what happens to be persisted.
@@ -57,6 +66,7 @@ internal object CloudStreamExtensionMapping {
         return CloudStreamSource(
             id = id,
             name = name,
+            providerId = providerId,
             contentType = contentType,
             language = plugin.language,
             compatibility = plugin.compatibility,

@@ -14,6 +14,15 @@ package com.nuvio.app.features.cloudstream
  * second aggregation path.
  */
 
+/** One provider registered by a loaded CloudStream extension. */
+data class CloudStreamProviderDescriptor(
+    /** Stable within the package: registration index plus provider name. */
+    val id: String,
+    val name: String,
+    val contentTypes: List<String> = emptyList(),
+    val mainUrl: String? = null,
+)
+
 /** What StreamBridge asks a CloudStream provider to resolve. */
 data class CloudStreamStreamQuery(
     /** Provider-specific content URL, as produced by search/details. */
@@ -37,6 +46,8 @@ data class CloudStreamLinkResult(
  */
 internal data class CloudStreamResolveRequest(
     val plugin: CloudStreamPlugin,
+    /** Exact nested provider selected by the user; null means all providers. */
+    val providerId: String? = null,
     /** StreamBridge media type, e.g. `movie` or `series`. */
     val mediaType: String,
     /** StreamBridge content id (IMDb/TMDB style) for the requested title. */
@@ -61,6 +72,9 @@ internal data class CloudStreamResolveRequest(
  * gated runtime described on `CloudStreamPlatformRuntime`.
  */
 internal interface CloudStreamPluginExecutor {
+    /** Loads the verified package and reports every provider it actually registered. */
+    suspend fun discoverProviders(plugin: CloudStreamPlugin): List<CloudStreamProviderDescriptor>
+
     suspend fun search(plugin: CloudStreamPlugin, query: String): List<CloudStreamSearchResult>
 
     suspend fun loadEpisodes(plugin: CloudStreamPlugin, url: String): List<CloudStreamEpisode>

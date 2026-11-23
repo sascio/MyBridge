@@ -23,6 +23,7 @@ internal object CloudStreamAggregatorBridge {
         val addonName: String,
         val extensionId: String,
         val sourceId: String,
+        val providerId: String? = null,
         val contentType: String?,
         val iconUrl: String?,
     )
@@ -100,7 +101,7 @@ internal object CloudStreamAggregatorBridge {
 
                 val addonId = CloudStreamProviderIdentity.addonId(
                     internalName = extension.plugin.internalNameOrId(),
-                    contentType = source.contentType,
+                    contentType = source.providerId ?: source.contentType,
                 )
                 if (targets.containsKey(addonId)) return@forEach
 
@@ -109,6 +110,7 @@ internal object CloudStreamAggregatorBridge {
                     addonName = providerLabel(extension, source),
                     extensionId = extension.id,
                     sourceId = source.id,
+                    providerId = source.providerId,
                     contentType = source.contentType,
                     iconUrl = extension.plugin.iconUrl,
                 )
@@ -126,7 +128,12 @@ internal object CloudStreamAggregatorBridge {
      */
     private fun providerLabel(extension: CloudStreamExtension, source: CloudStreamSource): String {
         val base = extension.name.trim().ifBlank { extension.id }
+        val nestedName = source.name.trim()
         val type = source.contentType?.trim().orEmpty()
-        return if (type.isEmpty() || extension.sources.size <= 1) base else "$base · $type"
+        return when {
+            source.providerId != null -> "$base · $nestedName"
+            type.isNotEmpty() && extension.sources.size > 1 -> "$base · $type"
+            else -> base
+        }
     }
 }

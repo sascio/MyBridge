@@ -66,12 +66,34 @@ internal object CloudStreamExtensionsRepository {
         // user presses Play -- would otherwise see an empty extension list and
         // silently drop every CloudStream provider from source aggregation.
         restoreInstalledExtensions()
+        hydrateInstalledProviders()
 
         if (repositoryUrls.isEmpty()) {
             _uiState.value = _uiState.value.copy(hasLoadedOnce = true)
             return
         }
         refresh()
+    }
+
+    /** Rebuilds nested provider rows from the package registrations on every start. */
+    private fun hydrateInstalledProviders() {
+        val installedIds = _uiState.value.extensions
+            .filter { it.installStatus.isInstalled }
+            .map { it.id }
+        if (installedIds.isEmpty()) return
+        scope.launch {
+            installedIds.forEach { pluginId ->
+                runCatching { refreshDiscoveredProviders(pluginId) }
+                    .onFailure { error ->
+                        if (error is CancellationException) throw error
+                        log.w(error) { "Could not discover nested providers for '$pluginId'" }
+                        _uiState.value = _uiState.value.copy(
+                            errorMessage = "Could not load providers for '$pluginId': ${error.message ?: "unknown error"}",
+                        )
+                    }
+            }
+            applyPersistedState()
+        }
     }
 
     /** Re-fetches every repository. Coalesced: a refresh in flight is not duplicated. */
@@ -340,6 +362,11 @@ internal object CloudStreamExtensionsRepository {
                     // otherwise. Without this a freshly installed provider is
                     // installed-but-disabled and never reaches Play -> Sources,
                     // which reads to the user as the install having done nothing.
+                    // Load the verified package and replace coarse manifest tvTypes with
+                    // the providers actually registered by the extension. Multi-provider
+                    // packages (for example one package exposing several services) must
+                    // remain a parent with independently selectable children.
+                    refreshDiscoveredProviders(pluginId)
                     // Trust or metadata may have changed during the download.
                     // Do not record a new automatic enable under stale consent.
                     if (isPluginExecutionAuthorized(extension.plugin)) enableSourcesByDefault(pluginId)
@@ -396,6 +423,23 @@ internal object CloudStreamExtensionsRepository {
      * Only applied to sources the user has never expressed a preference for, so
      * a deliberate disable is never silently undone by a reinstall or update.
      */
+    private suspend fun refreshDiscoveredProviders(pluginId: String) {
+        val extension = _uiState.value.extensions.firstOrNull { it.id == pluginId } ?: return
+        val backend = activeExecutor() ?: return
+        val providers = backend.discoverProviders(extension.plugin)
+        if (providers.isEmpty()) error("Extension loaded but exposed no providers.")
+        val remapped = CloudStreamExtensionMapping.toExtension(
+            plugin = extension.plugin,
+            repositoryUrl = extension.repositoryUrl,
+            states = sourceStates,
+            configuration = configuration,
+            providers = providers,
+        ).copy(installStatus = extension.installStatus, pinned = extension.pinned)
+        _uiState.value = _uiState.value.copy(extensions = _uiState.value.extensions.map {
+            if (it.id == pluginId && sameCloudStreamRepositoryUrl(it.repositoryUrl, extension.repositoryUrl)) remapped else it
+        })
+    }
+
     private fun enableSourcesByDefault(pluginId: String) {
         val extension = _uiState.value.extensions.firstOrNull { it.id == pluginId } ?: return
         var changed = false
@@ -632,6 +676,7 @@ internal object CloudStreamExtensionsRepository {
         return runCatching {
             val request = CloudStreamResolveRequest(
                 plugin = extension.plugin,
+                providerId = target.providerId,
                 mediaType = mediaType,
                 videoId = videoId,
                 title = title,
