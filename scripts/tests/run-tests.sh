@@ -143,8 +143,8 @@ run "draft releases and assets are handled by ID rather than tag-based gh releas
            grep -q "scripts/release-api.sh ensure-asset" .github/workflows/release-draft.yml &&
            ! grep -qE "^[[:space:]]*gh release (view|upload|edit)([[:space:]]|$)" .github/workflows/release-draft.yml'
 
-run "release gate accepts the 0.1.20 source identity" \
-  bash -c 'scripts/verify-release-target.sh --tag v0.1.20 --commit "$(git rev-parse HEAD)"'
+run "release gate accepts the 0.1.21 source identity" \
+  bash -c 'scripts/verify-release-target.sh --tag v0.1.21 --commit "$(git rev-parse HEAD)"'
 
 run "release draft requires both Android and iOS builds" \
   python3 - <<'PYTEST'
@@ -167,8 +167,7 @@ PYTEST
 
 run "release gate rejects other version tags" \
   bash -c '! scripts/verify-release-target.sh --tag v0.1.18 --commit "$(git rev-parse HEAD)" &&
-           ! scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)" &&
-           ! scripts/verify-release-target.sh --tag v0.1.21 --commit "$(git rev-parse HEAD)"'
+           ! scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)"'
 
 section "store.json"
 
@@ -321,11 +320,11 @@ PY
 
 section "Version wiring"
 
-run "README, version properties and Xcode agree on 0.1.20 / 120" \
+run "README, version properties and Xcode agree on 0.1.21 / 121" \
   python3 - <<'PYTEST'
 props = dict(line.split("=", 1) for line in open("streambridge.version.properties", encoding="utf-8").read().splitlines() if line and not line.startswith("#"))
 name, code = props["STREAMBRIDGE_VERSION_NAME"].strip(), props["STREAMBRIDGE_VERSION_CODE"].strip()
-assert (name, code) == ("0.1.20", "120"), (name, code)
+assert (name, code) == ("0.1.21", "121"), (name, code)
 readme = open("README.md", encoding="utf-8").read()
 assert f"version <strong>{name}</strong> ({code})" in readme
 xcconfig = open("iosApp/Configuration/Version.xcconfig", encoding="utf-8").read()
@@ -333,7 +332,7 @@ assert f"MARKETING_VERSION={name}" in xcconfig
 assert f"CURRENT_PROJECT_VERSION={code}" in xcconfig
 # Retargeted only to the requested version; release execution still verifies
 # the exact tag commit, signing, notes and generated asset digests.
-assert 'readonly EXPECTED_TAG="v0.1.20"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
+assert 'readonly EXPECTED_TAG="v0.1.21"' in open("scripts/verify-release-target.sh", encoding="utf-8").read()
 PYTEST
 
 run "no watch-party invite string mentions Nuvio branding" \

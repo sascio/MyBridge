@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.20
-# release target, code 120, and contains the approved watch-party and release
+# Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.21
+# release target, code 121, and contains the approved watch-party and release
 # pipeline fixes. Release workflows pass --verify-tag-ref so the tag itself must
 # point to the exact commit being built.
 
 set -euo pipefail
 
-readonly EXPECTED_TAG="v0.1.20"
-readonly EXPECTED_VERSION="0.1.20"
-readonly EXPECTED_CODE="120"
+readonly EXPECTED_TAG="v0.1.21"
+readonly EXPECTED_VERSION="0.1.21"
+readonly EXPECTED_CODE="121"
 
 usage() {
   cat >&2 <<'USAGE'
@@ -84,7 +84,7 @@ for required_text in \
   'androidApp-full-armeabi-v7a-release.apk' \
   'androidApp-full-x86-release.apk' \
   'androidApp-full-x86_64-release.apk' \
-  'StreamBridge-0.1.20-iOS-unsigned.ipa' \
+  'StreamBridge-0.1.21-iOS-unsigned.ipa' \
   'checksums.sha256'; do
   grep -Fq "${required_text}" "docs/RELEASE-NOTES-${EXPECTED_VERSION}.md" \
     || fail "Release notes are missing required website, community, or download entry: ${required_text}"

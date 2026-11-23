@@ -139,7 +139,7 @@ def main():
         prep.add_argument('--' + opt, required=True)
     check = sub.add_parser('verify')
     check.add_argument('--ipa', required=True)
-    check.add_argument('--version', default='0.1.20')
+    check.add_argument('--version', default='0.1.21')
     check.add_argument('--build')
     for p in (prep, check):
         p.add_argument('--team', required=True)
