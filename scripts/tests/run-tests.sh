@@ -167,8 +167,7 @@ PYTEST
 
 run "release gate rejects other version tags" \
   bash -c '! scripts/verify-release-target.sh --tag v0.1.18 --commit "$(git rev-parse HEAD)" &&
-           ! scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)" &&
-           ! scripts/verify-release-target.sh --tag v0.1.21 --commit "$(git rev-parse HEAD)"'
+           ! scripts/verify-release-target.sh --tag v0.1.19 --commit "$(git rev-parse HEAD)"'
 
 section "store.json"
 

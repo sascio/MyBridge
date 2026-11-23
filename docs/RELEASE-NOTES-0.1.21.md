@@ -1,4 +1,12 @@
-# StreamBridge 0.1.21
+## StreamBridge 0.1.21
+
+StreamBridge version 0.1.21 (version code 121). Android package and iOS bundle:
+`com.streambridge.app`.
+
+## 🌐 StreamBridge website and community
+
+[🌐 Visit StreamBridge](https://streambridgeapp.pages.dev) ·
+[Telegram](https://t.me/StreamBridge_App) · [Discord](https://discord.gg/T9apykrjW)
 
 StreamBridge 0.1.21 removes the title-specific Ask AI feature and improves CloudStream extension compatibility.
 
