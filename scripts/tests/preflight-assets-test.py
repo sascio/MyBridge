@@ -30,14 +30,14 @@ class PreflightAssetsTest(unittest.TestCase):
         self.ipa = self.ios / 'StreamBridge-0.1.21-iOS-unsigned.ipa'
         self.write_ipa()
         tools = self.root / 'sdk/build-tools/35.0.0'; tools.mkdir(parents=True)
-        (tools / 'aapt').write_text("#!/bin/sh\necho \"package: name='com.streambridge.app' versionCode='120' versionName='0.1.21'\"\n")
+        (tools / 'aapt').write_text("#!/bin/sh\necho \"package: name='com.streambridge.app' versionCode='121' versionName='0.1.21'\"\n")
         (tools / 'apksigner').write_text(f'#!/bin/sh\necho "Signer #1 certificate SHA-256 digest: {CERT}"\n')
         for tool in tools.iterdir(): tool.chmod(0o755)
 
     def write_ipa(self, version='0.1.21', signed=False):
         with zipfile.ZipFile(self.ipa, 'w') as z:
             z.writestr('Payload/StreamBridge.app/Info.plist', plistlib.dumps({
-                'CFBundleIdentifier': 'com.streambridge.app', 'CFBundleShortVersionString': version, 'CFBundleVersion': '120'}))
+                'CFBundleIdentifier': 'com.streambridge.app', 'CFBundleShortVersionString': version, 'CFBundleVersion': '121'}))
             if signed: z.writestr('Payload/StreamBridge.app/_CodeSignature/CodeResources', b'signed')
 
     def audit(self):

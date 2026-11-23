@@ -321,11 +321,11 @@ PY
 
 section "Version wiring"
 
-run "README, version properties and Xcode agree on 0.1.21 / 120" \
+run "README, version properties and Xcode agree on 0.1.21 / 121" \
   python3 - <<'PYTEST'
 props = dict(line.split("=", 1) for line in open("streambridge.version.properties", encoding="utf-8").read().splitlines() if line and not line.startswith("#"))
 name, code = props["STREAMBRIDGE_VERSION_NAME"].strip(), props["STREAMBRIDGE_VERSION_CODE"].strip()
-assert (name, code) == ("0.1.21", "120"), (name, code)
+assert (name, code) == ("0.1.21", "121"), (name, code)
 readme = open("README.md", encoding="utf-8").read()
 assert f"version <strong>{name}</strong> ({code})" in readme
 xcconfig = open("iosApp/Configuration/Version.xcconfig", encoding="utf-8").read()

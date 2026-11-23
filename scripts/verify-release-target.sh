@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Fail closed unless the checked-out tree is the authorized StreamBridge 0.1.21
-# release target, code 120, and contains the approved watch-party and release
+# release target, code 121, and contains the approved watch-party and release
 # pipeline fixes. Release workflows pass --verify-tag-ref so the tag itself must
 # point to the exact commit being built.
 
@@ -9,7 +9,7 @@ set -euo pipefail
 
 readonly EXPECTED_TAG="v0.1.21"
 readonly EXPECTED_VERSION="0.1.21"
-readonly EXPECTED_CODE="120"
+readonly EXPECTED_CODE="121"
 
 usage() {
   cat >&2 <<'USAGE'

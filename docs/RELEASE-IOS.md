@@ -11,7 +11,7 @@ synchronised from official NuvioMobile **0.5.5-beta** and NuvioMobile-Enhanced
 | App bundle identifier | `com.streambridge.app` |
 | Widget bundle identifier | `com.streambridge.app.DownloadsWidgetExtension` |
 | Marketing version | `0.1.21` (`iosApp/Configuration/Version.xcconfig`) |
-| Build number | `120` |
+| Build number | `121` |
 | Xcode project | `iosApp/iosApp.xcodeproj`, scheme `iosApp` |
 | Product | `StreamBridge.app` |
 | Distribution | `full` (`NUVIO_IOS_DISTRIBUTION=full`; CloudStream DEX execution is not supported on iOS) |

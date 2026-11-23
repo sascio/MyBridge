@@ -7,7 +7,7 @@
 <p align="center"><strong>Your Media, Your Way</strong></p>
 
 <p align="center">
-  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.21</strong> (120)
+  Android · iOS (sideload) · GPL-3.0 · version <strong>0.1.21</strong> (121)
 </p>
 
 StreamBridge is an independent media client. You connect your own catalogs, addons and
@@ -141,7 +141,7 @@ APKs built by branch CI are debug-signed compile artifacts, not production build
 iOS builds are published as an **unsigned** IPA on the
 [published releases](https://github.com/sascio/MyBridge/releases):
 
-- `StreamBridge-0.1.21-iOS-unsigned.ipa` (version 0.1.21, build 120)
+- `StreamBridge-0.1.21-iOS-unsigned.ipa` (version 0.1.21, build 121)
 
 There is no App Store listing. Install it with **AltStore** or **SideStore**, which sign the IPA
 with your own Apple ID on your device:

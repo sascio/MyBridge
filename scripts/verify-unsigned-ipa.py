@@ -30,14 +30,14 @@ def verify(path: Path) -> None:
                                    (widget, 'com.streambridge.app.DownloadsWidgetExtension')):
             info = plistlib.loads(archive.read(prefix + 'Info.plist'))
             if (info.get('CFBundleIdentifier'), info.get('CFBundleShortVersionString'),
-                    str(info.get('CFBundleVersion'))) != (identifier, '0.1.21', '120'):
+                    str(info.get('CFBundleVersion'))) != (identifier, '0.1.21', '121'):
                 raise ValueError('bundle identity or version mismatch: ' + identifier)
             executable = info.get('CFBundleExecutable')
             if not isinstance(executable, str) or '/' in executable or not executable or prefix + executable not in names:
                 raise ValueError('missing bundle executable: ' + identifier)
     with path.open('rb') as file:
         digest = hashlib.file_digest(file, 'sha256').hexdigest()
-    print(f'::notice title=Verified unsigned IPA::{path.name} SHA-256 {digest}; app com.streambridge.app; version 0.1.21 (120); unsigned')
+    print(f'::notice title=Verified unsigned IPA::{path.name} SHA-256 {digest}; app com.streambridge.app; version 0.1.21 (121); unsigned')
 
 
 if __name__ == '__main__':

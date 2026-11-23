@@ -81,20 +81,20 @@ class SigningTest(unittest.TestCase):
         widget = app + 'PlugIns/DownloadsWidgetExtension.appex/'
         with zipfile.ZipFile(path, 'w') as z:
             for prefix, bundle in ((app, mod.APP), (widget, mod.WIDGET)):
-                z.writestr(prefix+'Info.plist', plistlib.dumps({'CFBundleIdentifier': bundle, 'CFBundleShortVersionString': '0.1.21', 'CFBundleVersion': '120'}))
+                z.writestr(prefix+'Info.plist', plistlib.dumps({'CFBundleIdentifier': bundle, 'CFBundleShortVersionString': '0.1.21', 'CFBundleVersion': '121'}))
                 z.writestr(prefix+'embedded.mobileprovision', plistlib.dumps(self.profiles[bundle]))
                 if bundle == mod.APP or include_widget_signature: z.writestr(prefix+'_CodeSignature/CodeResources', b'signature')
         return path
 
     def test_verify_accepts_matching_signed_bundles_and_rejects_missing_widget_signature(self):
-        args = SimpleNamespace(ipa=str(self.make_ipa()), team=TEAM, method='ad-hoc', version='0.1.21', build='120')
+        args = SimpleNamespace(ipa=str(self.make_ipa()), team=TEAM, method='ad-hoc', version='0.1.21', build='121')
         with patch.object(mod.subprocess, 'run', side_effect=self.fake_run):
             mod.verify(args)
             self.make_ipa(include_widget_signature=False)
             with self.assertRaises(SystemExit): mod.verify(args)
 
     def test_verify_rejects_wrong_certificate_and_failed_codesign(self):
-        args = SimpleNamespace(ipa=str(self.make_ipa()), team=TEAM, method='ad-hoc', version='0.1.21', build='120')
+        args = SimpleNamespace(ipa=str(self.make_ipa()), team=TEAM, method='ad-hoc', version='0.1.21', build='121')
         def mismatch(cmd, **kwargs):
             result = self.fake_run(cmd, **kwargs)
             if cmd[:2] == ['codesign', '-d']:
