@@ -23,7 +23,7 @@ internal actual fun MediaEnvironmentHost(environment: MediaEnvironment, onExit: 
         controller.modalPresentationStyle = UIModalPresentationFullScreen
         controller.overrideUserInterfaceStyle = UIUserInterfaceStyle.UIUserInterfaceStyleDark
         // Exit is explicit. Do not let a sheet swipe dismiss UIKit without clearing shared state.
-        controller.modalInPresentation = true
+        controller.isModalInPresentation = true
         controller.view.backgroundColor = UIColor.blackColor
         if (parent.presentedViewController != null || parent.view.window == null) {
             InAppLogger.warn("Media/Navigation", "Cannot present media over an occupied or detached iOS controller")
