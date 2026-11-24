@@ -20,6 +20,24 @@ class UnconfirmedResponse(TransportError):
     """The message might exist, but the returned evidence is insufficient."""
 
 
+def connection_failure_code(exc: BaseException) -> str:
+    """Return a fixed, non-sensitive category for a pre-send connection error."""
+    name = type(exc).__name__
+    if name == "ApiIdInvalidError":
+        return "api-credentials-rejected"
+    if name in {"AccessTokenInvalidError", "AccessTokenExpiredError"}:
+        return "bot-token-rejected"
+    if name in {"AuthKeyError", "AuthKeyDuplicatedError", "AuthKeyUnregisteredError"}:
+        return "session-authorization-failed"
+    if name in {"PhoneMigrateError", "NetworkMigrateError", "UserMigrateError"}:
+        return "dc-migration-failed"
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return "dc-connection-failed"
+    # Do not reveal arbitrary third-party class names. This category includes
+    # unclassified Telegram RPC responses and client/library incompatibility.
+    return "mtproto-client-failed"
+
+
 class BotTransport:
     def __init__(self, api_id: int, api_hash: str, token: str, channel_ref: str,
                  expected_bot_id: int, expected_chat_id: int, *, factory: Callable | None = None) -> None:

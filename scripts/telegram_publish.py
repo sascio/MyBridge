@@ -429,7 +429,10 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             stage = getattr(transport, "connection_stage", "not-started")
             if stage not in safe_stages:
                 stage = "not-started"
-            raise PublishError(f"MTProto connection failed during {stage}; no public send was attempted.") from exc
+            code = mtproto.connection_failure_code(exc)
+            raise PublishError(
+                f"MTProto connection failed during {stage} ({code}); no public send was attempted."
+            ) from exc
         asset_failures = 0
         for op in operations:
             if op["kind"] == "asset" and not upload_assets:
