@@ -1,5 +1,10 @@
 package com.nuvio.app
 
+import com.nuvio.app.features.media.LocalOpenMedia
+import com.nuvio.app.navigation.MediaEnvironment
+import nuvio.composeapp.generated.resources.media_music
+import androidx.compose.material.icons.filled.MusicNote
+
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.core.ui.background.OpaqueAppSurfaces
 import androidx.compose.animation.AnimatedVisibility
@@ -23,6 +28,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -319,6 +325,11 @@ internal fun TabletFloatingTopBar(
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                LocalOpenMedia.current?.let { openMedia ->
+                    TabletTopPillItem(label = stringResource(Res.string.media_music), selected = false, onClick = { openMedia(MediaEnvironment.Music) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        icon = { Icon(Icons.Filled.MusicNote, contentDescription = null) })
+                }
                 TabletTopPillItem(
                     label = stringResource(Res.string.compose_nav_home),
                     selected = selectedTab == AppScreenTab.Home,
@@ -434,13 +445,14 @@ private fun TabletTopPillItem(
     selected: Boolean,
     onClick: () -> Unit,
     icon: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
     Surface(
         color = if (selected) tokens.colors.overlaySelected else tokens.colors.surface,
         shape = tokens.shapes.chip,
         tonalElevation = if (selected) tokens.elevation.raised else tokens.elevation.flat,
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = tokens.components.chipHorizontalPadding, vertical = NuvioTokens.Space.s10),

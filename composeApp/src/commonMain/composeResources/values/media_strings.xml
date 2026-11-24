@@ -1,0 +1,20 @@
+<resources>
+    <string name="media_music">Music</string>
+    <string name="media_video">YouTube</string>
+    <string name="media_exit">Exit</string>
+    <string name="media_home">Home</string>
+    <string name="media_discover">Discover</string>
+    <string name="media_explore">Explore</string>
+    <string name="media_library">Library</string>
+    <string name="media_music_headline">Your music.\nYour space.</string>
+    <string name="media_video_headline">A world of video.</string>
+    <string name="media_music_identity">YouTube Music · StreamBridge</string>
+    <string name="media_video_identity">YouTube · StreamBridge</string>
+    <string name="media_motto">Your Media, Your Way</string>
+    <string name="media_footer">Made with ❤️ by Saif</string>
+    <string name="media_unavailable">Service not connected</string>
+    <string name="media_library_unavailable">Your library will appear here when an account and library service are available. Sign-in, playlists and downloads are not available in this version.</string>
+    <string name="media_music_unavailable">Music catalogue and search are not connected yet. There is no content to display. Playback is not available in this experience.</string>
+    <string name="media_video_unavailable">Video browsing and search are not connected yet. There is no content to display. Playback is not available in this experience.</string>
+    <string name="media_swipe_hint">Swipe left for Music, right for YouTube</string>
+</resources>

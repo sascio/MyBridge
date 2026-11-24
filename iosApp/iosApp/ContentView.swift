@@ -945,6 +945,8 @@ final class AppNavigationCoordinator: ObservableObject {
     }
     @Published private(set) var tabBarBehavior: NuvioTabBarBehavior = NuvioTabBarBehavior.current()
     @Published private(set) var isSelectedTabAtRoot = true
+    // Unlike keepsTabBar, this excludes nested Settings routes whose root presenter is hidden.
+    @Published private(set) var isMediaEntryAtRoot = true
     @Published private(set) var isLiveTvTabVisible = false
     @Published private var localizedTabTitles: [NuvioAppTab: String] = [:]
     @Published private(set) var localizedSwitchProfileTitle = ""
@@ -1016,7 +1018,9 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     private func refreshSelectedTabDepth() {
-        let atRoot = coordinator(for: selectedTab).path.keepsTabBar
+        let path = coordinator(for: selectedTab).path
+        if isMediaEntryAtRoot != path.isEmpty { isMediaEntryAtRoot = path.isEmpty }
+        let atRoot = path.keepsTabBar
         if isSelectedTabAtRoot != atRoot {
             isSelectedTabAtRoot = atRoot
         }
@@ -1915,6 +1919,19 @@ struct NativeNavContentView: View {
                         }
                     }
                 }
+            }
+        }
+        // An action accessory avoids a sixth UITabBar destination / automatic More tab.
+        .tabViewBottomAccessory {
+            if !appCoordinator.usesGlassTabBarOverlay && appCoordinator.isAppReady &&
+                appCoordinator.isMediaEntryAtRoot {
+                Button {
+                    NativeTabBridgeKt.nativeMusicOpen()
+                } label: {
+                    Label(String(localized: "Music"), systemImage: "music.note")
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .accessibilityHint(String(localized: "Open StreamBridge Music"))
             }
         }
         .id(appCoordinator.isLiveTvTabVisible)
