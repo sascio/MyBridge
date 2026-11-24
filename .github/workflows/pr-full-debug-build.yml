@@ -208,17 +208,19 @@ jobs:
       - name: Compile and link Debug Kotlin Native simulator framework
         run: |
           set -uo pipefail
+          set +e
           ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 --console=plain --stacktrace 2>&1 | tee media-ios-framework.log
           status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             python3 - <<'PY'
           import pathlib, re
           lines = pathlib.Path('media-ios-framework.log').read_text(errors='replace').splitlines()
           selected = set()
           for i, line in enumerate(lines):
-              if re.search(r'(?i)(e: file:|error:|what went wrong|execution failed|could not|caused by:)', line):
+              if re.search(r'(?i)(^e:|error:|what went wrong|execution failed|could not|caused by:)', line):
                   selected.update(range(max(0, i-2), min(len(lines), i+6)))
-          excerpt = '\n'.join(lines[i] for i in sorted(selected))[-24000:]
+          excerpt = '\n'.join(lines[i] for i in sorted(selected))[:24000]
           if not excerpt:
               excerpt = '\n'.join(lines[-80:])[-24000:]
           # Keep annotations bounded and preserve the real command exit code.
@@ -238,6 +240,23 @@ jobs:
             ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build 2>&1 | tee media-ios-swift.log
           echo 'Unsigned simulator Swift host build succeeded.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Surface Swift build diagnostics through Checks API
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          path = pathlib.Path('media-ios-swift.log')
+          if path.exists():
+              lines = path.read_text(errors='replace').splitlines()
+              selected = set()
+              for i, line in enumerate(lines):
+                  if re.search(r'(?i)(error:|failed|undefined symbol)', line):
+                      selected.update(range(max(0, i-2), min(len(lines), i+5)))
+              text = '\n'.join(lines[i] for i in sorted(selected))[:24000]
+              for start in range(0, len(text), 6000):
+                  chunk = text[start:start+6000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f'::error title=Swift build diagnostics::{chunk}')
+          PY
       - name: Upload verification logs only (no app or IPA)
         if: always()
         uses: actions/upload-artifact@v7
