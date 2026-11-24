@@ -162,6 +162,21 @@ class TelegramClient:
             self._sleep(delay)
         return last
 
+    def send_message_once(self, text: str, buttons: list[tuple[str, str]]) -> TelegramResult:
+        """Issue exactly one Bot API sendMessage request; callers own durable state."""
+        url = f"{TELEGRAM_API}/bot{self._token}/sendMessage"
+        payload = {
+            "chat_id": self._chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if buttons:
+            payload["reply_markup"] = {"inline_keyboard": [
+                [{"text": label, "url": target}] for label, target in buttons
+            ]}
+        return self._attempt(url, json.dumps(payload).encode("utf-8"), 1)
+
     def _attempt(self, url: str, body: bytes, attempt: int) -> TelegramResult:
         request = urllib.request.Request(
             url,

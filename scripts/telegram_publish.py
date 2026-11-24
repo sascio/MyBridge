@@ -322,9 +322,44 @@ def deliver(store: Any, owner: str, release_id: int, plan_hash: str, item: dict[
         raise
     return message_id
 
+def deliver_bot_api_text(store: Any, owner: str, release_id: int, plan_hash: str, item: dict[str, Any],
+                         binding: str, client: announce.TelegramClient, markup: str,
+                         buttons: list[tuple[str, str]], *, workflow_run_id: int,
+                         run_attempt: int, tooling_sha: str,
+                         policy_check: Callable[[], None]) -> int:
+    if item["state"] != "pending" or item["attempts"] != 0:
+        raise PublishError("A previously attempted or unresolved send cannot be retried.")
+    policy_check()
+    transition(store, owner, release_id, plan_hash, item["key"], {"pending"},
+               {"state": "sending", "attempts": 1, "attempted_at": utc_now(),
+                "workflow_run_id": workflow_run_id, "run_attempt": run_attempt,
+                "tooling_sha": tooling_sha}, binding=binding)
+    policy_check()
+    result = client.send_message_once(markup, buttons)
+    message = result.result or {}
+    message_id = message.get("message_id")
+    if result.ok and type(message_id) is int and message_id > 0:
+        confirmed_at = utc_now()
+        announce.log(f"TELEGRAM_CONFIRMED_RESPONSE run_id={workflow_run_id} run_attempt={run_attempt} "
+                     f"release_id={release_id} operation={item['key']} operation_id={item['random_id']} "
+                     f"message_id={message_id} confirmed_at={confirmed_at} tooling_sha={tooling_sha}")
+        transition(store, owner, release_id, plan_hash, item["key"], {"sending"},
+                   {"state": "sent", "message_id": message_id, "delivered_at": confirmed_at}, binding=binding)
+        return message_id
+    if result.error_code is not None:
+        transition(store, owner, release_id, plan_hash, item["key"], {"sending"},
+                   {"state": "failed", "reconciliation": {"status": "unsent", "reason": "bot_api_rejected"}},
+                   binding=binding)
+        raise PublishError(f"Telegram Bot API rejected sendMessage with HTTP/API code {result.error_code}; no message was accepted.")
+    transition(store, owner, release_id, plan_hash, item["key"], {"sending"},
+               {"state": "delivery_unknown", "reconciliation": {
+                   "status": "review_required", "reason": "unconfirmed_bot_api_response"}}, binding=binding)
+    raise PublishError("The Bot API send outcome is unresolved; do not retry until independently reconciled.")
+
+
 def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id: int, api_hash: str,
             source_sha: str, workflow_run_id: int, run_attempt: int, tooling_sha: str,
-            upload_assets: bool = True, resume_unsent: bool = False,
+            upload_assets: bool = True, resume_unsent: bool = False, bot_api_text_only: bool = False,
             transport_factory: Callable = mtproto.BotTransport, bot_lookup: Callable = bot_details,
             sleeper: Callable[[float], None] = time.sleep,
             policy_check: Callable[[], None], allow_new_release: bool,
@@ -413,6 +448,24 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
             if document["identity"] is None:
                 document["identity"] = binding
         ledger.update(store, bind)
+        if bot_api_text_only:
+            page_ops = [op for op in operations if op["kind"] == "page"]
+            if len(page_ops) != 1:
+                raise PublishError("Bot API fallback requires exactly one frozen announcement page.")
+            op = page_ops[0]
+            current_entry = stored_release(store.read().document, release.id)
+            if current_entry is None:
+                raise PublishError("The frozen release plan disappeared before Bot API delivery.")
+            item = copy.deepcopy(item_by_key(current_entry, op["key"]))
+            client = announce.TelegramClient(token, chat, retries=1)
+            message_id = deliver_bot_api_text(
+                store, owner, release.id, plan_hash, item, binding, client,
+                op["html"], [tuple(button) for button in op["buttons"]],
+                workflow_run_id=workflow_run_id, run_attempt=run_attempt,
+                tooling_sha=tooling_sha, policy_check=policy_check,
+            )
+            announce.log(f"Confirmed {op['key']} as Telegram Bot API message {message_id}; durable ledger updated.")
+            return
         transport = transport_factory(api_id, api_hash, token, channel_ref, bot_id, channel_id)
         try:
             transport.connect()
@@ -516,6 +569,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-dir", required=True, help="checkout of the reviewed same-repository state branch")
     parser.add_argument("--no-upload-assets", action="store_true")
     parser.add_argument("--resume-unsent", action="store_true")
+    parser.add_argument("--bot-api-text-only", action="store_true")
     args = parser.parse_args(argv)
     try:
         repository, event_release_id, event_tag = require_workflow_context(args.branch)
@@ -559,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
         publish(release, store, token=token, chat=chat, api_id=int(api_id_text), api_hash=api_hash,
                 source_sha=source_sha, workflow_run_id=int(run_id), run_attempt=int(run_attempt), tooling_sha=code_sha,
                 upload_assets=not args.no_upload_assets, resume_unsent=args.resume_unsent,
+                bot_api_text_only=args.bot_api_text_only,
                 policy_check=policy,
                 allow_new_release=not is_manual,
                 require_protected_inventory=True)
