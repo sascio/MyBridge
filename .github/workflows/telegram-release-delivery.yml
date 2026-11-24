@@ -59,6 +59,11 @@ on:
         required: false
         type: boolean
         default: false
+      bot_api_text_only:
+        description: Send the single frozen announcement page once via Bot API; leave asset uploads pending
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -406,6 +411,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           UPLOAD_INPUT: ${{ inputs.upload_assets }}
           RESUME_INPUT: ${{ inputs.resume_unsent }}
+          BOT_API_TEXT_ONLY_INPUT: ${{ inputs.bot_api_text_only }}
           TMPDIR: ${{ runner.temp }}
           PYTHONUNBUFFERED: "1"
         run: |
@@ -416,5 +422,8 @@ jobs:
           fi
           if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${RESUME_INPUT}" == "true" ]]; then
             args+=(--resume-unsent)
+          fi
+          if [[ "${EVENT_NAME}" == "workflow_dispatch" && "${BOT_API_TEXT_ONLY_INPUT}" == "true" ]]; then
+            args+=(--bot-api-text-only --no-upload-assets)
           fi
           python3 scripts/telegram_publish.py "${args[@]}"
