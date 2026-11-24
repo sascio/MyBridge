@@ -10,6 +10,11 @@ on:
         description: Compile dedicated media shared/platform code and run only its eight tests (no APK/IPA)
         type: boolean
         default: false
+      media_platforms:
+        description: Platforms for opt-in dedicated-media verification
+        type: choice
+        options: [both, android, ios]
+        default: both
 
 permissions:
   contents: read
@@ -60,7 +65,7 @@ jobs:
           retention-days: 7
 
   media-android-verification:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification && inputs.media_platforms != 'ios' }}
     name: Dedicated media Android compile and eight tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -151,7 +156,7 @@ jobs:
             composeApp/build/reports/tests/
 
   media-ios-verification:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification && inputs.media_platforms != 'android' }}
     name: Dedicated media Apple framework and unsigned Swift build
     runs-on: xcode-27
     timeout-minutes: 100
@@ -202,8 +207,27 @@ jobs:
           PROPS
       - name: Compile and link Debug Kotlin Native simulator framework
         run: |
-          set -euo pipefail
+          set -uo pipefail
           ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 --console=plain --stacktrace 2>&1 | tee media-ios-framework.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            python3 - <<'PY'
+          import pathlib, re
+          lines = pathlib.Path('media-ios-framework.log').read_text(errors='replace').splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if re.search(r'(?i)(e: file:|error:|what went wrong|execution failed|could not|caused by:)', line):
+                  selected.update(range(max(0, i-2), min(len(lines), i+6)))
+          excerpt = '\n'.join(lines[i] for i in sorted(selected))[-24000:]
+          if not excerpt:
+              excerpt = '\n'.join(lines[-80:])[-24000:]
+          # Keep annotations bounded and preserve the real command exit code.
+          for start in range(0, len(excerpt), 6000):
+              chunk = excerpt[start:start+6000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Kotlin Native compiler diagnostics::{chunk}')
+          PY
+            exit "$status"
+          fi
           echo 'Kotlin Native simulator framework linked successfully.' >> "$GITHUB_STEP_SUMMARY"
       - name: Compile Swift host against framework (unsigned simulator only)
         run: |
