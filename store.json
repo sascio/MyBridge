@@ -16,8 +16,18 @@
       "localizedDescription": "StreamBridge is a media client for Android, with an iOS build starting in 0.1.08. You bring catalogs, addons and plugins; the app does not ship, host or preseed any content.",
       "tintColor": "#1E88E5",
       "category": "entertainment",
-      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.19/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
+      "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.21/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png",
       "versions": [
+        {
+          "version": "0.1.21",
+          "buildVersion": "121",
+          "date": "2026-11-24T04:11:29Z",
+          "localizedDescription": "## StreamBridge 0.1.21\n\nStreamBridge version 0.1.21 (version code 121). Android package and iOS bundle:\n`com.streambridge.app`.\n\n## 🌐 StreamBridge website and community\n\n[🌐 Visit StreamBridge](https://streambridgeapp.pages.dev) ·\n[Telegram](https://t.me/StreamBridge_App) · [Discord](https://discord.gg/T9apykrjW)\n\nStreamBridge 0.1.21 removes the title-specific Ask AI feature and improves CloudStream extension compatibility.\n\n## Changes\n\n- Removed “Ask AI about this title”, its OpenRouter client, resources, and related privacy text.\n- CloudStream extensions now expose the actual providers registered by an installed package as child sources under their parent extension.\n- Nested provider names, runtime identities, and declared content categories are preserved.\n- Playback resolution targets the selected nested provider instead of treating package content types as providers.\n- Installed extensions restore their nested provider hierarchy after restart, with actionable registration errors.\n- Repository authorization, published SHA-256 verification, archive validation, and private package storage remain mandatory.\n- CloudStream DEX execution remains restricted to the Android Full distribution; Play Store and iOS builds do not execute downloaded DEX.\n\n## Downloads\n\n- `androidApp-full-arm64-v8a-release.apk`\n- `androidApp-full-armeabi-v7a-release.apk`\n- `androidApp-full-x86-release.apk`\n- `androidApp-full-x86_64-release.apk`\n- `StreamBridge-0.1.21-iOS-unsigned.ipa`\n- `checksums.sha256`\n- `checksums-ios.sha256`\n\n**Your Media, Your Way.** Made with ❤️ by Saif.\n",
+          "downloadURL": "https://github.com/sascio/MyBridge/releases/download/v0.1.21/StreamBridge-0.1.21-iOS-unsigned.ipa",
+          "size": 75750540,
+          "sha256": "1bc1b2a5b9adf572e0c07517d4685879c65e00082eaab5ef0e36a24fe3c78798",
+          "minOSVersion": "16.1"
+        },
         {
           "version": "0.1.19",
           "buildVersion": "119",
@@ -139,5 +149,5 @@
     }
   ],
   "news": [],
-  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.19/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
+  "iconURL": "https://raw.githubusercontent.com/sascio/MyBridge/v0.1.21/iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/app-icon-1024.png"
 }
