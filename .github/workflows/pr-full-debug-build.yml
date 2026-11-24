@@ -220,12 +220,13 @@ jobs:
           for i, line in enumerate(lines):
               if re.search(r'(?i)(^e:|error:|what went wrong|execution failed|could not|caused by:)', line):
                   selected.update(range(max(0, i-2), min(len(lines), i+6)))
-          excerpt = '\n'.join(lines[i] for i in sorted(selected))[:24000]
+          compiler_errors = [line for line in lines if re.match(r'^e:', line)]
+          excerpt = ('\n'.join(compiler_errors) if compiler_errors else '\n'.join(lines[i] for i in sorted(selected)))[:24000]
           if not excerpt:
               excerpt = '\n'.join(lines[-80:])[-24000:]
           # Keep annotations bounded and preserve the real command exit code.
-          for start in range(0, len(excerpt), 6000):
-              chunk = excerpt[start:start+6000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          for start in range(0, len(excerpt), 3000):
+              chunk = excerpt[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print(f'::error title=Kotlin Native compiler diagnostics::{chunk}')
           PY
             exit "$status"
@@ -253,8 +254,8 @@ jobs:
                   if re.search(r'(?i)(error:|failed|undefined symbol)', line):
                       selected.update(range(max(0, i-2), min(len(lines), i+5)))
               text = '\n'.join(lines[i] for i in sorted(selected))[:24000]
-              for start in range(0, len(text), 6000):
-                  chunk = text[start:start+6000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              for start in range(0, len(text), 3000):
+                  chunk = text[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
                   print(f'::error title=Swift build diagnostics::{chunk}')
           PY
       - name: Upload verification logs only (no app or IPA)

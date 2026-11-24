@@ -9,7 +9,7 @@ import com.nuvio.app.navigation.MediaEnvironment
 import com.nuvio.app.core.logging.InAppLogger
 import platform.UIKit.UIColor
 import platform.UIKit.UIModalPresentationFullScreen
-import platform.UIKit.UIUserInterfaceStyleDark
+import platform.UIKit.UIUserInterfaceStyle
 
 /** A full-screen presentation, never an adaptive iPad sheet or a navigation-stack push. */
 @Composable
@@ -21,7 +21,7 @@ internal actual fun MediaEnvironmentHost(environment: MediaEnvironment, onExit: 
             MediaEnvironmentContent(environment) { latestExit.value() }
         }
         controller.modalPresentationStyle = UIModalPresentationFullScreen
-        controller.overrideUserInterfaceStyle = UIUserInterfaceStyleDark
+        controller.overrideUserInterfaceStyle = UIUserInterfaceStyle.UIUserInterfaceStyleDark
         // Exit is explicit. Do not let a sheet swipe dismiss UIKit without clearing shared state.
         controller.modalInPresentation = true
         controller.view.backgroundColor = UIColor.blackColor
