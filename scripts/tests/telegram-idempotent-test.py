@@ -1809,6 +1809,25 @@ class RawTransportTests(unittest.TestCase):
         self.assertEqual(transport.connection_stage, "ready")
         self.assertTrue(transport.close())
 
+    def test_transient_rpc_call_failure_retries_only_pre_send_bot_authentication(self):
+        base = type(self.client)
+        class TransientFailureClient(base):
+            def __init__(client, server):
+                super().__init__(server)
+                client.starts = 0
+            async def start(client, *, bot_token):
+                client.starts += 1
+                if client.starts == 1:
+                    raise errors.RpcCallFailError(request=None)
+                return await super().start(bot_token=bot_token)
+        client = TransientFailureClient(self.server)
+        transport = mtproto.BotTransport(12345, API_HASH, TOKEN, CHAT, 8000000001, -1002000000001,
+                                         factory=lambda *_a, **_k: client)
+        transport.connect()
+        self.assertEqual(client.starts, 2)
+        self.assertEqual(transport.connection_stage, "ready")
+        self.assertTrue(transport.close())
+
     def test_unconfirmed_or_repeated_login_migration_fails_closed(self):
         base = type(self.client)
         for confirm_switch in (False, True):

@@ -98,6 +98,13 @@ class BotTransport:
                 if (attempt == 2 or type(exc.new_dc) is not int or exc.new_dc <= 0
                         or getattr(client.session, "dc_id", None) != exc.new_dc):
                     raise TransportError("Bot login data-center migration was not confirmed or exceeded its limit.") from exc
+            except (errors.RpcCallFailError, errors.ServerError) as exc:
+                # Telegram can transiently reject ImportBotAuthorization with
+                # RPC_CALL_FAIL. Retrying is safe only here, before peer
+                # resolution and before any public request is constructed.
+                # Public sends retain request_retries=0 and are never replayed.
+                if attempt == 2:
+                    raise TransportError("Bot authentication was rejected by Telegram after bounded pre-send retries.") from exc
         self.connection_stage = "bot-identity"
         me = self._await(client, client.get_me())
         self.connection_stage = "channel-resolution"
