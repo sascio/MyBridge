@@ -33,8 +33,13 @@ def connection_failure_code(exc: BaseException) -> str:
         return "dc-migration-failed"
     if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
         return "dc-connection-failed"
-    # Do not reveal arbitrary third-party class names. This category includes
-    # unclassified Telegram RPC responses and client/library incompatibility.
+    # Telethon's exception *class* is non-sensitive and needed to distinguish
+    # protocol/library failures. Never include exception text or attributes.
+    module = type(exc).__module__
+    if module == "telethon" or module.startswith("telethon."):
+        if name.isidentifier() and len(name) <= 64:
+            return f"telethon-{name}"
+    # Do not reveal arbitrary third-party class names.
     return "mtproto-client-failed"
 
 
