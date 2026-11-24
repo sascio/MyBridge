@@ -218,8 +218,9 @@ class DurableDeliveryTests(unittest.TestCase):
         return obj
 
     def run_publish(self, release=None, **kwargs):
+        transport_factory = kwargs.pop("transport_factory", self.transport)
         return publish.publish(release or sample_release(), self.store, token=TOKEN, chat=CHAT,
-                               api_id=12345, api_hash=API_HASH, source_sha="a" * 40, workflow_run_id=10001, run_attempt=1, tooling_sha="b" * 40, transport_factory=self.transport,
+                               api_id=12345, api_hash=API_HASH, source_sha="a" * 40, workflow_run_id=10001, run_attempt=1, tooling_sha="b" * 40, transport_factory=transport_factory,
                                bot_lookup=lambda *_: (777, -1002000000001, CHAT),
                                sleeper=kwargs.pop("sleeper", lambda _: None),
                                policy_check=kwargs.pop("policy_check", lambda: None),
@@ -227,6 +228,40 @@ class DurableDeliveryTests(unittest.TestCase):
 
     def item(self, index=0):
         return self.store.doc["releases"][0]["items"][index]
+
+    def test_connection_failure_reports_only_allowlisted_safe_stage(self):
+        class FailingTransport:
+            connection_stage = "bot-authentication"
+            def connect(worker):
+                raise RuntimeError("secret third-party diagnostic")
+            def close(worker):
+                return True
+
+        with self.assertRaisesRegex(
+            publish.PublishError,
+            r"^MTProto connection failed during bot-authentication; no public send was attempted\.$",
+        ) as caught:
+            self.run_publish(transport_factory=lambda *_: FailingTransport())
+        self.assertNotIn("third-party", str(caught.exception))
+        self.assertIsNone(self.store.doc["session"])
+        self.assertEqual(self.item()["state"], "pending")
+        self.assertEqual(self.item()["attempts"], 0)
+
+    def test_connection_failure_rejects_untrusted_stage_text(self):
+        class FailingTransport:
+            connection_stage = "credential=value"
+            def connect(worker):
+                raise RuntimeError("secret third-party diagnostic")
+            def close(worker):
+                return True
+
+        with self.assertRaisesRegex(
+            publish.PublishError,
+            r"^MTProto connection failed during not-started; no public send was attempted\.$",
+        ):
+            self.run_publish(transport_factory=lambda *_: FailingTransport())
+        self.assertIsNone(self.store.doc["session"])
+        self.assertEqual(self.item()["attempts"], 0)
 
     def test_write_ahead_id_and_message_id_survive_duplicate_events(self):
         self.run_publish()

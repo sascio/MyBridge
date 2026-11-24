@@ -414,7 +414,22 @@ def publish(release: notes.Release, store: Any, *, token: str, chat: str, api_id
                 document["identity"] = binding
         ledger.update(store, bind)
         transport = transport_factory(api_id, api_hash, token, channel_ref, bot_id, channel_id)
-        transport.connect()
+        try:
+            transport.connect()
+        except Exception as exc:
+            # Never expose third-party exception text: it can contain request or
+            # authorization material. BotTransport publishes only a fixed,
+            # non-sensitive phase label so operators can distinguish login,
+            # identity, and channel-resolution failures without weakening the
+            # redaction boundary.
+            safe_stages = {
+                "not-started", "bot-authentication", "bot-identity",
+                "channel-resolution", "identity-comparison", "ready",
+            }
+            stage = getattr(transport, "connection_stage", "not-started")
+            if stage not in safe_stages:
+                stage = "not-started"
+            raise PublishError(f"MTProto connection failed during {stage}; no public send was attempted.") from exc
         asset_failures = 0
         for op in operations:
             if op["kind"] == "asset" and not upload_assets:
