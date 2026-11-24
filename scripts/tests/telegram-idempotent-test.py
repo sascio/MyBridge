@@ -202,6 +202,16 @@ def download_fake(asset, destination, **_kwargs):
     return destination, hashlib.sha256(payload).hexdigest()
 
 
+class RedactedConnectionDiagnosticTests(unittest.TestCase):
+    def test_connection_failure_codes_are_fixed_and_do_not_include_exception_text(self):
+        ApiIdInvalidError = type("ApiIdInvalidError", (Exception,), {})
+        AccessTokenInvalidError = type("AccessTokenInvalidError", (Exception,), {})
+        self.assertEqual(mtproto.connection_failure_code(ApiIdInvalidError("secret")), "api-credentials-rejected")
+        self.assertEqual(mtproto.connection_failure_code(AccessTokenInvalidError("secret")), "bot-token-rejected")
+        self.assertEqual(mtproto.connection_failure_code(TimeoutError("secret")), "dc-connection-failed")
+        self.assertEqual(mtproto.connection_failure_code(RuntimeError("secret")), "mtproto-client-failed")
+
+
 @unittest.skipUnless(telethon is not None, "Telethon required for durable delivery regressions")
 class DurableDeliveryTests(unittest.TestCase):
     def setUp(self):
@@ -239,7 +249,7 @@ class DurableDeliveryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             publish.PublishError,
-            r"^MTProto connection failed during bot-authentication; no public send was attempted\.$",
+            r"^MTProto connection failed during bot-authentication \(mtproto-client-failed\); no public send was attempted\.$",
         ) as caught:
             self.run_publish(transport_factory=lambda *_: FailingTransport())
         self.assertNotIn("third-party", str(caught.exception))
@@ -257,7 +267,7 @@ class DurableDeliveryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             publish.PublishError,
-            r"^MTProto connection failed during not-started; no public send was attempted\.$",
+            r"^MTProto connection failed during not-started \(mtproto-client-failed\); no public send was attempted\.$",
         ):
             self.run_publish(transport_factory=lambda *_: FailingTransport())
         self.assertIsNone(self.store.doc["session"])
