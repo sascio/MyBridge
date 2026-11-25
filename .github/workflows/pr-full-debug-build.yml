@@ -15,6 +15,10 @@ on:
         type: choice
         options: [both, android, ios]
         default: both
+      media_baseline:
+        description: iOS-only comparison against exact baseline b3290f6 (no source modifications)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -167,12 +171,60 @@ jobs:
       KOTLIN_DAEMON_JVMARGS: -Xmx8192M
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.media_baseline && 'b3290f655690f19ac6d35049ff9b7e415e4575a6' || github.sha }}
       - name: Record exact source and Apple toolchain
         run: |
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          expected="${{ inputs.media_baseline && 'b3290f655690f19ac6d35049ff9b7e415e4575a6' || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
           xcodebuild -version
           xcrun --sdk iphonesimulator --show-sdk-version
-          echo "Source: ${GITHUB_SHA}; runner: ${RUNNER_NAME}/${RUNNER_ARCH}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: ${expected}; workflow: ${GITHUB_SHA}; runner: ${RUNNER_NAME}/${RUNNER_ARCH}" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Exact source and Apple toolchain::source=$expected; workflow=$GITHUB_SHA; runner=$RUNNER_NAME/$RUNNER_ARCH; $(xcodebuild -version | tr '\n' ' '); simulatorSDK=$(xcrun --sdk iphonesimulator --show-sdk-version); $(xcrun swiftc --version | head -1); MetalLayer=$(shasum -a 256 iosApp/iosApp/Player/MetalLayer.swift | awk '{print $1}')"
+      - name: Inspect SDK declarations and typecheck the isolated drawable API
+        run: |
+          set -euo pipefail
+          simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          device_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export SIMULATOR_SDK="$simulator_sdk"
+          python3 - <<'PY'
+          import json, os, pathlib
+          sdk = pathlib.Path(os.environ['SIMULATOR_SDK'])
+          settings = json.loads((sdk / 'SDKSettings.json').read_text())
+          print(f'::notice title=Simulator SDK identity::{settings.get("CanonicalName")}; version={settings.get("Version")}; productBuild={settings.get("ProductBuildVersion")}; defaults={settings.get("DefaultProperties", {})}')
+          header = sdk / 'System/Library/Frameworks/Metal.framework/Headers/MTLDrawable.h'
+          lines = header.read_text().splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if 'addPresentedHandler' in line or 'TARGET_OS_SIMULATOR' in line:
+                  selected.update(range(max(0, i-12), min(len(lines), i+12)))
+          text = '\n'.join(f'{i+1}: {lines[i]}' for i in sorted(selected))
+          for start in range(0, len(text), 2800):
+              chunk = text[start:start+2800].replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D')
+              print(f'::notice title=MTLDrawable SDK declaration::{chunk}')
+          PY
+          cat > "$RUNNER_TEMP/drawable-api-probe.swift" <<'SWIFT'
+          import Metal
+          import QuartzCore
+          func verifyDrawableAPI(_ drawable: any CAMetalDrawable) {
+              drawable.addPresentedHandler { _ in }
+          }
+          SWIFT
+          set +e
+          xcrun swiftc -typecheck -sdk "$simulator_sdk" -target arm64-apple-ios16.1-simulator "$RUNNER_TEMP/drawable-api-probe.swift" > media-ios-api-simulator.log 2>&1
+          simulator_status=$?
+          xcrun swiftc -typecheck -sdk "$device_sdk" -target arm64-apple-ios16.1 "$RUNNER_TEMP/drawable-api-probe.swift" > media-ios-api-device.log 2>&1
+          device_status=$?
+          set -e
+          echo "::notice title=Isolated API typecheck results::simulatorExit=$simulator_status; deviceExit=$device_status; this probes an API only, not the app or playback"
+          python3 - <<'PY'
+          import pathlib
+          for name in ('simulator', 'device'):
+              text = pathlib.Path(f'media-ios-api-{name}.log').read_text()[:4000]
+              if text:
+                  encoded = text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D')
+                  print(f'::notice title=Isolated {name} API diagnostic::{encoded}')
+          PY
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
