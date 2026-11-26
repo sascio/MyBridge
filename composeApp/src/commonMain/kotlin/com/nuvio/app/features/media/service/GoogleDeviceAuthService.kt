@@ -110,7 +110,9 @@ internal class GoogleSessionAccess(
         val refresh = active.refreshCredential?.let { json.decodeFromString<GoogleRefreshCredential>(it) } ?: throw MediaServiceException(MediaFailure.Authentication)
         val next = auth.refresh(refresh)
         // A switch/sign-out during the network request must not reactivate the old account.
-        if (store.active(profileId, service)?.accountId != accountId) throw MediaServiceException(MediaFailure.Authentication)
+        val current = store.active(profileId, service)
+        if (current?.accountId != accountId || current.credential != active.credential || current.refreshCredential != active.refreshCredential)
+            throw MediaServiceException(MediaFailure.Authentication)
         store.save(profileId, service, MediaAccountSession(active.accountId, active.displayName, next.accessToken,
             json.encodeToString(GoogleRefreshCredential(refresh.registration, next.refreshToken ?: refresh.refreshToken)), next.expiresAtEpochMs, active.channelId))
         next.accessToken

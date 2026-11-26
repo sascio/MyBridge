@@ -336,10 +336,17 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
         MediaFailureText(it)
         TextButton(enabled = !busy && !mutationBusy, onClick = { retry++ }) { Text(stringResource(Res.string.media_retry_action)) }
     }
-    if (loaded && entries.isEmpty()) Text(stringResource(Res.string.media_no_results))
+    if (loaded && entries.none { youtube == null || browsing.preferences.allows(it) }) Text(stringResource(Res.string.media_no_results))
     entries.filter { youtube == null || browsing.preferences.allows(it) }.forEach { entry ->
         Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                entry.artwork?.let { artwork ->
+                    coil3.compose.AsyncImage(
+                        model = artwork, contentDescription = null,
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).aspectRatio(16f / 9f),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
+                }
                 Text(entry.title, style = MaterialTheme.typography.titleMedium)
                 if (entry.subtitle.isNotBlank()) Text(entry.subtitle, style = MaterialTheme.typography.bodyMedium)
                 if (entry.kind in setOf(MediaKind.Album, MediaKind.Playlist, MediaKind.Channel)) {
@@ -381,6 +388,11 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
                 }
             }
         }
+    }
+    val nearEnd = LocalMediaNearEnd.current
+    LaunchedEffect(nearEnd, busy, mutationBusy, nextToken, failure) {
+        if (nearEnd && loaded && !busy && !mutationBusy && failure == null && entries.size < 300 && nextToken != null && nextToken != pageToken)
+            pageToken = nextToken
     }
     if (failure == null && nextToken != null && entries.size < 300) {
         TextButton(enabled = !busy && !mutationBusy, onClick = { pageToken = nextToken }) { Text(stringResource(Res.string.media_load_more)) }

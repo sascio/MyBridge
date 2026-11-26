@@ -30,6 +30,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.navigation.MediaEnvironment
 
+internal val LocalMediaNearEnd = staticCompositionLocalOf { false }
+
 internal val LocalOpenMedia = staticCompositionLocalOf<((MediaEnvironment) -> Unit)?> { null }
 
 /** Platform hosts must retain the origin and prevent outside/interactive dismissal. */
@@ -46,6 +48,8 @@ internal fun MediaEnvironmentBrowser(environment: MediaEnvironment, onExit: () -
     val destinations = if (music) listOf("Home", "Discover", "Library") else listOf("Home", "Explore", "Library")
     val labels = listOf(stringResource(Res.string.media_home), stringResource(if (music) Res.string.media_discover else Res.string.media_explore), stringResource(Res.string.media_library))
     val icons = listOf(Icons.Filled.Home, Icons.Filled.Explore, Icons.Filled.LibraryMusic)
+    val scroll = rememberScrollState()
+    val nearEnd by remember { derivedStateOf { scroll.maxValue > 0 && scroll.value > 0 && scroll.maxValue - scroll.value < 500 } }
     MaterialTheme(colorScheme = darkColorScheme(primary = accent, background = background, surface = Color(0xFF191E25))) {
         Column(Modifier.fillMaxSize().background(background).safeDrawingPadding()) {
             // Outside the scroll container: always visible, including on small screens.
@@ -59,7 +63,7 @@ internal fun MediaEnvironmentBrowser(environment: MediaEnvironment, onExit: () -
                 Text("StreamBridge", style = MaterialTheme.typography.titleMedium)
             }
             Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(24.dp),
+                Modifier.weight(1f).verticalScroll(scroll).widthIn(max = 1000.dp).align(Alignment.CenterHorizontally).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 Surface(
@@ -79,10 +83,9 @@ internal fun MediaEnvironmentBrowser(environment: MediaEnvironment, onExit: () -
                 Text(labels[destinations.indexOf(destination)], style = MaterialTheme.typography.headlineSmall)
                 Surface(shape = RoundedCornerShape(20.dp)) {
                     Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MediaServiceBrowser(
-                            music = music,
-                            destination = destination,
-                        )
+                        CompositionLocalProvider(LocalMediaNearEnd provides nearEnd) {
+                            MediaServiceBrowser(music = music, destination = destination)
+                        }
                     }
                 }
                 Text(stringResource(Res.string.media_footer), style = MaterialTheme.typography.labelMedium, color = Color(0xFFBEC5CE))
