@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       dedicated_media_verification:
-        description: Compile dedicated media shared/platform code and run only its eight tests (no APK/IPA)
+        description: Compile dedicated media shared/platform code and run only its media tests (no APK/IPA)
         type: boolean
         default: false
       media_platforms:
@@ -70,7 +70,7 @@ jobs:
 
   media-android-verification:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification && inputs.media_platforms != 'ios' }}
-    name: Dedicated media Android compile and eight tests
+    name: Dedicated media Android compile and media tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -121,18 +121,21 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a') as out:
               out.write(f'MEDIA_HOST_TEST_TASK=:composeApp:{candidates[0]}\n')
           PY
-      - name: Run only the eight navigation and swipe tests
+      - name: Run only the navigation and media service tests
         run: |
           set -euo pipefail
           ./gradlew "$MEDIA_HOST_TEST_TASK" -Pnuvio.android.distribution=playstore --console=plain --stacktrace \
             --tests com.nuvio.app.navigation.MediaEnvironmentStateTest \
-            --tests com.nuvio.app.features.media.MediaSwipeDestinationTest 2>&1 | tee media-android-tests.log
-      - name: Assert eight executed tests, no failures or skips
+            --tests "com.nuvio.app.features.media.*" 2>&1 | tee media-android-tests.log
+      - name: Assert all focused executed tests, no failures or skips
         run: |
           python3 - <<'PY'
           import os, pathlib, xml.etree.ElementTree as ET
           wanted = {'com.nuvio.app.navigation.MediaEnvironmentStateTest': 5,
-                    'com.nuvio.app.features.media.MediaSwipeDestinationTest': 3}
+                    'com.nuvio.app.features.media.MediaSwipeDestinationTest': 3,
+                    **{f'com.nuvio.app.features.media.service.{name}': count for name, count in {
+                        'MediaPoliciesTest': 12, 'MediaSessionStoreTest': 7, 'MediaServiceHttpTest': 11,
+                        'GoogleDeviceAuthTest': 7, 'ConnectedLibraryTest': 8, 'WebDavListingTest': 5, 'WebDavServiceTest': 3}.items()}}
           counts = {name: 0 for name in wanted}
           for path in pathlib.Path('composeApp/build/test-results').rglob('TEST-*.xml'):
               root = ET.parse(path).getroot()
