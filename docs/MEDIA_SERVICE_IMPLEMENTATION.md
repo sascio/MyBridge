@@ -435,3 +435,28 @@ Music UX, Navidrome playback, imports/scrobbling/party/local sources and dedicat
 media download/offline completion remain outstanding. Existing download architecture
 persists source headers: it was not blindly connected to private WebDAV credentials.
 No signing/version/updater/release/production configuration was modified.
+
+### Credentialed player networking review
+
+On `e5ffafb`, the latest focused Android compile and **75 project tests** passed,
+and the full Android `:composeApp:check`, optimized-assets, tracking-credential and
+script-test steps also passed. Those results precede the following security fixes
+and must not be substituted for their new CI results:
+
+- Existing Android playback networking used a permissive legacy TLS client and a
+  network interceptor that re-added missing Authorization after redirects. For
+  credentialed sources only, use a standard platform-trust OkHttp client with no
+  cross-scheme redirects and no header-reinjection interceptor. OkHttp retains
+  same-origin auth but strips auth when host/port/scheme changes. The existing
+  unauthenticated-source compatibility client is unchanged, not newly weakened.
+- Added three real Android-host MockWebServer regression tests (same-origin auth,
+  cross-origin auth stripping, and default hostname verifier/no TLS downgrade).
+  The focused workflow now requires **78 tests**, not 75.
+- iOS MPV native log text is sanitized before both the error ring buffer and stdout:
+  Authorization/Cookie values, Basic/Bearer credentials, URL userinfo, query and
+  fragment are removed. The playback loader, engine options and MetalLayer remain
+  unchanged. This is a logging-only Swift modification, not a simulator workaround.
+
+Native engines retain their existing network redirect implementations. The WebDAV
+UI therefore continues to require trusted servers; listing URL-scope checks do not
+claim to enforce origin-scoped redirects inside every native playback engine.

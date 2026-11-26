@@ -126,12 +126,14 @@ jobs:
           set -euo pipefail
           ./gradlew "$MEDIA_HOST_TEST_TASK" -Pnuvio.android.distribution=playstore --console=plain --stacktrace \
             --tests com.nuvio.app.navigation.MediaEnvironmentStateTest \
-            --tests "com.nuvio.app.features.media.*" 2>&1 | tee media-android-tests.log
+            --tests "com.nuvio.app.features.media.*" \
+            --tests com.nuvio.app.features.player.CredentialedPlaybackNetworkTest 2>&1 | tee media-android-tests.log
       - name: Assert all focused executed tests, no failures or skips
         run: |
           python3 - <<'PY'
           import os, pathlib, xml.etree.ElementTree as ET
           wanted = {'com.nuvio.app.navigation.MediaEnvironmentStateTest': 5,
+                    'com.nuvio.app.features.player.CredentialedPlaybackNetworkTest': 3,
                     'com.nuvio.app.features.media.MediaSwipeDestinationTest': 3,
                     **{f'com.nuvio.app.features.media.service.{name}': count for name, count in {
                         'MediaPoliciesTest': 13, 'MediaSessionStoreTest': 12, 'MediaServiceHttpTest': 11,

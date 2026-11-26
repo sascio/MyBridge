@@ -2673,7 +2673,7 @@ final class MPVPlayerViewController: UIViewController {
                     if let msg = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(eventPtr.pointee.data)) {
                         let prefix = String(cString: msg.pointee.prefix!)
                         let level = String(cString: msg.pointee.level!)
-                        let text = String(cString: msg.pointee.text!)
+                        let text = self.redactedPlaybackLog(String(cString: msg.pointee.text!))
                         self.appendPlaybackLog(prefix: prefix, level: level, text: text)
                         print("[MPV][\(prefix)] \(level): \(text)", terminator: "")
                     }
@@ -2834,11 +2834,33 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func redactedPlaybackUrlForLogs(_ urlString: String, maxLength: Int = 180) -> String {
-        let withoutQuery = urlString.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? urlString
-        if withoutQuery.count <= maxLength {
-            return withoutQuery
+        guard var components = URLComponents(string: urlString), components.scheme != nil else { return "<redacted-url>" }
+        components.user = nil
+        components.password = nil
+        components.query = nil
+        components.fragment = nil
+        let safe = components.string ?? "<redacted-url>"
+        return safe.count <= maxLength ? safe : String(safe.prefix(maxLength)) + "…"
+    }
+
+    // Sanitize before both the UI error ring and stdout receive native FFmpeg/MPV logs.
+    private func redactedPlaybackLog(_ text: String) -> String {
+        var safe = text.replacingOccurrences(
+            of: #"(?i)(authorization|proxy-authorization|cookie|set-cookie)\s*[:=][^\r\n]*"#,
+            with: "$1: <redacted>", options: .regularExpression
+        ).replacingOccurrences(
+            of: #"(?i)\b(Basic|Bearer)\s+[A-Za-z0-9+/=_\-.]+"#,
+            with: "$1 <redacted>", options: .regularExpression
+        )
+        if let pattern = try? NSRegularExpression(pattern: #"https?://[^\s\"'<>]+"#) {
+            let range = NSRange(safe.startIndex..., in: safe)
+            for match in pattern.matches(in: safe, range: range).reversed() {
+                if let range = Range(match.range, in: safe) {
+                    safe.replaceSubrange(range, with: redactedPlaybackUrlForLogs(String(safe[range])))
+                }
+            }
         }
-        return String(withoutQuery.prefix(maxLength)) + "…"
+        return safe
     }
 
     private func sanitizeRequestHeaders(_ headers: [String: String]) -> [String: String] {

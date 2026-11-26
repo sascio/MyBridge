@@ -60,6 +60,20 @@ internal object PlayerPlaybackNetworking {
             .build()
     }
 
+    internal val credentialedPlaybackHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .dns(IPv4FirstDns())
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(false)
+            .retryOnConnectionFailure(true)
+            .addInterceptor(NetworkErrorInterceptor())
+            .addInterceptor(SentryNetworkBreadcrumbInterceptor())
+            .build()
+    }
+
     private val loopbackPlaybackHttpClient: OkHttpClient by lazy {
         playbackHttpClient.newBuilder()
             .addInterceptor { chain ->
@@ -80,22 +94,10 @@ internal object PlayerPlaybackNetworking {
     ): DataSource.Factory {
         val requestHeaders = sanitizeHeaders(defaultHeaders)
         val baseClient = if (useLongReadTimeout) loopbackPlaybackHttpClient else playbackHttpClient
-        val client = requestHeaders.headerValue("Authorization")?.let { authorization ->
-            baseClient.newBuilder()
-                .addNetworkInterceptor { chain ->
-                    val request = chain.request()
-                    if (request.header("Authorization") == null) {
-                        chain.proceed(
-                            request.newBuilder()
-                                .header("Authorization", authorization)
-                                .build()
-                        )
-                    } else {
-                        chain.proceed(request)
-                    }
-                }
-                .build()
-        } ?: baseClient
+        // Credentialed libraries must use platform trust validation. Never re-add
+        // Authorization in a network interceptor: OkHttp deliberately strips it
+        // when a redirect changes origin (including scheme or port).
+        val client = if (requestHeaders.headerValue("Authorization") != null) credentialedPlaybackHttpClient else baseClient
 
         return OkHttpDataSource.Factory(client).apply {
             setDefaultRequestProperties(requestHeaders)
