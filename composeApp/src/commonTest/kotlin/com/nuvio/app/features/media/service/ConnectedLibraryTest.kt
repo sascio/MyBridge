@@ -62,4 +62,27 @@ class ConnectedLibraryTest {
             assertFailsWith<MediaServiceException> { service.radio(MediaKey(MediaServiceId.Navidrome, "song:1")) }
         }
     }
+
+    @Test fun discoveryCategoriesUseDocumentedCategoryIds() = runTest {
+        val expected = mapOf(YouTubeFeed.Music to "10", YouTubeFeed.Gaming to "20", YouTubeFeed.News to "25", YouTubeFeed.Sports to "17")
+        for ((feed, category) in expected) HttpClient(MockEngine { request ->
+            assertEquals("mostPopular", request.url.parameters["chart"])
+            assertEquals(category, request.url.parameters["videoCategoryId"])
+            assertEquals("next", request.url.parameters["pageToken"])
+            respond("""{"items":[]}""")
+        }).use { YouTubeDataService(it, "key").feed(feed, "next") }
+    }
+    @Test fun liveSearchRequiresVideoTypeAndLiveEvent() = runTest {
+        HttpClient(MockEngine { request ->
+            assertEquals("live", request.url.parameters["eventType"])
+            assertEquals("video", request.url.parameters["type"])
+            respond("""{"items":[{"id":{"videoId":"live-id"},"snippet":{"title":"Live","liveBroadcastContent":"live"}}]}""")
+        }).use { assertTrue(YouTubeDataService(it, "key").feed(YouTubeFeed.Live).items.single().isLive) }
+    }
+    @Test fun unsupportedFeedsDoNotPretendToBeHome() = runTest {
+        HttpClient(MockEngine { error("Must not send") }).use { client ->
+            for (feed in listOf(YouTubeFeed.History, YouTubeFeed.Shorts))
+                assertFailsWith<MediaServiceException> { YouTubeDataService(client, "key").feed(feed) }
+        }
+    }
 }

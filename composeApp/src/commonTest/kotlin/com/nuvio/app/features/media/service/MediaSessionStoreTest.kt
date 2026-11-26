@@ -73,4 +73,15 @@ class MediaSessionStoreTest {
         val youtube = MediaEntry(MediaKey(MediaServiceId.YouTube, "video:id"), MediaKind.Video, "Video")
         assertFailsWith<IllegalArgumentException> { store.saveQueue(1, MediaServiceId.WebDav, "a", MediaQueue(listOf(youtube), 0)) }
     }
+
+    @Test fun browsingPreferencesAndSearchesAreScopedAndPreserved() {
+        store.save(1, MediaServiceId.YouTube, session("a"))
+        val state = MediaBrowseState(YouTubePreferences(rememberTab = true, lastTab = YouTubeFeed.News)).searched("News")
+        store.saveBrowsing(1, MediaServiceId.YouTube, "a", state)
+        store.save(1, MediaServiceId.YouTube, session("a"))
+        assertEquals(state, store.browsing(1, MediaServiceId.YouTube, "a"))
+        assertTrue(store.browsing(1, MediaServiceId.YouTubeMusic, "a").searches.isEmpty())
+        store.remove(1, MediaServiceId.YouTube, "a")
+        assertTrue(store.browsing(1, MediaServiceId.YouTube, "a").searches.isEmpty())
+    }
 }

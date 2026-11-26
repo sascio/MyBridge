@@ -140,6 +140,16 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
     val playMedia = LocalPlayMedia.current
     val youtube = catalogue as? YouTubeDataService
     val libraryAvailable = catalogue is NavidromeService || youtube?.signedIn == true
+    val browsingResult = remember { runCatching { store.browsing(profileId, serviceId, accountId) } }
+    var browsing by remember { mutableStateOf(browsingResult.getOrDefault(MediaBrowseState())) }
+    var feed by remember { mutableStateOf(browsing.preferences.initialTab().takeIf { it in supportedFeeds(youtube?.signedIn == true) } ?: YouTubeFeed.Home) }
+    var browseStorageFailure by remember { mutableStateOf(browsingResult.isFailure) }
+    LaunchedEffect(browsing) {
+        try { store.saveBrowsing(profileId, serviceId, accountId, browsing); browseStorageFailure = false }
+        catch (_: Exception) { browseStorageFailure = true }
+    }
+    if (browseStorageFailure) MediaFailureText(MediaFailure.Unavailable)
+
     var query by remember { mutableStateOf("") }
     var submitted by remember { mutableStateOf("") }
     var route by remember { mutableStateOf<MediaEntry?>(null) }
@@ -253,7 +263,7 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
     }
     if (lyricsMissing) Text(stringResource(Res.string.media_lyrics_unavailable))
     val unsupportedLibrary = !libraryAvailable && catalogue !is WebDavService && destination == "Library"
-    LaunchedEffect(route, submitted, pageToken, retry, libraryMode, radioSeed) {
+    LaunchedEffect(route, submitted, pageToken, retry, libraryMode, radioSeed, feed) {
         if (unsupportedLibrary) return@LaunchedEffect
         busy = true; failure = null
         if (pageToken == null) { entries = emptyList(); nextToken = null; loaded = false }
@@ -266,6 +276,7 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
                 libraryAvailable && destination == "Library" && libraryMode == "liked" -> MediaPage(library!!.liked())
                 libraryAvailable && destination == "Library" && libraryMode == "subscriptions" -> youtube!!.subscriptions(pageToken)
                 libraryAvailable && destination == "Library" -> MediaPage(library!!.playlists())
+                youtube != null -> youtube.feed(feed, pageToken)
                 else -> catalogue.home(pageToken)
             }
             entries = (if (pageToken == null) result.items else entries + result.items).distinctBy { it.key }
@@ -289,9 +300,18 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
             mutate { library!!.createPlaylist(title); playlistTitle = ""; retry++ }
         }) { Text(stringResource(Res.string.media_create_playlist)) }
     }
+    if (youtube != null && destination != "Library") MediaFeedControls(browsing, feed, youtube.signedIn, busy || mutationBusy,
+        onChange = { browsing = it }, onSelect = { selected ->
+            feed = selected; submitted = ""; query = ""; route = null; pageToken = null
+            browsing = browsing.copy(preferences = browsing.preferences.copy(lastTab = selected))
+        })
+    if (query.isNotBlank()) browsing.searches.filter { it.contains(query, ignoreCase = true) && it != query }.take(5).forEach { previous ->
+        TextButton(enabled = !busy && !mutationBusy, onClick = { query = previous }) { Text(previous) }
+    }
+    if (browsing.searches.isNotEmpty()) TextButton(onClick = { browsing = browsing.copy(searches = emptyList()) }) { Text(stringResource(Res.string.media_clear_searches)) }
     OutlinedTextField(query, { query = it.take(500) }, label = { Text(stringResource(Res.string.media_catalogue_search)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Button(enabled = query.isNotBlank() && !busy && !mutationBusy, onClick = { radioSeed = null; route = null; pageToken = null; submitted = query; libraryMode = "playlists"; retry++ }) { Text(stringResource(Res.string.media_search_action)) }
+        Button(enabled = query.isNotBlank() && !busy && !mutationBusy, onClick = { radioSeed = null; route = null; pageToken = null; submitted = query.trim(); browsing = browsing.searched(query); libraryMode = "playlists"; retry++ }) { Text(stringResource(Res.string.media_search_action)) }
         TextButton(enabled = !busy && !mutationBusy, onClick = { radioSeed = null; route = null; pageToken = null; submitted = ""; query = ""; libraryMode = "playlists"; retry++ }) { Text(stringResource(Res.string.media_catalogue_home)) }
     }
     if (catalogue is NavidromeService) TextButton(enabled = !busy && !mutationBusy, onClick = { radioSeed = null; route = null; submitted = ""; pageToken = null; libraryMode = "random"; retry++ }) { Text(stringResource(Res.string.media_random_tracks)) }
@@ -317,7 +337,7 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
         TextButton(enabled = !busy && !mutationBusy, onClick = { retry++ }) { Text(stringResource(Res.string.media_retry_action)) }
     }
     if (loaded && entries.isEmpty()) Text(stringResource(Res.string.media_no_results))
-    entries.forEach { entry ->
+    entries.filter { youtube == null || browsing.preferences.allows(it) }.forEach { entry ->
         Surface(tonalElevation = 2.dp, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(entry.title, style = MaterialTheme.typography.titleMedium)

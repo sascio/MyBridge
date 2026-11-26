@@ -52,6 +52,29 @@ internal class YouTubeDataService(
         val response = request("videos", pageParameters(continuation) + mapOf("part" to "snippet,contentDetails", "chart" to "mostPopular") + if (musicOnly) mapOf("videoCategoryId" to "10") else emptyMap())
         return mapPage(response) { entry(it, MediaKind.Video, it.text("id")) }
     }
+    /** Documented API categories, not an undocumented personalized/Shorts feed. */
+    suspend fun feed(feed: YouTubeFeed, continuation: String? = null): MediaPage<MediaEntry> = when (feed) {
+        YouTubeFeed.Home -> home(continuation)
+        YouTubeFeed.Subscriptions -> subscriptions(continuation)
+        YouTubeFeed.Playlists -> { require(continuation == null); MediaPage(playlists()) }
+        YouTubeFeed.Live, YouTubeFeed.Channels -> {
+            val parameters = pageParameters(continuation) + mapOf("part" to "snippet", "safeSearch" to "moderate") +
+                if (feed == YouTubeFeed.Live) mapOf("type" to "video", "eventType" to "live") else mapOf("type" to "channel")
+            mapPage(request("search", parameters)) {
+                val id = it["id"] as? JsonObject ?: throw MediaServiceException(MediaFailure.InvalidResponse)
+                if (feed == YouTubeFeed.Live) entry(it, MediaKind.Video, id.text("videoId"))
+                else entry(it, MediaKind.Channel, id.text("channelId"))
+            }
+        }
+        YouTubeFeed.Music, YouTubeFeed.Gaming, YouTubeFeed.News, YouTubeFeed.Sports -> {
+            val category = when (feed) { YouTubeFeed.Music -> "10"; YouTubeFeed.Gaming -> "20"; YouTubeFeed.News -> "25"; else -> "17" }
+            mapPage(request("videos", pageParameters(continuation) + mapOf("part" to "snippet,contentDetails", "chart" to "mostPopular", "videoCategoryId" to category))) {
+                entry(it, MediaKind.Video, it.text("id"))
+            }
+        }
+        // No documented Data API watch-history/Shorts feed. Do not fabricate one.
+        YouTubeFeed.History, YouTubeFeed.Shorts -> throw MediaServiceException(MediaFailure.Unavailable)
+    }
     override suspend fun search(query: String, continuation: String?): MediaPage<MediaEntry> {
         require(query.isNotBlank() && query.length <= 500)
         val response = request("search", pageParameters(continuation) + mapOf("part" to "snippet", "q" to query.trim(), "type" to if (musicOnly) "video" else "video,channel,playlist", "safeSearch" to "moderate") + if (musicOnly) mapOf("videoCategoryId" to "10") else emptyMap())

@@ -99,4 +99,19 @@
     <string name="media_repeat_off">Repeat: off</string>
     <string name="media_repeat_all">Repeat: queue</string>
     <string name="media_repeat_one">Repeat: track</string>
+    <string name="media_feed_live">Live</string>
+    <string name="media_feed_gaming">Gaming</string>
+    <string name="media_feed_news">News</string>
+    <string name="media_feed_sports">Sports</string>
+    <string name="media_feed_channels">Channels</string>
+    <string name="media_feed_history">History</string>
+    <string name="media_feed_shorts">Shorts</string>
+    <string name="media_feed_settings">Feed settings</string>
+    <string name="media_remember_feed">Remember selected feed</string>
+    <string name="media_hide_upcoming">Hide upcoming broadcasts</string>
+    <string name="media_hidden_words">Hidden title words (comma separated)</string>
+    <string name="media_hidden_channels">Hidden channel IDs (comma separated)</string>
+    <string name="media_feed_first">Move first</string>
+    <string name="media_clear_searches">Clear local search history</string>
+    <string name="media_apply_filters">Apply filters</string>
 </resources>

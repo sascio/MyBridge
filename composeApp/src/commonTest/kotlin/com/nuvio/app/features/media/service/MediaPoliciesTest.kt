@@ -45,4 +45,15 @@ class MediaPoliciesTest {
         assertEquals("MediaAccountSession(redacted)", MediaAccountSession("id", "name", "secret").toString())
         assertEquals("ResolvedMedia(redacted)", ResolvedMedia("https://example.org/secret").toString())
     }
+
+    @Test fun searchHistoryIsBoundedDeduplicatedAndClearable() {
+        var state = MediaBrowseState()
+        repeat(30) { state = state.searched("query $it") }
+        assertEquals(20, state.searches.size)
+        state = state.searched(" QUERY 29 ")
+        assertEquals("QUERY 29", state.searches.first())
+        assertEquals(20, state.searches.size)
+        assertEquals(state, state.searched(" "))
+        assertTrue(state.copy(searches = emptyList()).searches.isEmpty())
+    }
 }

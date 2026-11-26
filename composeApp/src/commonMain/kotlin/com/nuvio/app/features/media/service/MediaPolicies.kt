@@ -80,3 +80,15 @@ internal fun parseSyncedLyrics(input: String): List<LyricLine> {
         }
     }.sortedBy { it.atMs }.distinct().toList()
 }
+
+/** User-entered search history only: never presented as remote search suggestions. */
+@Serializable
+internal data class MediaBrowseState(
+    val preferences: YouTubePreferences = YouTubePreferences(),
+    val searches: List<String> = emptyList(),
+) {
+    fun searched(query: String): MediaBrowseState {
+        val value = query.trim().take(500)
+        return if (value.isEmpty()) this else copy(searches = (listOf(value) + searches.filterNot { it.equals(value, true) }).take(20))
+    }
+}

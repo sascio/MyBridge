@@ -38,6 +38,7 @@ private data class SessionPayload(
     val activeId: String? = null,
     val accounts: List<MediaAccountSession> = emptyList(),
     val queues: Map<String, MediaQueue> = emptyMap(),
+    val browsing: Map<String, MediaBrowseState> = emptyMap(),
 )
 
 /** Stores explicit profile/service namespaces. There is no ambient profile that can change mid-request. */
@@ -81,7 +82,7 @@ internal class MediaSessionStore(
         val payload = load(profileId, service)
         val remaining = payload.accounts.filterNot { it.accountId == accountId }
         val active = payload.activeId?.takeIf { id -> remaining.any { it.accountId == id } } ?: remaining.firstOrNull()?.accountId
-        write(key(profileId, service), if (remaining.isEmpty()) null else json.encodeToString(payload.copy(activeId = active, accounts = remaining, queues = payload.queues - accountId)))
+        write(key(profileId, service), if (remaining.isEmpty()) null else json.encodeToString(payload.copy(activeId = active, accounts = remaining, queues = payload.queues - accountId, browsing = payload.browsing - accountId)))
     }
 
     fun queue(profileId: Int, service: MediaServiceId, accountId: String): MediaQueue =
@@ -93,6 +94,16 @@ internal class MediaSessionStore(
         val payload = load(profileId, service)
         require(payload.activeId == accountId && payload.accounts.any { it.accountId == accountId })
         write(key(profileId, service), json.encodeToString(payload.copy(queues = payload.queues + (accountId to queue))))
+    }
+
+    fun browsing(profileId: Int, service: MediaServiceId, accountId: String): MediaBrowseState =
+        load(profileId, service).browsing[accountId] ?: MediaBrowseState()
+
+    fun saveBrowsing(profileId: Int, service: MediaServiceId, accountId: String, state: MediaBrowseState) {
+        require(state.searches.size <= 20 && state.searches.all { it.length <= 500 })
+        val payload = load(profileId, service)
+        require(payload.activeId == accountId && payload.accounts.any { it.accountId == accountId })
+        write(key(profileId, service), json.encodeToString(payload.copy(browsing = payload.browsing + (accountId to state))))
     }
 
     fun clearProfile(profileId: Int) = MediaServiceId.entries.forEach { write(key(profileId, it), null) }
