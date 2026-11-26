@@ -366,3 +366,72 @@ The workspace restored the prior increment's files but not its local Git object
 `not our ref`; the remote branch still ended at `c7d5579…`. Existing source was
 preserved in recovery commit `9662d85` before increment-2 edits. No source reset,
 branch replacement or claim of ancestry from the unavailable object was made.
+
+## Autonomous verification increment — current branch restoration and connected policies
+
+The next workspace restoration again contained implementation bytes but only baseline
+Git history. The exact `9662d85`/`3ee86b9` objects were absent. All restored files were
+committed as `a74c104`, then the actual remote `c7d5579` history was merged in
+`1cb0e98`; no history was reset, rewritten or force-pushed. Merge resolutions retained
+the newer media host, resources and verification documentation.
+
+Additional connected functionality:
+
+- Account/profile/provider-scoped encrypted queues survive catalogue navigation and
+  process restart. Resolved media, authorization headers and OAuth tokens are not
+  queue entries. Account removal/profile cleanup removes its queue and saved browsing
+  state. Queue writes cannot reactivate or overwrite another selected account.
+- Repeat off/all/one, shuffle, and automatic end-of-stream advancement now use an
+  optional composition-scoped callback in the existing PlayerScreen runtime. Its
+  default is null; movie/series autoplay behavior is not replaced. Same-item repeat
+  recreates the existing player composition, not a competing engine. Runtime audio,
+  lifecycle/background and end-event behavior still require device verification.
+- Documented category discovery (Music/Gaming/News/Sports), live video discovery,
+  channel discovery, and authorized playlists/subscriptions are connected in feed tabs.
+  Tab visibility/order, remembered feed, upcoming broadcasts, title-word and channel-ID
+  filters persist independently per connected account. History and Shorts feeds are
+  not exposed as supported Data API features. Subscriptions are channel management,
+  not a fabricated aggregated personalized subscription-video feed.
+- Bounded, clearable local search history supplies matching previous queries; it is
+  explicitly not remote search suggestions. No remote history or progress is invented.
+- Responsive catalogue width and real artwork loading; near-end automatic pagination
+  retains the explicit Load more action and the existing 300-entry safety bound.
+- Private dedicated-media identities passed to the player are opaque rather than
+  private file URLs. Movie metadata, parental-guide/skip lookups and addon subtitle
+  fetching are excluded for this new content type; existing types retain their paths.
+- Refresh checks now also prevent an older refresh response overwriting a newer grant
+  for the same account. Five MockEngine tests cover valid-token reuse, concurrent
+  refresh, logout, account switch and replacement-grant races.
+
+### Real project verification (not the earlier standalone harness)
+
+GitHub Actions run https://github.com/sascio/MyBridge/actions/runs/45901218119
+on source `1542146` completed **Android shared/platform compilation and 61 focused
+project tests with zero failures/skips**, asserted from Gradle XML reports. This
+includes all 53 service tests then present and eight navigation/swipe tests. Its
+Android job is https://github.com/sascio/MyBridge/actions/runs/45901218119/job/140187180596 .
+This supersedes the earlier statement that those HTTP/OAuth tests had never run;
+it does not verify changes committed after `1542146`.
+
+The focused workflow now requires **75 tests** (67 service, eight navigation/swipe),
+including persistent queue/browsing and refresh-race coverage. Subsequent latest-source
+Android, Apple framework/host, full APK, unsigned IPA and simulator-test workflows
+are being exercised; their final results and exact source SHAs must be taken from
+Actions and the final execution report, not inferred from the earlier green job.
+
+Local toolchain recheck: installed `jdk4py` from PyPI again; Java runtime is available.
+No Android SDK, Xcode or Gradle distribution cache was restored. The same local
+Gradle bootstrap attempt failed TLS/EOF before project configuration. TLS validation
+was not disabled, no wrapper/dependency versions changed, no untrusted binaries used.
+Remote runners successfully bootstrapped the existing wrapper and compiled Android.
+
+Upstream was re-read at unchanged main `c47267c1d2d2a2c87731de7fd2d131526bf9e2f5`.
+Its Music Innertube implementation explicitly depends on WebView-captured cookies,
+SAPISIDHASH and a separate resolver, with Android/JVM-specific imports. Those private
+protocol/authentication/stream components have not been copied or represented as a
+supported public Data API capability. Component-level license findings above still
+apply. Full OneTube/Music parity, live account/device verification, native background
+Music UX, Navidrome playback, imports/scrobbling/party/local sources and dedicated
+media download/offline completion remain outstanding. Existing download architecture
+persists source headers: it was not blindly connected to private WebDAV credentials.
+No signing/version/updater/release/production configuration was modified.
