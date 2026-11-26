@@ -21,6 +21,7 @@ import org.jetbrains.compose.resources.stringResource
 internal class MediaPlaybackRequest(
     val ownerId: String, val profileId: Int, val entry: MediaEntry, val media: ResolvedMedia,
     val previous: (() -> Unit)? = null, val next: (() -> Unit)? = null,
+    val onEnded: (() -> Unit)? = null,
 )
 internal val LocalPlayMedia = staticCompositionLocalOf<((MediaPlaybackRequest) -> Unit)?> { null }
 
@@ -58,8 +59,11 @@ internal fun MediaEnvironmentContent(environment: MediaEnvironment, onExit: () -
                         request.previous?.let { action -> TextButton(onClick = action) { Text(stringResource(Res.string.media_queue_previous)) } }
                         request.next?.let { action -> TextButton(onClick = action) { Text(stringResource(Res.string.media_queue_next)) } }
                     }
-                    key(request.entry.key, request.media.url) {
-                        CompositionLocalProvider(LocalPlayerMiniPresentation provides null) {
+                    key(request) {
+                        CompositionLocalProvider(
+                            LocalPlayerMiniPresentation provides null,
+                            com.nuvio.app.features.player.LocalPlayerEndOfStream provides request.onEnded,
+                        ) {
                             PlayerScreen(
                                 profileId = request.profileId, title = request.entry.title,
                                 sourceUrl = request.media.url, sourceAudioUrl = request.media.audioUrl,

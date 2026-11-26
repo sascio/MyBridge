@@ -34,7 +34,11 @@ internal class MediaAccountSession(
 internal data class MediaAccountSummary(val accountId: String, val displayName: String, val channelId: String?)
 
 @Serializable
-private data class SessionPayload(val activeId: String? = null, val accounts: List<MediaAccountSession> = emptyList())
+private data class SessionPayload(
+    val activeId: String? = null,
+    val accounts: List<MediaAccountSession> = emptyList(),
+    val queues: Map<String, MediaQueue> = emptyMap(),
+)
 
 /** Stores explicit profile/service namespaces. There is no ambient profile that can change mid-request. */
 internal class MediaSessionStore(
@@ -64,7 +68,7 @@ internal class MediaSessionStore(
         val previous = load(profileId, service)
         val accounts = previous.accounts.filterNot { it.accountId == session.accountId } + session
         require(accounts.size <= 20) { "Account limit reached" }
-        write(key(profileId, service), json.encodeToString(SessionPayload(session.accountId, accounts)))
+        write(key(profileId, service), json.encodeToString(previous.copy(activeId = session.accountId, accounts = accounts)))
     }
 
     fun select(profileId: Int, service: MediaServiceId, accountId: String) {
@@ -77,7 +81,18 @@ internal class MediaSessionStore(
         val payload = load(profileId, service)
         val remaining = payload.accounts.filterNot { it.accountId == accountId }
         val active = payload.activeId?.takeIf { id -> remaining.any { it.accountId == id } } ?: remaining.firstOrNull()?.accountId
-        write(key(profileId, service), if (remaining.isEmpty()) null else json.encodeToString(SessionPayload(active, remaining)))
+        write(key(profileId, service), if (remaining.isEmpty()) null else json.encodeToString(payload.copy(activeId = active, accounts = remaining, queues = payload.queues - accountId)))
+    }
+
+    fun queue(profileId: Int, service: MediaServiceId, accountId: String): MediaQueue =
+        load(profileId, service).queues[accountId] ?: MediaQueue()
+
+    /** Persist catalogue identities only; resolved URLs/headers are never queued. */
+    fun saveQueue(profileId: Int, service: MediaServiceId, accountId: String, queue: MediaQueue) {
+        require(queue.entries.size <= 300 && queue.entries.all { it.key.service == service })
+        val payload = load(profileId, service)
+        require(payload.activeId == accountId && payload.accounts.any { it.accountId == accountId })
+        write(key(profileId, service), json.encodeToString(payload.copy(queues = payload.queues + (accountId to queue))))
     }
 
     fun clearProfile(profileId: Int) = MediaServiceId.entries.forEach { write(key(profileId, it), null) }

@@ -87,7 +87,7 @@
     <string name="media_webdav_password">WebDAV password</string>
     <string name="media_return_library">Back to library</string>
     <string name="media_play_action">Play</string>
-    <string name="media_queue_title">Queue (this session)</string>
+    <string name="media_queue_title">Queue</string>
     <string name="media_queue_shuffle">Shuffle queue</string>
     <string name="media_queue_up">Move up</string>
     <string name="media_queue_remove">Remove</string>
@@ -96,4 +96,7 @@
     <string name="media_queue_next">Next</string>
     <string name="media_webdav_storage_notice">Your WebDAV password is stored in platform-protected storage for this StreamBridge account and profile. Playback uses authorization headers, not credentials in URLs. Use only a server you trust.</string>
     <string name="media_close_miniplayer_first">Close the current mini-player before starting library playback.</string>
+    <string name="media_repeat_off">Repeat: off</string>
+    <string name="media_repeat_all">Repeat: queue</string>
+    <string name="media_repeat_one">Repeat: track</string>
 </resources>

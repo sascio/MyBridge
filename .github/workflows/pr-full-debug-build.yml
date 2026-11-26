@@ -134,7 +134,7 @@ jobs:
           wanted = {'com.nuvio.app.navigation.MediaEnvironmentStateTest': 5,
                     'com.nuvio.app.features.media.MediaSwipeDestinationTest': 3,
                     **{f'com.nuvio.app.features.media.service.{name}': count for name, count in {
-                        'MediaPoliciesTest': 12, 'MediaSessionStoreTest': 7, 'MediaServiceHttpTest': 11,
+                        'MediaPoliciesTest': 12, 'MediaSessionStoreTest': 11, 'MediaServiceHttpTest': 11,
                         'GoogleDeviceAuthTest': 7, 'ConnectedLibraryTest': 8, 'WebDavListingTest': 5, 'WebDavServiceTest': 3}.items()}}
           counts = {name: 0 for name in wanted}
           for path in pathlib.Path('composeApp/build/test-results').rglob('TEST-*.xml'):

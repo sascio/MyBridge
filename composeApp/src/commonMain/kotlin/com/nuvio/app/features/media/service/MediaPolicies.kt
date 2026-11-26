@@ -26,8 +26,10 @@ internal data class YouTubePreferences(
             entry.channelId !in hiddenChannels && hiddenWords.none { it.isNotBlank() && entry.title.contains(it.trim(), ignoreCase = true) }
 }
 
+@Serializable
 internal enum class QueueRepeat { Off, All, One }
 /** Immutable queue policy, independent of the platform player. Duplicate tracks remain distinct entries. */
+@Serializable
 internal data class MediaQueue(val entries: List<MediaEntry> = emptyList(), val index: Int = -1, val repeat: QueueRepeat = QueueRepeat.Off) {
     init { require((entries.isEmpty() && index == -1) || index in entries.indices) }
     val current: MediaEntry? get() = entries.getOrNull(index)

@@ -130,13 +130,13 @@ internal fun MediaServiceBrowser(music: Boolean, destination: String) {
                 } catch (_: Exception) { null }
             }
             if (catalogue == null) MediaFailureText(MediaFailure.InvalidInput)
-            else key(destination, active) { ConnectedCatalogue(catalogue, destination, ownerId, profileId) }
+            else key(destination, active) { ConnectedCatalogue(catalogue, destination, ownerId, profileId, store, serviceId, active.accountId) }
         }
     }
 }
 
 @Composable
-private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String, ownerId: String, profileId: Int) {
+private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String, ownerId: String, profileId: Int, store: MediaSessionStore, serviceId: MediaServiceId, accountId: String) {
     val playMedia = LocalPlayMedia.current
     val youtube = catalogue as? YouTubeDataService
     val libraryAvailable = catalogue is NavidromeService || youtube?.signedIn == true
@@ -171,7 +171,13 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
     var mutationBusy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val library = catalogue as? MediaLibraryService
-    var queue by remember { mutableStateOf(MediaQueue()) }
+    val restoredQueue = remember { runCatching { store.queue(profileId, serviceId, accountId) } }
+    var queue by remember { mutableStateOf(restoredQueue.getOrDefault(MediaQueue())) }
+    LaunchedEffect(queue) {
+        try { store.saveQueue(profileId, serviceId, accountId, queue) }
+        catch (_: Exception) { failure = MediaFailure.Unavailable }
+    }
+    if (restoredQueue.isFailure) MediaFailureText(MediaFailure.Unavailable)
     fun mutate(operation: suspend () -> Unit) {
         if (mutationBusy || busy) return
         mutationBusy = true
@@ -183,20 +189,29 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
     fun playQueue(position: Int) {
         val resolver = catalogue as? MediaResolver ?: return
         val player = playMedia ?: return
+        if (position !in queue.entries.indices) return
         val selected = queue.select(position)
         val entry = selected.current ?: return
         mutate {
             val resolved = resolver.resolve(entry.key)
             player(MediaPlaybackRequest(ownerId, profileId, entry, resolved,
                 previous = if (position > 0) { { playQueue(queue.index - 1) } } else null,
-                next = if (position < selected.entries.lastIndex) { { playQueue(queue.index + 1) } } else null,
+                next = if (selected.next(manual = true) != null) { { queue.next(manual = true)?.let { playQueue(it.index) } } } else null,
+                onEnded = { queue.next()?.let { playQueue(it.index) } },
             ))
             queue = selected
         }
     }
     if (catalogue is MediaResolver && queue.entries.isNotEmpty()) {
         Text(stringResource(Res.string.media_queue_title), style = MaterialTheme.typography.titleMedium)
-        TextButton(enabled = !mutationBusy, onClick = { queue = MediaQueue(queue.entries.shuffled(), 0) }) { Text(stringResource(Res.string.media_queue_shuffle)) }
+        TextButton(enabled = !mutationBusy, onClick = { queue = queue.copy(entries = queue.entries.shuffled(), index = 0) }) { Text(stringResource(Res.string.media_queue_shuffle)) }
+        TextButton(enabled = !mutationBusy, onClick = { queue = queue.copy(repeat = QueueRepeat.entries[(queue.repeat.ordinal + 1) % QueueRepeat.entries.size]) }) {
+            Text(stringResource(when (queue.repeat) {
+                QueueRepeat.Off -> Res.string.media_repeat_off
+                QueueRepeat.All -> Res.string.media_repeat_all
+                QueueRepeat.One -> Res.string.media_repeat_one
+            }))
+        }
         queue.entries.forEachIndexed { index, item ->
             Column {
                 TextButton(enabled = !mutationBusy, onClick = { playQueue(index) }) { Text(item.title) }
@@ -314,7 +329,9 @@ private fun ConnectedCatalogue(catalogue: CatalogueService, destination: String,
                         if (com.nuvio.app.features.player.MiniPlayerController.isActive) Text(stringResource(Res.string.media_close_miniplayer_first))
                         Button(enabled = !busy && !mutationBusy && !com.nuvio.app.features.player.MiniPlayerController.isActive, onClick = {
                             val tracks = entries.filter { it.kind in setOf(MediaKind.Track, MediaKind.Video) }
-                            queue = MediaQueue(tracks, tracks.indexOfFirst { it.key == entry.key })
+                            val selectedIndex = tracks.indexOfFirst { it.key == entry.key }
+                            val window = tracks.drop((selectedIndex - 299).coerceAtLeast(0)).take(300)
+                            queue = MediaQueue(window, window.indexOfFirst { it.key == entry.key }, queue.repeat)
                             playQueue(queue.index)
                         }) { Text(stringResource(Res.string.media_play_action)) }
                         TextButton(enabled = !mutationBusy && queue.entries.size < 300, onClick = { queue = queue.append(entry) }) { Text(stringResource(Res.string.media_queue_add)) }

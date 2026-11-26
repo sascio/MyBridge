@@ -40,4 +40,37 @@ class MediaSessionStoreTest {
         assertNull(other.active(1, MediaServiceId.YouTube))
     }
 
+
+    private fun track(id: String) = MediaEntry(MediaKey(MediaServiceId.WebDav, "https://example.org/music/$id.mp3"), MediaKind.Track, id)
+    @Test fun queueSurvivesReloadAndTokenUpdate() {
+        store.save(1, MediaServiceId.WebDav, session("a"))
+        val queue = MediaQueue(listOf(track("one"), track("two")), 1, QueueRepeat.All)
+        store.saveQueue(1, MediaServiceId.WebDav, "a", queue)
+        store.save(1, MediaServiceId.WebDav, MediaAccountSession("a", "Updated", "new-token"))
+        val reloaded = MediaSessionStore("owner", storage::get) { _, _ -> error("Read only") }
+        assertEquals(queue, reloaded.queue(1, MediaServiceId.WebDav, "a"))
+    }
+    @Test fun queueIsIsolatedAndRemovedWithAccount() {
+        store.save(1, MediaServiceId.WebDav, session("a"))
+        store.saveQueue(1, MediaServiceId.WebDav, "a", MediaQueue(listOf(track("one")), 0))
+        store.save(1, MediaServiceId.WebDav, session("b"))
+        assertTrue(store.queue(1, MediaServiceId.WebDav, "b").entries.isEmpty())
+        assertTrue(store.queue(2, MediaServiceId.WebDav, "a").entries.isEmpty())
+        store.remove(1, MediaServiceId.WebDav, "a")
+        assertTrue(store.queue(1, MediaServiceId.WebDav, "a").entries.isEmpty())
+    }
+    @Test fun staleAccountCannotOverwriteQueueAfterSwitchOrLogout() {
+        store.save(1, MediaServiceId.WebDav, session("a"))
+        store.save(1, MediaServiceId.WebDav, session("b"))
+        assertFailsWith<IllegalArgumentException> { store.saveQueue(1, MediaServiceId.WebDav, "a", MediaQueue()) }
+        store.remove(1, MediaServiceId.WebDav, "b")
+        store.remove(1, MediaServiceId.WebDav, "a")
+        assertFailsWith<IllegalArgumentException> { store.saveQueue(1, MediaServiceId.WebDav, "a", MediaQueue()) }
+    }
+    @Test fun queueRejectsCrossProviderAndOversizedCollections() {
+        store.save(1, MediaServiceId.WebDav, session("a"))
+        assertFailsWith<IllegalArgumentException> { store.saveQueue(1, MediaServiceId.WebDav, "a", MediaQueue(List(301) { track("$it") }, 0)) }
+        val youtube = MediaEntry(MediaKey(MediaServiceId.YouTube, "video:id"), MediaKind.Video, "Video")
+        assertFailsWith<IllegalArgumentException> { store.saveQueue(1, MediaServiceId.WebDav, "a", MediaQueue(listOf(youtube), 0)) }
+    }
 }

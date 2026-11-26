@@ -80,6 +80,10 @@ private fun rememberNetworkCondition(): NetworkCondition {
 
 @Composable
 internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
+    val onEndOfStream = androidx.compose.runtime.rememberUpdatedState(LocalPlayerEndOfStream.current)
+    LaunchedEffect(activePlaybackKey, playbackSnapshotKey, playbackSnapshot.isEnded) {
+        if (playbackSnapshotKey == activePlaybackKey && playbackSnapshot.isEnded) onEndOfStream.value?.invoke()
+    }
     val networkCondition = rememberNetworkCondition()
     val currentFeedback = liveGestureFeedback ?: gestureFeedback
     LaunchedEffect(currentFeedback) {
