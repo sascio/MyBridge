@@ -39,6 +39,16 @@ internal enum class NativeNavigationTab {
 }
 
 internal object NativeTabBridge {
+    // Target the existing root controller. Music is an action, never a selected native tab.
+    private val _musicRequests = MutableSharedFlow<NativeNavigationTab>(extraBufferCapacity = 1)
+    val musicRequests: SharedFlow<NativeNavigationTab> = _musicRequests.asSharedFlow()
+
+    fun requestMusic() {
+        if (_musicRequests.subscriptionCount.value == 0 || !_musicRequests.tryEmit(_activeTab.value)) {
+            com.nuvio.app.core.logging.InAppLogger.warn("Media/Navigation", "Music entry has no ready native root receiver")
+        }
+    }
+
     private val _requestedTabs = MutableSharedFlow<NativeNavigationTab>(extraBufferCapacity = 1)
     val requestedTabs: SharedFlow<NativeNavigationTab> = _requestedTabs.asSharedFlow()
 
@@ -244,6 +254,10 @@ private var swiftPopToRootListener: ((String) -> Unit)? = null
 
 fun observeNativePopToRoot(listener: (String) -> Unit) {
     swiftPopToRootListener = listener
+}
+
+fun nativeMusicOpen() {
+    NativeTabBridge.requestMusic()
 }
 
 fun nativeTabSelect(tabName: String) {

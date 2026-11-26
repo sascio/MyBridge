@@ -56,6 +56,17 @@ internal object LocalAccountDataCleaner {
             ?.takeIf { it.isNotBlank() }
             ?: (AuthRepository.state.value as? AuthState.Authenticated)?.userId
         var profileAuthenticationCleanupFailed = false
+        if (!cleanupUserId.isNullOrBlank()) {
+            try {
+                val mediaSessions = com.nuvio.app.features.media.service.MediaSessionStore(cleanupUserId)
+                (1..MAX_PROFILES).forEach { mediaSessions.clearProfile(it) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Continue the remaining wipe, but report that credential cleanup failed.
+                profileAuthenticationCleanupFailed = true
+            }
+        }
         (1..MAX_PROFILES).forEach { profileIndex ->
             val removed = try {
                 ProfilePinCacheStorage.removePayload(profileIndex)

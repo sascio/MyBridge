@@ -122,7 +122,20 @@ struct NuvioGlassTabBar: View {
     private var isHidden: Bool { hidesWhenCollapsed && !isExpanded }
 
     var body: some View {
-        segmentedBar
+        HStack(spacing: 8) {
+            segmentedBar
+            if isExpanded && appCoordinator.isMediaEntryAtRoot {
+                Button {
+                    if appCoordinator.isAppReady { NativeTabBridgeKt.nativeMusicOpen() }
+                } label: {
+                    Label(String(localized: "Music"), systemImage: "music.note")
+                        .font(.caption)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.glass)
+                .accessibilityHint(String(localized: "Open StreamBridge Music"))
+            }
+        }
             .padding(.horizontal, 16)
             .padding(.bottom, bottomInset)
             .offset(y: isHidden ? NuvioSegmentedTabBar.height(compact: true) + bottomInset + 24 : 0)

@@ -182,6 +182,7 @@ open class MainActivity : AppCompatActivity() {
         PlatformPublicMetaDbSyncStorage.initialize(applicationContext)
         DiscordRpcStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
+        com.nuvio.app.features.media.service.MediaCredentialVault.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)
         LibraryDisplaySettingsStorage.initialize(applicationContext)
         LibraryReleaseScheduleStorage.initialize(applicationContext)

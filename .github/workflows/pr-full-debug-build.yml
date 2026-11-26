@@ -5,6 +5,20 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [enhanced]
   workflow_dispatch:
+    inputs:
+      dedicated_media_verification:
+        description: Compile dedicated media shared/platform code and run only its eight tests (no APK/IPA)
+        type: boolean
+        default: false
+      media_platforms:
+        description: Platforms for opt-in dedicated-media verification
+        type: choice
+        options: [both, android, ios]
+        default: both
+      media_baseline:
+        description: iOS-only comparison against exact baseline b3290f6 (no source modifications)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,6 +29,7 @@ concurrency:
 
 jobs:
   full-debug-build:
+    if: ${{ inputs.dedicated_media_verification != true }}
     name: Build fullDebug APK
     runs-on: ubuntu-latest
 
@@ -52,3 +67,253 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 7
+
+  media-android-verification:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification && inputs.media_platforms != 'ios' }}
+    name: Dedicated media Android compile and eight tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - name: Record exact source
+        run: |
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          echo "Source: ${GITHUB_SHA}" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+      - name: Prepare existing Android SDK configuration
+        env:
+          ANDROID_COMPILE_SDK: '37'
+          ANDROID_COMPILE_SDK_MINOR: '1'
+          ANDROID_BUILD_TOOLS: '36.0.0'
+          ANDROID_CMAKE_VERSION: '3.22.1'
+          ANDROID_NDK_VERSION: '28.2.13676358'
+        run: scripts/setup-android-sdk.sh
+      - name: Prepare existing runtime properties
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib, re
+          text = base64.b64decode(os.environ.get('LOCAL_PROPERTIES_BASE64', '')).decode()
+          lines = [line for line in text.splitlines() if not re.match(r'\s*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)\s*=', line)]
+          pathlib.Path('local.properties').write_text('\n'.join(lines) + '\n')
+          PY
+      - name: Compile shared and Android source (Playstore only)
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:compileAndroidMain -Pnuvio.android.distribution=playstore --console=plain --stacktrace 2>&1 | tee media-android-compile.log
+      - name: Discover focused host test task
+        run: |
+          set -euo pipefail
+          ./gradlew :composeApp:tasks --all -Pnuvio.android.distribution=playstore --console=plain > media-android-tasks.log
+          python3 - <<'PY'
+          import os, pathlib
+          names = {line.split()[0] for line in pathlib.Path('media-android-tasks.log').read_text().splitlines() if line.strip()}
+          candidates = sorted(names & {'testAndroidHostTest', 'androidHostTest'})
+          if len(candidates) != 1:
+              raise SystemExit(f'Expected one Android host test task, found {candidates}; inspect media-android-tasks.log')
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write(f'MEDIA_HOST_TEST_TASK=:composeApp:{candidates[0]}\n')
+          PY
+      - name: Run only the eight navigation and swipe tests
+        run: |
+          set -euo pipefail
+          ./gradlew "$MEDIA_HOST_TEST_TASK" -Pnuvio.android.distribution=playstore --console=plain --stacktrace \
+            --tests com.nuvio.app.navigation.MediaEnvironmentStateTest \
+            --tests com.nuvio.app.features.media.MediaSwipeDestinationTest 2>&1 | tee media-android-tests.log
+      - name: Assert eight executed tests, no failures or skips
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, xml.etree.ElementTree as ET
+          wanted = {'com.nuvio.app.navigation.MediaEnvironmentStateTest': 5,
+                    'com.nuvio.app.features.media.MediaSwipeDestinationTest': 3}
+          counts = {name: 0 for name in wanted}
+          for path in pathlib.Path('composeApp/build/test-results').rglob('TEST-*.xml'):
+              root = ET.parse(path).getroot()
+              for case in root.iter('testcase'):
+                  name = case.get('classname')
+                  if name in wanted:
+                      if any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped')):
+                          raise SystemExit(f'Failed or skipped: {name}.{case.get("name")}')
+                      counts[name] += 1
+          if counts != wanted:
+              raise SystemExit(f'Expected {wanted}; actual executed results: {counts}')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write(f'\nAndroid compilation succeeded. Exact focused test counts: {counts}\n')
+          print(counts)
+          PY
+      - name: Upload verification logs and test reports only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dedicated-media-android-verification
+          retention-days: 7
+          path: |
+            media-android-*.log
+            composeApp/build/test-results/
+            composeApp/build/reports/tests/
+
+  media-ios-verification:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dedicated_media_verification && inputs.media_platforms != 'android' }}
+    name: Dedicated media Apple framework and unsigned Swift build
+    runs-on: xcode-27
+    timeout-minutes: 100
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      NUVIO_IOS_DISTRIBUTION: full
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      KOTLIN_DAEMON_JVMARGS: -Xmx8192M
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.media_baseline && 'b3290f655690f19ac6d35049ff9b7e415e4575a6' || github.sha }}
+      - name: Record exact source and Apple toolchain
+        run: |
+          expected="${{ inputs.media_baseline && 'b3290f655690f19ac6d35049ff9b7e415e4575a6' || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          echo "Source: ${expected}; workflow: ${GITHUB_SHA}; runner: ${RUNNER_NAME}/${RUNNER_ARCH}" >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Exact source and Apple toolchain::source=$expected; workflow=$GITHUB_SHA; runner=$RUNNER_NAME/$RUNNER_ARCH; $(xcodebuild -version | tr '\n' ' '); simulatorSDK=$(xcrun --sdk iphonesimulator --show-sdk-version); $(xcrun swiftc --version | head -1); MetalLayer=$(shasum -a 256 iosApp/iosApp/Player/MetalLayer.swift | awk '{print $1}')"
+      - name: Inspect SDK declarations and typecheck the isolated drawable API
+        run: |
+          set -euo pipefail
+          simulator_sdk="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+          device_sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          export SIMULATOR_SDK="$simulator_sdk"
+          python3 - <<'PY'
+          import json, os, pathlib
+          sdk = pathlib.Path(os.environ['SIMULATOR_SDK'])
+          settings = json.loads((sdk / 'SDKSettings.json').read_text())
+          print(f'::notice title=Simulator SDK identity::{settings.get("CanonicalName")}; version={settings.get("Version")}; productBuild={settings.get("ProductBuildVersion")}; defaults={settings.get("DefaultProperties", {})}')
+          header = sdk / 'System/Library/Frameworks/Metal.framework/Headers/MTLDrawable.h'
+          lines = header.read_text().splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if 'addPresentedHandler' in line or 'TARGET_OS_SIMULATOR' in line:
+                  selected.update(range(max(0, i-12), min(len(lines), i+12)))
+          text = '\n'.join(f'{i+1}: {lines[i]}' for i in sorted(selected))
+          for start in range(0, len(text), 2800):
+              chunk = text[start:start+2800].replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D')
+              print(f'::notice title=MTLDrawable SDK declaration::{chunk}')
+          PY
+          cat > "$RUNNER_TEMP/drawable-api-probe.swift" <<'SWIFT'
+          import Metal
+          import QuartzCore
+          func verifyDrawableAPI(_ drawable: any CAMetalDrawable) {
+              drawable.addPresentedHandler { _ in }
+          }
+          SWIFT
+          set +e
+          xcrun swiftc -typecheck -sdk "$simulator_sdk" -target arm64-apple-ios16.1-simulator "$RUNNER_TEMP/drawable-api-probe.swift" > media-ios-api-simulator.log 2>&1
+          simulator_status=$?
+          xcrun swiftc -typecheck -sdk "$device_sdk" -target arm64-apple-ios16.1 "$RUNNER_TEMP/drawable-api-probe.swift" > media-ios-api-device.log 2>&1
+          device_status=$?
+          set -e
+          echo "::notice title=Isolated API typecheck results::simulatorExit=$simulator_status; deviceExit=$device_status; this probes an API only, not the app or playback"
+          python3 - <<'PY'
+          import pathlib
+          for name in ('simulator', 'device'):
+              text = pathlib.Path(f'media-ios-api-{name}.log').read_text()[:4000]
+              if text:
+                  encoded = text.replace('%', '%25').replace('\n', '%0A').replace('\r', '%0D')
+                  print(f'::notice title=Isolated {name} API diagnostic::{encoded}')
+          PY
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: true
+      - name: Restore existing Kotlin Native cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-Xcode27.1-${{ hashFiles('gradle/libs.versions.toml') }}
+      - name: Prepare existing runtime properties
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+        run: |
+          python3 - <<'PY'
+          import base64, os, pathlib, re
+          text = base64.b64decode(os.environ.get('LOCAL_PROPERTIES_BASE64', '')).decode()
+          lines = [line for line in text.splitlines() if not re.match(r'\s*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)\s*=', line)]
+          pathlib.Path('local.properties').write_text('\n'.join(lines) + '\n')
+          PY
+      - name: Prepare repository-pinned Apple dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+      - name: Configure existing iOS memory profile
+        run: |
+          mkdir -p "${GRADLE_USER_HOME:-$HOME/.gradle}"
+          cat >> "${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties" <<'PROPS'
+          org.gradle.jvmargs=-Xmx12288M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=2048m
+          kotlin.daemon.jvmargs=-Xmx8192M
+          kotlin.native.jvmArgs=-Xmx12288M
+          PROPS
+      - name: Compile and link Debug Kotlin Native simulator framework
+        run: |
+          set -uo pipefail
+          set +e
+          ./gradlew :composeApp:linkDebugFrameworkIosSimulatorArm64 --console=plain --stacktrace 2>&1 | tee media-ios-framework.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            python3 - <<'PY'
+          import pathlib, re
+          lines = pathlib.Path('media-ios-framework.log').read_text(errors='replace').splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if re.search(r'(?i)(^e:|error:|what went wrong|execution failed|could not|caused by:)', line):
+                  selected.update(range(max(0, i-2), min(len(lines), i+6)))
+          compiler_errors = [line for line in lines if re.match(r'^e:', line)]
+          excerpt = ('\n'.join(compiler_errors) if compiler_errors else '\n'.join(lines[i] for i in sorted(selected)))[:24000]
+          if not excerpt:
+              excerpt = '\n'.join(lines[-80:])[-24000:]
+          # Keep annotations bounded and preserve the real command exit code.
+          for start in range(0, len(excerpt), 3000):
+              chunk = excerpt[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print(f'::error title=Kotlin Native compiler diagnostics::{chunk}')
+          PY
+            exit "$status"
+          fi
+          echo 'Kotlin Native simulator framework linked successfully.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Compile Swift host against framework (unsigned simulator only)
+        run: |
+          set -euo pipefail
+          xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dedicated-media-derived-data" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build 2>&1 | tee media-ios-swift.log
+          echo 'Unsigned simulator Swift host build succeeded.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Surface Swift build diagnostics through Checks API
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          path = pathlib.Path('media-ios-swift.log')
+          if path.exists():
+              lines = path.read_text(errors='replace').splitlines()
+              selected = set()
+              for i, line in enumerate(lines):
+                  if re.search(r'(?i)(error:|failed|undefined symbol)', line):
+                      selected.update(range(max(0, i-2), min(len(lines), i+5)))
+              text = '\n'.join(lines[i] for i in sorted(selected))[:24000]
+              for start in range(0, len(text), 3000):
+                  chunk = text[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f'::error title=Swift build diagnostics::{chunk}')
+          PY
+      - name: Upload verification logs only (no app or IPA)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dedicated-media-ios-verification
+          retention-days: 7
+          path: media-ios-*.log

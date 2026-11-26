@@ -311,8 +311,17 @@ object ProfileRepository {
     suspend fun deleteProfile(profileIndex: Int) {
         val deletedProfile = _state.value.profiles.firstOrNull { it.profileIndex == profileIndex }
         val userId = deletedProfile?.userId.orEmpty()
+        val mediaOwnerId = userId.ifBlank { (AuthRepository.state.value as? AuthState.Authenticated)?.userId.orEmpty() }
+        suspend fun clearMediaCredentials() {
+            if (mediaOwnerId.isNotBlank()) {
+                withContext(Dispatchers.IO) {
+                    com.nuvio.app.features.media.service.MediaSessionStore(mediaOwnerId).clearProfile(profileIndex)
+                }
+            }
+        }
 
         if (AuthRepository.state.value.isAnonymous) {
+            clearMediaCredentials()
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             val localLockCleanupSucceeded = withContext(Dispatchers.IO) {
                 val pinCacheRemoved = ProfilePinCacheStorage.removePayload(profileIndex)
@@ -344,6 +353,7 @@ object ProfileRepository {
                 putSyncOriginClientId()
             }
             SupabaseProvider.client.postgrest.rpc("sync_delete_profile_data", params)
+            clearMediaCredentials()
             ServerRepository.removeProfile(profileIndex)
             SubtitleDevicePreferencesRepository.removeProfile(profileIndex)
             // Remote deletion succeeded; remove device-local authentication artifacts even if

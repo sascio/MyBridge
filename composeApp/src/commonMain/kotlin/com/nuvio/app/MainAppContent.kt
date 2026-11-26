@@ -1,5 +1,10 @@
 package com.nuvio.app
 
+import com.nuvio.app.features.media.MediaEnvironmentHost
+import com.nuvio.app.features.media.LocalOpenMedia
+import com.nuvio.app.navigation.MediaEnvironment
+import com.nuvio.app.navigation.MediaEnvironmentState
+
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.MutableTransitionState
@@ -34,6 +39,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -284,7 +290,23 @@ internal fun MainAppContent(
         val libraryScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val liveTvScrollToTopRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
         val settingsRootActionRequests = remember { MutableSharedFlow<Unit>(extraBufferCapacity = 1) }
+        var mediaEnvironment by rememberSaveable(
+            stateSaver = Saver<MediaEnvironmentState, String>(
+                save = { it.active.name },
+                restore = { name -> MediaEnvironmentState(MediaEnvironment.entries.first { it.name == name }) },
+            ),
+        ) { mutableStateOf(MediaEnvironmentState()) }
+        val openMedia: (MediaEnvironment) -> Unit = { mediaEnvironment = mediaEnvironment.open(it) }
         val currentRoute = navBackStack.lastOrNull() as? AppRoute
+        LaunchedEffect(useNativeNavigation, initialTab) {
+            if (useNativeNavigation && initialRoute is TabsRoute) {
+                NativeTabBridge.musicRequests.collect { target ->
+                    if (initialTab.toNativeNavigationTab() == target && NativeTabBridge.activeTab.value == target) {
+                        openMedia(MediaEnvironment.Music)
+                    }
+                }
+            }
+        }
         LaunchedEffect(currentRoute, posterNavigationEnabled) {
             val request = posterNavigation.active
             if (!posterNavigationEnabled || (request != null && currentRoute != request.to)) posterNavigation.clear()
@@ -610,6 +632,7 @@ internal fun MainAppContent(
 
     LaunchedEffect(
         currentRoute,
+        mediaEnvironment.active,
         liquidGlassNativeTabBarSupported,
         liquidGlassNativeTabBarEnabled,
         initialHomeReady,
@@ -619,7 +642,8 @@ internal fun MainAppContent(
     ) {
         if (useNativeNavigation && !ownsAppRuntime) return@LaunchedEffect
 
-        val visible = liquidGlassNativeTabBarSupported &&
+        val visible = mediaEnvironment.active == MediaEnvironment.StreamBridge &&
+            liquidGlassNativeTabBarSupported &&
             liquidGlassNativeTabBarEnabled &&
             initialHomeReady &&
             !profileSwitchLoading &&
@@ -1605,6 +1629,13 @@ internal fun MainAppContent(
             navController.navigate(PlayerRoute(launchId = launchId))
         }
 
+        if (mediaEnvironment.active != MediaEnvironment.StreamBridge) {
+            val presentedEnvironment = mediaEnvironment.active
+            MediaEnvironmentHost(presentedEnvironment) {
+                if (mediaEnvironment.active == presentedEnvironment) mediaEnvironment = mediaEnvironment.exit()
+            }
+        }
+        CompositionLocalProvider(LocalOpenMedia provides openMedia) {
         AppUpdaterHost(
             controller = appUpdaterController,
             modifier = Modifier.fillMaxSize(),
@@ -2545,6 +2576,7 @@ internal fun MainAppContent(
 
             }
         }
+        } // LocalOpenMedia
 }
 
 private fun AppRoute?.drawsUnderVerticalBar(selectedTab: AppScreenTab): Boolean =

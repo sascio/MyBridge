@@ -8,9 +8,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import com.nuvio.app.features.media.LocalOpenMedia
+import com.nuvio.app.features.media.MediaEntryBoundary
+import com.nuvio.app.navigation.MediaEnvironment
+import nuvio.composeapp.generated.resources.media_music
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.Scaffold
@@ -124,6 +130,14 @@ internal fun MainTabsDestination(
                 .alpha(if (initialHomeReady) 1f else 0f),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0),
+            topBar = {
+                val openMedia = LocalOpenMedia.current
+                if (tabsRouteActive && initialHomeReady && openMedia != null) {
+                    Box(Modifier.fillMaxWidth().padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()), contentAlignment = Alignment.Center) {
+                        MediaEntryBoundary(onOpen = openMedia)
+                    }
+                }
+            },
             bottomBar = {
                 if (tabsRouteActive && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
                     MainClassicNavigationBar(
@@ -172,6 +186,7 @@ internal fun MainTabsDestination(
                 // style now uses the floating pill at the bottom on all sizes.
                 if (isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
                     TabletFloatingTopBar(
+                        modifier = Modifier.padding(top = innerPadding.calculateTopPadding()),
                         selectedTab = highlightedTab,
                         showLiveTv = showLiveTvInNavigation,
                         onTabSelected = onTabSelected,
@@ -187,7 +202,8 @@ internal fun MainTabsDestination(
                         else -> {}
                     }
                     MainFloatingNavigationBar(
-                        modifier = Modifier.align(if (floatingBarOnTop) Alignment.TopCenter else Alignment.BottomCenter),
+                        modifier = Modifier.align(if (floatingBarOnTop) Alignment.TopCenter else Alignment.BottomCenter)
+                            .padding(top = if (floatingBarOnTop) innerPadding.calculateTopPadding() else 0.dp),
                         scrollState = navBarScrollState,
                         backdrop = navBarBackdrop,
                         contentPadding = if (floatingBarOnTop) {
@@ -254,6 +270,9 @@ internal fun mainFloatingNavigationItems(
     backdrop: Backdrop?,
     defaultIconColorOverride: Color? = null,
 ): List<FloatingNavigationItem> = buildList {
+    LocalOpenMedia.current?.let { openMedia ->
+        add(FloatingNavigationItem(label = stringResource(Res.string.media_music), selected = false, onClick = { openMedia(MediaEnvironment.Music) }, icon = Icons.Filled.MusicNote))
+    }
     add(
         FloatingNavigationItem(
             selected = highlightedTab == AppScreenTab.Home,
@@ -317,7 +336,11 @@ internal fun MainClassicNavigationBar(
     onAddProfileRequested: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val openMusic = LocalOpenMedia.current?.let { open -> { open(MediaEnvironment.Music) } }
     NuvioClassicNavigationBar(modifier) {
+        if (openMusic != null) {
+            NavItem(selected = false, onClick = openMusic, icon = Icons.Filled.MusicNote, contentDescription = stringResource(Res.string.media_music))
+        }
         NavItem(
             selected = highlightedTab == AppScreenTab.Home,
             onClick = { onTabSelected(AppScreenTab.Home) },
