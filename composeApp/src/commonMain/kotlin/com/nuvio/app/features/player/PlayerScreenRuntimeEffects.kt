@@ -93,6 +93,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     }
 
     LaunchedEffect(parentMetaType, parentMetaId) {
+        if (parentMetaType == "dedicated-media") return@LaunchedEffect
         playerMeta = MetaDetailsRepository.peek(parentMetaType, parentMetaId)
         playerMetaVideos = playerMeta?.videos.orEmpty()
         if (playerMetaVideos.isEmpty()) {
@@ -662,7 +663,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playbackStartedForParentalGuide = false
 
         // The guide is only shown when the setting is enabled, and it needs the network.
-        if (!playerSettingsUiState.showParentalGuide) return@LaunchedEffect
+        if (parentMetaType == "dedicated-media" || !playerSettingsUiState.showParentalGuide) return@LaunchedEffect
         if (networkCondition != NetworkCondition.Online) return@LaunchedEffect
 
         val imdbId = resolveParentalGuideImdbId() ?: return@LaunchedEffect
@@ -695,6 +696,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         nextEpisodeCardDismissed = false
         cancelNextEpisodeAutoPlay()
 
+        if (parentMetaType == "dedicated-media") return@LaunchedEffect
         val season = activeSeasonNumber
         val episode = activeEpisodeNumber
         val vid = activeVideoId

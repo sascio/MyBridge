@@ -8,6 +8,8 @@ import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import kotlinx.coroutines.launch
 
 internal fun PlayerScreenRuntime.fetchAddonSubtitlesForActiveItem() {
+    // Private network-library sources must not be sent to movie subtitle addons.
+    if (parentMetaType == "dedicated-media") return
     if (activeSourceUrl.startsWith("file:") && externalSubtitles.isNotEmpty()) {
         SubtitleRepository.clear()
         return

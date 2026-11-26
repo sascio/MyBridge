@@ -151,6 +151,27 @@ jobs:
               out.write(f'\nAndroid compilation succeeded. Exact focused test counts: {counts}\n')
           print(counts)
           PY
+      - name: Surface Android compiler and test failures through Checks API
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          for path in pathlib.Path('.').glob('media-android-*.log'):
+              lines = path.read_text(errors='replace').splitlines()
+              selected = [line for line in lines if re.search(r'(^e:|error:|FAILED| > .*FAILED|What went wrong|Execution failed|Expected .*actual)', line)]
+              text = '\n'.join(selected)[:24000]
+              for start in range(0, len(text), 3000):
+                  chunk = text[start:start+3000].replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                  print(f'::error title=Android verification diagnostics::{chunk}')
+          for path in pathlib.Path('composeApp/build/test-results').rglob('TEST-*.xml'):
+              import xml.etree.ElementTree as ET
+              for case in ET.parse(path).getroot().iter('testcase'):
+                  for tag in ('failure', 'error'):
+                      failure = case.find(tag)
+                      if failure is not None:
+                          text = (case.get('classname', '') + '.' + case.get('name', '') + ': ' + (failure.text or ''))[:4000]
+                          print('::error title=Focused test failure::' + text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+          PY
       - name: Upload verification logs and test reports only
         if: always()
         uses: actions/upload-artifact@v7

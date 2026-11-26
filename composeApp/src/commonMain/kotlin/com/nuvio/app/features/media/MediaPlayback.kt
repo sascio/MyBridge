@@ -70,7 +70,7 @@ internal fun MediaEnvironmentContent(environment: MediaEnvironment, onExit: () -
                                 sourceHeaders = request.media.headers, providerName = "StreamBridge Music",
                                 streamTitle = request.entry.title, streamSubtitle = request.entry.subtitle,
                                 onBack = { playback = null }, modifier = Modifier.weight(1f).fillMaxWidth(),
-                                parentMetaId = "media:${request.entry.key.service}:${request.entry.key.id}",
+                                parentMetaId = "media:${request.entry.key.service}:${request.entry.key.id.hashCode()}",
                                 parentMetaType = "dedicated-media", contentType = "music", providerAddonId = "media:library",
                             )
                         }
